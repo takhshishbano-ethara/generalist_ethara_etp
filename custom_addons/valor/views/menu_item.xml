@@ -1,0 +1,13 @@
+<odoo>
+     <!-- Top menu_valor item -->
+    <menuitem name="Valor" id="valor.menu_valor_root"/>
+    <!-- menu_valor categories -->
+    <menuitem name="Tasks" id="valor.menu_valor_1" parent="valor.menu_valor_root"
+              action="valor_action_window" groups="valor.group_valor_admin,valor.group_valor_ql" sequence="1"/>
+    <menuitem name="My Tasks" id="valor.menu_valor_4" parent="valor.menu_valor_root"
+              action="valor_tasker_action_window" groups="valor.group_valor_tasker" sequence="1"/>
+    <menuitem name="Submitted Tasks" id="valor.menu_valor_2" parent="valor.menu_valor_root"
+              action="valor_submitted_action_window" groups="valor.group_valor_admin,valor.group_valor_ql" sequence="2"/>
+    <menuitem name="Domain Levels" id="valor.menu_valor_3" parent="valor.menu_valor_root"
+              action="domain_level_action_window" groups="valor.group_valor_admin,valor.group_valor_ql" sequence="3"/>
+</odoo>

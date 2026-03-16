@@ -1,0 +1,20 @@
+.o_form_view.valor-action-running {
+    .o_form_sheet {
+        position: relative;
+        pointer-events: none;
+        opacity: 0.45;
+
+        &::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            cursor: wait;
+        }
+    }
+
+    .o_valor_action_button {
+        pointer-events: auto;
+        opacity: 1;
+    }
+}

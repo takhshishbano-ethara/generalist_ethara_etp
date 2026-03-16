@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="valor_turn_form_view" model="ir.ui.view">
+      <field name="name">valor.turn.form</field>
+      <field name="model">valor.turn</field>
+      <field name="arch" type="xml">
+        <form string="Turn">
+          <sheet>
+            <style>
+              .valor-rating-header{font-size:17px;font-weight:bold;padding:10px 12px;border-radius:5px 5px 0 0;margin-bottom:10px;text-align:center;color:#fff}
+              .valor-rating-header.resp-a{background:#5b9bd5}
+              .valor-rating-header.resp-b{background:#ed7d31}
+              .hover-container .alert-info{display:none}
+              .hover-container:hover .alert-info{display:block;position:absolute;z-index:100;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+              .selection_badge .o_selection_badge{padding:10px 12px !important;font-size:15px !important}
+              /* AI Reasoning tooltip */
+              .reason-icon-wrapper{display:inline-block;position:relative;margin-left:4px;cursor:pointer;vertical-align:middle}
+              .reason-icon-wrapper .reason-icon{color:#17a2b8;font-size:14px;transition:color 0.2s ease}
+              .reason-icon-wrapper:hover .reason-icon{color:#0d6efd}
+              .reason-icon-wrapper .reason-tooltip-popup{visibility:hidden;opacity:0;transition:opacity 0.2s ease-in-out;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:8px 12px;min-width:280px;max-width:400px;z-index:1050;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:12px;white-space:normal;line-height:1.4;color:#333}
+              .reason-icon-wrapper:hover .reason-tooltip-popup{visibility:visible !important;opacity:1 !important;pointer-events:auto}
+            </style>
+
+            <div class="valor-turn-header" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <span class="badge bg-primary" style="font-size:16px;padding:6px 14px;">Turn <field name="sequence" readonly="1" nolabel="1" style="display:inline;"/></span>
+              <span style="font-size:16px;color:#555;">Prompt &amp; Evaluation</span>
+            </div>
+
+            <!-- Prompt -->
+            <div style="background:#E7E9EB;border-radius:5px;padding:18px;color:black!important;font-size:16px;">
+              <div style="background:white!important;">
+                <field name="client_prompt" style="padding:15px;" placeholder="Write your prompt here"/>
+                <p class="alert alert-info p-1 m-0" role="alert" invisible="not store_client_prompt" style="font-size:11px;">
+                  <strong>Help:</strong> <field name="store_client_prompt" readonly="1"/>
+                </p>
+                <label for="image" string="Image (optional)"/>
+                <field name="image" widget="image"/>
+                <field name="image_mime" invisible="1"/>
+              </div>
+            </div>
+            <br/>
+            <button name="action_submit_prompt" type="object" class="btn btn-primary w-100" string="Submit Prompt"/>
+            <br/><br/>
+
+            <!-- Responses -->
+            <div class="o_row" style="background:#E7E9EB;border-radius:5px;padding:18px;">
+              <div class="o_col_4 o_form_label_top" style="background:white;border-radius:5px;padding:20px;padding-right:0;">
+                <br/>
+                <h3 style="text-align:center;background:#7d7575;color:white;border-radius:5px 5px 0 0;padding:10px;margin-bottom:0;">Response A</h3>
+                <field name="client_response_a" style="box-shadow:5px 10px 20px rgba(0,0,0,0.1);" widget="markdown_latex" placeholder="Response A" string="Response A" readonly="1"/>
+              </div>
+              <div class="o_col_4 o_form_label_top" style="background:white;border-radius:5px;padding:20px;padding-right:0;">
+                <br/>
+                <h3 style="text-align:center;background:#7d7575;color:white;border-radius:5px 5px 0 0;padding:10px;margin-bottom:0;">Response B</h3>
+                <field name="client_response_b" style="box-shadow:5px 10px 20px rgba(0,0,0,0.1);" widget="markdown_latex" placeholder="Response B" string="Response B" readonly="1"/>
+              </div>
+            </div>
+            <div groups="valor.group_valor_admin,valor.group_valor_ql" style="margin-top:8px;padding:4px 18px;">
+              <field name="is_randomized" readonly="1" string="Responses Randomized"/>
+            </div>
+            <br/>
+
+            <!-- Ratings -->
+            <div class="o_row" style="background:#E7E9EB;border-radius:5px;padding:18px;">
+              <!-- Response A Ratings -->
+              <div class="o_col_4 o_form_label_top" style="background:white;border-radius:5px;margin-left:20px;padding:20px;padding-right:0;">
+                <div class="valor-rating-header resp-a">Response A — Ratings</div>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="truthfulness_a" string="Truthfulness" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_truthfulness_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Truthfulness</h6>
+                    <p style="font-size:11px;">6 = Entirely accurate | 5 = Negligible issues | 4 = Minor errors | 3 = Mix of correct and errors | 2 = Largely unreliable | 1 = Major errors</p>
+                  </div>
+                </div>
+                <field name="error_truthfulness_a" invisible="1"/>
+                <field name="truthfulness_a" widget="selection_badge" decoration-danger="error_truthfulness_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_truthfulness_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_truthfulness_a" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="instruction_following_a" string="Instruction Following" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_instruction_following_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Instruction Following</h6>
+                    <p style="font-size:11px;">6 = Fully follows | 5 = Mostly follows | 4 = Partially follows | 3 = Ignores central reqs | 2 = Misunderstands core | 1 = Complete failure</p>
+                  </div>
+                </div>
+                <field name="error_instruction_following_a" invisible="1"/>
+                <field name="instruction_following_a" widget="selection_badge" decoration-danger="error_instruction_following_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_instruction_following_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_instruction_following_a" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="writing_quality_a" string="Writing Quality" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_writing_quality_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Writing Quality</h6>
+                    <p style="font-size:11px;">6 = Clear, professional | 5 = Good, minor issues | 4 = Understandable, awkward | 3 = Hard to follow | 2 = Poor grammar | 1 = Unintelligible</p>
+                  </div>
+                </div>
+                <field name="error_writing_quality_a" invisible="1"/>
+                <field name="writing_quality_a" widget="selection_badge" decoration-danger="error_writing_quality_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_writing_quality_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_writing_quality_a" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="verbosity_a" string="Verbosity" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_verbosity_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Verbosity</h6>
+                    <p style="font-size:11px;">6 = Exactly right detail | 5 = Appropriate detail | 4 = Lacks minor details | 3 = Unnecessary detail | 2 = Excessive | 1 = Substantial excess</p>
+                  </div>
+                </div>
+                <field name="error_verbosity_a" invisible="1"/>
+                <field name="verbosity_a" widget="selection_badge" decoration-danger="error_verbosity_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_verbosity_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_verbosity_a" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="prompt_correctness_a" string="Prompt Correctness" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_prompt_correctness_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Prompt Correctness</h6>
+                    <p style="font-size:11px;">6 = Completely correct | 5 = Mostly correct | 4 = Misses key step | 3 = Incorrect conclusion | 2 = Invalid approach | 1 = Does not address prompt</p>
+                  </div>
+                </div>
+                <field name="error_prompt_correctness_a" invisible="1"/>
+                <field name="prompt_correctness_a" widget="selection_badge" decoration-danger="error_prompt_correctness_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_prompt_correctness_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_prompt_correctness_a" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="overall_quality_a" string="Overall Quality" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_overall_quality_a" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Overall Quality</h6>
+                    <p style="font-size:11px;">Weighted: IF×0.25 + Truth×0.25 + Correctness×0.20 + Writing×0.15 + Verbosity×0.15. Round to nearest integer 1-6.</p>
+                  </div>
+                </div>
+                <field name="error_overall_quality_a" invisible="1"/>
+                <field name="overall_quality_a" widget="selection_badge" decoration-danger="error_overall_quality_a == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_overall_quality_a" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_overall_quality_a" readonly="1"/>
+                </p><br/>
+              </div>
+
+              <!-- Response B Ratings -->
+              <div class="o_col_4 o_form_label_top" style="background:white;border-radius:5px;margin-left:20px;padding:20px;padding-right:0;">
+                <div class="valor-rating-header resp-b">Response B — Ratings</div>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="truthfulness_b" string="Truthfulness" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_truthfulness_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Truthfulness</h6>
+                    <p style="font-size:11px;">6 = Entirely accurate | 5 = Negligible issues | 4 = Minor errors | 3 = Mix of correct and errors | 2 = Largely unreliable | 1 = Major errors</p>
+                  </div>
+                </div>
+                <field name="error_truthfulness_b" invisible="1"/>
+                <field name="truthfulness_b" widget="selection_badge" decoration-danger="error_truthfulness_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_truthfulness_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_truthfulness_b" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="instruction_following_b" string="Instruction Following" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_instruction_following_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Instruction Following</h6>
+                    <p style="font-size:11px;">6 = Fully follows | 5 = Mostly follows | 4 = Partially follows | 3 = Ignores central reqs | 2 = Misunderstands core | 1 = Complete failure</p>
+                  </div>
+                </div>
+                <field name="error_instruction_following_b" invisible="1"/>
+                <field name="instruction_following_b" widget="selection_badge" decoration-danger="error_instruction_following_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_instruction_following_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_instruction_following_b" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="writing_quality_b" string="Writing Quality" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_writing_quality_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Writing Quality</h6>
+                    <p style="font-size:11px;">6 = Clear, professional | 5 = Good, minor issues | 4 = Understandable, awkward | 3 = Hard to follow | 2 = Poor grammar | 1 = Unintelligible</p>
+                  </div>
+                </div>
+                <field name="error_writing_quality_b" invisible="1"/>
+                <field name="writing_quality_b" widget="selection_badge" decoration-danger="error_writing_quality_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_writing_quality_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_writing_quality_b" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="verbosity_b" string="Verbosity" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_verbosity_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Verbosity</h6>
+                    <p style="font-size:11px;">6 = Exactly right detail | 5 = Appropriate detail | 4 = Lacks minor details | 3 = Unnecessary detail | 2 = Excessive | 1 = Substantial excess</p>
+                  </div>
+                </div>
+                <field name="error_verbosity_b" invisible="1"/>
+                <field name="verbosity_b" widget="selection_badge" decoration-danger="error_verbosity_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_verbosity_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_verbosity_b" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="prompt_correctness_b" string="Prompt Correctness" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_prompt_correctness_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Prompt Correctness</h6>
+                    <p style="font-size:11px;">6 = Completely correct | 5 = Mostly correct | 4 = Misses key step | 3 = Incorrect conclusion | 2 = Invalid approach | 1 = Does not address prompt</p>
+                  </div>
+                </div>
+                <field name="error_prompt_correctness_b" invisible="1"/>
+                <field name="prompt_correctness_b" widget="selection_badge" decoration-danger="error_prompt_correctness_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_prompt_correctness_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_prompt_correctness_b" readonly="1"/>
+                </p><br/>
+
+                <div class="hover-container" style="position:relative;">
+                  <label for="overall_quality_b" string="Overall Quality" style="font-size:16px;cursor:help;display:inline-block;"/>
+                  <div class="reason-icon-wrapper">
+                    <i class="fa fa-info-circle reason-icon"/>
+                    <div class="reason-tooltip-popup">
+                      <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                      <field name="reason_overall_quality_b" readonly="1"/>
+                    </div>
+                  </div>
+                  <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                    <h6 class="alert-heading"><i class="oi oi-info-circle"/>Overall Quality</h6>
+                    <p style="font-size:11px;">Weighted: IF×0.25 + Truth×0.25 + Correctness×0.20 + Writing×0.15 + Verbosity×0.15. Round to nearest integer 1-6.</p>
+                  </div>
+                </div>
+                <field name="error_overall_quality_b" invisible="1"/>
+                <field name="overall_quality_b" widget="selection_badge" decoration-danger="error_overall_quality_b == True"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_overall_quality_b" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_overall_quality_b" readonly="1"/>
+                </p><br/>
+              </div>
+            </div>
+            <br/>
+
+            <!-- AB Preference -->
+            <div style="background:#E7E9EB;border-radius:5px;padding:18px;">
+              <div style="background:white;border-radius:5px;padding:20px;position:relative;">
+                <label for="ab_preference" string="AB Preference" style="font-size:16px;cursor:help;display:inline-block;"/>
+                <field name="error_ab_preference" invisible="1"/>
+                <field name="ab_preference" widget="selection_badge"/>
+                <p><b>-3</b> (A is absolute winner) to <b>+3</b> (B is absolute winner)</p>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_ab_preference" style="font-size:11px;">
+                  <strong>Rating Mismatch:</strong> <field name="reason_ab_preference" readonly="1"/>
+                </p>
+              </div>
+            </div>
+            <br/>
+
+            <!-- AB Comment -->
+            <div style="background:#E7E9EB;border-radius:5px;padding:18px;">
+              <div style="background:white;border-radius:5px;padding:20px;">
+                <label for="ab_comment" string="AB Comment" style="font-size:16px;cursor:help;display:inline-block;"/>
+                <div class="alert alert-info" role="status" style="padding:10px;font-size:12px;width:90%;">
+                  <h6 class="alert-heading mb-3" style="font-size:14px;font-weight:bold;">
+                    <i class="oi oi-info-circle me-1"/> Overall Comment Guidelines
+                  </h6>
+                  <div style="line-height:1.5;">
+                    <p class="mb-2"><strong>1. Start with a clear verdict:</strong> "Response A/B is better because..." or "approximately equivalent because..."</p>
+                    <p class="mb-2"><strong>2. Name differentiating dimensions:</strong> Reference at least one: IF, Truthfulness, Correctness, Writing Style, or Verbosity.</p>
+                    <p class="mb-2"><strong>3. Include concrete evidence:</strong> Cite specific behaviors.</p>
+                    <p class="mb-0"><strong>4. Be concise:</strong> 1-3 sentences.</p>
+                  </div>
+                </div>
+                <field name="error_ab_comment" invisible="1"/>
+                <field name="ab_comment"/>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_ab_comment" style="font-size:11px;">
+                  <strong>Justification Mismatch:</strong> <field name="reason_ab_comment" readonly="1"/>
+                </p>
+                <field name="qc_task_status" invisible="1"/>
+                <p class="alert alert-success p-1 m-0" role="alert" invisible="qc_task_status != 'pass'" style="font-size:11px;">
+                  <strong>QC: Pass</strong>
+                </p>
+                <p class="alert alert-danger p-1 m-0" role="alert" invisible="qc_task_status != 'fail'" style="font-size:11px;">
+                  <strong>QC: Fail</strong>
+                </p>
+              </div>
+            </div>
+            <br/>
+
+            <!-- Action buttons -->
+            <div class="o_row">
+              <div class="o_col_4 o_form_label_top">
+                <button name="action_evaluate" type="object" class="btn btn-primary w-100" string="Evaluate"/>
+              </div>
+              <div class="o_col_4 o_form_label_top">
+                <button name="action_next_turn" type="object" class="btn btn-primary w-100" string="Go To Next Turn"/>
+              </div>
+            </div>
+
+          </sheet>
+        </form>
+      </field>
+    </record>
+</odoo>

@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_valor,valor,model_valor,base.group_user,1,1,1,1
+access_valor_turn,valor.turn,model_valor_turn,base.group_user,1,1,1,1
+access_domain_level,domain.level,model_domain_level,base.group_user,1,1,1,1

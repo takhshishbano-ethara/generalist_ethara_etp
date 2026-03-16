@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════
+         MODULE CATEGORY
+    ══════════════════════════════════════════════════ -->
+    <record id="module_category_valor" model="ir.module.category">
+        <field name="name">Valor</field>
+        <field name="sequence">50</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         PRIVILEGE
+    ══════════════════════════════════════════════════ -->
+    <record id="privilege_valor" model="res.groups.privilege">
+        <field name="name">Valor</field>
+        <field name="category_id" ref="module_category_valor"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         GROUP: VALOR TASKER
+         - Base level access
+         - Can read, write, create own tasks
+         - Sees only tasks assigned to them
+    ══════════════════════════════════════════════════ -->
+    <record id="group_valor_tasker" model="res.groups">
+        <field name="name">Valor Tasker</field>
+        <field name="privilege_id" ref="valor.privilege_valor"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         GROUP: VALOR QUALITY LEAD
+         - Can see all tasks and use import/export
+         - Inherits all Valor Tasker permissions
+         - Not a full admin
+    ══════════════════════════════════════════════════ -->
+    <record id="group_valor_ql" model="res.groups">
+        <field name="name">Valor Quality Lead</field>
+        <field name="privilege_id" ref="valor.privilege_valor"/>
+        <field name="implied_ids" eval="[(4, ref('valor.group_valor_tasker'))]"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         GROUP: VALOR ADMIN
+         - Full access: read, write, create, delete
+         - Inherits all Quality Lead permissions
+         - Can manage all records
+    ══════════════════════════════════════════════════ -->
+    <record id="group_valor_admin" model="res.groups">
+        <field name="name">Valor Admin</field>
+        <field name="privilege_id" ref="valor.privilege_valor"/>
+        <field name="implied_ids" eval="[(4, ref('valor.group_valor_ql'))]"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         RECORD RULES
+    ══════════════════════════════════════════════════ -->
+
+    <!-- Taskers see only tasks they own -->
+    <record id="valor_tasker_rule" model="ir.rule">
+        <field name="name">Valor Tasker: Own Tasks</field>
+        <field name="model_id" ref="model_valor"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_valor_tasker'))]"/>
+    </record>
+
+    <!-- Admins see all tasks -->
+    <record id="valor_admin_rule" model="ir.rule">
+        <field name="name">Valor Admin: All Tasks</field>
+        <field name="model_id" ref="model_valor"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_valor_admin'))]"/>
+    </record>
+
+    <!-- Quality Leads see all tasks -->
+    <record id="valor_ql_rule" model="ir.rule">
+        <field name="name">Valor QL: All Tasks</field>
+        <field name="model_id" ref="model_valor"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_valor_ql'))]"/>
+    </record>
+
+</odoo>
+
