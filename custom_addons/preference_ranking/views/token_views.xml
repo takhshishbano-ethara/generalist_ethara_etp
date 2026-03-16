@@ -1,0 +1,50 @@
+<odoo>
+  <data>
+    <record model="ir.ui.view" id="preference_ranking_token_list">
+      <field name="name">Preference Ranking Token</field>
+      <field name="model">preference.ranking.token</field>
+      <field name="arch" type="xml">
+        <list>
+            <field name="type"/>
+            <field name="ai_model_type"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="preference_ranking_token_form">
+      <field name="name">Preference Ranking Token</field>
+      <field name="model">preference.ranking.token</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+              <group>
+                  <group>
+                      <field name="type"/>
+                      <field name="ai_model_type"/>
+                      <field name="preference_record_ids" widget="many2many_tags"/>
+                      <notebook>
+                          <page name="token_line" string="Token Lines">
+                                <field name="token_line" nolabel="1">
+                                    <list editable="bottom">
+                                        <field name="input_token"/>
+                                        <field name="output_token"/>
+                                        <field name="cache_token"/>
+                                        <field name="cost"/>
+                                    </list>
+                                </field>
+                            </page>
+                    </notebook>
+                  </group>
+              </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="preference_ranking_token_action_window">
+      <field name="name">Preference Ranking Token</field>
+      <field name="res_model">preference.ranking.token</field>
+      <field name="view_mode">list,form</field>
+    </record>
+  </data>
+</odoo>

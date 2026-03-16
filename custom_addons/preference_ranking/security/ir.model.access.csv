@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_preference_ranking,preference.ranking,model_preference_ranking,base.group_user,1,1,1,1
+access_preference_ranking_token,preference.ranking.token,model_preference_ranking_token,base.group_user,1,1,1,1
+access_preference_ranking_token_line,preference.ranking.token.line,model_preference_ranking_token_line,base.group_user,1,1,1,1
+access_preference_ranking_enhancement_criteria,preference.ranking.enhancement.criteria,model_preference_ranking_enhancement_criteria,base.group_user,1,1,1,1

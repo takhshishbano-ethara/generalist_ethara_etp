@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!-- Role: Vindex Tasker Role -->
+        <record id="role_vindex_tasker" model="res.users.role">
+            <field name="name">Vindex Tasker Role</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user')),(4, ref('group_vindex_tasker'))]"/>
+        </record>
+
+        <!-- Role: Vindex Admin Role -->
+        <record id="role_vindex_admin" model="res.users.role">
+            <field name="name">Vindex Admin Role</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user')),(4, ref('group_vindex_admin'))]"/>
+        </record>
+
+        <!-- Role: Vindex Quality Lead Role -->
+        <record id="role_vindex_ql" model="res.users.role">
+            <field name="name">Vindex Quality Lead Role</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user')),(4, ref('group_vindex_ql'))]"/>
+        </record>
+
+    </data>
+</odoo>

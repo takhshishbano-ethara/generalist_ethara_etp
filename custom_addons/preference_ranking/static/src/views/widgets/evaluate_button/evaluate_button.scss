@@ -1,0 +1,36 @@
+// Lock specific fields (comments, preferences, ratings, rubrics) during evaluation
+.o_form_view.o_evaluating_locked {
+    // Rating scale fields - Response A
+    .o_field_widget[name="truthfulness_a"],
+    .o_field_widget[name="instruction_following_a"],
+    .o_field_widget[name="writing_quality_a"],
+    .o_field_widget[name="verbosity_a"],
+    .o_field_widget[name="prompt_correctness_a"],
+    .o_field_widget[name="overall_quality_a"],
+    // Rating scale fields - Response B
+    .o_field_widget[name="truthfulness_b"],
+    .o_field_widget[name="instruction_following_b"],
+    .o_field_widget[name="writing_quality_b"],
+    .o_field_widget[name="verbosity_b"],
+    .o_field_widget[name="prompt_correctness_b"],
+    .o_field_widget[name="overall_quality_b"],
+    // AB Preference + Comment
+    .o_field_widget[name="ab_preference"],
+    .o_field_widget[name="ab_comment"],
+    // GPT section
+    .o_field_widget[name="gpt_rubric_name"],
+    .o_field_widget[name="gpt_rubric_description"],
+    .o_field_widget[name="gpt_rubric_scale_rating"],
+    .o_field_widget[name="ab_gpt_preference"],
+    .o_field_widget[name="ab_gpt_comment"],
+    // Gemini section
+    .o_field_widget[name="gemini_rubric_name"],
+    .o_field_widget[name="gemini_rubric_description"],
+    .o_field_widget[name="gemini_rubric_scale_rating"],
+    .o_field_widget[name="ab_gemini_preference"],
+    .o_field_widget[name="ab_gemini_comment"] {
+        pointer-events: none;
+        opacity: 0.6;
+        cursor: wait;
+    }
+}

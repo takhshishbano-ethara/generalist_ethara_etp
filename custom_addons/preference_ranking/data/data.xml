@@ -1,0 +1,23 @@
+<odoo>
+    <record id="action_server_create_jsonl" model="ir.actions.server">
+        <field name="name">Upload Jsonl</field>
+        <field name="model_id" ref="preference_ranking.model_preference_ranking"/>
+        <field name="binding_model_id" ref="preference_ranking.model_preference_ranking"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">
+            action = records.action_upload_jsonl()
+        </field>
+    </record>
+
+    <record id="action_server_reeval" model="ir.actions.server">
+        <field name="name">Re-Evaluate</field>
+        <field name="model_id" ref="preference_ranking.model_preference_ranking"/>
+        <field name="binding_model_id" ref="preference_ranking.model_preference_ranking"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">
+            action = records.action_send_to_reeval()
+        </field>
+    </record>
+</odoo>

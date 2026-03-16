@@ -1,0 +1,13 @@
+<odoo>
+     <!-- Top menu item -->
+    <menuitem name="Vindex" id="preference_ranking.menu_root"/>
+    <!-- menu categories -->
+    <menuitem name="Tasks" id="preference_ranking.menu_1" parent="preference_ranking.menu_root"
+              action="preference_ranking_action_window" groups="preference_ranking.group_vindex_admin,preference_ranking.group_vindex_ql" sequence="1"/>
+    <menuitem name="My Tasks" id="preference_ranking.menu_4" parent="preference_ranking.menu_root"
+              action="preference_ranking_tasker_action_window" groups="preference_ranking.group_vindex_tasker" sequence="1"/>
+    <menuitem name="Submitted Tasks" id="preference_ranking.menu_2" parent="preference_ranking.menu_root"
+              action="preference_ranking_submitted_action_window" groups="preference_ranking.group_vindex_admin,preference_ranking.group_vindex_ql" sequence="2"/>
+    <menuitem name="Token" id="preference_ranking.menu_3" parent="preference_ranking.menu_root"
+              action="preference_ranking_token_action_window" groups="preference_ranking.group_vindex_admin,preference_ranking.group_vindex_ql" sequence="3"/>
+</odoo>

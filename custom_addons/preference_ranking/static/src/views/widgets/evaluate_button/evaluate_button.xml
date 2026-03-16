@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="preference_ranking.EvaluateButton">
+        <div class="o_evaluate_button_widget w-100" t-ref="root">
+            <button
+                type="button"
+                class="btn btn-primary w-100"
+                t-att-disabled="state.evaluating"
+                t-on-click="onClickEvaluate">
+                <t t-if="state.evaluating">
+                    <span class="fa fa-docs"/>Evaluating...
+                </t>
+                <t t-else="">
+                    <span class="fa fa-docs"/>Evaluate
+                </t>
+            </button>
+        </div>
+    </t>
+</templates>

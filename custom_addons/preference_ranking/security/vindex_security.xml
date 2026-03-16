@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Force update on every module upgrade to ensure rules exist -->
+    <data noupdate="0">
+        <!-- Module category so Vindex groups don't clash with existing user-type groups -->
+        <record id="module_category_vindex" model="ir.module.category">
+            <field name="name">Vindex</field>
+            <field name="sequence">200</field>
+        </record>
+
+        <!-- Privilege (new Odoo 19 intermediary between category and groups) -->
+        <record id="privilege_vindex" model="res.groups.privilege">
+            <field name="name">Vindex Access</field>
+            <field name="category_id" ref="module_category_vindex"/>
+            <field name="sequence">10</field>
+        </record>
+
+        <!-- Security Groups -->
+        <record id="group_vindex_tasker" model="res.groups">
+            <field name="name">Vindex Tasker</field>
+            <field name="privilege_id" ref="privilege_vindex"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <!-- Quality Lead Group - Can see all tasks and use import/export, not a full admin -->
+        <record id="group_vindex_ql" model="res.groups">
+            <field name="name">Vindex Quality Lead</field>
+            <field name="privilege_id" ref="privilege_vindex"/>
+            <field name="implied_ids" eval="[(4, ref('preference_ranking.group_vindex_tasker'))]"/>
+        </record>
+
+        <record id="group_vindex_admin" model="res.groups">
+            <field name="name">Vindex Admin</field>
+            <field name="privilege_id" ref="privilege_vindex"/>
+            <field name="implied_ids" eval="[(4, ref('preference_ranking.group_vindex_ql'))]"/>
+        </record>
+
+
+
+        <!-- Record Rules -->
+        <!-- Taskers see tasks they own, are QC assigned to, or are final_assigned to -->
+        <record id="vindex_task_tasker_rule" model="ir.rule">
+            <field name="name">Vindex Tasker: Own Tasks</field>
+            <field name="model_id" ref="model_preference_ranking"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_vindex_tasker'))]"/>
+        </record>
+
+        <!-- Admins see all tasks -->
+        <record id="vindex_task_admin_rule" model="ir.rule">
+            <field name="name">Vindex Admin: All Tasks</field>
+            <field name="model_id" ref="model_preference_ranking"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_vindex_admin'))]"/>
+        </record>
+
+        <!-- Quality Leads see all tasks -->
+        <record id="vindex_task_ql_rule" model="ir.rule">
+            <field name="name">Vindex QL: All Tasks</field>
+            <field name="model_id" ref="model_preference_ranking"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_vindex_ql'))]"/>
+        </record>
+    </data>
+</odoo>
+

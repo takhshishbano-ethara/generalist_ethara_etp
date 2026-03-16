@@ -1,0 +1,607 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         TASK LIST PAGE
+         ================================================================ -->
+    <template id="portal_task_list" name="Vindex - Task List">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+
+            <div class="vx-container">
+                <div class="vx-page-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h2 class="vx-page-title">Vindex Tasks</h2>
+                            <p class="vx-page-subtitle"><t t-out="total"/> tasks total</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vx-filters">
+                    <form method="GET" action="/vindex/tasks" class="d-flex gap-2 align-items-center flex-wrap">
+                        <div class="vx-filter-group">
+                            <select name="status" class="vx-select">
+                                <option value="">All Statuses</option>
+                                <option value="NotSubmitted" t-att-selected="status_filter == 'NotSubmitted' and 'selected'">Not Submitted</option>
+                                <option value="Submitted" t-att-selected="status_filter == 'Submitted' and 'selected'">Submitted</option>
+                            </select>
+                        </div>
+                        <div class="vx-filter-group flex-grow-1">
+                            <input type="text" name="search" class="vx-input" placeholder="Search by task ID or prompt..."
+                                   t-att-value="search_filter"/>
+                        </div>
+                        <button type="submit" class="vx-btn vx-btn-primary">Filter</button>
+                        <a href="/vindex/tasks" class="vx-btn vx-btn-ghost">Clear</a>
+                    </form>
+                </div>
+
+                <div class="vx-card">
+                    <div class="vx-table-wrap">
+                        <table class="vx-table">
+                            <thead>
+                                <tr>
+                                    <th>Task ID</th>
+                                    <th>Prompt</th>
+                                    <th>Status</th>
+                                    <th>Processed</th>
+                                    <th>Evaluated</th>
+                                    <th>QC</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="tasks" t-as="t">
+                                    <tr class="vx-table-row">
+                                        <td class="vx-cell-id">
+                                            <a t-attf-href="/vindex/tasks/#{t['id']}" class="vx-link-id">
+                                                <t t-out="t['task_id'] or '#%s' % t['id']"/>
+                                            </a>
+                                        </td>
+                                        <td class="vx-cell-prompt">
+                                            <span class="vx-prompt-preview"><t t-out="t['client_prompt_preview']"/></span>
+                                        </td>
+                                        <td>
+                                            <span t-attf-class="vx-badge #{t['task_status'] == 'Submitted' and 'vx-badge-success' or 'vx-badge-warning'}">
+                                                <t t-out="t['task_status']"/>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span t-if="t['is_processed']" class="vx-badge vx-badge-info">Yes</span>
+                                            <span t-else="" class="vx-badge vx-badge-muted">No</span>
+                                        </td>
+                                        <td>
+                                            <span t-if="t['is_eval_done']" class="vx-badge vx-badge-info">Yes</span>
+                                            <span t-else="" class="vx-badge vx-badge-muted">No</span>
+                                        </td>
+                                        <td>
+                                            <span t-if="t['qc_task_status'] == 'pass'" class="vx-badge vx-badge-success">Pass</span>
+                                            <span t-elif="t['qc_task_status'] == 'fail'" class="vx-badge vx-badge-danger">Fail</span>
+                                            <span t-else="" class="vx-badge vx-badge-muted">-</span>
+                                        </td>
+                                        <td>
+                                            <a t-attf-href="/vindex/tasks/#{t['id']}" class="vx-btn vx-btn-sm vx-btn-primary">Open</a>
+                                        </td>
+                                    </tr>
+                                </t>
+                                <t t-if="not tasks">
+                                    <tr><td colspan="7" class="text-center py-4 text-muted">No tasks found.</td></tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                    <t t-if="total_pages > 1">
+                        <div class="vx-pagination">
+                            <a t-if="page > 1"
+                               t-attf-href="/vindex/tasks?page=#{page - 1}&amp;status=#{status_filter}&amp;search=#{search_filter}"
+                               class="vx-btn vx-btn-sm vx-btn-ghost">Prev</a>
+                            <span class="vx-pagination-info">Page <t t-out="page"/> of <t t-out="total_pages"/></span>
+                            <a t-if="page &lt; total_pages"
+                               t-attf-href="/vindex/tasks?page=#{page + 1}&amp;status=#{status_filter}&amp;search=#{search_filter}"
+                               class="vx-btn vx-btn-sm vx-btn-ghost">Next</a>
+                        </div>
+                    </t>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- ================================================================
+         TASK DETAIL — Single scrollable page matching views.xml order
+         ================================================================ -->
+    <template id="portal_task_detail" name="Vindex - Task Annotation">
+        <t t-call="portal.portal_layout">
+            <t t-set="head_extra">
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"/>
+            </t>
+
+            <div class="vx-container" id="vx-app"
+                 t-att-data-task-id="task['id']"
+                 t-att-data-task-json="task_json"
+                 t-att-data-role="role">
+
+                <!-- ====================================================
+                     1. HEADER
+                     ==================================================== -->
+                <div class="vx-page-header">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <a href="/vindex/tasks" class="vx-back-link">Back to tasks</a>
+                            <h2 class="vx-page-title"><t t-out="task['task_id'] or '#%s' % task['id']"/></h2>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span t-attf-class="vx-badge vx-badge-lg #{task['task_status'] == 'Submitted' and 'vx-badge-success' or 'vx-badge-warning'}"
+                                  id="vx-task-status-badge"><t t-out="task['task_status']"/></span>
+                        </div>
+                    </div>
+                    <div class="vx-status-bar">
+                        <span t-attf-class="vx-pill #{task['is_processed'] and 'vx-pill-active' or 'vx-pill-inactive'}">Processed</span>
+                        <span t-attf-class="vx-pill #{task['is_ratable'] and 'vx-pill-active' or 'vx-pill-inactive'}">Ratable</span>
+                        <span t-attf-class="vx-pill #{task['is_eval_done'] and 'vx-pill-active' or 'vx-pill-inactive'}">Evaluated</span>
+                        <span t-if="task['qc']['qc_task_status']"
+                              t-attf-class="vx-pill #{task['qc']['qc_task_status'] == 'pass' and 'vx-pill-active' or 'vx-pill-danger'}">
+                            QC: <t t-out="task['qc']['qc_task_status']"/> (<t t-out="task['qc']['qc_score']"/>)</span>
+                        <span t-if="task['is_randomized']" class="vx-pill vx-pill-info">Randomized</span>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     2. PROMPT
+                     ==================================================== -->
+                <t t-if="task['rejection']['prompt_rejection_reason']">
+                    <div class="vx-card vx-card-danger">
+                        <div class="vx-card-header">Prompt Rejection</div>
+                        <div class="vx-card-body"><p><t t-out="task['rejection']['prompt_rejection_reason']"/></p></div>
+                    </div>
+                </t>
+                <div class="vx-card">
+                    <div class="vx-card-header">Client Prompt</div>
+                    <div class="vx-card-body">
+                        <div class="vx-markdown-content" data-render-markdown="true"><t t-out="task['client_prompt']"/></div>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     3. REJECTION REASON
+                     ==================================================== -->
+                <div class="vx-card">
+                    <div class="vx-card-header">Rejection Reason (optional)</div>
+                    <div class="vx-card-body">
+                        <div class="vx-collapsible">
+                            <button class="vx-collapsible-toggle vx-toggle-sm" data-toggle-target="rejection-guide">Rejection Guidelines</button>
+                            <div class="vx-collapsible-body vx-guidelines-body" id="rejection-guide" style="display:none;">
+                                <p><b>1. Image Handling:</b> Requests to create, draw, or interpret images.</p>
+                                <p><b>2. Missing Reference Text:</b> Prompt refers to text/data not provided.</p>
+                                <p><b>3. Safety Concerns:</b> Prompts asking for unsafe, harmful, or illegal content.</p>
+                                <p><b>4. Gibberish/Nonsensical:</b> Incoherent, random, or meaningless prompts.</p>
+                                <p><b>5. Contains PII:</b> Real names, addresses, phone numbers, or sensitive details.</p>
+                                <p><b>6. Localized/Real-Time:</b> Prompts needing current or location-specific answers.</p>
+                                <p><b>7. Identity Requests:</b> Prompts asking the model about its identity.</p>
+                                <p><b>8. Non-English Language:</b> Prompts in a foreign language.</p>
+                            </div>
+                        </div>
+                        <textarea class="vx-textarea" data-field="rejection_reason" placeholder="If rejecting this task, provide reason..." rows="2"><t t-out="task['rejection']['rejection_reason'] or ''"/></textarea>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     4. RESPONSES A/B
+                     ==================================================== -->
+                <div class="vx-section-divider">Responses</div>
+                <div class="vx-split">
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-a">Response A</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['client_response_a']"/></div>
+                        </div>
+                    </div>
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-b">Response B</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['client_response_b']"/></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     5. CORE A/B SCORING
+                     ==================================================== -->
+                <div class="vx-section-divider">Section 1: Core A/B Scoring</div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-a">Score Response A</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['response_a'][dim]"/>
+                            <t t-set="fn" t-value="'%s_a' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-b">Score Response B</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['response_b'][dim]"/>
+                            <t t-set="fn" t-value="'%s_b' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">A/B Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="ab" t-value="task['comparisons']['ab']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (A is absolute winner) to <b>+3</b> (B is absolute winner)</p>
+                        <div t-attf-class="vx-pref-badges #{ab['error_preference'] and 'vx-pref-error' or ''}" data-field="ab_preference" data-scale="pref">
+                            <t t-foreach="[('-3','A+++'),('-2','A++'),('-1','A+'),('0','Tie'),('1','B+'),('2','B++'),('3','B+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==ab['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="ab['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="ab['reason_preference']"/></div></t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">A/B Comment</div>
+                    <div class="vx-card-body">
+                        <t t-set="ab" t-value="task['comparisons']['ab']"/>
+                        <div class="vx-collapsible">
+                            <button class="vx-collapsible-toggle vx-toggle-sm" data-toggle-target="ab-comment-guide">Comment Guidelines</button>
+                            <div class="vx-collapsible-body vx-guidelines-body" id="ab-comment-guide" style="display:none;">
+                                <p><b>1.</b> Start with a clear verdict. <b>2.</b> Name differentiating dimensions. <b>3.</b> Include concrete evidence. <b>4.</b> Be concise (1-3 sentences).</p>
+                            </div>
+                        </div>
+                        <textarea t-attf-class="vx-textarea #{ab['error_comment'] and 'vx-textarea-error' or ''}" data-field="ab_comment" rows="4" placeholder="Justify your A/B preference..."><t t-out="ab['comment']"/></textarea>
+                        <t t-if="ab['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="ab['reason_comment']"/></div></t>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     6. ENHANCED PROMPT
+                     ==================================================== -->
+                <div class="vx-section-divider">Enhanced Prompt</div>
+                <div class="vx-card">
+                    <div class="vx-card-header">Enhanced Prompt</div>
+                    <div class="vx-card-body">
+                        <textarea class="vx-textarea" data-field="enhance_prompt" placeholder="Write an enhanced version of the prompt..." rows="4"><t t-out="task['enhance_prompt']"/></textarea>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     7. RUBRICS 1-5
+                     ==================================================== -->
+                <div class="vx-section-divider">Rubrics</div>
+                <t t-foreach="task['rubrics']" t-as="rubric">
+                    <div class="vx-card vx-rubric-card">
+                        <div class="vx-card-header">Rubric <t t-out="rubric['index']"/></div>
+                        <div class="vx-card-body">
+                            <div class="vx-rubric-field">
+                                <label class="vx-label">Name</label>
+                                <input type="text" t-attf-class="vx-input vx-input-full #{rubric['error_name'] and 'vx-input-error' or ''}"
+                                       t-attf-data-field="rubric#{rubric['index']}_name" t-att-value="rubric['name']" placeholder="Rubric name..."/>
+                                <t t-if="rubric['store_name']"><span class="vx-llm-hint">LLM: <t t-out="rubric['store_name']"/></span></t>
+                                <t t-if="rubric['error_name']"><div class="vx-error-msg">Mismatch: <t t-out="rubric['reason_name']"/></div></t>
+                            </div>
+                            <div class="vx-rubric-field">
+                                <label class="vx-label">Description</label>
+                                <textarea t-attf-class="vx-textarea vx-textarea-sm #{rubric['error_description'] and 'vx-textarea-error' or ''}"
+                                          t-attf-data-field="rubric#{rubric['index']}_description" rows="2" placeholder="Rubric description..."><t t-out="rubric['description']"/></textarea>
+                                <t t-if="rubric['store_description']"><span class="vx-llm-hint">LLM: <t t-out="rubric['store_description'][:100]"/>...</span></t>
+                                <t t-if="rubric['error_description']"><div class="vx-error-msg">Mismatch: <t t-out="rubric['reason_description']"/></div></t>
+                            </div>
+                            <div class="vx-rubric-ratings">
+                                <t t-foreach="[('ophelia','Ophelia'),('opalite','Opalite'),('gpt','GPT'),('gemini','Gemini')]" t-as="mp">
+                                    <t t-set="rating" t-value="rubric['ratings'][mp[0]]"/>
+                                    <div t-attf-class="vx-rubric-rating #{rating['error'] and 'vx-dimension-error' or ''}">
+                                        <span class="vx-rubric-model-label"><t t-out="mp[1]"/></span>
+                                        <div class="vx-score-badges vx-score-badges-sm" t-attf-data-field="#{mp[0]}_rubric#{rubric['index']}_rating" data-scale="6">
+                                            <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                                <button t-attf-class="vx-score-btn vx-score-btn-sm #{str(s)==rating['score'] and 'active' or ''} #{rating['error'] and str(s)==rating['score'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                            </t>
+                                            <t t-if="rating['store_score']"><span class="vx-llm-score vx-llm-score-sm">LLM: <t t-out="rating['store_score']"/></span></t>
+                                        </div>
+                                        <t t-if="rating['error']"><div class="vx-error-msg vx-error-sm">Mismatch: <t t-out="rating['reason']"/></div></t>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <!-- ====================================================
+                     8. ENHANCED RESPONSES (Ophelia / Opalite)
+                     ==================================================== -->
+                <div class="vx-section-divider">Enhanced Responses</div>
+                <div class="vx-split">
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-a">Ophelia Response (A)</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['ophelia_response_a'] or 'Not generated yet.'"/></div>
+                        </div>
+                    </div>
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-b">Opalite Response (B)</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['opalite_response_b'] or 'Not generated yet.'"/></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     9. ENHANCED A/B SCORING
+                     ==================================================== -->
+                <div class="vx-section-divider">Section 2: Enhanced A/B Scoring</div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-a">Score Ophelia (A)</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['ophelia_a'][dim]"/>
+                            <t t-set="fn" t-value="'ophelia_%s_a' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-b">Score Opalite (B)</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['opalite_b'][dim]"/>
+                            <t t-set="fn" t-value="'opalite_%s_b' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">Enhanced A/B Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="eab" t-value="task['comparisons']['enhance_ab']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (A is absolute winner) to <b>+3</b> (B is absolute winner)</p>
+                        <div t-attf-class="vx-pref-badges #{eab['error_preference'] and 'vx-pref-error' or ''}" data-field="enhance_ab_preference" data-scale="pref">
+                            <t t-foreach="[('-3','A+++'),('-2','A++'),('-1','A+'),('0','Tie'),('1','B+'),('2','B++'),('3','B+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==eab['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="eab['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="eab['reason_preference']"/></div></t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">Enhanced Comment</div>
+                    <div class="vx-card-body">
+                        <t t-set="eab" t-value="task['comparisons']['enhance_ab']"/>
+                        <textarea t-attf-class="vx-textarea #{eab['error_comment'] and 'vx-textarea-error' or ''}" data-field="enhance_ab_comment" rows="4" placeholder="Justify your enhanced A/B preference..."><t t-out="eab['comment']"/></textarea>
+                        <t t-if="eab['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="eab['reason_comment']"/></div></t>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     10. GPT / GEMINI EXTERNAL RESPONSES
+                     ==================================================== -->
+                <div class="vx-section-divider">External Model Responses</div>
+                <div class="vx-split">
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-gpt">GPT 5.2 Response</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['gpt_response'] or 'Not generated yet.'"/></div>
+                        </div>
+                    </div>
+                    <div class="vx-split-panel">
+                        <div class="vx-card">
+                            <div class="vx-card-header vx-header-gemini">Gemini 3.1 Response</div>
+                            <div class="vx-card-body vx-response-content" data-render-markdown="true"><t t-out="task['gemini_response'] or 'Not generated yet.'"/></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     11. GPT SxS
+                     ==================================================== -->
+                <div class="vx-section-divider">GPT Side-by-Side</div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-gpt">Score GPT Response</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['gpt_sxs'][dim]"/>
+                            <t t-set="fn" t-value="'gpt_%s_a' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">GPT SxS Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="gab" t-value="task['comparisons']['gpts_ab']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (A is absolute winner) to <b>+3</b> (B is absolute winner)</p>
+                        <div t-attf-class="vx-pref-badges #{gab['error_preference'] and 'vx-pref-error' or ''}" data-field="gpts_ab_preference" data-scale="pref">
+                            <t t-foreach="[('-3','A+++'),('-2','A++'),('-1','A+'),('0','Tie'),('1','B+'),('2','B++'),('3','B+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==gab['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="gab['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gab['reason_preference']"/></div></t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">GPT SxS Comment</div>
+                    <div class="vx-card-body">
+                        <t t-set="gab" t-value="task['comparisons']['gpts_ab']"/>
+                        <textarea t-attf-class="vx-textarea #{gab['error_comment'] and 'vx-textarea-error' or ''}" data-field="gpts_ab_comment" rows="4" placeholder="Justify your GPT SxS preference..."><t t-out="gab['comment']"/></textarea>
+                        <t t-if="gab['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gab['reason_comment']"/></div></t>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     12. GEMINI SxS
+                     ==================================================== -->
+                <div class="vx-section-divider">Gemini Side-by-Side</div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-gemini">Score Gemini Response</div>
+                    <div class="vx-card-body">
+                        <t t-foreach="['truthfulness','instruction_following','writing_quality','verbosity','prompt_correctness','overall_quality']" t-as="dim">
+                            <t t-set="sd" t-value="task['scores']['gemini_sxs'][dim]"/>
+                            <t t-set="fn" t-value="'gemini_%s_b' % dim"/>
+                            <div t-attf-class="vx-dimension #{sd['error'] and 'vx-dimension-error' or ''}">
+                                <div class="vx-dim-header">
+                                    <span class="vx-dim-label"><t t-out="dim.replace('_',' ').title()"/></span>
+                                    <t t-if="sd['reason']"><span class="vx-ai-reason-icon" t-att-data-reason="sd['reason']">i</span></t>
+                                </div>
+                                <div class="vx-score-badges" t-att-data-field="fn" data-scale="6">
+                                    <t t-foreach="[1,2,3,4,5,6]" t-as="s">
+                                        <button t-attf-class="vx-score-btn #{str(s)==sd['human'] and 'active' or ''} #{sd['error'] and str(s)==sd['human'] and 'error' or ''}" t-att-data-value="s"><t t-out="s"/></button>
+                                    </t>
+                                    <t t-if="sd['llm']"><span class="vx-llm-score">LLM: <t t-out="sd['llm']"/></span></t>
+                                </div>
+                                <t t-if="sd['error']"><div class="vx-error-msg">Rating Mismatch: <t t-out="sd['reason']"/></div></t>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">Gemini SxS Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="gem" t-value="task['comparisons']['geminis_ab']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (A is absolute winner) to <b>+3</b> (B is absolute winner)</p>
+                        <div t-attf-class="vx-pref-badges #{gem['error_preference'] and 'vx-pref-error' or ''}" data-field="geminis_ab_preference" data-scale="pref">
+                            <t t-foreach="[('-3','A+++'),('-2','A++'),('-1','A+'),('0','Tie'),('1','B+'),('2','B++'),('3','B+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==gem['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="gem['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gem['reason_preference']"/></div></t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header">Gemini SxS Comment</div>
+                    <div class="vx-card-body">
+                        <t t-set="gem" t-value="task['comparisons']['geminis_ab']"/>
+                        <textarea t-attf-class="vx-textarea #{gem['error_comment'] and 'vx-textarea-error' or ''}" data-field="geminis_ab_comment" rows="4" placeholder="Justify your Gemini SxS preference..."><t t-out="gem['comment']"/></textarea>
+                        <t t-if="gem['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gem['reason_comment']"/></div></t>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     13. EXTERNAL MODEL COMPARISONS
+                     ==================================================== -->
+                <div class="vx-section-divider">External Model Comparisons</div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-gpt">GPT External Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="gext" t-value="task['comparisons']['gpt_external']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (Ophelia wins) to <b>+3</b> (GPT wins)</p>
+                        <div t-attf-class="vx-pref-badges #{gext['error_preference'] and 'vx-pref-error' or ''}" data-field="gpt_preference" data-scale="pref">
+                            <t t-foreach="[('-3','Oph+++'),('-2','Oph++'),('-1','Oph+'),('0','Tie'),('1','GPT+'),('2','GPT++'),('3','GPT+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==gext['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="gext['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gext['reason_preference']"/></div></t>
+                        <textarea t-attf-class="vx-textarea mt-2 #{gext['error_comment'] and 'vx-textarea-error' or ''}" data-field="gpt_comment" rows="3" placeholder="GPT comparison comment..."><t t-out="gext['comment']"/></textarea>
+                        <t t-if="gext['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gext['reason_comment']"/></div></t>
+                    </div>
+                </div>
+                <div class="vx-card">
+                    <div class="vx-card-header vx-header-gemini">Gemini External Preference</div>
+                    <div class="vx-card-body">
+                        <t t-set="gemext" t-value="task['comparisons']['gemini_external']"/>
+                        <p class="vx-pref-hint"><b>-3</b> (Opalite wins) to <b>+3</b> (Gemini wins)</p>
+                        <div t-attf-class="vx-pref-badges #{gemext['error_preference'] and 'vx-pref-error' or ''}" data-field="gemini_preference" data-scale="pref">
+                            <t t-foreach="[('-3','Opal+++'),('-2','Opal++'),('-1','Opal+'),('0','Tie'),('1','Gem+'),('2','Gem++'),('3','Gem+++')]" t-as="pv">
+                                <button t-attf-class="vx-pref-btn #{pv[0]==gemext['preference'] and 'active' or ''}" t-att-data-value="pv[0]">
+                                    <span class="vx-pref-val"><t t-out="pv[0]"/></span><span class="vx-pref-label"><t t-out="pv[1]"/></span>
+                                </button>
+                            </t>
+                        </div>
+                        <t t-if="gemext['error_preference']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gemext['reason_preference']"/></div></t>
+                        <textarea t-attf-class="vx-textarea mt-2 #{gemext['error_comment'] and 'vx-textarea-error' or ''}" data-field="gemini_comment" rows="3" placeholder="Gemini comparison comment..."><t t-out="gemext['comment']"/></textarea>
+                        <t t-if="gemext['error_comment']"><div class="vx-error-msg">Rating Mismatch: <t t-out="gemext['reason_comment']"/></div></t>
+                    </div>
+                </div>
+
+                <!-- ====================================================
+                     ACTION BAR (fixed bottom)
+                     ==================================================== -->
+                <div class="vx-action-bar" id="vx-action-bar">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex gap-2">
+                            <a href="/vindex/tasks" class="vx-btn vx-btn-ghost">Back to List</a>
+                        </div>
+                        <div class="d-flex gap-2 align-items-center">
+                            <span class="vx-save-status" id="vx-save-status"></span>
+                            <button class="vx-btn vx-btn-secondary" id="vx-btn-evaluate" t-att-data-task-id="task['id']">Evaluate</button>
+                            <button class="vx-btn vx-btn-primary" id="vx-btn-submit" t-att-data-task-id="task['id']">Submit Task</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+        </t>
+    </template>
+
+</odoo>
