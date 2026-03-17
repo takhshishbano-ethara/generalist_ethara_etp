@@ -1,0 +1,67 @@
+<odoo>
+
+    <!-- Module Category -->
+    <record id="module_category_etp_user_roles" model="res.groups">
+        <field name="name">Ethara User Roles</field>
+        <field name="sequence">10</field>
+    </record>
+
+    <!-- Tasker -->
+    <record id="group_tasker" model="res.groups">
+        <field name="name">Tasker</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <!-- Quality Lead -->
+    <record id="group_quality_lead" model="res.groups">
+        <field name="name">Quality Lead</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+    </record>
+
+    <!-- Quality Reviewer -->
+    <record id="group_quality_reviewer" model="res.groups">
+        <field name="name">Quality Reviewer</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+    </record>
+
+    
+
+    <!-- Project Lead -->
+    <record id="group_project_lead" model="res.groups">
+        <field name="name">Project Lead</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+    </record>
+
+<!-- Delivery Manager -->
+    <record id="group_delivery_manager" model="res.groups">
+        <field name="name">Delivery Manager</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+    </record>
+
+    <!-- CTO -->
+    <record id="group_cto" model="res.groups">
+        <field name="name">CTO</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+    </record>
+
+    <!-- HR Admin -->
+    <record id="group_hr_admin" model="res.groups">
+        <field name="name">HR Admin</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <!-- IT Admin -->
+    <record id="group_it_admin" model="res.groups">
+        <field name="name">IT Admin</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+</odoo>
