@@ -1,0 +1,88 @@
+import uuid
+import secrets
+from datetime import datetime, timedelta
+from odoo import models, fields, api, tools, _
+import os
+import hashlib
+from odoo.tools import DEFAULT_SERVER_DATETIME_FORMAT
+from odoo.http import request
+
+class ApiRole(models.Model):
+    _name = 'api.role'
+    _description = 'API User Role'
+
+    name = fields.Char(required=True)
+    line_ids = fields.Many2many('api.role.line', string="Permissions")
+
+
+class ApiRoleLine(models.Model):
+    _name = 'api.role.line'
+    _rec_name = 'menu_name'
+
+    menu_name = fields.Char(required=True)
+    sequence = fields.Integer(default=10)
+    can_read = fields.Boolean(default=True)
+    can_write = fields.Boolean(default=False)
+    can_create = fields.Boolean(default=False)
+    can_delete = fields.Boolean(default=False)
+    parent_id = fields.Many2one('api.role.line')
+
+
+def nonce(length=40, prefix='access_token'):
+    rbytes = os.urandom(length)
+    return '{}_{}'.format(prefix, str(hashlib.sha1(rbytes).hexdigest()))
+
+
+class APIAccessToken(models.Model):
+    _name = 'api.access_token'
+    _description = "Access Token"
+
+    user_id = fields.Many2one('res.users', required=True, ondelete='cascade')
+    access_token = fields.Char(index=True)
+    refresh_token = fields.Char(index=True)
+    expiry = fields.Datetime()
+
+    def find_one_or_create_token(self, user_id=None, create=False):
+        if not user_id:
+            user_id = request.env.user.id
+
+        access_token = self.env['api.access_token'].sudo().search([('user_id', '=', user_id)], order='id DESC', limit=1)
+        if access_token:
+            access_token = access_token[0]
+            if access_token.has_expired():
+                access_token = None
+        if not access_token and create:
+            expires = datetime.now() + timedelta(seconds=3600)
+            vals = {
+                'user_id': user_id,
+                'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),
+                'access_token': nonce(),
+                'refresh_token': nonce(),
+            }
+            access_token = self.env['api.access_token'].sudo().create(vals)
+            self._cr.commit()
+        if not access_token:
+            return None
+        return access_token.access_token, access_token.refresh_token
+
+    def has_expired(self):
+        self.ensure_one()
+        return datetime.now() > fields.Datetime.from_string(self.expiry)
+
+    # def has_expired(self):
+    #     self.ensure_one()
+    #     if not self.expiry:
+    #         return True
+    #     return fields.Datetime.now() > self.expiry  # Changed from self.expires
+
+class Users(models.Model):
+    _inherit = 'res.users'
+
+    token_ids = fields.One2many('api.access_token', 'user_id', string="Access Tokens")
+    user_role = fields.Many2one('api.role', string='User Role')
+
+    def write(self, vals):
+        res = super(Users, self).write(vals)
+        if 'password' in vals and vals.get('password'):
+            self.env['api.access_token'].sudo().search([('user_id', 'in', self.ids)]).sudo().unlink()
+        return res

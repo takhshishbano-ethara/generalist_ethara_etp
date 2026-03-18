@@ -1,0 +1,59 @@
+<odoo>
+    <record id="edit_project_inherit_extension" model="ir.ui.view">
+        <field name="name">project.project.form.inherit.extension</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.edit_project"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="internal_project_name"/>
+                <field name="client_name"/>
+                <field name="internal_client_name"/>
+                <field name="project_category" options="{'no_create': True}"/>
+            </xpath>
+
+            <xpath expr="//notebook" position="inside">
+                <page string="Technical Team" name="technical_team">
+                    <group>
+                        <group string="Engineering">
+                            <field name="project_lead" widget="many2many_tags" options="{'color_field': 'color'}"/>
+                            <field name="project_aire" widget="many2many_tags" options="{'color_field': 'color'}"/>
+                            <field name="project_swe" widget="many2many_tags" options="{'color_field': 'color'}"/>
+                        </group>
+                        <group string="Project Specs">
+                            <field name="project_type" widget="radio" options="{'horizontal': true}"/>
+                            <field name="sample_task_number"/>
+                        </group>
+                    </group>
+                </page>
+
+                <page string="Kick-Off Email" name="kick_off_details">
+                    <group>
+                        <field name="kick_off_to_mails" placeholder="email@example.com, email2@example.com"/>
+                        <field name="kick_off_subject"/>
+                        <field name="kick_off_body" widget="html" options="{'style-inline': true}"/>
+                    </group>
+                </page>
+
+                <page string="External Attachments" name="attachments">
+                    <field name="project_attachments">
+                        <list editable="bottom">
+                            <field name="image_url" widget="url"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_project_category" model="ir.actions.act_window">
+        <field name="name">Project Categories</field>
+        <field name="res_model">project.category</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <menuitem id="menu_project_category"
+              name="Project Categories"
+              parent="project.menu_project_config"
+              action="action_project_category"
+              sequence="50"/>
+</odoo>

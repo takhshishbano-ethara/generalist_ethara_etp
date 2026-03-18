@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_api_role_line_tree" model="ir.ui.view">
+        <field name="name">api.role.line.tree</field>
+        <field name="model">api.role.line</field>
+        <field name="arch" type="xml">
+            <list string="Permissions" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="menu_name"/>
+                <field name="parent_id"/>
+                <field name="can_read"/>
+                <field name="can_create"/>
+                <field name="can_write"/>
+                <field name="can_delete"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_api_role_form" model="ir.ui.view">
+        <field name="name">api.role.form</field>
+        <field name="model">api.role</field>
+        <field name="arch" type="xml">
+            <form string="API User Role">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="e.g. Mobile App User"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <separator string="Access Control List"/>
+                    </group>
+                    <field name="line_ids">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="menu_name"/>
+                            <field name="can_read"/>
+                            <field name="can_create"/>
+                            <field name="can_write"/>
+                            <field name="can_delete"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_api_role" model="ir.actions.act_window">
+        <field name="name">API Roles</field>
+        <field name="res_model">api.role</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first API Role to manage permissions.
+            </p>
+        </field>
+    </record>
+
+    <record id="action_api_role_line" model="ir.actions.act_window">
+        <field name="name">API Roles Lines</field>
+        <field name="res_model">api.role.line</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first API Role Line to manage permissions.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_api_config_root"
+              name="API Gateway"
+              sequence="50"
+              web_icon="base,static/description/settings.png"/>
+
+    <menuitem id="menu_api_roles"
+              name="API Roles"
+              parent="menu_api_config_root"
+              action="action_api_role"
+              sequence="10"/>
+    <menuitem id="menu_api_role_lines"
+              name="Role Lines"
+              parent="menu_api_config_root"
+              action="action_api_role_line"
+              sequence="10"/>
+</odoo>

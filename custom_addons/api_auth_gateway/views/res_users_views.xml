@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_users_form_inherit_api" model="ir.ui.view">
+        <field name="name">res.users.form.inherit.api</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook//page[@name='access_rights']" position="inside">
+                <group string="API Configuration" name="api_config">
+                    <field name="user_role" options="{'no_open': False, 'no_create': True}"/>
+                </group>
+            </xpath>
+
+            <xpath expr="//notebook" position="inside">
+                <page string="API Tokens" name="api_tokens" groups="base.group_system">
+                    <field name="token_ids" readonly="1">
+                        <list string="Active Sessions" decoration-danger="expiry &lt; current_date">
+                            <field name="access_token"/>
+                            <field name="refresh_token" optional="hide"/>
+                            <field name="expiry"/>
+                            <button name="unlink" string="Revoke" type="object" icon="fa-times-circle" confirm="Are you sure you want to revoke this token?"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
