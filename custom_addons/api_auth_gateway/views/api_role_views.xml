@@ -5,7 +5,7 @@
         <field name="model">api.role.line</field>
         <field name="arch" type="xml">
             <list string="Permissions" editable="bottom">
-                <field name="sequence" widget="handle"/>
+                <field name="sequence"/>
                 <field name="menu_name"/>
                 <field name="parent_id"/>
                 <field name="can_read"/>

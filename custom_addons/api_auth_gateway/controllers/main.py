@@ -4,6 +4,52 @@ from .utility import validate_request, validate_token, return_Response, safe_get
 
 class ApiAuthController(http.Controller):
 
+    def get_the_menuitem_list(self, domain=[]):
+        # 1. Fetch all records once
+        menu_lines = request.env['api.role.line'].sudo().search(domain)
+        user_line_ids = request.env.user.user_role.line_ids.ids if request.env.user.user_role else []
+
+        menu_map = {}
+        roots = []
+
+        # 2. First Pass: Create the data objects
+        for line in menu_lines:
+            menu_map[line.id] = {
+                'id': line.menu_name or "",
+                'is_visible': line.id in user_line_ids,
+                'order': line.sequence or 0,
+                'read': line.can_read or False,
+                'write': line.can_write or False,
+                'create': line.can_create or False,
+                'delete': line.can_delete or False,
+                'parent_id': line.parent_id.id if line.parent_id else None,
+                'child_list': []
+            }
+
+        # 3. Second Pass: The "Same Code" logic for any level
+        for line_id, item in menu_map.items():
+            parent_id = item['parent_id']
+
+            if parent_id and parent_id in menu_map:
+                menu_map[parent_id]['child_list'].append(item)
+            else:
+                # If no parent, it's a top-level root
+                roots.append(item)
+
+        # 4. Recursive Helper: Sorts and ensures Parents are visible if Children are
+        def finalize_tree(items):
+            items.sort(key=lambda x: x['order'])
+            for item in items:
+                if item['child_list']:
+                    finalize_tree(item['child_list'])
+                    # Logic: If any child is visible, the parent must be visible too
+                    if any(child['is_visible'] for child in item['child_list']):
+                        item['is_visible'] = True
+            return items
+
+        role_data = finalize_tree(roots)
+        return role_data
+
     @http.route('/api/v1/auth_token', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_request({'login': {'type': 'str', 'required': True}, 'password': {'type': 'str', 'required': True}})
     def auth_token(self, **kwargs):
@@ -41,20 +87,7 @@ class ApiAuthController(http.Controller):
                 address += f", {request.env.user.partner_id.state_id.name}"
             if request.env.user.partner_id.country_id:
                 address += f", {request.env.user.partner_id.country_id.name}"
-            role_data = []
-            menu_lines = request.env['api.role.line'].sudo().search([])
-            for line in menu_lines:
-                role_data.append({
-                    'id': line.menu_name if line.menu_name else "",
-                    'is_visible': True if request.env.user.user_role and request.env.user.user_role.line_ids and line.id in request.env.user.user_role.line_ids.ids else False,
-                    'order': line.sequence if line.sequence else 0,
-                    'read': line.can_read or False,
-                    'write': line.can_write or False,
-                    'create': line.can_create or False,
-                    'delete': line.can_delete or False,
-                    'parent_id': line.parent_id.menu_name if line.parent_id and line.parent_id.menu_name else ""
-                })
-
+            role_data = self.get_the_menuitem_list(domain=[])
             res = {
                 "data": {
                     'uid': uid,
@@ -110,3 +143,18 @@ class ApiAuthController(http.Controller):
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Access Token Deleted Successfully", status=200)
+
+    @http.route('/api/v1/get_menu_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_menu_list(self, **params):
+        role_data = []
+        try:
+            try:
+                user_id = request.env['res.users'].sudo().browse(self.env.uid)
+            except:
+                user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            role_data = self.get_the_menuitem_list(domain=[])
+
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+        return return_Response(message="Access Token Deleted Successfully", status=200, data={"permissions": role_data})
