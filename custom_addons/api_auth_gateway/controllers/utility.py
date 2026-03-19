@@ -62,8 +62,13 @@ def validate_token(func):
         if not access_token:
             return return_Response(message="missing access token in request header", status=401)
         access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
-
-        if access_token_data.find_one_or_create_token(user_id=access_token_data.user_id.id)[0] != access_token:
+        data = []
+        if access_token_data:
+            data = access_token_data.find_one_or_create_token(user_id=access_token_data.user_id.id)
+        if data:
+            if data[0] != access_token:
+                return return_Response(message="token seems to have expired or invalid", status=401)
+        else:
             return return_Response(message="token seems to have expired or invalid", status=401)
         request.update_env(user=access_token_data.user_id.id)
         return func(self, *args, **kwargs)
