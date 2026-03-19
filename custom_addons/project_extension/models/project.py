@@ -11,9 +11,12 @@ class Project(models.Model):
     project_category = fields.Many2one('project.category', string='Project')
     project_type = fields.Selection([('single_turn', 'Single Turn'), ('multi_turn', 'Multi Turn')], default='single_turn')
     sample_task_number = fields.Integer(string='Sample Task Number')
-    project_lead = fields.Many2many('res.users','project_project_res_users_lead_rel','project_id','user_id', string='Lead')
-    project_aire = fields.Many2many('res.users','project_project_res_users_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
-    project_swe = fields.Many2many('res.users','project_project_res_users_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
+    # project_lead = fields.Many2many('res.users','project_project_res_users_lead_rel','project_id','user_id', string='Lead')
+    # project_aire = fields.Many2many('res.users','project_project_res_users_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
+    # project_swe = fields.Many2many('res.users','project_project_res_users_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
+    project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel','project_id','user_id', string='Lead')
+    project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
+    project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
     ai_generated_description = fields.Text(string='AI Generated Description')
     # Whatsapp Group
     # Slack Group

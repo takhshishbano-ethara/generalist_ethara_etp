@@ -1,0 +1,50 @@
+<odoo>
+    <record id="view_google_drive_file_tree" model="ir.ui.view">
+        <field name="name">google.drive.file.tree</field>
+        <field name="model">google.drive.file</field>
+        <field name="arch" type="xml">
+            <list string="Google Drive Content" decoration-info="type == 'folder'">
+                <field name="name"/>
+                <field name="type"/>
+                <field name="parent_id"/>
+                <button name="action_open_google_drive" string="Open in Drive" type="object" icon="fa-external-link"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_google_drive_wizard_form" model="ir.ui.view">
+        <field name="name">google.drive.wizard.form</field>
+        <field name="model">google.drive.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload to Google Drive">
+                <group>
+                    <field name="upload_type" widget="radio"/>
+                    <field name="name"/>
+                    <field name="file_content" invisible="upload_type == 'folder'" required="upload_type == 'file'"/>
+                    <field name="parent_folder_id" placeholder="Root Directory"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" string="Upload / Create" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_google_drive_file" model="ir.actions.act_window">
+        <field name="name">Google Drive Files</field>
+        <field name="res_model">google.drive.file</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_google_drive_wizard" model="ir.actions.act_window">
+        <field name="name">Upload File / Folder</field>
+        <field name="res_model">google.drive.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_google_drive_root" name="Google Integration" sequence="10"/>
+    <menuitem id="menu_google_drive_files" name="Drive Files" parent="menu_google_drive_root" action="action_google_drive_file" sequence="1"/>
+    <menuitem id="menu_google_drive_upload" name="Upload/Create" parent="menu_google_drive_root" action="action_google_drive_wizard" sequence="2"/>
+</odoo>

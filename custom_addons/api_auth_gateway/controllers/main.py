@@ -153,7 +153,10 @@ class ApiAuthController(http.Controller):
                 user_id = request.env['res.users'].sudo().browse(self.env.uid)
             except:
                 user_id = request.env['res.users'].sudo().browse(request.env.uid)
-            role_data = self.get_the_menuitem_list(domain=[])
+            domain = []
+            if params.get('id'):
+                domain = [('menu_name', '=', params.get('id')), ('parent_id.menu_name', '=', params.get('id'))]
+            role_data = self.get_the_menuitem_list(domain=domain)
 
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
