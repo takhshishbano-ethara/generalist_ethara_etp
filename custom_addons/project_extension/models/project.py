@@ -19,6 +19,7 @@ class Project(models.Model):
     project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
     ai_generated_description = fields.Text(string='AI Generated Description')
     # Whatsapp Group
+    whatsapp_group_members = fields.Many2many('whatsapp.group.members', string='Whatsapp Group Members')
     # Slack Group
     # Google Drive
     # kick off email
@@ -57,3 +58,13 @@ class ProjectCategory(models.Model):
     _description = 'Project Category'
 
     name = fields.Char(string='Name')
+
+
+class WhatsappGroupMembers(models.Model):
+    _name = 'whatsapp.group.members'
+    _description = 'Whatsapp Group Members'
+
+    name = fields.Char(string='Name')
+    email = fields.Char(string='Email')
+    country_code = fields.Char(string='Country Code')
+    phone_number = fields.Char(string='Phone Number')

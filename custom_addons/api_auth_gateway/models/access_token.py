@@ -83,6 +83,8 @@ class Users(models.Model):
 
     def write(self, vals):
         res = super(Users, self).write(vals)
-        if 'password' in vals and vals.get('password'):
-            self.env['api.access_token'].sudo().search([('user_id', 'in', self.ids)]).sudo().unlink()
+        if 'password' in vals or "active" in vals:
+            if vals.get('password') or not vals.get('active'):
+                for tnk in self.token_ids:
+                    tnk.sudo().unlink()
         return res

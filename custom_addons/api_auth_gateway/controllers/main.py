@@ -61,10 +61,7 @@ class ApiAuthController(http.Controller):
             if user:
                 if user.active:
                     credential = {'login': user.login, 'password': password, 'type': 'password'}
-                    try:
-                        uid = request.session.authenticate(request.env, credential)
-                    except:
-                        uid = request.session.authenticate(request.session.db, credential)
+                    uid = request.session.authenticate(request.env, credential)
                 else:
                     return return_Response(message="Your account has been deactivated. To reactivate it, please contact to the Administrator.", status=400)
             else:
