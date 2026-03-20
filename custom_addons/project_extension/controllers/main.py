@@ -11,8 +11,8 @@ class ProjectController(http.Controller):
         temp = []
         try:
             jdata = kwargs.get('jdata')
-            page = int(jdata.get('page', 1))
-            limit = int(jdata.get('limit', 10))
+            page = int(jdata.get('page')) if jdata.get('page') else 1
+            limit = int(jdata.get('limit')) if jdata.get('limit') else 1
             offset = (page - 1) * limit
             domain = []
             if jdata.get('designation_id'):
@@ -74,8 +74,8 @@ class ProjectController(http.Controller):
         temp = []
         try:
             jdata = kwargs.get('jdata')
-            page = int(jdata.get('page', 1))
-            limit = int(jdata.get('limit', 10))
+            page = int(jdata.get('page')) if jdata.get('page') else 1
+            limit = int(jdata.get('limit')) if jdata.get('limit') else 1
             offset = (page - 1) * limit
             domain = []
             if jdata.get('search'):
@@ -123,7 +123,7 @@ class ProjectController(http.Controller):
                 "project_lead": [(6, 0, parse_ids("project_lead"))],
                 "project_aire": [(6, 0, parse_ids("project_aire"))],
                 "project_swe": [(6, 0, parse_ids("project_swe"))],
-                "whatsapp_group_members": [(6, 0, parse_ids('whatsapp_group_members'))],
+                # "whatsapp_group_members": [(6, 0, parse_ids('whatsapp_group_members'))],
                 "kick_off_to_mails": kwargs.get('kick_off_to_mails'),
                 "kick_off_subject": kwargs.get('kick_off_subject'),
                 "kick_off_body": kwargs.get('kick_off_body'),
@@ -137,11 +137,29 @@ class ProjectController(http.Controller):
                 "slack_members": [(6, 0, parse_ids("slack_members"))],
             }
 
+            if kwargs.get('whatsapp_group_members'):
+                import json
+                if isinstance(kwargs.get('whatsapp_group_members'), str):
+                    wgm_data = json.loads(kwargs.get('whatsapp_group_members'))
+                else:
+                    wgm_data = kwargs.get('whatsapp_group_members')
+                wgm_list = []
+                for rec in wgm_data:
+                    whatsapp_gm = request.env['whatsapp.group.members'].sudo().search([('phone_number', '=', rec.get('mobile'))], limit=1)
+                    if not whatsapp_gm:
+                        whatsapp_gm = request.env['whatsapp.group.members'].sudo().create({
+                            'name': rec.get('name'),
+                            'email': rec.get('email'),
+                            'country_code': "+91",
+                            'phone_number': rec.get('mobile'),
+                        })
+                    wgm_list.append(whatsapp_gm.id)
+                if wgm_list:
+                    vals['whatsapp_group_members'] = [(6, 0, wgm_list)]
+
             stage_xml = 'project_extension.project_project_stage_ethara_14' if kwargs.get(
                 'save_as_draft') == '1' else 'project_extension.project_project_stage_ethara_4'
             vals['stage_id'] = request.env.ref(stage_xml).id
-
-            project = request.env['project.project'].sudo().create(vals)
 
             attachment_ids = []
             files = request.httprequest.files.getlist('files')
@@ -150,98 +168,19 @@ class ProjectController(http.Controller):
                 file_content = file.read()
                 if not file_content:
                     continue
-
                 attachment = request.env['ir.attachment'].sudo().create({
                     'name': file.filename,
                     'datas': base64.b64encode(file_content),
                     'res_model': 'project.project',
-                    'res_id': project.id,
                     'type': 'binary',
                     'mimetype': file.content_type
                 })
                 attachment_ids.append(attachment.id)
 
             if attachment_ids:
-                project.sudo().write({
-                    'project_attachments': [(6, 0, attachment_ids)]
-                })
-
-            return return_Response(
-                message="Project Created Successfully",
-                status=200,
-                data={
-                    'project_id': project.id
-                }
-            )
-
-        except Exception as e:
-            return return_Response(message="Error occurred", status=400, errors=[str(e)])
-
-    @validate_token
-    @http.route('/api/v1/create_project_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
-    def create_project_record(self, **kwargs):
-        try:
-            def parse_ids(key):
-                val = kwargs.get(key)
-                if not val: return []
-                if isinstance(val, str):
-                    my_list = [int(x) for x in val.strip('[]').split(',') if x.strip()]
-                    return my_list
-                return val if isinstance(val, list) else [val]
-
-            vals = {
-                "name": kwargs.get("name"),
-                "internal_project_name": kwargs.get("internal_project_name"),
-                "client_name": kwargs.get("client_name"),
-                "project_category": kwargs.get("project_category"),
-                "project_type": kwargs.get('project_type'),
-                "sample_task_number": int(kwargs.get("sample_task_number", 0)),
-                "project_lead": [(6, 0, parse_ids("project_lead"))],
-                "project_aire": [(6, 0, parse_ids("project_aire"))],
-                "project_swe": [(6, 0, parse_ids("project_swe"))],
-                "whatsapp_group_members": [(6, 0, parse_ids('whatsapp_group_members'))],
-                "kick_off_to_mails": kwargs.get('kick_off_to_mails'),
-                "kick_off_subject": kwargs.get('kick_off_subject'),
-                "kick_off_body": kwargs.get('kick_off_body'),
-                "ai_generated_description": kwargs.get("ai_generated_description"),
-                "internal_client_name": kwargs.get("internal_client_name"),
-                "date_start": kwargs.get("date_start"),
-                "date": kwargs.get("date_end"),
-                'description': kwargs.get("description"),
-                "whatsapp_group_name": kwargs.get('whatsapp_group_name'),
-                'slack_channel_name': kwargs.get('slack_channel_name'),
-                "slack_members": [(6, 0, parse_ids("slack_members"))],
-            }
-
-            stage_xml = 'project_extension.project_project_stage_ethara_14' if kwargs.get(
-                'save_as_draft') == '1' else 'project_extension.project_project_stage_ethara_4'
-            vals['stage_id'] = request.env.ref(stage_xml).id
+                vals['project_attachments'] = [(6, 0, attachment_ids)]
 
             project = request.env['project.project'].sudo().create(vals)
-
-            attachment_ids = []
-            files = request.httprequest.files.getlist('files')
-            if files:
-                for file in files:
-                    file_content = file.read()
-                    if not file_content:
-                        continue
-
-                    attachment = request.env['ir.attachment'].sudo().create({
-                        'name': file.filename,
-                        'datas': base64.b64encode(file_content),
-                        'res_model': 'project.project',
-                        'res_id': project.id,
-                        'type': 'binary',
-                        'mimetype': file.content_type
-                    })
-                    attachment_ids.append(attachment.id)
-
-                if attachment_ids:
-                    project.sudo().write({
-                        'project_attachments': [(6, 0, attachment_ids)]
-                    })
-
             return return_Response(
                 message="Project Created Successfully",
                 status=200,
@@ -306,11 +245,26 @@ class ProjectController(http.Controller):
                     else:
                         vals[odoo_field] = val
 
-            m2m_fields = ["project_lead", "project_aire", "project_swe", "whatsapp_group_members", "slack_members"]
+            m2m_fields = ["project_lead", "project_aire", "project_swe", "slack_members"]
             for field in m2m_fields:
                 parsed_ids = parse_ids(field)
                 if parsed_ids is not None:
                     vals[field] = [(6, 0, parsed_ids)]
+            if kwargs.get('whatsapp_group_members'):
+                wgm_list = []
+                for rec in kwargs.get('whatsapp_group_members'):
+                    whatsapp_gm = request.env['whatsapp.group.members'].sudo().search([('phone_number', '=', rec.get('mobile'))], limit=1)
+                    if not whatsapp_gm:
+                        whatsapp_gm = request.env['whatsapp.group.members'].sudo().create({
+                            'name': rec.get('name'),
+                            'email': rec.get('email'),
+                            'country_code': "+91",
+                            'phone_number': rec.get('mobile'),
+                        })
+                    wgm_list.append(whatsapp_gm.id)
+                if wgm_list:
+                    vals['whatsapp_group_members'] = [(6, 0, wgm_list)]
+
             if project.stage_id.id == request.env.ref('project_extension.project_project_stage_ethara_14').id and not kwargs.get('stage_id'):
                 vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_4').id
             elif kwargs.get('stage_id'):
@@ -358,6 +312,7 @@ class ProjectController(http.Controller):
             if status_ids:
                 status_list = [int(x) for x in status_ids.split(',') if x.strip()]
                 domain += [('stage_id', 'in', status_list)]
+
             client = kwargs.get('client')
             if client:
                 domain += [('client_name', 'ilike', client)]
@@ -367,8 +322,8 @@ class ProjectController(http.Controller):
                 domain += [('project_type', '=', p_type)]
 
             # 6. Pagination Logic
-            page = int(kwargs.get('page', 1))
-            limit = int(kwargs.get('limit', 10))
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
             total_count = request.env['project.project'].sudo().search_count(domain)
             if not kwargs.get('page'):
@@ -385,18 +340,18 @@ class ProjectController(http.Controller):
                 unique_team_count = len(set(team_ids))
 
                 project_data.append({
-                    'id': p.id,
-                    'project_name': p.name,
-                    'project_id_code': p.internal_project_name or f"PRJ-{p.id:03}",
-                    'client': p.client_name or '',
-                    'status': p.stage_id.name if p.stage_id and p.stage_id.name else "",
+                    'id': safe_get_value(p, 'id', 'int'),
+                    'project_name': safe_get_value(p, 'name', 'str'),
+                    'project_id_code': f"PRJ-{p.id:03}",
+                    'client': safe_get_value(p, 'client_name', 'str'),
+                    'status': safe_get_value(p, 'stage_id.name', 'str'),
                     'progress': 0, #getattr(p, 'progress_percentage', 0)
-                    'tasks': p.sample_task_number,
+                    'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
-                    'category': p.project_category,
-                    'type': p.project_type,
-                    'date_start': str(p.date_start) or '',
-                    'date_end': str(p.date) or '',
+                    'category': safe_get_value(p, 'project_category', 'str'),
+                    'type': safe_get_value(p, 'project_type', 'str'),
+                    'date_start': safe_get_value(p, 'date_start', 'date'),
+                    'date_end': safe_get_value(p, 'date', 'date'),
                 })
             return return_Response(
                 message="Success",
@@ -411,8 +366,8 @@ class ProjectController(http.Controller):
     def get_project_status(self, **kwargs):
         try:
             domain = []
-            page = int(kwargs.get('page', 1))
-            limit = int(kwargs.get('limit', 10))
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 1
             offset = (page - 1) * limit
             total_count = request.env['project.project.stage'].sudo().search_count(domain)
             if not kwargs.get('page'):
@@ -422,13 +377,58 @@ class ProjectController(http.Controller):
             project_data = []
             for p in projects:
                 project_data.append({
-                    'id': p.id,
-                    'name': p.name,
+                    'id': safe_get_value(p, 'id', 'int'),
+                    'name': safe_get_value(p, 'p.name', 'str'),
                 })
             return return_Response(
                 message="Success",
                 status=200,
                 data={"record": project_data, "total_record_count": total_count, "count": len(project_data)})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_project_detail_view', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({"id": {"type": "str", "required": True}})
+    def get_project_detail_view(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            project = request.env['project.project'].sudo().browse(int(jdata.get("id")))
+            if not project.exists():
+                return return_Response(message="Project Not Found", status=404)
+            record = {
+                'id': safe_get_value(project, 'id', 'int'),
+                'name': safe_get_value(project, 'name', 'str'),
+                'internal_project_name': safe_get_value(project, 'internal_project_name', 'str'),
+                "client_name": safe_get_value(project, 'client_name', 'str'),
+                "project_category": safe_get_value(project, 'project_category', 'str'),
+                "project_type": safe_get_value(project, 'project_type', 'str'),
+                "sample_task_number": safe_get_value(project, 'sample_task_number', 'int'),
+                "kick_off_to_mails": safe_get_value(project, 'kick_off_to_mails', 'str'),
+                "kick_off_subject": safe_get_value(project, 'kick_off_subject', 'str'),
+                "kick_off_body": safe_get_value(project, 'kick_off_body', 'str'),
+                "ai_generated_description": safe_get_value(project, 'ai_generated_description', 'str'),
+                "internal_client_name": safe_get_value(project, 'internal_client_name', 'str'),
+                "date_start": safe_get_value(project, 'date_start', 'str'),
+                "date_end": safe_get_value(project, 'date', 'str'),
+                "description": safe_get_value(project, 'description', 'str'),
+                "whatsapp_group_name": safe_get_value(project, 'whatsapp_group_name', 'str'),
+                "slack_channel_name": safe_get_value(project, 'slack_channel_name', 'str'),
+                "whatsapp_group_members": [{'name': i.name, 'email': i.email, "mobile": i.phone_number, "country_code": i.country_code} for i in project.whatsapp_group_members],
+                'stage_id': safe_get_value(project, 'stage_id.id', 'int'),
+                "stage_name": safe_get_value(project, 'stage_id.name', 'str'),
+                "project_lead": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_lead],
+                "project_aire": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_aire],
+                "project_swe": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_swe],
+                "slack_members": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.slack_members],
+                "google_drive_id": project.google_drive_id.get_drive_data() if project.google_drive_id else {}
+            }
+
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": record})
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])

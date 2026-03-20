@@ -34,7 +34,7 @@ class Project(models.Model):
     kick_off_body = fields.Text('Kick Off Body')
 
     def kick_off_send_mail(self):
-        outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name
+        outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name or "atech@yopmail.com"
         for record in self:
             template = self.env.ref('project_extension.email_notification_template_view')
             email_values = {
@@ -57,18 +57,31 @@ class Project(models.Model):
         if parent_folder:
             self.google_drive_id = parent_folder.id
             for sub in ["Internal", "External"]:
-                self.env['google.drive.wizard'].create({
+                drive_record = self.env['google.drive.wizard'].create({
                     'name': sub,
                     'upload_type': 'folder',
                     'parent_folder_id': parent_folder.id
                 })._create_folder()
+                if self.project_attachments:
+                    self.upload_attachments_in_drive(drive_id = drive_record)
+
+    def upload_attachments_in_drive(self, drive_id=None):
+        import base64
+        for attach in self.project_attachments:
+            drive_record = self.env['google.drive.wizard'].create({
+                'name': attach.name,
+                'upload_type': 'file',
+                'file_content': attach.datas,
+                'parent_folder_id': drive_id.id if drive_id else None,
+            })._upload_file()
+        return True
 
     @api.model_create_multi
     def create(self, vals_list):
         projects = super(Project, self).create(vals_list)
-        # for project in projects:
-            # project.kick_off_send_mail()
-            # project.create_google_drive_folders()
+        for project in projects:
+            project.kick_off_send_mail()
+            project.create_google_drive_folders()
         return projects
 
 class ProjectAttachment(models.Model):

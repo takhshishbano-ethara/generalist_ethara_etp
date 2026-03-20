@@ -68,13 +68,14 @@ class GoogleDriveWizard(models.TransientModel):
 
         if resp.status_code == 200:
             data = resp.json()
-            return self.env['google.drive.file'].create({
+            obj_file_id = self.env['google.drive.file'].create({
                 'name': self.name,
                 'google_id': data['id'],
                 'type': 'folder',
                 'parent_id': self.parent_folder_id.id,
                 'url': f"https://drive.google.com/drive/folders/{data['id']}"
             })
+            return obj_file_id
         else:
             raise UserError(_("Google Drive Error: %s") % resp.text)
 
@@ -93,12 +94,13 @@ class GoogleDriveWizard(models.TransientModel):
 
         if resp.status_code == 200:
             data = resp.json()
-            return self.env['google.drive.file'].create({
+            obj_file_id = self.env['google.drive.file'].create({
                 'name': self.name,
                 'google_id': data['id'],
                 'type': 'file',
                 'parent_id': self.parent_folder_id.id,
                 'url': f"https://drive.google.com/file/d/{data['id']}/view"
             })
+            return obj_file_id
         else:
             raise UserError(_("Google Drive Error: %s") % resp.text)

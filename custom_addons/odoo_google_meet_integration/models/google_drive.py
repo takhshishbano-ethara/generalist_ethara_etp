@@ -17,6 +17,16 @@ class GoogleDriveFile(models.Model):
     ], string="Type", default='file', required=True)
     url = fields.Char(string="View in Google Drive", readonly=True)
 
+    def get_drive_data(self):
+        vals = {
+            'name': self.name or "",
+            'type': self.type or "",
+            'url': self.url or "",
+            'sub_files': [i.get_drive_data() for i in self.env['google.drive.file'].sudo().search(
+                [('parent_id', '=', self.id)])],
+        }
+        return vals
+
     def action_open_google_drive(self):
         return {
             'type': 'ir.actions.act_url',
