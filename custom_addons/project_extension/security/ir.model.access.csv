@@ -1,5 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_project_attachment,project.attachment,model_project_attachment,base.group_user,1,1,1,1
-access_project_category,project.category,model_project_category,base.group_user,1,1,1,1
 access_hr_employee_designation,hr.employee.designation,model_hr_employee_designation,base.group_user,1,1,1,1
 access_whatsapp_group_members,whatsapp.group.members,model_whatsapp_group_members,base.group_user,1,1,1,1

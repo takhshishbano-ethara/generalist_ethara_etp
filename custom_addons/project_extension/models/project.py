@@ -4,24 +4,30 @@ from odoo import models, fields, api
 class Project(models.Model):
     _inherit = 'project.project'
 
-    project_attachments = fields.One2many('project.attachment', 'project_id', string='Attachments')
+    project_attachments = fields.Many2many('ir.attachment', 'project_project_hr_employee_attachment_rel', string='Attachments')
     internal_project_name = fields.Char(string='Internal Project')
     client_name = fields.Char(string='Client Name')
     internal_client_name = fields.Char(string='Internal Client Name')
-    project_category = fields.Many2one('project.category', string='Project')
+    # project_category = fields.Many2one('project.category', string='Project')
+    project_category = fields.Selection([('technical', 'Technical'), ('stem', 'Stem'), ('non_stem', 'Non Stem')], string='Project Category')
     project_type = fields.Selection([('single_turn', 'Single Turn'), ('multi_turn', 'Multi Turn')], default='single_turn')
     sample_task_number = fields.Integer(string='Sample Task Number')
     # project_lead = fields.Many2many('res.users','project_project_res_users_lead_rel','project_id','user_id', string='Lead')
     # project_aire = fields.Many2many('res.users','project_project_res_users_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
     # project_swe = fields.Many2many('res.users','project_project_res_users_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
-    project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel','project_id','user_id', string='Lead')
-    project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
-    project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
+    project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel', string='Lead')
+    project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', string='AI Research Engineer (AIRE)')
+    project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel', string='Software Engineer (SWE)')
     ai_generated_description = fields.Text(string='AI Generated Description')
     # Whatsapp Group
+    whatsapp_group_name = fields.Char(string='Whatsapp Group Name')
     whatsapp_group_members = fields.Many2many('whatsapp.group.members', string='Whatsapp Group Members')
     # Slack Group
+    slack_channel_name = fields.Char(string='Slack Channel Name')
+    slack_members = fields.Many2many('hr.employee', 'project_project_hr_employee_slack_member_rel', string='Slack Members')
+
     # Google Drive
+    google_drive_id = fields.Many2one('google.drive.file', string='Google Drive ID')
     # kick off email
     kick_off_to_mails = fields.Char(string='Kick Off To Mails')
     kick_off_subject = fields.Char(string='Kick Off Subject')
@@ -40,10 +46,29 @@ class Project(models.Model):
             template.sudo().send_mail(record.id, email_values=email_values, force_send=True)
         return True
 
+    def create_google_drive_folders(self):
+        self.ensure_one()
+        parent_wizard = self.env['google.drive.wizard'].create({
+            'name': self.name,
+            'upload_type': 'folder'
+        })
+        parent_folder = parent_wizard._create_folder()
+
+        if parent_folder:
+            self.google_drive_id = parent_folder.id
+            for sub in ["Internal", "External"]:
+                self.env['google.drive.wizard'].create({
+                    'name': sub,
+                    'upload_type': 'folder',
+                    'parent_folder_id': parent_folder.id
+                })._create_folder()
+
     @api.model_create_multi
     def create(self, vals_list):
         projects = super(Project, self).create(vals_list)
-        projects.kick_off_send_mail()
+        # for project in projects:
+            # project.kick_off_send_mail()
+            # project.create_google_drive_folders()
         return projects
 
 class ProjectAttachment(models.Model):

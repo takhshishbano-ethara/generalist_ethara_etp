@@ -68,7 +68,7 @@ class GoogleDriveWizard(models.TransientModel):
 
         if resp.status_code == 200:
             data = resp.json()
-            self.env['google.drive.file'].create({
+            return self.env['google.drive.file'].create({
                 'name': self.name,
                 'google_id': data['id'],
                 'type': 'folder',
@@ -93,7 +93,7 @@ class GoogleDriveWizard(models.TransientModel):
 
         if resp.status_code == 200:
             data = resp.json()
-            self.env['google.drive.file'].create({
+            return self.env['google.drive.file'].create({
                 'name': self.name,
                 'google_id': data['id'],
                 'type': 'file',
