@@ -378,7 +378,7 @@ class ProjectController(http.Controller):
             for p in projects:
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
-                    'name': safe_get_value(p, 'p.name', 'str'),
+                    'name': safe_get_value(p, 'name', 'str'),
                 })
             return return_Response(
                 message="Success",
