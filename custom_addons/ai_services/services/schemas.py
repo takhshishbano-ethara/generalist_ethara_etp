@@ -6,11 +6,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ProjectCategory(str, Enum):
+    STEM = "STEM"
+    NON_STEM = "Non-STEM"
     TECHNICAL = "Technical"
-    CREATIVE = "Creative"
-    LINGUISTIC = "Linguistic"
-    RESEARCH = "Research"
-    DATA = "Data"
 
 
 class ProjectType(str, Enum):

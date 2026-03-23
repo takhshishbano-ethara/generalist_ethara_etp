@@ -68,11 +68,9 @@ class AIDocumentExtraction(models.Model):
     )
     project_category = fields.Selection(
         [
+            ("stem", "STEM"),
+            ("non_stem", "Non-STEM"),
             ("technical", "Technical"),
-            ("creative", "Creative"),
-            ("linguistic", "Linguistic"),
-            ("research", "Research"),
-            ("data", "Data"),
         ],
         string="Project Category",
         readonly=True,
@@ -209,11 +207,11 @@ class AIDocumentExtraction(models.Model):
             details.project_category.value if details.project_category else ""
         ).lower()
         category_map = {
+            "stem": "stem",
+            "non-stem": "non_stem",
+            "non stem": "non_stem",
+            "nonstem": "non_stem",
             "technical": "technical",
-            "creative": "creative",
-            "linguistic": "linguistic",
-            "research": "research",
-            "data": "data",
         }
         project_category = category_map.get(category_raw)
 

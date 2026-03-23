@@ -33,7 +33,7 @@ FIELD INSTRUCTIONS:
 - internal_project_name: Create a highly creative and unique internal codename based purely on the project's theme, scope, and objectives. DO NOT include the client's name or any reference to the client organisation. Do NOT include any version numbers. Do NOT reuse common words like "Quantum", "Nebula", "Phoenix", or "Atlas". The name must be original, unexpected, and memorable — something a branding agency would invent. Must be descriptive of the work itself.
 - client_name: The official client organisation name found in the document.
 - internal_client_name: A short alias or code for the client, e.g. "Ethara".
-- project_category: One of: Technical, Creative, Linguistic, Research, Data.
+- project_category: One of: STEM, Non-STEM, Technical.
 - project_type: Either "Single Turn" or "Multi Turn".
 - start_date: Project start date in YYYY-MM-DD format. ONLY output this if it is explicitly stated in the document. Otherwise, return null. Do NOT assume today's date.
 - end_date: Project end date in YYYY-MM-DD format. ONLY output this if explicitly stated in the document. Otherwise, return null.
