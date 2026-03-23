@@ -1,0 +1,108 @@
+2026-03-20 08:14:22,558 89406 INFO ? odoo: Odoo version 19.0 
+2026-03-20 08:14:22,559 89406 INFO ? odoo: Using configuration file at /Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo.conf 
+2026-03-20 08:14:22,559 89406 INFO ? odoo: addons paths: _NamespacePath(['/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/addons', '/Users/apple/Library/Application Support/Odoo/addons/19.0', '/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/addons', '/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons']) 
+2026-03-20 08:14:22,559 89406 INFO ? odoo: database: odoo@localhost:5432 
+2026-03-20 08:14:27,889 89406 INFO ? odoo.service.server: HTTP service (werkzeug) running on Apples-MacBook-Pro.local:8069 
+2026-03-20 08:14:27,912 89406 INFO ethara_etp odoo.modules.loading: loading 1 modules... 
+2026-03-20 08:14:27,915 89406 INFO ethara_etp odoo.modules.loading: 1 modules loaded in 0.00s, 0 queries (+0 extra) 
+2026-03-20 08:14:27,922 89406 INFO ethara_etp odoo.modules.loading: loading 15 modules... 
+2026-03-20 08:14:28,088 89406 INFO ethara_etp odoo.modules.loading: 15 modules loaded in 0.17s, 0 queries (+0 extra) 
+2026-03-20 08:14:28,113 89406 INFO ethara_etp odoo.modules.loading: Modules loaded. 
+2026-03-20 08:14:28,124 89406 INFO ethara_etp odoo.registry: Registry loaded in 0.233s 
+2026-03-20 08:14:29,210 89406 INFO ethara_etp odoo.addons.base.models.ir_http: Generating routing map for key None 
+2026-03-20 08:14:29,220 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:14:29] "GET /web HTTP/1.1" 303 - 5 0.003 0.009
+2026-03-20 08:14:53,300 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:14:53] "GET /websocket?version=19.0-2 HTTP/1.1" 101 - 2 0.006 0.008
+2026-03-20 08:14:53,313 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:14:53] "POST /bus/has_missed_notifications HTTP/1.1" 200 - 2 0.002 0.002
+2026-03-20 08:14:53,621 89406 INFO ? odoo.addons.bus.models.bus: Bus.loop listen imbus on db postgres 
+2026-03-20 08:14:58,337 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:14:58] "POST /api/v1/ai/extract HTTP/1.1" 400 - 4 0.001 0.002
+2026-03-20 08:15:28,163 89406 INFO ethara_etp odoo.addons.base.models.ir_cron: Job 'Base: Auto-vacuum internal data' (1) starting 
+2026-03-20 08:15:28,256 89406 INFO ethara_etp odoo.addons.base.models.res_users: GC 'auth_totp.device' delete 0 entries 
+2026-03-20 08:15:28,260 89406 INFO ethara_etp odoo.addons.base.models.res_users: GC 'res.users.apikeys' delete 0 entries 
+2026-03-20 08:15:28,271 89406 INFO ethara_etp odoo.addons.base.models.res_device: GC device logs delete 0 entries 
+2026-03-20 08:15:28,304 89406 INFO ethara_etp odoo.addons.base.models.ir_attachment: filestore gc 4 checked, 0 removed 
+2026-03-20 08:15:28,328 89406 INFO ethara_etp odoo.addons.base.models.res_users: GC'd 0 user log entries 
+2026-03-20 08:15:28,367 89406 INFO ethara_etp odoo.addons.base.models.res_device: GC device logs delete 0 entries 
+2026-03-20 08:15:28,426 89406 INFO ethara_etp odoo.addons.api_doc.models.ir_attachment: GC'd 0 /doc cached index 
+2026-03-20 08:15:28,435 89406 INFO ethara_etp odoo.addons.base.models.ir_cron: Job 'Base: Auto-vacuum internal data' (1) fully done (#loop 1; done 44; remaining 0; duration 0.27s) 
+2026-03-20 08:59:00,418 89406 INFO ethara_etp odoo.addons.base.models.res_device: User 2 inserts device log (w1BrdxTPlyRSpU0VQpd33qT4NFRTkft_Z0bb5SSw3s) 
+2026-03-20 08:59:00,430 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:59:00] "GET /websocket?version=19.0-2 HTTP/1.1" 101 - 2 0.016 0.022
+2026-03-20 08:59:00,475 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 08:59:00] "POST /bus/has_missed_notifications HTTP/1.1" 200 - 2 0.014 0.022
+2026-03-20 09:17:26,797 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 09:17:26] "GET /websocket?version=19.0-2 HTTP/1.1" 101 - 1 0.002 0.011
+2026-03-20 09:17:26,806 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 09:17:26] "POST /bus/has_missed_notifications HTTP/1.1" 200 - 2 0.002 0.002
+2026-03-20 09:26:19,457 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 09:26:19] "GET /web/login HTTP/1.1" 200 - 42 0.037 0.129
+2026-03-20 09:26:30,316 89406 WARNING ethara_etp py.warnings: <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2810, in __call__
+    response = request._serve_db()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2283, in _serve_db
+    return service_model.retrying(serve_func, env=self.env)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/service/model.py", line 188, in retrying
+    result = func()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2338, in _serve_ir_http
+    response = self.dispatcher.dispatch(rule.endpoint, args)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2460, in dispatch
+    return self.request.registry['ir.http']._dispatch(endpoint)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/addons/base/models/ir_http.py", line 355, in _dispatch
+    result = endpoint(**request.params)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 794, in route_wrapper
+    result = endpoint(self, *args, **params_ok)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/controllers/main.py", line 73, in extract_documents
+    text = extract_text_from_binary(b64_data, f.filename)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 44, in extract_text_from_binary
+    return _extract_pdf(file_bytes)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 91, in _extract_pdf
+    import fitz  # PyMuPDF
+ 
+2026-03-20 09:26:30,316 89406 WARNING ethara_etp py.warnings: <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2810, in __call__
+    response = request._serve_db()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2283, in _serve_db
+    return service_model.retrying(serve_func, env=self.env)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/service/model.py", line 188, in retrying
+    result = func()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2338, in _serve_ir_http
+    response = self.dispatcher.dispatch(rule.endpoint, args)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2460, in dispatch
+    return self.request.registry['ir.http']._dispatch(endpoint)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/addons/base/models/ir_http.py", line 355, in _dispatch
+    result = endpoint(**request.params)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 794, in route_wrapper
+    result = endpoint(self, *args, **params_ok)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/controllers/main.py", line 73, in extract_documents
+    text = extract_text_from_binary(b64_data, f.filename)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 44, in extract_text_from_binary
+    return _extract_pdf(file_bytes)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 91, in _extract_pdf
+    import fitz  # PyMuPDF
+ 
+2026-03-20 09:26:30,795 89406 WARNING ethara_etp py.warnings: <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2810, in __call__
+    response = request._serve_db()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2283, in _serve_db
+    return service_model.retrying(serve_func, env=self.env)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/service/model.py", line 188, in retrying
+    result = func()
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2338, in _serve_ir_http
+    response = self.dispatcher.dispatch(rule.endpoint, args)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 2460, in dispatch
+    return self.request.registry['ir.http']._dispatch(endpoint)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/addons/base/models/ir_http.py", line 355, in _dispatch
+    result = endpoint(**request.params)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/src/odoo/http.py", line 794, in route_wrapper
+    result = endpoint(self, *args, **params_ok)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/controllers/main.py", line 73, in extract_documents
+    text = extract_text_from_binary(b64_data, f.filename)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 44, in extract_text_from_binary
+    return _extract_pdf(file_bytes)
+  File "/Users/apple/Desktop/untitled folder/Odoo/ethara-etp/custom_addons/ai_services/services/document_parser.py", line 91, in _extract_pdf
+    import fitz  # PyMuPDF
+ 
+2026-03-20 09:26:30,838 89406 INFO ethara_etp odoo.addons.ai_services.services.bedrock_service: Calling Bedrock Converse API (ap-south-1) with 10750 chars of document text 
+2026-03-20 09:26:31,315 89406 ERROR ethara_etp odoo.addons.ai_services.controllers.main: Extraction API error: Unexpected Bedrock response structure: 'output' 
+2026-03-20 09:26:31,316 89406 INFO ethara_etp werkzeug: 127.0.0.1 - - [20/Mar/2026 09:26:31] "POST /api/v1/ai/extract HTTP/1.1" 500 - 1 0.002 2.702
+2026-03-20 09:28:07,664 89406 INFO ethara_etp odoo.service.server: Initiating shutdown 
+2026-03-20 09:28:07,665 89406 INFO ethara_etp odoo.service.server: Hit CTRL-C again or send a second signal to force the shutdown. 
+Exception in thread odoo.service.cron.cron0:
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/threading.py", line 1075, in _bootstrap_inner
+2026-03-20 09:28:08,075 89406 INFO ethara_etp odoo.sql_db: ConnectionPool(read/write;used=0/count=0/max=64): Closed 3 connections  
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

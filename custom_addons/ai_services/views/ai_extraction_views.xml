@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ════════════════════ Form View ════════════════════ -->
+    <record id="view_ai_document_extraction_form" model="ir.ui.view">
+        <field name="name">ai.document.extraction.form</field>
+        <field name="model">ai.document.extraction</field>
+        <field name="arch" type="xml">
+            <form string="Document Extraction">
+                <header>
+                    <button name="action_extract"
+                            string="Extract"
+                            type="object"
+                            class="oe_highlight"
+                            invisible="state != 'draft'"
+                            confirm="This will send document text to AWS Bedrock LLM for extraction. Continue?"/>
+                    <button name="action_extract"
+                            string="Re-Extract"
+                            type="object"
+                            invisible="state not in ('done', 'error')"/>
+                    <button name="action_reset_draft"
+                            string="Reset to Draft"
+                            type="object"
+                            invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,processing,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+
+                    <!-- Error banner -->
+                    <div class="alert alert-danger" role="alert"
+                         invisible="not error_message">
+                        <strong>Error: </strong>
+                        <field name="error_message" nolabel="1"/>
+                    </div>
+
+                    <!-- Documents Upload -->
+                    <group string="Documents">
+                        <field name="document_ids" widget="many2many_binary"
+                               string="Upload Documents"
+                               readonly="state == 'processing'"/>
+                    </group>
+
+                    <!-- Extracted Results -->
+                    <group string="Extracted Project Details"
+                           invisible="state != 'done'">
+                        <group>
+                            <field name="client_project_name"/>
+                            <field name="internal_project_name"/>
+                            <field name="client_name"/>
+                            <field name="internal_client_name"/>
+                        </group>
+                        <group>
+                            <field name="project_category"/>
+                            <field name="project_type"/>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                            <field name="sample_task_number"/>
+                        </group>
+                    </group>
+
+                    <group string="Description"
+                           invisible="state != 'done'">
+                        <field name="description" nolabel="1"
+                               colspan="2"/>
+                    </group>
+
+                    <!-- Metadata -->
+                    <group string="Metadata"
+                           invisible="state != 'done'">
+                        <field name="extracted_at"/>
+                    </group>
+
+                    <!-- Technical (collapsed by default) -->
+                    <notebook invisible="state not in ('done', 'error')">
+                        <page string="Raw Response" name="raw_response">
+                            <field name="raw_response" readonly="1"/>
+                        </page>
+                        <page string="Extracted Text" name="extracted_text">
+                            <field name="extracted_text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ════════════════════ List View ════════════════════ -->
+    <record id="view_ai_document_extraction_list" model="ir.ui.view">
+        <field name="name">ai.document.extraction.list</field>
+        <field name="model">ai.document.extraction</field>
+        <field name="arch" type="xml">
+            <list string="Document Extractions"
+                  decoration-danger="state == 'error'"
+                  decoration-success="state == 'done'"
+                  decoration-info="state == 'processing'">
+                <field name="name"/>
+                <field name="client_project_name"/>
+                <field name="client_name"/>
+                <field name="project_category"/>
+                <field name="project_type"/>
+                <field name="extracted_at"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"
+                       decoration-info="state == 'processing'"
+                       decoration-muted="state == 'draft'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ════════════════════ Search View ════════════════════ -->
+    <record id="view_ai_document_extraction_search" model="ir.ui.view">
+        <field name="name">ai.document.extraction.search</field>
+        <field name="model">ai.document.extraction</field>
+        <field name="arch" type="xml">
+            <search string="Search Extractions">
+                <field name="name"/>
+                <field name="client_project_name"/>
+                <field name="client_name"/>
+                <filter string="Done" name="filter_done"
+                        domain="[('state', '=', 'done')]"/>
+                <filter string="Errors" name="filter_error"
+                        domain="[('state', '=', 'error')]"/>
+                <filter string="Draft" name="filter_draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <group>
+                    <filter string="Status" name="group_state"
+                            context="{'group_by': 'state'}"/>
+                    <filter string="Category" name="group_category"
+                            context="{'group_by': 'project_category'}"/>
+                    <filter string="Client" name="group_client"
+                            context="{'group_by': 'client_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ════════════════════ Action ════════════════════ -->
+    <record id="action_ai_document_extraction" model="ir.actions.act_window">
+        <field name="name">Document Extractions</field>
+        <field name="res_model">ai.document.extraction</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ai_document_extraction_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first document extraction
+            </p>
+            <p>
+                Upload documents (PDF, DOCX, TXT) and extract project details
+                using AI-powered analysis via AWS Bedrock.
+            </p>
+        </field>
+    </record>
+
+</odoo>
