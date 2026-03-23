@@ -35,17 +35,18 @@ class Project(models.Model):
 
     def create_slack_channel(self):
         user_ids = []
-        user_ids.extend(self.project_lead.mapped('user_id'))
-        user_ids.extend(self.project_aire.mapped('user_id'))
-        user_ids.extend(self.project_swe.mapped('user_id'))
-        result = self.env['discuss.channel'].sudo().create_slack_channel(
-            channel_name=self.slack_channel_name,
-            admin_id=user_ids[0].id if user_ids else None,
-            user_ids=[uid.id for uid in user_ids if uid],
-        )
+        for i in self.slack_members.mapped('user_id'):
+            if i:
+                user_ids.append(i.id)
+        if user_ids:
+            result = self.env['discuss.channel'].sudo().create_slack_channel(
+                channel_name=self.slack_channel_name,
+                admin_id=user_ids[0].id if user_ids else None,
+                user_ids=user_ids,
+            )
 
-        if result.get('success'):
-            self.slack_channel_id = result.get('channel_id')
+            if result.get('success'):
+                self.slack_channel_id = result.get('channel_id')
 
     def kick_off_send_mail(self):
         outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name or "atech@yopmail.com"
