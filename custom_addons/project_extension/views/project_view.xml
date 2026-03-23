@@ -34,6 +34,20 @@
                         <field name="kick_off_body" widget="html" options="{'style-inline': true}"/>
                     </group>
                 </page>
+                <page string="Communication" name="communication">
+                    <group string="Whatsapp Group">
+                        <field name="whatsapp_group_name"/>
+                        <field name="whatsapp_group_members" widget="many2many_tags"/>
+                    </group>
+                    <group string="Slack Group">
+                        <field name="slack_channel_name"/>
+                        <field name="slack_channel_id"/>
+                        <field name="slack_members" widget="many2many_tags"/>
+                    </group>
+                    <group string="Google Drive">
+                        <field name="google_drive_id"/>
+                    </group>
+                </page>
 
 <!--                <page string="External Attachments" name="attachments">-->
 <!--                    <field name="project_attachments">-->
