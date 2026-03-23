@@ -432,3 +432,17 @@ class ProjectController(http.Controller):
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+
+    @validate_token
+    @http.route('/api/v1/get_project_customer_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_project_customer_list(self, **kwargs):
+        try:
+            project_customer = request.env['project.project'].sudo().search([]).mapped('client_name')
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": list(set(filter(None, project_customer))) if project_customer else []})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])

@@ -25,13 +25,27 @@ class Project(models.Model):
     # Slack Group
     slack_channel_name = fields.Char(string='Slack Channel Name')
     slack_members = fields.Many2many('hr.employee', 'project_project_hr_employee_slack_member_rel', string='Slack Members')
-
+    slack_channel_id = fields.Many2one('discuss.channel', string="Slack Channel")
     # Google Drive
     google_drive_id = fields.Many2one('google.drive.file', string='Google Drive ID')
     # kick off email
     kick_off_to_mails = fields.Char(string='Kick Off To Mails')
     kick_off_subject = fields.Char(string='Kick Off Subject')
     kick_off_body = fields.Text('Kick Off Body')
+
+    def create_slack_channel(self):
+        user_ids = []
+        user_ids.extend(self.project_lead.mapped('user_id'))
+        user_ids.extend(self.project_aire.mapped('user_id'))
+        user_ids.extend(self.project_swe.mapped('user_id'))
+        result = self.env['discuss.channel'].sudo().create_slack_channel(
+            channel_name=self.slack_channel_name,
+            admin_id=user_ids[0].id if user_ids else None,
+            user_ids=[uid.id for uid in user_ids if uid],
+        )
+
+        if result.get('success'):
+            self.slack_channel_id = result.get('channel_id')
 
     def kick_off_send_mail(self):
         outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name or "atech@yopmail.com"
@@ -82,6 +96,10 @@ class Project(models.Model):
         for project in projects:
             project.kick_off_send_mail()
             project.create_google_drive_folders()
+            try:
+                project.create_slack_channel()
+            except Exception as e:
+                print(f"{e}")
         return projects
 
 class ProjectAttachment(models.Model):
