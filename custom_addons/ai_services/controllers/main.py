@@ -5,6 +5,7 @@ from odoo import http
 from odoo.http import request
 
 from ..services.bedrock_service import call_bedrock_extract, build_extraction_response
+from ..services.config import get_bedrock_config
 
 _logger = logging.getLogger(__name__)
 
@@ -23,16 +24,10 @@ class AIServicesController(http.Controller):
             return http.Response(status=204)
 
         try:
-            ICP = request.env["ir.config_parameter"].sudo()
-            api_key = ICP.get_param("ai_services.bedrock_api_key", default="")
-            inference_arn = ICP.get_param(
-                "ai_services.bedrock_inference_arn", default=""
-            )
-            region = ICP.get_param("ai_services.bedrock_region", default="ap-south-1")
-
-            if not api_key or not inference_arn:
+            cfg = get_bedrock_config()
+            if not cfg["api_key"] or not cfg["inference_arn"]:
                 return self._json_error(
-                    "Bedrock API is not configured. Contact your administrator.",
+                    "Bedrock API is not configured. Set AI_SERVICES_BEDROCK_API_KEY and AI_SERVICES_BEDROCK_INFERENCE_ARN in .env",
                     status=503,
                 )
 
@@ -61,9 +56,9 @@ class AIServicesController(http.Controller):
 
             project_details = call_bedrock_extract(
                 documents=documents,
-                api_key=api_key,
-                inference_profile_arn=inference_arn,
-                region=region,
+                api_key=cfg["api_key"],
+                inference_profile_arn=cfg["inference_arn"],
+                region=cfg["region"],
             )
 
             combined_filename = ", ".join(filenames)

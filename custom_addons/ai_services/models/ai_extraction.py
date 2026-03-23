@@ -5,6 +5,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from ..services.bedrock_service import call_bedrock_extract
+from ..services.config import get_bedrock_config
 
 _logger = logging.getLogger(__name__)
 
@@ -128,21 +129,17 @@ class AIDocumentExtraction(models.Model):
         if not self.document_ids:
             raise UserError("Please upload at least one document before extracting.")
 
-        # Get Bedrock config from system parameters
-        ICP = self.env["ir.config_parameter"].sudo()
-        api_key = ICP.get_param("ai_services.bedrock_api_key", default="")
-        inference_arn = ICP.get_param("ai_services.bedrock_inference_arn", default="")
-        region = ICP.get_param("ai_services.bedrock_region", default="ap-south-1")
+        cfg = get_bedrock_config()
 
-        if not api_key:
+        if not cfg["api_key"]:
             raise UserError(
                 "Bedrock API Key is not configured. "
-                "Go to Settings > AI Services to set it up."
+                "Set AI_SERVICES_BEDROCK_API_KEY in .env"
             )
-        if not inference_arn:
+        if not cfg["inference_arn"]:
             raise UserError(
                 "Bedrock Inference Profile ARN is not configured. "
-                "Go to Settings > AI Services to set it up."
+                "Set AI_SERVICES_BEDROCK_INFERENCE_ARN in .env"
             )
 
         self.write({"state": "processing", "error_message": False})
@@ -165,9 +162,9 @@ class AIDocumentExtraction(models.Model):
 
             project_details = call_bedrock_extract(
                 documents=documents,
-                api_key=api_key,
-                inference_profile_arn=inference_arn,
-                region=region,
+                api_key=cfg["api_key"],
+                inference_profile_arn=cfg["inference_arn"],
+                region=cfg["region"],
             )
 
             vals = self._map_extraction_result(project_details)

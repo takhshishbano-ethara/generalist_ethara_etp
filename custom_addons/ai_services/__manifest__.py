@@ -12,9 +12,7 @@
     "depends": ["base", "web"],
     "data": [
         "security/ir.model.access.csv",
-        "data/ir_config_parameter_data.xml",
         "views/ai_extraction_views.xml",
-        "views/res_config_settings_views.xml",
         "views/menu_views.xml",
     ],
     "installable": True,
