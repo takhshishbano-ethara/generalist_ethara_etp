@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Top-level menu -->
+    <menuitem id="menu_ai_services_root"
+              name="AI Services"
+              web_icon="ai_services,static/description/icon.png"
+              sequence="100"/>
+
+    <!-- Sub-menu: Extractions -->
+    <menuitem id="menu_ai_extraction"
+              name="Document Extraction"
+              parent="menu_ai_services_root"
+              action="action_ai_document_extraction"
+              sequence="10"/>
+
+    <!-- Sub-menu: Configuration -->
+    <menuitem id="menu_ai_services_config"
+              name="Configuration"
+              parent="menu_ai_services_root"
+              sequence="90"
+              groups="base.group_system"/>
+
+</odoo>

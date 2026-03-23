@@ -1,0 +1,1206 @@
+# =============================================================================
+# Security Scan CI Pipeline for Ethara AI
+# =============================================================================
+# This workflow runs security scans, unit tests, builds Docker images, pushes
+# to ECR, and updates the gitops-prod repo with the new image tag.
+#
+# Prerequisites:
+#   1. GitHub OIDC Provider + GitHubActionsRole (CloudFormation)
+#   2. ECR repository: ethara-prod-backend (426628337772)
+#   3. S3 bucket: ethara-production-security-reports
+#   4. GitHub Secret: TARGET_PAT (PAT with repo scope for gitops-prod updates)
+#
+# Triggers:
+#   - Pull requests: feature/* -> develop, develop -> stage, stage -> main
+#   - Push to develop/stage/uat/main with feat: or fix: commit prefix
+#
+# Flow:
+#   Checkout -> AWS Creds -> Bandit -> Trivy -> Hadolint -> Pytest
+#     -> Docker Build & Push (if gates pass) -> Update gitops-prod image tag
+#     -> Generate report -> Upload to S3 -> Post PR comments
+# =============================================================================
+
+name: Security Scan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - develop
+      - stage
+      - uat
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  security-scan:
+
+  
+    if: |
+      (github.event_name == 'pull_request' && (
+      (startsWith(github.head_ref, 'feature/') && github.base_ref == 'develop') ||
+      (github.head_ref == 'develop' && github.base_ref == 'stage') ||
+      (github.head_ref == 'stage' && github.base_ref == 'main')
+      )) ||
+      (github.event_name == 'push' && (
+      startsWith(github.event.head_commit.message, 'feat: ') ||
+      startsWith(github.event.head_commit.message, 'fix: ')
+      ))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::426628337772:role/GitHubActionsRole
+          aws-region: ap-south-1
+
+      # --------- Install Tools ----------
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+      # --------- Bandit Steps (Security) ----------
+      - name: Install Bandit
+        run: |
+          pip install bandit
+
+      - name: Run Bandit
+        run: bandit -r . -f json -o bandit-report.json || true
+
+      # --------- Trivy Steps (Config) ----------
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
+
+      - name: Run Trivy Dockerfile Scan
+        run: |
+          if [ -f Dockerfile ]; then
+            trivy config --severity HIGH,CRITICAL --format json --output trivy-report.json Dockerfile || true
+          else
+            echo "[]" > trivy-report.json
+            echo "Dockerfile not found, skipping Trivy scan"
+          fi
+
+      # --------- Hadolint Steps (Dockerfile Lint) ----------
+      - name: Install Hadolint
+        run: |
+          wget -O hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+          chmod +x hadolint
+          sudo mv hadolint /usr/local/bin/hadolint
+
+      - name: Run Hadolint Scan
+        id: hadolint_scan
+        run: |
+          if [ -f Dockerfile ]; then
+            hadolint --format json Dockerfile > hadolint-report.json || true
+          else
+            echo "[]" > hadolint-report.json
+            echo "Dockerfile not found, skipping Hadolint scan"
+          fi
+          
+          HADOLINT_ISSUES=$(jq '. | length' hadolint-report.json 2>/dev/null || echo "0")
+          echo "hadolint_issues=$HADOLINT_ISSUES" >> $GITHUB_OUTPUT
+          
+          if [ "$HADOLINT_ISSUES" -eq 0 ]; then
+            echo "No Hadolint issues found"
+          else
+            echo "Found $HADOLINT_ISSUES Hadolint issues"
+          fi
+
+      # --------- Pytest Steps (Unit Tests) ----------
+      - name: Check if tests folder exists
+        id: check_tests_folder
+        run: |
+          if [ -d "tests" ]; then
+            echo "tests_folder_exists=true" >> $GITHUB_OUTPUT
+            echo "Tests folder found"
+          else
+            echo "tests_folder_exists=false" >> $GITHUB_OUTPUT
+            echo "Tests folder not found, skipping pytest"
+          fi
+
+      - name: Install Pytest
+        if: steps.check_tests_folder.outputs.tests_folder_exists == 'true'
+        run: |
+          pip install pytest
+
+      - name: Run Pytest
+        id: pytest_test
+        if: steps.check_tests_folder.outputs.tests_folder_exists == 'true'
+        run: |
+          set +e
+          pytest tests/ -v --tb=short > pytest-report.txt 2>&1
+          PYTEST_EXIT_CODE=$?
+          set -e
+          
+          echo "pytest_exit_code=$PYTEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          if [ $PYTEST_EXIT_CODE -eq 0 ]; then
+            echo "All tests passed"
+          else
+            echo "Tests failed with code $PYTEST_EXIT_CODE"
+          fi
+      
+      - name: Set Pytest Exit Code (No Tests Folder)
+        id: pytest_test_skip
+        if: steps.check_tests_folder.outputs.tests_folder_exists != 'true'
+        run: |
+          echo "pytest_exit_code=0" >> $GITHUB_OUTPUT
+          echo "Tests folder not found, treating pytest as passed for Docker build"
+
+      # --------- Prepare Pytest Exit Code for Docker Build ----------
+      - name: Set Final Pytest Exit Code
+        id: final_pytest_status
+        if: always()
+        run: |
+          if [ "${{ steps.check_tests_folder.outputs.tests_folder_exists }}" = "true" ]; then
+            FINAL_PYTEST_EXIT_CODE="${{ steps.pytest_test.outputs.pytest_exit_code }}"
+          else
+            FINAL_PYTEST_EXIT_CODE="${{ steps.pytest_test_skip.outputs.pytest_exit_code }}"
+          fi
+          
+          FINAL_PYTEST_EXIT_CODE="${FINAL_PYTEST_EXIT_CODE:-0}"
+          echo "pytest_exit_code=${FINAL_PYTEST_EXIT_CODE}" >> $GITHUB_OUTPUT
+          echo "Final pytest exit code: ${FINAL_PYTEST_EXIT_CODE}"
+
+      # =====================================================================
+      # Build Gate (Decision Logic)
+      # Docker build proceeds ONLY when:
+      #   - Hadolint has 0 issues AND
+      #   - (No tests folder OR pytest passed with exit code 0)
+      # =====================================================================
+      - name: Docker Build and Push
+        id: docker_build
+        if: |
+          steps.hadolint_scan.outputs.hadolint_issues == '0' && 
+          (steps.check_tests_folder.outputs.tests_folder_exists != 'true' || 
+           steps.final_pytest_status.outputs.pytest_exit_code == '0')
+        run: |
+          if [ ! -f Dockerfile ]; then
+            echo "Dockerfile not found, skipping Docker build"
+            exit 0
+          fi
+          
+          echo "Starting Docker build process..."
+          if [ "${{ steps.check_tests_folder.outputs.tests_folder_exists }}" = "true" ]; then
+            echo "Gates Passed: Hadolint (0 issues) & Pytest (Passed)"
+          else
+            echo "Gates Passed: Hadolint (0 issues) - No tests folder, skipping pytest check"
+          fi
+          
+          # ---------------------------------------------------------------
+          # UPDATE THESE VALUES for your application:
+          #   AWS_ACCOUNT_ID: Your AWS account
+          #   ECR_REPOSITORY: Your ECR repo name (from terraform output)
+          # ---------------------------------------------------------------
+          AWS_REGION="ap-south-1"
+          AWS_ACCOUNT_ID="426628337772"
+          ECR_REPOSITORY="ethara-etp-stage-backend"
+          
+          COMMIT_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          BUILD_ID="${COMMIT_SHA}"
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          FULL_IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${BUILD_ID}"
+          
+          echo "Logging in to Amazon ECR..."
+          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+          
+          echo "Building Docker image..."
+          docker build -t ${ECR_REPOSITORY}:${BUILD_ID} .
+          
+          echo "Tagging and Pushing..."
+          docker tag ${ECR_REPOSITORY}:${BUILD_ID} ${FULL_IMAGE_URI}
+          docker push ${FULL_IMAGE_URI}
+          
+          echo "Build and Push Complete!"
+          echo "BUILD_ID=${BUILD_ID}" >> $GITHUB_ENV
+          echo "FULL_IMAGE_URI=${FULL_IMAGE_URI}" >> $GITHUB_ENV
+
+      # =====================================================================
+      # GitOps: Update image tag in gitops-prod repo
+      # This triggers ArgoCD to deploy the new image automatically
+      #
+      # Required GitHub Secrets:
+      #   TARGET_PAT: GitHub PAT with 'repo' scope
+      #
+      # To customize per-app, set these secrets:
+      #   TARGET_REPO_ORG:  GitHub org (default: Ethara-Ai)
+      #   TARGET_REPO_NAME: Repo name (default: gitops-prod)
+      #   TARGET_FILE_PATH: values.yaml path (default: ethara-erp-backend/values.yaml)
+      # =====================================================================
+      - name: Update Image Tag in Target Repository
+        if: steps.docker_build.outcome == 'success'
+        timeout-minutes: 2
+        uses: actions/github-script@v7
+        env:
+          TARGET_REPO_ORG: ${{ secrets.TARGET_REPO_ORG || 'Ethara-Ai' }}
+          TARGET_REPO_NAME: ${{ secrets.TARGET_REPO_NAME || 'gitops-prod' }}
+          TARGET_FILE_PATH: ${{ secrets.TARGET_FILE_PATH || 'ethara-erp-backend/values.yaml' }}
+          BUILD_ID: ${{ github.event.pull_request.head.sha || github.sha }}
+        with:
+          github-token: ${{ secrets.TARGET_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            const targetRepoOrg = process.env.TARGET_REPO_ORG || 'Ethara-Ai';
+            const targetRepoName = process.env.TARGET_REPO_NAME || 'gitops-prod';
+            const targetFilePath = process.env.TARGET_FILE_PATH || 'ethara-erp-backend/values.yaml';
+            const targetBranch = 'dev';
+            const buildId = process.env.BUILD_ID || context.sha;
+            
+            console.log('Updating image tag in target repository...');
+            console.log(`Target: ${targetRepoOrg}/${targetRepoName}`);
+            console.log(`Branch: ${targetBranch}`);
+            console.log(`File: ${targetFilePath}`);
+            console.log(`New tag: ${buildId}`);
+            
+            try {
+              console.log(`Fetching file content from ${targetRepoOrg}/${targetRepoName}...`);
+              
+              let fileResponse;
+              try {
+                fileResponse = await github.rest.repos.getContent({
+                  owner: targetRepoOrg,
+                  repo: targetRepoName,
+                  path: targetFilePath,
+                  ref: targetBranch,
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  console.error(`File not found: ${targetFilePath} in ${targetRepoOrg}/${targetRepoName}`);
+                  console.error(`Please verify the file path and repository name.`);
+                  process.exit(1);
+                } else if (error.status === 403) {
+                  console.error(`Permission denied accessing ${targetRepoOrg}/${targetRepoName}`);
+                  console.error(`For cross-repository access, create a PAT with 'repo' permissions:`);
+                  console.error(`  1. Go to: https://github.com/settings/tokens`);
+                  console.error(`  2. Generate a classic token with 'repo' scope`);
+                  console.error(`  3. Add it as a secret named TARGET_PAT`);
+                  process.exit(1);
+                }
+                throw error;
+              }
+              
+              const currentContent = Buffer.from(fileResponse.data.content, 'base64').toString('utf8');
+              const fileSha = fileResponse.data.sha;
+              
+              console.log(`File retrieved successfully (SHA: ${fileSha.substring(0, 7)}...)`);
+              
+              let updatedContent = currentContent;
+              let tagUpdated = false;
+              
+              // Pattern 1: tag: "value" or tag: 'value'
+              updatedContent = updatedContent.replace(/tag:\s*(["'])([^"']*)\1/g, (match, quote, value) => {
+                if (value !== buildId) {
+                  tagUpdated = true;
+                  return `tag: ${quote}${buildId}${quote}`;
+                }
+                return match;
+              });
+              
+              // Pattern 2: tag: value (no quotes)
+              if (!tagUpdated) {
+                updatedContent = updatedContent.replace(/tag:\s*([^\s\n#]+)(\s*#.*)?$/gm, (match, value, comment = '') => {
+                  if (value === buildId || value === `"${buildId}"` || value === `'${buildId}'`) {
+                    return match;
+                  }
+                  if (!value.startsWith('#') && value.trim() !== '') {
+                    tagUpdated = true;
+                    return `tag: "${buildId}"${comment}`;
+                  }
+                  return match;
+                });
+              }
+              
+              // Pattern 3: image block with tag
+              if (!tagUpdated) {
+                updatedContent = updatedContent.replace(/(image:\s*\n\s*repository:[^\n]*\n\s*)tag:\s*["']?([^"'\s\n]+)["']?/g, (match, prefix, value) => {
+                  if (value !== buildId) {
+                    tagUpdated = true;
+                    return `${prefix}tag: "${buildId}"`;
+                  }
+                  return match;
+                });
+              }
+              
+              // Pattern 4: any tag: line
+              if (!tagUpdated) {
+                const lines = updatedContent.split('\n');
+                const updatedLines = lines.map(line => {
+                  const trimmedLine = line.trim();
+                  if (trimmedLine.startsWith('tag:') && !line.includes(buildId)) {
+                    tagUpdated = true;
+                    const indent = line.match(/^(\s*)/)[1];
+                    return `${indent}tag: "${buildId}"`;
+                  }
+                  return line;
+                });
+                updatedContent = updatedLines.join('\n');
+              }
+              
+              if (currentContent === updatedContent) {
+                console.log(`No changes needed (tag is already ${buildId})`);
+                return;
+              }
+              
+              if (!tagUpdated) {
+                console.log(`Warning: Could not find tag pattern in file.`);
+                console.log(`File preview (first 20 lines):`);
+                console.log(updatedContent.split('\n').slice(0, 20).join('\n'));
+              }
+              
+              const commitMessage = `chore: update image tag to ${buildId} [automated by security-scan workflow]`;
+              
+              try {
+                await github.rest.repos.createOrUpdateFileContents({
+                  owner: targetRepoOrg,
+                  repo: targetRepoName,
+                  path: targetFilePath,
+                  message: commitMessage,
+                  content: Buffer.from(updatedContent).toString('base64'),
+                  sha: fileSha,
+                  branch: targetBranch,
+                });
+                
+                console.log(`Successfully updated image tag in ${targetRepoOrg}/${targetRepoName}!`);
+                console.log(`  Commit: ${commitMessage}`);
+                console.log(`  Tag updated to: ${buildId}`);
+              } catch (error) {
+                if (error.status === 403) {
+                  console.error(`Permission denied: Cannot write to ${targetRepoOrg}/${targetRepoName}`);
+                  console.error(`SOLUTION: Create a PAT with 'repo' permissions and add as TARGET_PAT secret`);
+                  process.exit(1);
+                } else if (error.status === 422) {
+                  console.error(`Validation error: ${error.message}`);
+                  console.error(`File may have been modified since we fetched it.`);
+                  process.exit(1);
+                }
+                throw error;
+              }
+              
+            } catch (error) {
+              console.error(`Error updating image tag: ${error.message}`);
+              if (error.response) {
+                console.error(`  Status: ${error.response.status}`);
+                console.error(`  Response: ${JSON.stringify(error.response.data, null, 2)}`);
+              }
+              process.exit(1);
+            }
+
+      - name: Docker Build Skipped (Failure Handler)
+        id: docker_build_skipped
+        if: |
+          steps.hadolint_scan.outputs.hadolint_issues != '0' || 
+          (steps.check_tests_folder.outputs.tests_folder_exists == 'true' && 
+           steps.final_pytest_status.outputs.pytest_exit_code != '0')
+        run: |
+          echo "Docker Build SKIPPED because checks failed."
+          echo ""
+          
+          if [ "${{ steps.hadolint_scan.outputs.hadolint_issues }}" != "0" ]; then
+            echo "Hadolint found ${{ steps.hadolint_scan.outputs.hadolint_issues }} issues in Dockerfile."
+            jq -r '.[] | "  - Line \(.line): \(.code) - \(.message)"' hadolint-report.json || true
+          fi
+          
+          if [ "${{ steps.check_tests_folder.outputs.tests_folder_exists }}" = "true" ] && [ "${{ steps.pytest_test.outputs.pytest_exit_code }}" != "0" ]; then
+             echo "Pytest Unit Tests Failed."
+             tail -20 pytest-report.txt || true
+          fi
+          
+          echo ""
+          echo "Docker build skipped, but continuing with remaining security scans..."
+
+      # =====================================================================
+      # Report Generation (Always Run)
+      # Generates markdown report, uploads to S3, posts to PR
+      # =====================================================================
+
+      - name: Format Reports
+        if: always()
+        run: |
+          echo "# Security Scan Report" > report.md
+          echo "" >> report.md
+          
+          BANDIT_FAILED=$(jq '.results | length' bandit-report.json 2>/dev/null || echo "0")
+          TRIVY_FAILED=$(jq '[.Results[]?.Misconfigurations[]?] | length' trivy-report.json 2>/dev/null || echo "0")
+          HADOLINT_FAILED=$(jq '. | length' hadolint-report.json 2>/dev/null || echo "0")
+          
+          TOTAL_ISSUES=$((BANDIT_FAILED + TRIVY_FAILED + HADOLINT_FAILED))
+          
+          if [ -f pytest-report.txt ]; then
+            PYTEST_PASSED=$(grep -oE "[0-9]+ passed" pytest-report.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+            PYTEST_FAILED=$(grep -oE "[0-9]+ failed" pytest-report.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+            PYTEST_ERROR=$(grep -oE "[0-9]+ error" pytest-report.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+            if [ -z "$PYTEST_PASSED" ] || [ "$PYTEST_PASSED" = "0" ]; then
+              PYTEST_PASSED=$(grep -oE "([0-9]+) passed" pytest-report.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+            fi
+            if [ -z "$PYTEST_FAILED" ]; then
+              PYTEST_FAILED=$(grep -oE "([0-9]+) failed" pytest-report.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+            fi
+            PYTEST_TOTAL=$((PYTEST_PASSED + PYTEST_FAILED + PYTEST_ERROR))
+          else
+            PYTEST_PASSED="0"
+            PYTEST_FAILED="0"
+            PYTEST_TOTAL="0"
+          fi
+          
+          GITHUB_USERNAME=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+          GITHUB_REPO=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+          COMMIT_ID="${{ github.event.pull_request.head.sha || github.sha }}"
+          S3_BUCKET="ethara-production-security-reports"
+          S3_BASE_PATH="security-reports/${GITHUB_USERNAME}/${GITHUB_REPO}/${BRANCH_NAME}/"
+          S3_REPORT_URL="https://${S3_BUCKET}.s3.ap-south-1.amazonaws.com/${S3_BASE_PATH}${COMMIT_ID}-report.md"
+          
+          if [ "${{ steps.docker_build.outcome }}" = "success" ]; then
+            DOCKER_MESSAGE="Docker push to ethara-prod-backend"
+          else
+            DOCKER_MESSAGE="Docker build and push failed"
+          fi
+          
+          if [ ! -d "tests" ]; then
+            PYTEST_STATUS="No test folder found"
+          elif [ ! -f pytest-report.txt ]; then
+            PYTEST_STATUS="No test folder found"
+          elif [ "${PYTEST_FAILED}" = "0" ] || [ -z "${PYTEST_FAILED}" ]; then
+            PYTEST_STATUS="All Passed"
+          else
+            PYTEST_STATUS="${PYTEST_FAILED}/${PYTEST_TOTAL} (${PYTEST_FAILED} Failed)"
+          fi
+          
+          {
+            echo "## Security Summary"
+            echo "Total Issues Found: $TOTAL_ISSUES"
+            echo "Bandit (Python): $BANDIT_FAILED"
+            echo "Trivy (Dockerfile): $TRIVY_FAILED"
+            echo "Hadolint (Dockerfile): $HADOLINT_FAILED"
+            echo ""
+            echo "Unit Testing"
+            echo "Unit Test: $PYTEST_STATUS"
+            echo ""
+            echo "Docker Build & Push"
+            echo "$DOCKER_MESSAGE"
+            echo ""
+            
+            if [ "$TOTAL_ISSUES" -eq 0 ]; then
+              echo ":white_check_mark: Everything looks secure."
+            else
+              echo "**Every issue is a risk. Fix before you MERGE!**"
+            fi
+            echo ""
+            echo "### Full Report Archive"
+            echo "**S3 Bucket:** [\`${S3_BUCKET}\`](https://s3.console.aws.amazon.com/s3/buckets/${S3_BUCKET}?prefix=${S3_BASE_PATH})"
+            echo ""
+            echo "**Direct Report Link:** [View in S3](${S3_REPORT_URL})"
+            echo ""
+            echo "---"
+            echo ""
+          } >> report.md
+          
+          export REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          export BRANCH="${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD)}"
+          
+          # ========== BANDIT REPORT ==========
+          echo "## Bandit Report (Python Security)" >> report.md
+          echo "" >> report.md
+          if [ -f bandit-report.json ]; then
+            BANDIT_ISSUES_COUNT=$(jq '.results | length' bandit-report.json 2>/dev/null || echo "0")
+            if [ "$BANDIT_ISSUES_COUNT" -gt 0 ]; then
+              jq -r --arg repo_url "$REPO_URL" --arg branch "$BRANCH" '
+                .results[] |
+                (.filename | ltrimstr("/")) as $file_path |
+                ((.line_number | tostring) // "?") as $line_num |
+                "**Issue: " + (.issue_text // "N/A") + "**\n" +
+                "**Line:** " + $line_num + "\n" +
+                "**Severity:** " + (.issue_severity // "N/A") + "\n" +
+                "**Confidence:** " + (.issue_confidence // "N/A") + "\n" +
+                "**Link:** [" + ($file_path // "unknown") + "](" + $repo_url + "/blob/" + $branch + "/" + $file_path + "#L" + $line_num + ")\n" +
+                "\n---\n"
+              ' bandit-report.json >> report.md
+            else
+              echo ":white_check_mark: No Bandit issues found!" >> report.md
+            fi
+          else
+            echo ":warning: Bandit report not generated or found." >> report.md
+          fi
+          echo "" >> report.md
+          
+          # ========== UNIT TESTING ==========
+          echo "## Unit Testing" >> report.md
+          echo "" >> report.md
+          if [ -f pytest-report.txt ]; then
+            PYTEST_FOUND_FAILURES=false
+            printf '%s\n' \
+              'import re' \
+              'import sys' \
+              'import os' \
+              'try:' \
+              '    repo_url = os.environ.get("REPO_URL", "")' \
+              '    branch = os.environ.get("BRANCH", "")' \
+              '    with open("pytest-report.txt", "r") as f:' \
+              '        content = f.read()' \
+              '    failed_tests = re.findall(r"([^\s]+::[^\s]+)\s+(FAILED|ERROR)", content)' \
+              '    if not failed_tests:' \
+              '        print(":white_check_mark: All tests passed!")' \
+              '    else:' \
+              '        for test_name, outcome in failed_tests:' \
+              '            test_file = test_name.split("::")[0].lstrip("./")' \
+              '            test_func = test_name.split("::")[-1] if "::" in test_name else test_name' \
+              '            error_msg = "Test failed"' \
+              '            test_pos = content.find(test_name)' \
+              '            if test_pos != -1:' \
+              '                after_test = content[test_pos:test_pos+2000]' \
+              '                assertion_error_match = re.search(r"AssertionError:\s*(.+?)(?:\n|$)", after_test, re.DOTALL)' \
+              '                if assertion_error_match:' \
+              '                    error_msg = assertion_error_match.group(1).strip()' \
+              '                    error_msg = re.sub(r"\s+", " ", error_msg)' \
+              '                    if len(error_msg) > 200:' \
+              '                        error_msg = error_msg[:200] + "..."' \
+              '                else:' \
+              '                    assert_line_match = re.search(r"assert\s+[^\n]+(?:,\s*[^)]+)?", after_test)' \
+              '                    if assert_line_match:' \
+              '                        error_msg = assert_line_match.group(0).strip()' \
+              '                        if len(error_msg) > 200:' \
+              '                            error_msg = error_msg[:200] + "..."' \
+              '                    else:' \
+              '                        short_msg_match = re.search(r"FAILED\s+([^\n]+)", after_test)' \
+              '                        if short_msg_match:' \
+              '                            error_msg = short_msg_match.group(1).strip()' \
+              '            print("Test: " + test_func)' \
+              '            link_url = repo_url + "/blob/" + branch + "/" + test_file' \
+              '            print("Link: [" + test_file + "](" + link_url + ")")' \
+              '            print("")' \
+              'except Exception as e:' \
+              '    print(":warning: Error parsing pytest report: " + str(e))' \
+              > /tmp/pytest_parser.py
+            python3 /tmp/pytest_parser.py >> report.md
+          else
+            echo ":warning: Pytest report not generated or found." >> report.md
+          fi
+          echo "" >> report.md
+    
+          # ========== TRIVY REPORT ==========
+          echo "## Trivy Report (Dockerfile Security)" >> report.md
+          echo "" >> report.md
+          if [ -f trivy-report.json ]; then
+            TRIVY_ISSUES_COUNT=$(jq '[.Results[]?.Misconfigurations[]?] | length' trivy-report.json 2>/dev/null || echo "0")
+            if [ "$TRIVY_ISSUES_COUNT" -gt 0 ]; then
+              jq -r --arg repo_url "$REPO_URL" --arg branch "$BRANCH" '
+                .Results[]? | .Target as $target |
+                .Misconfigurations[]? |
+                ((.CauseMetadata.StartLine | tostring) // "1") as $line_num |
+                "**ID:** " + (.ID // "N/A") + "\n" +
+                "**Type:** " + (.Type // "Dockerfile Security Check") + "\n" +
+                "**Severity:** " + (.Severity // "N/A") + "\n" +
+                "**Message:** " + (.Message // "N/A") + "\n" +
+                "**Resolution:** " + (.Resolution // "N/A") + "\n" +
+                "**Link:** [Dockerfile](" + $repo_url + "/blob/" + $branch + "/Dockerfile#L" + $line_num + ")\n" +
+                "\n---\n"
+              ' trivy-report.json >> report.md
+            else
+              echo ":white_check_mark: No Trivy issues found!" >> report.md
+            fi
+          else
+            echo ":warning: Trivy report not generated or found (Dockerfile may not exist)." >> report.md
+          fi
+          echo "" >> report.md
+          
+          # ========== HADOLINT REPORT =========
+          echo "## Hadolint Report (Dockerfile Linter)" >> report.md
+          echo "" >> report.md
+          if [ -f hadolint-report.json ]; then
+            HADOLINT_ISSUES_COUNT=$(jq '. | length' hadolint-report.json 2>/dev/null || echo "0")
+            if [ "$HADOLINT_ISSUES_COUNT" -gt 0 ]; then
+              jq -r --arg repo_url "$REPO_URL" --arg branch "$BRANCH" '
+                .[] |
+                ((.line // 0) | tostring) as $line_num |
+                "**Code:** " + (.code // "N/A") + "\n" +
+                "**Line:** " + $line_num + "\n" +
+                "**Severity:** " + (.level // "N/A") + "\n" +
+                "**Message:** " + (.message // "N/A") + "\n" +
+                "**Link:** [Dockerfile](" + $repo_url + "/blob/" + $branch + "/Dockerfile#L" + $line_num + ")\n" +
+                "\n---\n"
+              ' hadolint-report.json >> report.md
+            else
+              echo ":white_check_mark: No Hadolint issues found!" >> report.md
+            fi
+          else
+            echo ":warning: Hadolint report not generated or found (Dockerfile may not exist)." >> report.md
+          fi
+          echo "" >> report.md
+          
+          echo "---" >> report.md
+          echo "*This report was generated automatically by the Security Scan Pipeline*" >> report.md
+
+      - name: Upload Reports to S3
+        if: always()
+        run: |
+          GITHUB_USERNAME=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+          GITHUB_REPO=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+          COMMIT_ID="${{ github.event.pull_request.head.sha || github.sha }}"
+          
+          S3_BASE_PATH="security-reports/${GITHUB_USERNAME}/${GITHUB_REPO}/${BRANCH_NAME}/"
+          
+          S3_BUCKET="ethara-production-security-reports"
+          aws s3 cp report.md s3://${S3_BUCKET}/${S3_BASE_PATH}${COMMIT_ID}-report.md --region ap-south-1
+          echo "Report uploaded to: s3://${S3_BUCKET}/${S3_BASE_PATH}${COMMIT_ID}-report.md"
+
+      - name: Prepare findings JSON for batched PR comments
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          echo "Collecting all findings into a single JSON file for batching..."
+          
+          echo "[]" > bandit_findings.json
+          echo "[]" > trivy_findings.json
+          echo "[]" > hadolint_findings.json
+
+          if [ -f bandit-report.json ]; then
+            echo "Processing Bandit issues..."
+            BANDIT_COUNT=$(jq '.results | length' bandit-report.json 2>/dev/null || echo "0")
+            if [ "$BANDIT_COUNT" -gt 0 ]; then
+              jq '[.results[] | 
+                     {
+                       path: (.filename | sub("^\\./"; "")),
+                       line: .line_number,
+                       body: ("**Bandit Security Issue**\n\n**Scanner:** Bandit\n**Severity:** " + .issue_severity + "\n**Confidence:** " + .issue_confidence + "\n**Issue:** " + .issue_text)
+                     } | select(.path != "" and .line > 0)]' bandit-report.json > bandit_findings.json 2>/dev/null || echo "[]" > bandit_findings.json
+            fi
+          fi
+
+          if [ -f trivy-report.json ]; then
+            echo "Processing Trivy issues..."
+            TRIVY_COUNT=$(jq '[.Results[]?.Misconfigurations[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")] | length' trivy-report.json 2>/dev/null || echo "0")
+            if [ "$TRIVY_COUNT" -gt 0 ]; then
+              jq '[.Results[]? | .Target as $t |
+                     .Misconfigurations[]? |
+                     select(.Severity=="HIGH" or .Severity=="CRITICAL") |
+                     {
+                       path: ($t // "Dockerfile"),
+                       line: (.CauseMetadata.StartLine // 1),
+                       body: ("**Trivy Security Issue**\n\n**Scanner:** Trivy\n**Severity:** " + .Severity + "\n**ID:** " + (.ID // "N/A") + "\n**Type:** " + (.Type // "N/A") + "\n**Title:** " + (.Title // "N/A") + "\n**Description:** " + (.Description // "N/A"))
+                     }]' trivy-report.json > trivy_findings.json 2>/dev/null || echo "[]" > trivy_findings.json
+            fi
+          fi
+
+          if [ -f hadolint-report.json ]; then
+            echo "Processing Hadolint issues..."
+            HADOLINT_COUNT=$(jq 'length' hadolint-report.json 2>/dev/null || echo "0")
+            if [ "$HADOLINT_COUNT" -gt 0 ]; then
+              jq '[.[] | 
+                     {
+                       path: "Dockerfile",
+                       line: .line,
+                       body: ("**Hadolint Issue**\n\n**Scanner:** Hadolint\n**Level:** " + .level + "\n**Code:** " + .code + "\n**Message:** " + .message)
+                     } | select(.line > 0)]' hadolint-report.json > hadolint_findings.json 2>/dev/null || echo "[]" > hadolint_findings.json
+            fi
+          fi
+
+          jq -s 'add' bandit_findings.json trivy_findings.json hadolint_findings.json > all_findings.json
+          
+          if ! jq -e 'type == "array"' all_findings.json > /dev/null 2>&1; then
+            echo "Error: all_findings.json is not a valid array, creating empty array"
+            echo "[]" > all_findings.json
+          fi
+          
+          TOTAL_FINDINGS=$(jq 'length' all_findings.json 2>/dev/null || echo "0")
+          echo "Total findings collected: $TOTAL_FINDINGS"
+          
+          rm -f bandit_findings.json trivy_findings.json hadolint_findings.json
+
+      - name: Post inline review comments with optimized batching
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            if (!fs.existsSync('all_findings.json')) {
+              console.log('No all_findings.json found, skipping inline comments');
+              return;
+            }
+
+            let findingsData;
+            try {
+              const fileContent = fs.readFileSync('all_findings.json', 'utf8');
+              findingsData = JSON.parse(fileContent);
+            } catch (err) {
+              console.error('Error reading or parsing all_findings.json:', err.message);
+              return;
+            }
+
+            let findings = [];
+            if (Array.isArray(findingsData)) {
+              findings = findingsData;
+            } else if (findingsData && typeof findingsData === 'object') {
+              findings = findingsData.findings || findingsData.results || [];
+            } else {
+              console.error('Invalid findings data type:', typeof findingsData);
+              return;
+            }
+
+            console.log(`Total findings loaded: ${findings.length}`);
+
+            if (findings.length === 0) {
+              console.log('No findings to post as comments');
+              return;
+            }
+
+            const commit_id = context.payload.pull_request.head.sha;
+            const { owner, repo } = context.repo;
+            const pull_number = context.issue.number;
+
+            console.log(`Commit ID: ${commit_id}`);
+            console.log(`Repo: ${owner}/${repo}, PR: ${pull_number}`);
+
+            console.log('Fetching PR diff to validate comment lines...');
+            let prFiles = [];
+            try {
+              const { data: files } = await github.rest.pulls.listFiles({
+                owner,
+                repo,
+                pull_number,
+              });
+              prFiles = files;
+              console.log(`Found ${prFiles.length} files in PR diff`);
+            } catch (err) {
+              console.error('Error fetching PR files:', err.message);
+              console.log('Will attempt to post comments without validation (may fail)');
+            }
+
+            const validLinesByFile = new Map();
+            if (prFiles.length > 0) {
+              for (const file of prFiles) {
+                const path = file.filename;
+                const validLines = new Set();
+                
+                if (file.patch) {
+                  const lines = file.patch.split('\n');
+                  let newFileLine = 0;
+                  
+                  for (const line of lines) {
+                    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+                    if (hunkMatch) {
+                      newFileLine = parseInt(hunkMatch[3], 10);
+                    } else if (line.startsWith('+') && !line.startsWith('+++')) {
+                      validLines.add(newFileLine);
+                      newFileLine++;
+                    } else if (line.startsWith(' ')) {
+                      validLines.add(newFileLine);
+                      newFileLine++;
+                    } else if (line.startsWith('-')) {
+                      // Removed line - don't increment
+                    }
+                  }
+                }
+                
+                if (validLines.size > 0) {
+                  validLinesByFile.set(path, validLines);
+                  console.log(`  ${path}: ${validLines.size} valid lines in diff`);
+                }
+              }
+            }
+
+            const prFilePaths = new Set(prFiles.map(f => f.filename));
+            let filteredCount = 0;
+            
+            const comments = findings
+              .map(f => {
+                if (!f || typeof f !== 'object') {
+                  return null;
+                }
+                const path = (f.path || '').replace(/^\.\//, '');
+                const line = Number(f.line) || 1;
+                
+                if (prFilePaths.size > 0 && !prFilePaths.has(path)) {
+                  filteredCount++;
+                  return null;
+                }
+                
+                if (validLinesByFile.size > 0) {
+                  const validLines = validLinesByFile.get(path);
+                  if (validLines) {
+                    if (!validLines.has(line)) {
+                      filteredCount++;
+                      return null;
+                    }
+                  }
+                }
+                
+                return {
+                  path: path,
+                  line: line,
+                  side: 'RIGHT',
+                  body: f.body || 'No description available',
+                };
+              })
+              .filter(c => c !== null && c.path && c.line > 0);
+            
+            if (filteredCount > 0) {
+              console.log(`Filtered out ${filteredCount} findings not in PR diff`);
+            }
+
+            console.log(`Prepared ${comments.length} valid inline comments (filtered from ${findings.length} findings)`);
+
+            if (!comments.length) {
+              console.log('No valid comments to post (all filtered out - likely not in PR diff)');
+              return;
+            }
+
+            const chunkSize = 10;
+            const DELAY_BETWEEN_CHUNKS = 10000;
+            const INITIAL_RETRY_WAIT = 30000;
+            const MAX_RETRY_WAIT = 120000;
+            const MAX_RETRY_ATTEMPTS = 8;
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+            const postWithRetry = async (fn, description, chunkNumber) => {
+              let wait = INITIAL_RETRY_WAIT;
+              let lastError = null;
+              
+              for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+                try {
+                  const result = await fn();
+                  if (attempt > 1) {
+                    console.log(`Successfully posted after ${attempt - 1} retries`);
+                  }
+                  return result;
+                } catch (err) {
+                  lastError = err;
+                  const msg = err && err.message ? err.message : String(err);
+                  const isSecondary = msg.toLowerCase().includes('secondary rate limit') ||
+                                      msg.toLowerCase().includes('temporarily blocked');
+                  const isDiffError = msg.toLowerCase().includes('must be part of the diff') || 
+                                     msg.toLowerCase().includes('diff hunk can\'t be blank');
+                  const isServerError = err.status === 502 || err.status === 503 || err.status === 504;
+                  
+                  console.log(`Attempt ${attempt}/${MAX_RETRY_ATTEMPTS} for ${description} failed: ${msg.substring(0, 150)}`);
+                  
+                  if (isDiffError) {
+                    console.log(`Skipping due to diff validation error - line not in PR diff`);
+                    return null;
+                  }
+                  
+                  if ((isSecondary || isServerError) && attempt < MAX_RETRY_ATTEMPTS) {
+                    console.log(`${isSecondary ? 'Rate limit' : 'Server error'} detected, waiting ${Math.floor(wait/1000)}s before retry ${attempt + 1}/${MAX_RETRY_ATTEMPTS}...`);
+                    await sleep(wait);
+                    wait = Math.min(wait + 20000, MAX_RETRY_WAIT);
+                    continue;
+                  }
+                  
+                  if (attempt === MAX_RETRY_ATTEMPTS && (isSecondary || isServerError)) {
+                    console.log(`Final attempt failed. Waiting ${Math.floor(wait/1000)}s before giving up...`);
+                    await sleep(wait);
+                  }
+                }
+              }
+              
+              console.error(`Failed after ${MAX_RETRY_ATTEMPTS} attempts`);
+              return null;
+            };
+
+            let successCount = 0;
+            let failedChunks = [];
+            
+            console.log('Waiting 20 seconds before starting to post comments...');
+            await sleep(20000);
+            
+            for (let i = 0; i < comments.length; i += chunkSize) {
+              const chunk = comments.slice(i, i + chunkSize);
+              const chunkNumber = Math.floor(i / chunkSize) + 1;
+              const totalChunks = Math.ceil(comments.length / chunkSize);
+              
+              if (chunkNumber === 1) {
+                console.log('Additional 10 second delay before first chunk...');
+                await sleep(10000);
+              }
+              
+              console.log(`\nPosting review chunk ${chunkNumber}/${totalChunks} with ${chunk.length} comments`);
+              
+              const result = await postWithRetry(
+                () => github.rest.pulls.createReview({
+                  owner,
+                  repo,
+                  pull_number,
+                  commit_id,
+                  event: 'COMMENT',
+                  comments: chunk,
+                }),
+                `createReview chunk ${chunkNumber}/${totalChunks}`,
+                chunkNumber
+              );
+              
+              if (result) {
+                successCount += chunk.length;
+                console.log(`Successfully posted chunk ${chunkNumber}/${totalChunks} (${chunk.length} comments)`);
+              } else {
+                failedChunks.push({ chunkNumber, chunk, startIndex: i });
+                console.log(`Failed to post chunk ${chunkNumber}/${totalChunks} after all retries`);
+              }
+              
+              if (i + chunkSize < comments.length) {
+                const delay = chunkNumber === 1 ? DELAY_BETWEEN_CHUNKS * 2 : DELAY_BETWEEN_CHUNKS;
+                console.log(`Waiting ${Math.floor(delay/1000)}s before next chunk...`);
+                await sleep(delay);
+              }
+            }
+
+            if (failedChunks.length > 0) {
+              console.log(`\nRetrying ${failedChunks.length} failed chunk(s) with extended waits...`);
+              await sleep(30000);
+              
+              for (const failedChunk of failedChunks) {
+                const { chunkNumber, chunk, startIndex } = failedChunk;
+                const totalChunks = Math.ceil(comments.length / chunkSize);
+                
+                console.log(`\nRetrying chunk ${chunkNumber}/${totalChunks} with ${chunk.length} comments...`);
+                
+                const result = await postWithRetry(
+                  () => github.rest.pulls.createReview({
+                    owner,
+                    repo,
+                    pull_number,
+                    commit_id,
+                    event: 'COMMENT',
+                    comments: chunk,
+                  }),
+                  `RETRY createReview chunk ${chunkNumber}/${totalChunks}`,
+                  chunkNumber
+                );
+                
+                if (result) {
+                  successCount += chunk.length;
+                  console.log(`Successfully posted chunk ${chunkNumber}/${totalChunks} on retry`);
+                } else {
+                  console.log(`Chunk ${chunkNumber}/${totalChunks} still failed after retry`);
+                }
+                
+                if (failedChunks.indexOf(failedChunk) < failedChunks.length - 1) {
+                  await sleep(40000);
+                }
+              }
+            }
+
+            const failCount = comments.length - successCount;
+            console.log(`\nFinal Summary: ${successCount}/${comments.length} comments posted`);
+            if (failCount > 0) {
+              console.log(`${failCount} comments failed to post after all retries`);
+            } else {
+              console.log(`All comments posted successfully!`);
+            }
+            console.log('Finished posting inline review comments');
+
+      - name: Post Security Scan Summary to PR (rate-limit aware)
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            if (!fs.existsSync('report.md')) {
+              console.log('No report.md found, skipping PR summary comment');
+              return;
+            }
+            
+            const body = fs.readFileSync('report.md', 'utf8');
+            const marker = '<!-- bandit-security-scan-report -->';
+            const GITHUB_COMMENT_LIMIT = 65536;
+            const markerLength = marker.length + 1;
+            
+            const s3UrlMatch = body.match(/\[View in S3\]\((https?:\/\/[^\)]+)\)/);
+            const s3Url = s3UrlMatch ? s3UrlMatch[1] : '';
+            
+            let finalBody = body;
+            let truncated = false;
+            
+            if ((body.length + markerLength) > GITHUB_COMMENT_LIMIT) {
+              console.log(`Report body (${body.length} chars) exceeds GitHub limit (${GITHUB_COMMENT_LIMIT} chars). Truncating...`);
+              truncated = true;
+              
+              const summaryEnd = body.indexOf('---');
+              const detailedReportsStart = body.indexOf('## Bandit Report');
+              
+              let summary = '';
+              if (summaryEnd !== -1) {
+                summary = body.substring(0, summaryEnd).trim();
+              } else if (detailedReportsStart !== -1) {
+                summary = body.substring(0, detailedReportsStart).trim();
+              } else {
+                summary = body.substring(0, GITHUB_COMMENT_LIMIT - markerLength - 1000).trim();
+              }
+              
+              let s3BucketName = 'ethara-production-security-reports';
+              let s3BasePath = '';
+              
+              const s3BucketMatch = summary.match(/\*\*S3 Bucket:\*\* \[`([^`]+)`\]\([^\)]+\)/);
+              if (s3BucketMatch) {
+                s3BucketName = s3BucketMatch[1];
+                const linkMatch = summary.match(/s3\/buckets\/[^?]+\?prefix=([^\)]+)/);
+                if (linkMatch) {
+                  s3BasePath = linkMatch[1];
+                }
+              }
+              
+              if (s3Url && s3BucketName === 'ethara-production-security-reports') {
+                const urlMatch = s3Url.match(/https?:\/\/([^\.]+)\.s3\.amazonaws\.com\/(.+?)\/[^\/]+-report\.md/);
+                if (urlMatch) {
+                  s3BucketName = urlMatch[1];
+                  s3BasePath = urlMatch[2];
+                }
+              }
+              
+              const s3BucketLink = s3BasePath 
+                ? `https://s3.console.aws.amazon.com/s3/buckets/${s3BucketName}?prefix=${s3BasePath}`
+                : `https://s3.console.aws.amazon.com/s3/buckets/${s3BucketName}`;
+              
+              const truncationMessage = `\n\n---\n\n# **Report truncated. Full report stored in S3.**\n\n**S3 Bucket:** [\`${s3BucketName}\`](${s3BucketLink})\n\n`;
+              
+              const truncationMessageLength = truncationMessage.length;
+              const availableSpace = GITHUB_COMMENT_LIMIT - markerLength - truncationMessageLength;
+              
+              if (summary.length > availableSpace) {
+                summary = summary.substring(0, availableSpace - 100).trim() + '...';
+              }
+              
+              finalBody = summary + truncationMessage;
+              
+              if (s3Url) {
+                finalBody += `**View full report:** [Download from S3](${s3Url})\n`;
+              }
+              
+              console.log(`Truncated report to ${finalBody.length} chars (saved ${body.length - finalBody.length} chars)`);
+            }
+            
+            let commentBody = `${marker}\n${finalBody}`;
+            
+            if (commentBody.length > GITHUB_COMMENT_LIMIT) {
+              console.log(`Still exceeds limit after truncation (${commentBody.length} chars). Final truncation...`);
+              
+              const bodyContent = commentBody.replace(/^<!--[^>]+-->\n/, '');
+              const summaryEnd = bodyContent.indexOf('---');
+              const detailedReportsStart = bodyContent.indexOf('## Bandit Report');
+              
+              let summary = '';
+              if (summaryEnd !== -1) {
+                summary = bodyContent.substring(0, summaryEnd).trim();
+              } else if (detailedReportsStart !== -1) {
+                summary = bodyContent.substring(0, detailedReportsStart).trim();
+              } else {
+                summary = bodyContent.substring(0, GITHUB_COMMENT_LIMIT - 1000).trim();
+              }
+              
+              let s3BucketName = 'ethara-production-security-reports';
+              let s3BasePath = '';
+              
+              const s3BucketMatch = summary.match(/\*\*S3 Bucket:\*\* \[`([^`]+)`\]\([^\)]+\)/);
+              if (s3BucketMatch) {
+                s3BucketName = s3BucketMatch[1];
+                const linkMatch = summary.match(/s3\/buckets\/[^?]+\?prefix=([^\)]+)/);
+                if (linkMatch) {
+                  s3BasePath = linkMatch[1];
+                }
+              }
+              
+              if (s3Url && s3BucketName === 'ethara-production-security-reports') {
+                const urlMatch = s3Url.match(/https?:\/\/([^\.]+)\.s3\.amazonaws\.com\/(.+?)\/[^\/]+-report\.md/);
+                if (urlMatch) {
+                  s3BucketName = urlMatch[1];
+                  s3BasePath = urlMatch[2];
+                }
+              }
+              
+              const s3BucketLink = s3BasePath 
+                ? `https://s3.console.aws.amazon.com/s3/buckets/${s3BucketName}?prefix=${s3BasePath}`
+                : `https://s3.console.aws.amazon.com/s3/buckets/${s3BucketName}`;
+              
+              const truncationMessage = `\n\n---\n\n# **Report truncated. Full report stored in S3.**\n\n**S3 Bucket:** [\`${s3BucketName}\`](${s3BucketLink})\n\n`;
+              const availableSpace = GITHUB_COMMENT_LIMIT - markerLength - truncationMessage.length - 200;
+              
+              if (summary.length > availableSpace) {
+                summary = summary.substring(0, availableSpace - 100).trim() + '...';
+              }
+              
+              let truncatedComment = `${marker}\n${summary}${truncationMessage}`;
+              if (s3Url) {
+                truncatedComment += `**View full report:** [Download from S3](${s3Url})\n`;
+              }
+              
+              commentBody = truncatedComment;
+              console.log(`Final truncated to ${commentBody.length} chars`);
+            }
+            
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            
+            const postWithRetry = async (fn, description) => {
+              let wait = 2000;
+              for (let attempt = 1; attempt <= 6; attempt++) {
+                try {
+                  return await fn();
+                } catch (err) {
+                  const msg = err && err.message ? err.message : String(err);
+                  const isSecondary = msg.toLowerCase().includes('secondary rate limit');
+                  console.log(`Attempt ${attempt} for ${description} failed: ${msg}`);
+                  
+                  if (!isSecondary || attempt === 6) {
+                    console.error(`Failed after ${attempt} attempts: ${msg}`);
+                    throw err;
+                  }
+                  
+                  console.log(`Secondary rate limit detected, sleeping ${wait}ms before retry`);
+                  await sleep(wait);
+                  wait = Math.min(wait * 2, 60000);
+                }
+              }
+            };
+            
+            console.log('Checking for existing security scan summary comment...');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+            });
+            
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            
+            if (existing) {
+              console.log(`Updating existing comment ID ${existing.id}`);
+              await postWithRetry(
+                () => github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body: commentBody,
+                }),
+                'update security scan summary comment'
+              );
+              console.log('Updated security scan summary comment');
+            } else {
+              console.log('Creating new security scan summary comment');
+              await postWithRetry(
+                () => github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number,
+                  body: commentBody,
+                }),
+                'create security scan summary comment'
+              );
+              console.log('Created security scan summary comment');
+            }
