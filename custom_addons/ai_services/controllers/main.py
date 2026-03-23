@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 
@@ -45,11 +46,13 @@ class AIServicesController(http.Controller):
 
             documents = []
             filenames = []
+            file_bytes_list = []
             for f in files:
                 file_bytes = f.read()
                 if file_bytes:
                     documents.append((f.filename, file_bytes))
                     filenames.append(f.filename)
+                    file_bytes_list.append((f.filename, file_bytes))
 
             if not documents:
                 return self._json_error("All uploaded files were empty.", status=422)
@@ -66,8 +69,14 @@ class AIServicesController(http.Controller):
                 combined_filename, project_details
             )
 
+            record = self._store_extraction(
+                project_details, file_bytes_list, combined_filename
+            )
+            response_dict = json.loads(response_data.model_dump_json())
+            response_dict["extraction_id"] = record.id
+
             return http.Response(
-                response_data.model_dump_json(indent=2),
+                json.dumps(response_dict, indent=2, default=str),
                 content_type="application/json",
                 status=200,
             )
@@ -78,6 +87,40 @@ class AIServicesController(http.Controller):
         except Exception as e:
             _logger.exception("Unexpected extraction API error")
             return self._json_error(f"Internal server error: {e}", status=500)
+
+    def _store_extraction(self, project_details, file_bytes_list, combined_filename):
+        Extraction = request.env["ai.document.extraction"].sudo()
+        Attachment = request.env["ir.attachment"].sudo()
+
+        attachment_ids = []
+        for filename, file_bytes in file_bytes_list:
+            att = Attachment.create(
+                {
+                    "name": filename,
+                    "datas": base64.b64encode(file_bytes).decode(),
+                    "type": "binary",
+                }
+            )
+            attachment_ids.append(att.id)
+
+        record = Extraction.create(
+            {
+                "document_ids": [(6, 0, attachment_ids)],
+            }
+        )
+
+        vals = record._map_extraction_result(project_details)
+        vals.update(
+            {
+                "state": "done",
+                "extracted_at": record._fields["extracted_at"].now(),
+                "raw_response": project_details.model_dump_json(indent=2),
+                "error_message": False,
+            }
+        )
+        record.write(vals)
+
+        return record
 
     @staticmethod
     def _json_error(message, status=400):
