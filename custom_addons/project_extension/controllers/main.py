@@ -348,6 +348,7 @@ class ProjectController(http.Controller):
                     'progress': 0, #getattr(p, 'progress_percentage', 0)
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
+                    'blockers': 0,
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
@@ -374,12 +375,18 @@ class ProjectController(http.Controller):
                 limit = total_count
                 offset = 0
             projects = request.env['project.project.stage'].sudo().search(domain, limit=limit, offset=offset, order="create_date desc")
-            project_data = []
+            project_data = {}
             for p in projects:
-                project_data.append({
-                    'id': safe_get_value(p, 'id', 'int'),
-                    'name': safe_get_value(p, 'name', 'str'),
-                })
+                if p.lable_name not in project_data.keys():
+                    project_data[p.lable_name] = [{
+                        'id': safe_get_value(p, 'id', 'int'),
+                        'name': safe_get_value(p, 'name', 'str'),
+                    }]
+                else:
+                    project_data[p.lable_name].append({
+                        'id': safe_get_value(p, 'id', 'int'),
+                        'name': safe_get_value(p, 'name', 'str'),
+                    })
             return return_Response(
                 message="Success",
                 status=200,

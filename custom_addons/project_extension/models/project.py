@@ -140,6 +140,11 @@ class ProjectCategory(models.Model):
     name = fields.Char(string='Name')
 
 
+class ProjectProjectStage(models.Model):
+    _inherit = 'project.project.stage'
+
+    lable_name = fields.Char(string='Lable Name')
+
 class WhatsappGroupMembers(models.Model):
     _name = 'whatsapp.group.members'
     _description = 'Whatsapp Group Members'
