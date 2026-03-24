@@ -188,14 +188,16 @@ class ApiAuthController(http.Controller):
             s3_connector_id = request.env['s3.connector'].sudo().search([], limit=1)
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             user_dict = {}
+            partner_dict = {}
+
             if jdata.get('profile_pic'):
-                user_dict['profile_url'] = generate_s3_link(jdata.get('profile_pic'), uid=user_id.id) if f"{s3_connector_id.cdn_url}" not in jdata.get('profile_pic') else jdata.get('profile_pic')
+                partner_dict['profile_url'] = generate_s3_link(jdata.get('profile_pic'), uid=user_id.id) if f"{s3_connector_id.cdn_url}" not in jdata.get('profile_pic') else jdata.get('profile_pic')
             if jdata.get('name'):
                 user_dict['name'] = jdata.get('name')
             if jdata.get('bio'):
-                user_dict['bio_data'] = jdata.get('bio')
+                partner_dict['bio_data'] = jdata.get('bio')
             if jdata.get('location'):
-                user_dict['location'] = jdata.get('location')
+                partner_dict['location'] = jdata.get('location')
             if jdata.get('email'):
                 if not is_valid_email(jdata.get('email')):
                     return return_Response(message="Please enter a valid email address.", status=400, errors=[])
@@ -225,6 +227,8 @@ class ApiAuthController(http.Controller):
 
             if user_dict:
                 user_id.sudo().write(user_dict)
+            if partner_dict:
+                user_id.partner_id.sudo().write(partner_dict)
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Profile Updated Successfully", status=200)
@@ -237,12 +241,12 @@ class ApiAuthController(http.Controller):
             jdata = params.get('jdata')
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             user_dict = {
-                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.in_app_notification,
-                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.email_notification,
-                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.push_notification
+                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.partner_id.in_app_notification,
+                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.partner_id.email_notification,
+                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.partner_id.push_notification
             }
             if user_dict:
-                user_id.sudo().write(user_dict)
+                user_id.partner_id.sudo().write(user_dict)
             access_token = request.httprequest.headers.get('access_token')
             if access_token:
                 access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
@@ -277,12 +281,12 @@ class ApiAuthController(http.Controller):
                 'employee_name': safe_get_value(user_id, 'employee_id.name', 'str'),
                 'department_id': safe_get_value(user_id, 'employee_id.department_id.id', 'int'),
                 'department_name': safe_get_value(user_id, 'employee_id.department_id.name', 'str'),
-                'profile_url': safe_get_value(user_id, 'profile_url', 'str'),
-                'bio_data': safe_get_value(user_id, 'bio_data', 'str'),
-                'location': safe_get_value(user_id, 'location', 'str'),
-                'in_app_notification': safe_get_value(user_id, 'in_app_notification', 'bool'),
-                'email_notification': safe_get_value(user_id, 'email_notification', 'bool'),
-                'push_notification': safe_get_value(user_id, 'push_notification', 'bool'),
+                'profile_url': safe_get_value(user_id, 'partner_id.profile_url', 'str'),
+                'bio_data': safe_get_value(user_id, 'partner_id.bio_data', 'str'),
+                'location': safe_get_value(user_id, 'partner_id.location', 'str'),
+                'in_app_notification': safe_get_value(user_id, 'partner_id.in_app_notification', 'bool'),
+                'email_notification': safe_get_value(user_id, 'partner_id.email_notification', 'bool'),
+                'push_notification': safe_get_value(user_id, 'partner_id.push_notification', 'bool'),
             }
             access_token = request.httprequest.headers.get('access_token')
             if access_token:

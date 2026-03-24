@@ -33,7 +33,7 @@ class ResUsers(models.Model):
     slack_user_ref = fields.Char(
         string="Slack User ID",
         help="Slack member ID linked to this Odoo user",
-        readonly=True)
+        )
     is_slack_internal_users = fields.Boolean(
         string="Slack User",
         help="True if this user is linked to a Slack account")
