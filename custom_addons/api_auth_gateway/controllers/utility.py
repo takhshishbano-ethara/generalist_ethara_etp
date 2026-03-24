@@ -320,3 +320,30 @@ def safe_get_value(record, field_path, expected_type=str):
         if expected_type in (date, datetime):
             return ""
         return expected_type()
+
+def generate_s3_link(img_data, prefix='profile', uid=None):
+    ts = time.time_ns()
+    unique_id = uuid.uuid4().hex[:12]
+    s3_connector_id = request.env['s3.connector'].sudo().search([], limit=1)
+
+    mime_type = "image/jpeg"
+    try:
+        mime_type = mimetypes.guess_type("dummy.jpg")[0] or "image/jpeg"
+    except:
+        pass
+
+    extension = mimetypes.guess_extension(mime_type) or '.jpeg'
+    filename = secure_filename(f"{ts}_{uid}_{unique_id}_profile_image") if uid else secure_filename(f"{ts}_{unique_id}_profile_image")
+    images_name = f"{filename}{extension}"
+
+    img_req = request.env['s3.upload.wizard'].sudo().create({
+        's3_connector_id': s3_connector_id.id,
+        'upload_file': img_data,
+        'prefix': prefix,
+        'file_name': images_name
+    })
+
+    if img_req:
+        return img_req.upload_images_in_s3_get_url()
+    else:
+        return ""

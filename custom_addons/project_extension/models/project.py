@@ -26,6 +26,7 @@ class Project(models.Model):
     slack_channel_name = fields.Char(string='Slack Channel Name')
     slack_members = fields.Many2many('hr.employee', 'project_project_hr_employee_slack_member_rel', string='Slack Members')
     slack_channel_id = fields.Many2one('discuss.channel', string="Slack Channel")
+    slack_channels_id = fields.Char(string="Slack Channel")
     # Google Drive
     google_drive_id = fields.Many2one('google.drive.file', string='Google Drive ID')
     # kick off email
@@ -35,18 +36,34 @@ class Project(models.Model):
 
     def create_slack_channel(self):
         user_ids = []
-        for i in self.slack_members.mapped('user_id'):
-            if i:
-                user_ids.append(i.id)
+        for i in self.slack_members:
+            if i.user_id:
+                user_ids.append(i.user_id.id)
         if user_ids:
-            result = self.env['discuss.channel'].sudo().create_slack_channel(
-                channel_name=self.slack_channel_name,
-                admin_id=user_ids[0].id if user_ids else None,
-                user_ids=user_ids,
-            )
+            url = "https://etp.stage.ethara.ai/api/create_slack_channel"
+            # url = "http://localhost:8069/api/create_slack_channel"
+            headers = {
+                'Content-Type': 'application/json'
+            }
 
-            if result.get('success'):
-                self.slack_channel_id = result.get('channel_id')
+            payload = {
+                "channel_name": f"{self.slack_channel_name}-{self.id}",
+                "admin_id": user_ids[0],
+                "user_ids": user_ids
+            }
+
+            try:
+                response = requests.post(url, headers=headers, data=json.dumps(payload))
+                if response.status_code == 200:
+                    res_json = response.json()
+                    channel_info = res_json.get('data', {})
+                    channel_id = channel_info.get('slack_channel_id')
+                    self.slack_channels_id = channel_id
+                    print(f"Successfully retrieved Channel ID: {channel_id}")
+                else:
+                    print("Failed to get a successful response.")
+            except Exception as err:
+                print(f"An error occurred: {err}")
 
     def kick_off_send_mail(self):
         outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name or "atech@yopmail.com"
@@ -95,8 +112,14 @@ class Project(models.Model):
     def create(self, vals_list):
         projects = super(Project, self).create(vals_list)
         for project in projects:
-            project.kick_off_send_mail()
-            project.create_google_drive_folders()
+            try:
+                project.kick_off_send_mail()
+            except Exception as e:
+                print(f"{e}")
+            try:
+                project.create_google_drive_folders()
+            except Exception as e:
+                print(f"{e}")
             try:
                 project.create_slack_channel()
             except Exception as e:

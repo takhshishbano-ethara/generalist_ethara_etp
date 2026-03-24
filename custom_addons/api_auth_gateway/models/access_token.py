@@ -41,6 +41,21 @@ class APIAccessToken(models.Model):
     access_token = fields.Char(index=True)
     refresh_token = fields.Char(index=True)
     expiry = fields.Datetime()
+    browser_name = fields.Char(string='Browser Name')
+    os_name = fields.Char(string='OS Name')
+    location = fields.Char(string='Location')
+    theme = fields.Selection([('light', 'Light'), ('dark', 'Dark'), ('system', 'System')], default='light')
+    table_density = fields.Selection([('compact', 'Compact'), ('default', 'Default'), ('comfortable', 'Comfortable')], default='compact')
+    collapse_sidebar = fields.Boolean(default=False)
+
+    def update_access_token(self):
+        expires = datetime.now() + timedelta(seconds=3600)
+        vals = {
+            'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),
+            'access_token': nonce()
+        }
+        self.sudo().write(vals)
+        return self.sudo().access_token, self.sudo().refresh_token
 
     def find_one_or_create_token(self, user_id=None, create=False):
         if not user_id:
@@ -80,6 +95,12 @@ class Users(models.Model):
 
     token_ids = fields.One2many('api.access_token', 'user_id', string="Access Tokens")
     user_role = fields.Many2one('api.role', string='User Role')
+    profile_url = fields.Char(string='Profile URL')
+    bio_data = fields.Char(string='Bio Data')
+    location = fields.Char(string='Location')
+    in_app_notification = fields.Boolean(default=False)
+    email_notification = fields.Boolean(default=False)
+    push_notification = fields.Boolean(default=False)
 
     def write(self, vals):
         res = super(Users, self).write(vals)

@@ -42,6 +42,7 @@
                     <group string="Slack Group">
                         <field name="slack_channel_name"/>
                         <field name="slack_channel_id"/>
+                        <field name="slack_channels_id"/>
                         <field name="slack_members" widget="many2many_tags"/>
                     </group>
                     <group string="Google Drive">

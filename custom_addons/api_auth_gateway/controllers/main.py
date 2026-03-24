@@ -1,6 +1,6 @@
 from odoo import http
 from odoo.http import request
-from .utility import validate_request, validate_token, return_Response, safe_get_value
+from .utility import validate_request, validate_token, return_Response, safe_get_value, generate_s3_link, is_valid_email, is_valid_mobile
 
 class ApiAuthController(http.Controller):
 
@@ -73,6 +73,17 @@ class ApiAuthController(http.Controller):
             return return_Response(message="Login failed. Please check your credentials.", status=400)
         else:
             access_token, refresh  = request.env['api.access_token'].sudo().find_one_or_create_token(user_id=uid, create=True)
+            if jdata.get('browser_name') or jdata.get('os_name') or jdata.get('location'):
+                token_dict = {
+                    'browser_name': jdata.get('browser_name'),
+                    'os_name': jdata.get('os_name'),
+                    'location': jdata.get('location')
+                }
+                if access_token:
+                    token = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], limit=1)
+                    if token:
+                        token.sudo().write(token_dict)
+
             address = ""
             if request.env.user.partner_id.street:
                 address += f"{request.env.user.partner_id.street}"
@@ -110,12 +121,7 @@ class ApiAuthController(http.Controller):
 
             if not token_rec:
                 return return_Response(message="Invalid Refresh Token", status=401)
-
-            uid = token_rec.user_id.id
-            token_rec.unlink()
-
-            access_token, refresh = request.env['api.access_token'].sudo().find_one_or_create_token(user_id=uid, create=True)
-
+            access_token, refresh = token_rec.update_access_token()
             res = {
                 'access_token': access_token or "",
                 'refresh_token': refresh or ""
@@ -124,10 +130,23 @@ class ApiAuthController(http.Controller):
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
 
-
     @http.route('/api/v1/auth_token_unlink', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
-    @validate_token
     def auth_token_unlink(self, **params):
+        try:
+            access_token = request.httprequest.headers.get('access_token')
+            if not access_token:
+                return return_Response(message="missing access token in request header", status=401)
+            if access_token:
+                access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
+                if access_token_data:
+                    access_token_data.sudo().unlink()
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+        return return_Response(message="Access Token Deleted Successfully", status=200)
+
+    @http.route('/api/v1/sign_out_all_session', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def sign_out_all_session(self, **params):
         try:
             try:
                 user_id = request.env['res.users'].sudo().browse(self.env.uid)
@@ -158,3 +177,124 @@ class ApiAuthController(http.Controller):
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Access Token Deleted Successfully", status=200, data={"permissions": role_data})
+
+
+    @validate_token
+    @http.route('/api/v1/update_profile_information', methods=['POST'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({})
+    def update_profile_information(self, **params):
+        try:
+            jdata = params.get('jdata')
+            s3_connector_id = request.env['s3.connector'].sudo().search([], limit=1)
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            user_dict = {}
+            if jdata.get('profile_pic'):
+                user_dict['profile_url'] = generate_s3_link(jdata.get('profile_pic'), uid=user_id.id) if f"{s3_connector_id.cdn_url}" not in jdata.get('profile_pic') else jdata.get('profile_pic')
+            if jdata.get('name'):
+                user_dict['name'] = jdata.get('name')
+            if jdata.get('bio'):
+                user_dict['bio_data'] = jdata.get('bio')
+            if jdata.get('location'):
+                user_dict['location'] = jdata.get('location')
+            if jdata.get('email'):
+                if not is_valid_email(jdata.get('email')):
+                    return return_Response(message="Please enter a valid email address.", status=400, errors=[])
+                else:
+                    user_dict['email'] = jdata.get('email')
+            if jdata.get('mobile'):
+                if not is_valid_mobile(jdata.get('mobile')):
+                    return return_Response(message="Please enter a valid mobile number.", status=400, errors=[])
+                else:
+                    user_dict['phone'] = jdata.get('mobile')
+
+            if jdata.get('new_password'):
+                if not jdata.get('confirm_password') or not jdata.get('current_password'):
+                    return return_Response(message="Missing required parameter.", status=400, errors=[])
+
+                if jdata.get('new_password') != jdata.get('confirm_password'):
+                    return return_Response(message="The password and confirm password do not match.", status=400, errors=[])
+
+                credential = {'login': user_id.login, 'password': jdata.get('current_password'), 'type': 'password'}
+                uid = request.session.authenticate(
+                    request.session.db,
+                    credential
+                )
+                if 'uid' not in uid:
+                    return return_Response(message="Incorrect Password.", status=400, errors=[])
+                user_dict['password'] = jdata.get('new_password')
+
+            if user_dict:
+                user_id.sudo().write(user_dict)
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+        return return_Response(message="Profile Updated Successfully", status=200)
+
+    @validate_token
+    @http.route('/api/v1/update_user_appearance_notification', methods=['POST'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({})
+    def update_user_appearance_notification(self, **params):
+        try:
+            jdata = params.get('jdata')
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            user_dict = {
+                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.in_app_notification,
+                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.email_notification,
+                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.push_notification
+            }
+            if user_dict:
+                user_id.sudo().write(user_dict)
+            access_token = request.httprequest.headers.get('access_token')
+            if access_token:
+                access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
+                if access_token_data:
+                    token_dict = {
+                        'browser_name': jdata.get('browser_name') if jdata.get('browser_name') else access_token_data.browser_name,
+                        'os_name': jdata.get('os_name') if jdata.get('os_name') else access_token_data.os_name,
+                        'location': jdata.get('location') if jdata.get('location') else access_token_data.location,
+                        'theme': jdata.get('theme') if jdata.get('theme') else access_token_data.theme,
+                        'table_density': jdata.get('table_density') if jdata.get('table_density') else access_token_data.table_density,
+                        'collapse_sidebar': True if jdata.get('collapse_sidebar') in [1, '1'] else access_token_data.collapse_sidebar
+                    }
+                    access_token_data.sudo().write(token_dict)
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+        return return_Response(message="Profile Updated Successfully", status=200)
+
+    @validate_token
+    @http.route('/api/v1/get_logged_user_details', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_logged_user_details(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            data = {
+                'id': safe_get_value(user_id, 'id', 'int'),
+                'login': safe_get_value(user_id, 'login', 'str'),
+                'name': safe_get_value(user_id, 'name', 'str'),
+                'mobile': safe_get_value(user_id, 'phone', 'str'),
+                'email': safe_get_value(user_id, 'email', 'str'),
+                'employee_id': safe_get_value(user_id, 'employee_id.id', 'int'),
+                'employee_name': safe_get_value(user_id, 'employee_id.name', 'str'),
+                'department_id': safe_get_value(user_id, 'employee_id.department_id.id', 'int'),
+                'department_name': safe_get_value(user_id, 'employee_id.department_id.name', 'str'),
+                'profile_url': safe_get_value(user_id, 'profile_url', 'str'),
+                'bio_data': safe_get_value(user_id, 'bio_data', 'str'),
+                'location': safe_get_value(user_id, 'location', 'str'),
+                'in_app_notification': safe_get_value(user_id, 'in_app_notification', 'bool'),
+                'email_notification': safe_get_value(user_id, 'email_notification', 'bool'),
+                'push_notification': safe_get_value(user_id, 'push_notification', 'bool'),
+            }
+            access_token = request.httprequest.headers.get('access_token')
+            if access_token:
+                access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
+                if access_token_data:
+                    data['browser_name'] = safe_get_value(access_token_data, 'browser_name', 'str')
+                    data['os_name'] = safe_get_value(access_token_data, 'os_name', 'str')
+                    data['location'] = safe_get_value(access_token_data, 'location', 'str')
+                    data['theme'] = safe_get_value(access_token_data, 'theme', 'str')
+                    data['table_density'] = safe_get_value(access_token_data, 'table_density', 'str')
+                    data['collapse_sidebar'] = safe_get_value(access_token_data, 'collapse_sidebar', 'bool')
+            return return_Response(message="Success", status=200, data={"record": data})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
