@@ -28,6 +28,12 @@ class ResUsers(models.Model):
         compute_sudo=True,
         groups="base.group_erp_manager",
     )
+    profile_url = fields.Char(string='Profile URL')
+    bio_data = fields.Char(string='Bio Data')
+    location = fields.Char(string='Location')
+    in_app_notification = fields.Boolean(default=False)
+    email_notification = fields.Boolean(default=False)
+    push_notification = fields.Boolean(default=False)
 
     @api.model
     def _default_role_lines(self):

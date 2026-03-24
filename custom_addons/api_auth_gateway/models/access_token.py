@@ -95,12 +95,12 @@ class Users(models.Model):
 
     token_ids = fields.One2many('api.access_token', 'user_id', string="Access Tokens")
     user_role = fields.Many2one('api.role', string='User Role')
-    profile_url = fields.Char(string='Profile URL')
-    bio_data = fields.Char(string='Bio Data')
-    location = fields.Char(string='Location')
-    in_app_notification = fields.Boolean(default=False)
-    email_notification = fields.Boolean(default=False)
-    push_notification = fields.Boolean(default=False)
+    # profile_url = fields.Char(string='Profile URL')
+    # bio_data = fields.Char(string='Bio Data')
+    # location = fields.Char(string='Location')
+    # in_app_notification = fields.Boolean(default=False)
+    # email_notification = fields.Boolean(default=False)
+    # push_notification = fields.Boolean(default=False)
 
     def write(self, vals):
         res = super(Users, self).write(vals)
