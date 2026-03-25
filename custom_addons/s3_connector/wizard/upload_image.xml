@@ -1,0 +1,31 @@
+<odoo>
+
+    <record id="view_s3_upload_wizard_form" model="ir.ui.view">
+        <field name="name">s3.upload.wizard.form</field>
+        <field name="model">s3.upload.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload Images to S3">
+                <group>
+                    <field name="s3_connector_id"/>
+                    <field name="upload_file" widget="image"/>
+                    <field name="prefix"/>
+                    <field name="file_name"/>
+                    <field name="file_url"/>
+                </group>
+                <footer>
+                    <button string="Upload to S3" type="object" name="upload_images_to_s3" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_s3_upload_wizard" model="ir.actions.act_window">
+        <field name="name">Upload Images to S3</field>
+        <field name="res_model">s3.upload.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_s3_upload_wizard" name="Upload Images to S3" parent="s3_connector.menu_s3_root" action="action_s3_upload_wizard" sequence="100"/>
+</odoo>

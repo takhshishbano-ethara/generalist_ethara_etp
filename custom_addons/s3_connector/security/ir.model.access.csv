@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+s3.connector,s3.connector,model_s3_connector,,1,1,1,1
+s3.upload.wizard,s3.upload.wizard,model_s3_upload_wizard,,1,1,1,1
