@@ -7,6 +7,7 @@
         'data/mail_template.xml',
         'views/project_view.xml',
         'views/designation_views.xml',
+        'data/ir_sequence_data.xml',
         'data/designation_data.xml',
         'data/project_data.xml'
     ],

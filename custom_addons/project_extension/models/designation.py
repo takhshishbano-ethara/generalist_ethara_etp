@@ -13,9 +13,15 @@ class HrEmployee(models.Model):
 
     designation_id = fields.Many2one('hr.employee.designation', string="Designation")
     whatsapp_number = fields.Char(string="Whatsapp Number")
+    is_qc_review = fields.Boolean(default=False)
+    is_tasker = fields.Boolean(default=False)
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('designation_id'):
+                if self.env.ref('designation_jr_software_engineer').id == int(vals.get('designation_id')):
+                    vals['is_tasker'] = True
         employees = super(HrEmployee, self).create(vals_list)
         for emp in employees:
             if emp.whatsapp_number:

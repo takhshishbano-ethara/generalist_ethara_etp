@@ -1,9 +1,11 @@
 from odoo import models, fields, api
-
+import requests
+import json
 
 class Project(models.Model):
     _inherit = 'project.project'
 
+    project_seq = fields.Char(string='Sequence', default='New')
     project_attachments = fields.Many2many('ir.attachment', 'project_project_hr_employee_attachment_rel', string='Attachments')
     internal_project_name = fields.Char(string='Internal Project')
     client_name = fields.Char(string='Client Name')
@@ -110,6 +112,8 @@ class Project(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            vals['project_seq'] = self.env['ir.sequence'].next_by_code('project.project')
         projects = super(Project, self).create(vals_list)
         for project in projects:
             try:

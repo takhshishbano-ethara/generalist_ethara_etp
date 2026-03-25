@@ -342,7 +342,7 @@ class ProjectController(http.Controller):
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
                     'project_name': safe_get_value(p, 'name', 'str'),
-                    'project_id_code': f"PRJ-{p.id:03}",
+                    'project_id_code': safe_get_value(p, 'project_seq', 'str'),
                     'client': safe_get_value(p, 'client_name', 'str'),
                     'status': safe_get_value(p, 'stage_id.name', 'str'),
                     'progress': 0, #getattr(p, 'progress_percentage', 0)
