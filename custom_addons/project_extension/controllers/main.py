@@ -367,9 +367,9 @@ class ProjectController(http.Controller):
     def get_project_status(self, **kwargs):
         try:
             domain = []
-            page = int(kwargs.get('page')) if kwargs.get('page') else 1
-            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 1
-            offset = (page - 1) * limit
+            # page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            # limit = int(kwargs.get('limit')) if kwargs.get('limit') else 1
+            # offset = (page - 1) * limit
             total_count = request.env['project.project.stage'].sudo().search_count(domain)
             if not kwargs.get('page'):
                 limit = total_count
@@ -387,10 +387,16 @@ class ProjectController(http.Controller):
                         'id': safe_get_value(p, 'id', 'int'),
                         'name': safe_get_value(p, 'name', 'str'),
                     })
+            stage_list = []
+            for stage in project_data.keys():
+                stage_list.append({
+                    "phase": stage,
+                    "items": project_data[stage]
+                })
             return return_Response(
                 message="Success",
                 status=200,
-                data={"record": project_data, "total_record_count": total_count, "count": len(project_data)})
+                data={"record": stage_list, "total_record_count": len(stage_list), "count": len(stage_list)})
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
