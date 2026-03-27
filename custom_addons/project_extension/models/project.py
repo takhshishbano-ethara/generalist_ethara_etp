@@ -20,6 +20,8 @@ class Project(models.Model):
     project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel', string='Lead')
     project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', string='AI Research Engineer (AIRE)')
     project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel', string='Software Engineer (SWE)')
+    project_qc_reviewer = fields.Many2many('hr.employee','project_project_hr_employee_qc_reviewer_rel', string='QC Reviewers')
+    project_tasker = fields.Many2many('hr.employee','project_project_hr_employee_tasker_rel', string='Tasker')
     ai_generated_description = fields.Text(string='AI Generated Description')
     # Whatsapp Group
     whatsapp_group_name = fields.Char(string='Whatsapp Group Name')

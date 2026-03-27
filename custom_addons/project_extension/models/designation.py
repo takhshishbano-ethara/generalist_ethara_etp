@@ -15,6 +15,7 @@ class HrEmployee(models.Model):
     whatsapp_number = fields.Char(string="Whatsapp Number")
     is_qc_review = fields.Boolean(default=False)
     is_tasker = fields.Boolean(default=False)
+    experience_years = fields.Float(string="Total Experience")
 
     @api.model_create_multi
     def create(self, vals_list):

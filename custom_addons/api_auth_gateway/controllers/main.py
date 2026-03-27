@@ -271,6 +271,8 @@ class ApiAuthController(http.Controller):
         try:
             jdata = kwargs.get('jdata')
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            projects = request.env['project.project'].sudo().search(['|', '|', '|', '|', ('project_lead', 'in', [user_id.employee_id.id]), ('project_aire', 'in', [user_id.employee_id.id]), ('project_swe', 'in', [user_id.employee_id.id]), ('project_qc_reviewer', 'in', [user_id.employee_id.id]), ('project_tasker', 'in', [user_id.employee_id.id])])
+
             data = {
                 'id': safe_get_value(user_id, 'id', 'int'),
                 'login': safe_get_value(user_id, 'login', 'str'),
@@ -281,13 +283,25 @@ class ApiAuthController(http.Controller):
                 'employee_name': safe_get_value(user_id, 'employee_id.name', 'str'),
                 'department_id': safe_get_value(user_id, 'employee_id.department_id.id', 'int'),
                 'department_name': safe_get_value(user_id, 'employee_id.department_id.name', 'str'),
+                'education': f"{safe_get_value(user_id, 'employee_id.certificate', 'str')} {safe_get_value(user_id, 'employee_id.study_field', 'str')}",
+                'experience_years': safe_get_value(user_id, 'employee_id.experience_years', 'float'),
                 'profile_url': safe_get_value(user_id, 'partner_id.profile_url', 'str'),
                 'bio_data': safe_get_value(user_id, 'partner_id.bio_data', 'str'),
-                'location': safe_get_value(user_id, 'partner_id.location', 'str'),
+                'location': safe_get_value(user_id, 'partner_id.street', 'str'),
                 'in_app_notification': safe_get_value(user_id, 'partner_id.in_app_notification', 'bool'),
                 'email_notification': safe_get_value(user_id, 'partner_id.email_notification', 'bool'),
                 'push_notification': safe_get_value(user_id, 'partner_id.push_notification', 'bool'),
+                'join_date': safe_get_value(user_id, 'employee_id.joining_date', 'str'),
+                'project_count': len(projects),
+                'team_size': 0,
+                'blocked_resolved': 0,
+                'avg_resolution': "",
+                'skills': [{"id": skill.skill_id.id, "name": skill.skill_id.name} for skill in request.env['hr.employee.skill'].sudo().search([('employee_id', '=', user_id.employee_id.id)])],
+                'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date)} for i in projects]
             }
+            # Org Approval Rate
+            data['approval_target'] = 95.0
+            data['approval_graph'] = {"Jan": 65.5, "Feb": 67.0, "March": 90.2}
             access_token = request.httprequest.headers.get('access_token')
             if access_token:
                 access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
