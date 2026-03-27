@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_hr_employee_designation,hr.employee.designation,model_hr_employee_designation,base.group_user,1,1,1,1
 access_whatsapp_group_members,whatsapp.group.members,model_whatsapp_group_members,base.group_user,1,1,1,1
+access_user_notification_category,user.notification.category,model_user_notification_category,,1,1,1,1
+access_notification_category_line,notification.category.line,model_notification_category_line,,1,1,1,1

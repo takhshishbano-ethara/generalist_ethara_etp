@@ -178,7 +178,6 @@ class ApiAuthController(http.Controller):
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Access Token Deleted Successfully", status=200, data={"permissions": role_data})
 
-
     @validate_token
     @http.route('/api/v1/update_profile_information', methods=['POST'], type='http', auth='public', csrf=False, cors='*')
     @validate_request({})
@@ -209,21 +208,21 @@ class ApiAuthController(http.Controller):
                 else:
                     user_dict['phone'] = jdata.get('mobile')
 
-            if jdata.get('new_password'):
-                if not jdata.get('confirm_password') or not jdata.get('current_password'):
-                    return return_Response(message="Missing required parameter.", status=400, errors=[])
-
-                if jdata.get('new_password') != jdata.get('confirm_password'):
-                    return return_Response(message="The password and confirm password do not match.", status=400, errors=[])
-
-                credential = {'login': user_id.login, 'password': jdata.get('current_password'), 'type': 'password'}
-                uid = request.session.authenticate(
-                    request.session.db,
-                    credential
-                )
-                if 'uid' not in uid:
-                    return return_Response(message="Incorrect Password.", status=400, errors=[])
-                user_dict['password'] = jdata.get('new_password')
+            # if jdata.get('new_password'):
+            #     if not jdata.get('confirm_password') or not jdata.get('current_password'):
+            #         return return_Response(message="Missing required parameter.", status=400, errors=[])
+            #
+            #     if jdata.get('new_password') != jdata.get('confirm_password'):
+            #         return return_Response(message="The password and confirm password do not match.", status=400, errors=[])
+            #
+            #     credential = {'login': user_id.login, 'password': jdata.get('current_password'), 'type': 'password'}
+            #     uid = request.session.authenticate(
+            #         request.session.db,
+            #         credential
+            #     )
+            #     if 'uid' not in uid:
+            #         return return_Response(message="Incorrect Password.", status=400, errors=[])
+            #     user_dict['password'] = jdata.get('new_password')
 
             if user_dict:
                 user_id.sudo().write(user_dict)
@@ -234,32 +233,22 @@ class ApiAuthController(http.Controller):
         return return_Response(message="Profile Updated Successfully", status=200)
 
     @validate_token
-    @http.route('/api/v1/update_user_appearance_notification', methods=['POST'], type='http', auth='public', csrf=False, cors='*')
-    @validate_request({})
-    def update_user_appearance_notification(self, **params):
+    @http.route('/api/v1/change_users_password', methods=['POST'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({'old_password': {'type': 'str', 'required': True}, 'new_password': {'type': 'str', 'required': True}, 'confirm_password': {'type': 'str', 'required': True}})
+    def change_users_password(self, **params):
         try:
             jdata = params.get('jdata')
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
-            user_dict = {
-                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.partner_id.in_app_notification,
-                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.partner_id.email_notification,
-                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.partner_id.push_notification
-            }
-            if user_dict:
-                user_id.partner_id.sudo().write(user_dict)
-            access_token = request.httprequest.headers.get('access_token')
-            if access_token:
-                access_token_data = request.env['api.access_token'].sudo().search([('access_token', '=', access_token)], order='id DESC', limit=1)
-                if access_token_data:
-                    token_dict = {
-                        'browser_name': jdata.get('browser_name') if jdata.get('browser_name') else access_token_data.browser_name,
-                        'os_name': jdata.get('os_name') if jdata.get('os_name') else access_token_data.os_name,
-                        'location': jdata.get('location') if jdata.get('location') else access_token_data.location,
-                        'theme': jdata.get('theme') if jdata.get('theme') else access_token_data.theme,
-                        'table_density': jdata.get('table_density') if jdata.get('table_density') else access_token_data.table_density,
-                        'collapse_sidebar': True if jdata.get('collapse_sidebar') in [1, '1'] else access_token_data.collapse_sidebar
-                    }
-                    access_token_data.sudo().write(token_dict)
+            if jdata.get('new_password') != jdata.get('confirm_password'):
+                return return_Response(message="The password and confirm password do not match.", status=400, errors=[])
+            credential = {'login': user_id.login, 'password': jdata.get('old_password'), 'type': 'password'}
+            uid = request.session.authenticate(
+                request.session.db,
+                credential
+            )
+            if 'uid' not in uid:
+                return return_Response(message="Incorrect Password.", status=400, errors=[])
+            user_id.sudo().password = jdata.get('new_password')
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Profile Updated Successfully", status=200)
@@ -288,17 +277,25 @@ class ApiAuthController(http.Controller):
                 'profile_url': safe_get_value(user_id, 'partner_id.profile_url', 'str'),
                 'bio_data': safe_get_value(user_id, 'partner_id.bio_data', 'str'),
                 'location': safe_get_value(user_id, 'partner_id.street', 'str'),
-                'in_app_notification': safe_get_value(user_id, 'partner_id.in_app_notification', 'bool'),
-                'email_notification': safe_get_value(user_id, 'partner_id.email_notification', 'bool'),
-                'push_notification': safe_get_value(user_id, 'partner_id.push_notification', 'bool'),
+                'in_app_notification': safe_get_value(user_id, 'employee_id.in_app_notification', 'bool'),
+                'email_notification': safe_get_value(user_id, 'employee_id.email_notification', 'bool'),
+                'push_notification': safe_get_value(user_id, 'employee_id.push_notification', 'bool'),
                 'join_date': safe_get_value(user_id, 'employee_id.joining_date', 'str'),
                 'project_count': len(projects),
                 'team_size': 0,
                 'blocked_resolved': 0,
                 'avg_resolution': "",
                 'skills': [{"id": skill.skill_id.id, "name": skill.skill_id.name} for skill in request.env['hr.employee.skill'].sudo().search([('employee_id', '=', user_id.employee_id.id)])],
-                'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date)} for i in projects]
+                'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date)} for i in projects],
+                'notification_line': []
             }
+            for notification in user_id.employee_id.notification_line:
+                data['notification_line'].append({
+                    'name': safe_get_value(notification, 'name.name', 'str'),
+                    'in_app_notification': safe_get_value(notification, 'in_app_notification', 'bool'),
+                    'email_notification': safe_get_value(notification, 'email_notification', 'bool'),
+                    'push_notification': safe_get_value(notification, 'push_notification', 'bool')
+                })
             # Org Approval Rate
             data['approval_target'] = 95.0
             data['approval_graph'] = {"Jan": 65.5, "Feb": 67.0, "March": 90.2}

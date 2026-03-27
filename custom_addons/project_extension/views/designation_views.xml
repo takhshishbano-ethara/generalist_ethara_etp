@@ -54,6 +54,18 @@
                 <field name="designation_id" placeholder="Select Designation..."/>
                 <field name="whatsapp_number" />
             </xpath>
+            <xpath expr="//notebook" position="inside">
+                <page string="Notifications" name="notification_settings">
+                    <field name="notification_line">
+                        <list editable="bottom" class="o_notification_list">
+                            <field name="name" placeholder="Category Name (e.g. Leave, Payroll)"/>
+                            <field name="in_app_notification" widget="boolean_toggle"/>
+                            <field name="email_notification" widget="boolean_toggle"/>
+                            <field name="push_notification" widget="boolean_toggle"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
         </field>
     </record>
 
@@ -67,4 +79,37 @@
             </xpath>
         </field>
     </record>
+
+<!--    Notification Categories-->
+
+    <record id="view_user_notification_category_tree" model="ir.ui.view">
+        <field name="name">user.notification.category.list</field>
+        <field name="model">user.notification.category</field>
+        <field name="arch" type="xml">
+            <list string="Notification Categories" editable="bottom">
+                <field name="name"/>
+                <field name="in_app_notification"/>
+                <field name="email_notification"/>
+                <field name="push_notification"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_user_notification_category" model="ir.actions.act_window">
+        <field name="name">Notification Categories</field>
+        <field name="res_model">user.notification.category</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first notification category!
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_user_notification_category_root"
+              name="Notification Settings"
+              parent="hr.menu_hr_root"
+              action="action_user_notification_category"
+              sequence="50"/>
+
 </odoo>
