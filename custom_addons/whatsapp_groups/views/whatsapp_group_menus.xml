@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Top-level menu -->
+    <menuitem id="whatsapp_groups_menu_root"
+              name="WhatsApp Groups"
+              web_icon="whatsapp_groups,static/description/icon.png"
+              sequence="90"/>
+
+    <!-- Configuration sub-menu -->
+    <menuitem id="whatsapp_groups_menu_config"
+              name="Configuration"
+              parent="whatsapp_groups_menu_root"
+              sequence="20"/>
+
+    <menuitem id="whatsapp_groups_menu_accounts"
+              name="Accounts"
+              parent="whatsapp_groups_menu_config"
+              action="whatsapp_group_account_action"
+              sequence="10"/>
+
+    <!-- Groups sub-menu -->
+    <menuitem id="whatsapp_groups_menu_groups_parent"
+              name="Groups"
+              parent="whatsapp_groups_menu_root"
+              sequence="10"/>
+
+    <menuitem id="whatsapp_groups_menu_groups"
+              name="All Groups"
+              parent="whatsapp_groups_menu_groups_parent"
+              action="whatsapp_group_action"
+              sequence="10"/>
+
+</odoo>
