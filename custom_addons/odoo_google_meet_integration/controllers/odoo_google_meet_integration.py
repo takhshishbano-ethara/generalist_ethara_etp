@@ -54,15 +54,25 @@ class GoogleMeetAuth(http.Controller):
                 headers={
                     'content-type': 'application/x-www-form-urlencoded'})
             if response.json() and response.json().get('access_token'):
-                company_id.write({
-                    'hangout_company_access_token':
-                        response.json().get('access_token'),
-                    'hangout_company_access_token_expiry':
-                        datetime.datetime.now() + datetime.timedelta(
-                            seconds=response.json().get('expires_in')),
-                    'hangout_company_refresh_token':
-                        response.json().get('access_token'),
-                })
+                # company_id.write({
+                #     'hangout_company_access_token':
+                #         response.json().get('access_token'),
+                #     'hangout_company_access_token_expiry':
+                #         datetime.datetime.now() + datetime.timedelta(
+                #             seconds=response.json().get('expires_in')),
+                #     'hangout_company_refresh_token':
+                #         response.json().get('access_token'),
+                # })
+                vals = {
+                    'hangout_company_access_token': response.json().get('access_token'),
+                    'hangout_company_access_token_expiry': datetime.datetime.now() + datetime.timedelta(seconds=response.json().get('expires_in')),
+                    'hangout_company_refresh_token': response.json().get('access_token')
+                }
+                # Only update refresh token if Google provides a new one
+                if response.json().get('refresh_token'):
+                    vals['hangout_company_refresh_token'] = response.json().get('refresh_token')
+
+                company_id.write(vals)
                 return "Authentication Success. You Can Close this window"
             else:
                 raise UserError(

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="ir_cron_escalate_project_blockers" model="ir.cron">
+        <field name="name">Project Blocker: Escalation Checker</field>
+        <field name="model_id" ref="model_project_blocker"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_escalate_blockers()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+    </record>
+
+</odoo>

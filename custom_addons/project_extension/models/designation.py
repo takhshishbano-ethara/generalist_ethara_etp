@@ -80,3 +80,12 @@ class UserNotificationCategory(models.Model):
     in_app_notification = fields.Boolean(default=False)
     email_notification = fields.Boolean(default=False)
     push_notification = fields.Boolean(default=False)
+
+class ProjectTeamAllocation(models.Model):
+    _name = 'project.team.allocation'
+    _description = 'Project Team Allocation'
+
+    employee_id = fields.Many2one('hr.employee', 'Tasker')
+    parent_id = fields.Many2one('hr.employee', string='Parent Tasker')
+
+

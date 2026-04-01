@@ -8,5 +8,21 @@
             <field name="padding">5</field>
             <field name="company_id" eval="False"/>
         </record>
+
+        <record id="seq_project_task" model="ir.sequence">
+            <field name="name">Project Task</field>
+            <field name="code">project.task</field>
+            <field name="prefix">TSK</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="seq_base_project_task" model="ir.sequence">
+            <field name="name">Base Project Task</field>
+            <field name="code">base.project.task</field>
+            <field name="prefix">TSK</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
     </data>
 </odoo>

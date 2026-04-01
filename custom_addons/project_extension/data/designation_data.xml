@@ -19,5 +19,15 @@
             <field name="name">AI Research Engineer</field>
             <field name="code">AIRE</field>
         </record>
+
+        <record id="designation_cto" model="hr.employee.designation">
+            <field name="name">CTO</field>
+            <field name="code">CTO</field>
+        </record>
+
+        <record id="designation_founder" model="hr.employee.designation">
+            <field name="name">Founder</field>
+            <field name="code">Founder</field>
+        </record>
     </data>
 </odoo>

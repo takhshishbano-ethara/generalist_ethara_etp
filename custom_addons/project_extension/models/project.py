@@ -10,13 +10,9 @@ class Project(models.Model):
     internal_project_name = fields.Char(string='Internal Project')
     client_name = fields.Char(string='Client Name')
     internal_client_name = fields.Char(string='Internal Client Name')
-    # project_category = fields.Many2one('project.category', string='Project')
     project_category = fields.Selection([('technical', 'Technical'), ('stem', 'Stem'), ('non_stem', 'Non Stem')], string='Project Category')
     project_type = fields.Selection([('single_turn', 'Single Turn'), ('multi_turn', 'Multi Turn')], default='single_turn')
     sample_task_number = fields.Integer(string='Sample Task Number')
-    # project_lead = fields.Many2many('res.users','project_project_res_users_lead_rel','project_id','user_id', string='Lead')
-    # project_aire = fields.Many2many('res.users','project_project_res_users_aire_rel', 'project_id','user_id', string='AI Research Engineer (AIRE)')
-    # project_swe = fields.Many2many('res.users','project_project_res_users_swe_rel','project_id','user_id', string='Software Engineer (SWE)')
     project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel', string='Lead')
     project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', string='AI Research Engineer (AIRE)')
     project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel', string='Software Engineer (SWE)')
@@ -37,6 +33,21 @@ class Project(models.Model):
     kick_off_to_mails = fields.Char(string='Kick Off To Mails')
     kick_off_subject = fields.Char(string='Kick Off Subject')
     kick_off_body = fields.Text('Kick Off Body')
+    is_pl_stage_completed = fields.Boolean(string='Is PL Stage Completed')
+    is_aire_stage_completed = fields.Boolean(string='Is AIRE Stage Completed')
+    is_swe_stage_completed = fields.Boolean(string='Is SWE Stage Completed')
+    project_guide_lines = fields.Many2many('google.drive.file','project_project_google_drive_file_guide_lines_rel', string='Project Guide Lines')
+    project_experiment_design = fields.Many2many('google.drive.file','project_project_google_drive_experiment_design_rel', string='Project Experiment Design')
+    project_research_document = fields.Many2many('google.drive.file','project_project_google_drive_research_document_rel', string='Project Research Document')
+    project_infrastructure_requirement = fields.Many2many('google.drive.file','project_project_google_drive_infrastructure_requirement_rel', string='Project Infrastructure Requirement')
+    training_event_id = fields.Many2one('calendar.event', 'Training Meeting linked', ondelete='cascade')
+    skill_tags = fields.Many2many('project.skills', 'project_project_project_skills_rel', string='Project Skill Tags')
+    ai_recommendation_tags = fields.Many2many('project.ai.recommendation', 'project_project_ai_recommendation_rel', string='Project AI Recommendation Tags')
+    research_notes = fields.Char(string='Research Notes')
+    rating_configuration = fields.Selection([('stars', 'Stars'), ('binary', 'Binary'), ('rubric', 'Rubric')])
+    task_template_type = fields.Many2one('task.template.type', string="Task Template Type")
+    lock_ttl= fields.Integer(string="Lock TTL (Minute)")
+    daily_quota_per_tasker = fields.Integer(string="Daily Quota per Tasker")
 
     def create_slack_channel(self):
         user_ids = []
@@ -132,12 +143,33 @@ class Project(models.Model):
                 print(f"{e}")
         return projects
 
+class TaskTemplateType(models.Model):
+    _name = 'task.template.type'
+    _description = 'Task Template Type'
+
+    name = fields.Char(string='Name')
+    project_key = fields.Char(string='Project Key')
+    model_name = fields.Char(string='Model')
+    mapping_field_name = fields.Char(string='Mapping Field')
+
 class ProjectAttachment(models.Model):
     _name = 'project.attachment'
     _description = 'Project Attachment'
 
     project_id = fields.Many2one('project.project', string='Project')
     image_url = fields.Char(string='Image URL')
+
+class ProjectSkills(models.Model):
+    _name = 'project.skills'
+    _description = 'Project Skills'
+
+    name = fields.Char(string='Name')
+
+class ProjectAIRecommendation(models.Model):
+    _name = 'project.ai.recommendation'
+    _description = 'Project AI Recommendation'
+
+    name = fields.Char(string='Name')
 
 class ProjectCategory(models.Model):
     _name = 'project.category'

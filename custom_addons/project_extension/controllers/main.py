@@ -2,6 +2,22 @@ from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value
 import base64
+
+def create_calendar_event(request, meet_body):
+    meet_vals = {
+        "name": meet_body.get("subject"),
+        "start": meet_body.get("start_datetime"),
+        "stop": meet_body.get("stop_datetime"),
+        # "duration": duration_hours,
+        "description": meet_body.get("description"),
+        "privacy": "public",
+        "show_as": "busy",
+        "is_google_meet": True,
+        "partner_ids": [(6, 0, meet_body.get("partner_ids"))],
+    }
+    event_id = request.env['calendar.event'].sudo().create(meet_vals)
+    return event_id
+
 class ProjectController(http.Controller):
 
     @validate_token
@@ -24,6 +40,10 @@ class ProjectController(http.Controller):
                     domain = [('designation_id', '=', request.env.ref('project_extension.designation_ai_research_engineer').id)]
                 elif jdata.get('designation') == 'pl':
                     domain = [('designation_id', '=', request.env.ref('project_extension.designation_team_lead').id)]
+                elif jdata.get('designation') == 'qc_review':
+                    domain = [('designation_id', '=', request.env.ref('project_extension.designation_jr_software_engineer').id), ('is_qc_review', '=', True)]
+                elif jdata.get('designation') == 'tasker':
+                    domain = [('designation_id', '=', request.env.ref('project_extension.designation_jr_software_engineer').id), ('is_tasker', '=', True)]
                 else:
                     domain = [('designation_id.name', 'ilike', jdata.get('designation'))]
             if jdata.get('search'):
@@ -459,3 +479,313 @@ class ProjectController(http.Controller):
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/update_project_details_pl_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        "project_id": {"type": "str", "required": True},
+        "meeting_body": {
+            "type": "dict",
+            "required": True,
+            "fields": {
+                "subject": {"type": "str", "required": True},
+                "start_datetime": {"type": "str", "required": True},
+                "stop_datetime": {"type": "str", "required": True},
+                "description": {"type": "str", "required": True},
+            }
+        },
+        "project_qc_reviewer": {"type": "list", "required": True},
+        "project_tasker": {"type": "list", "required": True}
+    })
+    def update_project_details_pl_portal_info(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            project_id = jdata.get('project_id')
+
+            project = request.env['project.project'].sudo().browse(int(project_id))
+            if not project.exists():
+                return return_Response(message=f"Project {project_id} Not Found", status=404)
+
+            rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
+            if rfp_stage and project.stage_id.id != rfp_stage.id:
+                return return_Response(message="Project is not in the required RFP stage.", status=400)
+
+            qc_ids = jdata.get('project_qc_reviewer', [])
+            tasker_ids = jdata.get('project_tasker', [])
+
+            project.sudo().write({
+                "project_qc_reviewer": [(6, 0, qc_ids)],
+                "project_tasker": [(6, 0, tasker_ids)],
+            })
+
+            all_users = (project.project_swe | project.project_aire | project.project_lead |
+                         project.project_qc_reviewer | project.project_tasker).mapped('user_id')
+
+            partner_ids = all_users.mapped('partner_id').ids
+
+            meet_payload = jdata.get('meeting_body')
+            meet_payload['partner_ids'] = partner_ids
+
+            event_result = create_calendar_event(request, meet_payload)
+
+            project.sudo().write({'training_event_id': event_result.get('id')})
+
+            return return_Response(
+                message="Project details and meeting updated successfully.",
+                status=200,
+                data={"project_id": project.id, "meeting_id": event_result.get('id')}
+            )
+
+        except Exception as e:
+            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/update_project_details_pl_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    def update_project_details_pl_portal_info(self, **kwargs):
+        try:
+            if not kwargs.get('project_id'):
+                return return_Response(message=f"Project Id is missing in the request body.", status=400)
+            project_id = kwargs.get('project_id')
+
+            project = request.env['project.project'].sudo().browse(int(project_id))
+            if not project.exists():
+                return return_Response(message=f"Project {project_id} Not Found", status=404)
+
+            rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
+            if rfp_stage and project.stage_id.id != rfp_stage.id:
+                return return_Response(message="Project is not in the required RFP stage.", status=400)
+
+            qc_ids = kwargs.get('project_qc_reviewer', [])
+            tasker_ids = kwargs.get('project_tasker', [])
+            vals = {}
+            if qc_ids:
+                vals['project_qc_reviewer'] = [(6, 0, qc_ids)]
+            if tasker_ids:
+                vals['project_tasker'] = [(6, 0, tasker_ids)]
+            if kwargs.get('meeting_body'):
+                all_users = (project.project_swe | project.project_aire | project.project_lead |
+                             project.project_qc_reviewer | project.project_tasker).mapped('user_id')
+                partner_ids = all_users.mapped('partner_id').ids
+                meet_payload = {
+                    "subject": kwargs.get('meeting_body').get('subject'),
+                    "start_datetime": kwargs.get('meeting_body').get('start_datetime'),
+                    "stop_datetime": kwargs.get('meeting_body').get('stop_datetime'),
+                    "description": kwargs.get('meeting_body').get('description')
+                }
+                meet_payload['partner_ids'] = partner_ids
+                event_result = create_calendar_event(request, meet_payload)
+                if event_result:
+                    vals['training_event_id'] = event_result.id
+
+            if request.httprequest.files.getlist('files'):
+                attachment_ids = []
+                files = request.httprequest.files.getlist('files')
+
+                for file in files:
+                    file_content = file.read()
+                    if not file_content:
+                        continue
+                    drive_records = self.env['google.drive.file'].sudo().search([('type', '=', 'folder'), ('parent_id', '=', project.google_drive_id.id)])
+
+                    for drive_id in drive_records:
+                        drive_record = self.env['google.drive.wizard'].create({
+                            'name': file.filename,
+                            'upload_type': 'file',
+                            'file_content': base64.b64encode(file_content),
+                            'parent_folder_id': drive_id.id if drive_id else None,
+                        })._upload_file()
+                        attachment_ids.append(drive_record.id)
+                if attachment_ids:
+                    vals['project_guide_lines'] = [(6, 0, attachment_ids)]
+            if vals:
+                vals['is_pl_stage_completed'] = True
+                project.sudo().write(vals)
+            return return_Response(message="Project PL Portal Updated Successfully.", status=200)
+
+        except Exception as e:
+            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/update_project_details_aire_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    def update_project_details_aire_portal_info(self, **kwargs):
+        try:
+            if not kwargs.get('project_id'):
+                return return_Response(message=f"Project Id is missing in the request body.", status=400)
+            project_id = kwargs.get('project_id')
+
+            project = request.env['project.project'].sudo().browse(int(project_id))
+            if not project.exists():
+                return return_Response(message=f"Project {project_id} Not Found", status=404)
+
+            rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
+            if rfp_stage and project.stage_id.id != rfp_stage.id:
+                return return_Response(message="Project is not in the required RFP stage.", status=400)
+
+            if not project.is_pl_stage_completed:
+                return return_Response(message="The Project PL Portal details are pending.", status=400)
+
+            vals = {}
+            skill_tags = []
+            if kwargs.get('skill_tags'):
+                for skill in kwargs.get('skill_tags'):
+                    p_skill = request.env['project.skill'].sudo().search([('name', '=', skill)], limit=1)
+                    if not p_skill:
+                        p_skill = request.env['project.skill'].sudo().create({'name': skill})
+                    skill_tags.append(p_skill.id)
+            if skill_tags:
+                vals['skill_tags'] = [(6, 0, skill_tags)]
+
+            ai_recommendation_tags = []
+            if kwargs.get('ai_recommendation_tags'):
+                for recommendation in kwargs.get('ai_recommendation_tags'):
+                    p_recommendation = request.env['project.ai.recommendation'].sudo().search([('name', '=', recommendation)], limit=1)
+                    if not p_recommendation:
+                        p_recommendation = request.env['project.ai.recommendation'].sudo().create({'name': recommendation})
+                    ai_recommendation_tags.append(p_recommendation.id)
+            if ai_recommendation_tags:
+                vals['ai_recommendation_tags'] = [(6, 0, ai_recommendation_tags)]
+
+            if kwargs.get('research_notes'):
+                vals['research_notes'] = kwargs.get('research_notes')
+
+            if request.httprequest.files.getlist('experiment_files'):
+                attachment_ids = []
+                files = request.httprequest.files.getlist('experiment_files')
+
+                for file in files:
+                    file_content = file.read()
+                    if not file_content:
+                        continue
+                    drive_records = self.env['google.drive.file'].sudo().search([('type', '=', 'folder'), ('parent_id', '=', project.google_drive_id.id)])
+
+                    for drive_id in drive_records:
+                        drive_record = self.env['google.drive.wizard'].create({
+                            'name': file.filename,
+                            'upload_type': 'file',
+                            'file_content': base64.b64encode(file_content),
+                            'parent_folder_id': drive_id.id if drive_id else None,
+                        })._upload_file()
+                        attachment_ids.append(drive_record.id)
+                if attachment_ids:
+                    vals['project_experiment_design'] = [(6, 0, attachment_ids)]
+
+            if request.httprequest.files.getlist('research_document'):
+                attachment_ids = []
+                files = request.httprequest.files.getlist('research_document')
+
+                for file in files:
+                    file_content = file.read()
+                    if not file_content:
+                        continue
+                    drive_records = self.env['google.drive.file'].sudo().search([('type', '=', 'folder'), ('parent_id', '=', project.google_drive_id.id)])
+
+                    for drive_id in drive_records:
+                        drive_record = self.env['google.drive.wizard'].create({
+                            'name': file.filename,
+                            'upload_type': 'file',
+                            'file_content': base64.b64encode(file_content),
+                            'parent_folder_id': drive_id.id if drive_id else None,
+                        })._upload_file()
+                        attachment_ids.append(drive_record.id)
+                if attachment_ids:
+                    vals['project_research_document'] = [(6, 0, attachment_ids)]
+            if vals:
+                vals['is_aire_stage_completed'] = True
+                project.sudo().write(vals)
+            return return_Response(message="Project AIRE Portal Updated Successfully.", status=200)
+
+        except Exception as e:
+            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/update_project_details_swe_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    def update_project_details_swe_portal_info(self, **kwargs):
+        try:
+            if not kwargs.get('project_id'):
+                return return_Response(message=f"Project Id is missing in the request body.", status=400)
+            project_id = kwargs.get('project_id')
+
+            project = request.env['project.project'].sudo().browse(int(project_id))
+            if not project.exists():
+                return return_Response(message=f"Project {project_id} Not Found", status=404)
+
+            rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
+            if rfp_stage and project.stage_id.id != rfp_stage.id:
+                return return_Response(message="Project is not in the required RFP stage.", status=400)
+
+            if not project.is_aire_stage_completed:
+                return return_Response(message="The Project AIRE Portal Details are pending.", status=400)
+
+            vals = {}
+            if kwargs.get('rating_configuration'):
+                vals['rating_configuration'] = kwargs['rating_configuration']
+
+            if kwargs.get('task_template_type'):
+                vals['task_template_type'] = int(kwargs['task_template_type'])
+
+            if kwargs.get('lock_ttl'):
+                vals['lock_ttl'] = int(kwargs['lock_ttl'])
+
+            if kwargs.get('daily_quota_per_tasker'):
+                vals['daily_quota_per_tasker'] = int(kwargs['daily_quota_per_tasker'])
+
+            if request.httprequest.files.getlist('requirement_files'):
+                attachment_ids = []
+                files = request.httprequest.files.getlist('requirement_files')
+
+                for file in files:
+                    file_content = file.read()
+                    if not file_content:
+                        continue
+                    drive_records = self.env['google.drive.file'].sudo().search([('type', '=', 'folder'), ('parent_id', '=', project.google_drive_id.id)])
+
+                    for drive_id in drive_records:
+                        drive_record = self.env['google.drive.wizard'].create({
+                            'name': file.filename,
+                            'upload_type': 'file',
+                            'file_content': base64.b64encode(file_content),
+                            'parent_folder_id': drive_id.id if drive_id else None,
+                        })._upload_file()
+                        attachment_ids.append(drive_record.id)
+                if attachment_ids:
+                    vals['project_infrastructure_requirement'] = [(6, 0, attachment_ids)]
+            if vals:
+                vals['is_swe_stage_completed'] = True
+                vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_6', raise_if_not_found=False).id
+                project.sudo().write(vals)
+            return return_Response(message="Project SWE Portal Updated Successfully.", status=200)
+
+        except Exception as e:
+            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_task_template_type', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_task_template_type(self, **kwargs):
+        try:
+            domain = []
+            jdata = kwargs.get('jdata')
+            page = int(jdata.get('page')) if jdata.get('page') else 1
+            limit = int(jdata.get('limit')) if jdata.get('limit') else 1
+            offset = (page - 1) * limit
+            total_count = request.env['task.template.type'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
+            template_type = request.env['task.template.type'].sudo().search(domain, limit=limit, offset=offset, order="create_date desc")
+            template_type_data = []
+            for task in template_type:
+                template_type_data.append({
+                    'id': safe_get_value(task, 'id', 'int'),
+                    'name': safe_get_value(task, 'name', 'str'),
+                    'project_key': safe_get_value(task, 'project_key', 'str'),
+                    'model_name': safe_get_value(task, 'model_name', 'str'),
+                    'mapping_field_name': safe_get_value(task, 'mapping_field_name', 'str')
+                })
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": template_type_data, "total_record_count": len(total_count), "count": len(template_type_data)})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+

@@ -16,7 +16,7 @@ import re
 
 class ReportXlsxController(http.Controller):
 
-    # @validate_token
+    @validate_token
     @http.route('/api/v1/export_project_project_report', methods=['GET'], type='http', auth='public', csrf=False, cors='*')
     def export_project_project_report(self, **params):
         try:

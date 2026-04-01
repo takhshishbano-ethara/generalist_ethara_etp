@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="view_kubera_notification_tree" model="ir.ui.view">
+        <field name="name">kubera.notification.tree</field>
+        <field name="model">kubera.notification</field>
+        <field name="arch" type="xml">
+            <list string="Notifications" default_order="create_date desc">
+                <field name="title"/>
+                <field name="message"/>
+                <field name="user_id"/>
+                <field name="is_read"/>
+                <field name="priority"/>
+                <field name="date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kubera_notification_form" model="ir.ui.view">
+        <field name="name">kubera.notification.form</field>
+        <field name="model">kubera.notification</field>
+        <field name="arch" type="xml">
+            <form string="Notification">
+                <sheet>
+                    <group>
+                        <field name="title"/>
+                        <field name="message"/>
+                        <field name="is_read"/>
+                    </group>
+
+                    <group string="Linked Record">
+                        <field name="res_model"/>
+                        <field name="res_id"/>
+                        <field name="model_ref_id"/>
+                    </group>
+
+                    <group string="Meta Information">
+                        <field name="user_id"/>
+                        <field name="priority"/>
+                        <field name="date" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_kubera_notification" model="ir.actions.act_window">
+        <field name="name">Notifications</field>
+        <field name="res_model">kubera.notification</field>
+        <field name="view_mode">list,form</field>
+        <field name="help">Manage user notifications.</field>
+    </record>
+
+    <menuitem id="menu_kubera_root" name="Notifications" sequence="10"/>
+
+    <menuitem id="menu_kubera_notification"
+              name="Notifications"
+              parent="menu_kubera_root"
+              action="action_kubera_notification"
+              sequence="20"/>
+</odoo>

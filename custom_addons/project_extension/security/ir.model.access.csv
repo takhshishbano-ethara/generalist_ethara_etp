@@ -3,3 +3,9 @@ access_hr_employee_designation,hr.employee.designation,model_hr_employee_designa
 access_whatsapp_group_members,whatsapp.group.members,model_whatsapp_group_members,base.group_user,1,1,1,1
 access_user_notification_category,user.notification.category,model_user_notification_category,,1,1,1,1
 access_notification_category_line,notification.category.line,model_notification_category_line,,1,1,1,1
+access_project_blocker,project.blocker,model_project_blocker,,1,1,1,1
+access_base_project_task,base.project.task,model_base_project_task,,1,1,1,1
+access_project_task_tags,project.task.tags,model_project_task_tags,,1,1,1,1
+access_project_skills,project.skills,model_project_skills,,1,1,1,1
+access_project_category,project.category,model_project_category,,1,1,1,1
+access_project_ai_recommendation,project.ai.recommendation,model_project_ai_recommendation,,1,1,1,1

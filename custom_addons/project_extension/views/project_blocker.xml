@@ -1,0 +1,60 @@
+<odoo>
+    <record id="view_project_blocker_form" model="ir.ui.view">
+        <field name="name">project.blocker.form</field>
+        <field name="model">project.blocker</field>
+        <field name="arch" type="xml">
+            <form string="Project Blocker">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="raised,inprogress,testing,resolved"/>
+<!--                    <button name="action_resolve" string="Mark Resolved" type="object" class="btn-primary" invisible="state == 'resolved'"/>-->
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" class="oe_edit_only"/>
+                        <h1><field name="name" placeholder="e.g. Server Timeout on Small Node"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="task_id"/>
+                            <field name="employee_id"/>
+                        </group>
+                        <group>
+                            <field name="priority" widget="priority"/>
+                            <field name="assigned_employee_ids" widget="many2many_tags"/>
+                            <field name="next_escalation_date"/>
+                        </group>
+                    </group>
+                </sheet>
+<!--                <div class="oe_chatter">-->
+<!--                    <field name="message_follower_ids"/>-->
+<!--                    <field name="message_ids"/>-->
+<!--                </div>-->
+            </form>
+        </field>
+    </record>
+
+    <record id="view_project_blocker_tree" model="ir.ui.view">
+        <field name="name">project.blocker.list</field>
+        <field name="model">project.blocker</field>
+        <field name="arch" type="xml">
+            <list string="Project Blocker">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="task_id"/>
+                <field name="employee_id"/>
+            </list>
+        </field>
+    </record>
+    <record id="action_project_blocker" model="ir.actions.act_window">
+        <field name="name">Project Blocker</field>
+        <field name="res_model">project.blocker</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_project_blocker"
+              name="Project Blocker"
+              parent="project.menu_project_config"
+              action="action_project_blocker"
+              sequence="50"/>
+</odoo>

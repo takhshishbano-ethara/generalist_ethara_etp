@@ -7,9 +7,11 @@
         'data/mail_template.xml',
         'views/project_view.xml',
         'views/designation_views.xml',
+        'views/project_blocker.xml',
         'data/ir_sequence_data.xml',
         'data/designation_data.xml',
-        'data/project_data.xml'
+        'data/project_data.xml',
+        'data/ir_cron_data.xml'
     ],
     'installable': True,
     'application': False,
