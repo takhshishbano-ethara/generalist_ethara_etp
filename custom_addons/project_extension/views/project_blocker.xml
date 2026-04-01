@@ -6,7 +6,6 @@
             <form string="Project Blocker">
                 <header>
                     <field name="state" widget="statusbar" statusbar_visible="raised,inprogress,testing,resolved"/>
-<!--                    <button name="action_resolve" string="Mark Resolved" type="object" class="btn-primary" invisible="state == 'resolved'"/>-->
                 </header>
                 <sheet>
                     <div class="oe_title">

@@ -12,8 +12,6 @@ class DashboardController(http.Controller):
     def get_cto_dashboard_list(self, **kwargs):
         try:
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
-            # if not user_id.employee_id:
-            #     return return_Response(message="Employee not found", status=404)
             priority = {
                 '0': 'Low',
                 '1': 'Medium',
@@ -23,14 +21,15 @@ class DashboardController(http.Controller):
             now = datetime.datetime.now()
             last_month = now - datetime.timedelta(days=30)
 
-            # domain = ['|', '|', '|', '|',
-            #           ('project_lead', 'in', [user_id.employee_id.id]),
-            #           ('project_aire', 'in', [user_id.employee_id.id]),
-            #           ('project_swe', 'in', [user_id.employee_id.id]),
-            #           ('project_qc_reviewer', 'in', [user_id.employee_id.id]),
-            #           ('project_tasker', 'in', [user_id.employee_id.id])
-            #           ]
             domain = []
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                else:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+
             current_projects = request.env['project.project'].sudo().search_count(domain)
             last_month_domain = domain + [('create_date', '<', last_month.strftime('%Y-%m-%d 00:00:00'))]
             last_month_count = request.env['project.project'].sudo().search_count(last_month_domain)
@@ -104,19 +103,17 @@ class DashboardController(http.Controller):
 
                 results = []
                 for pro in projects:
-                    # --- Time Calculation Logic ---
                     remaining_time = pro.date - now.date()
                     total_seconds = remaining_time.total_seconds()
 
                     if total_seconds < 0:
                         due_label = "Overdue"
-                    elif total_seconds >= 86400:  # More than 24 hours
+                    elif total_seconds >= 86400:
                         days = int(total_seconds // 86400)
                         due_label = f"In {days} day{'s' if days > 1 else ''}"
                     else:
                         hours = int(total_seconds // 3600)
                         due_label = f"In {hours} hour{'s' if hours > 1 else ''}"
-                    # ------------------------------
 
                     count = blocker_counts.get(pro.id, 0)
                     if count > 0:
@@ -133,28 +130,11 @@ class DashboardController(http.Controller):
                     })
                 return results
 
-            # 2. Populate Vals
             vals["upcoming_deadlines"] = {
                 "today": get_deadline_info(today_date, today_date),
                 "tomorrow": get_deadline_info(today_date + datetime.timedelta(days=1), today_date + datetime.timedelta(days=1)),
                 "this_week": get_deadline_info(today_date + datetime.timedelta(days=2), today_date + datetime.timedelta(days=7))
             }
-            # today = now.date()
-            # tomorrow = now + datetime.timedelta(days=1)
-            # this_week = now + datetime.timedelta(days=7)
-            # vals["upcoming_deadlines"] = [{
-            #     "Today": [{'name': pro.name, "message": f"{request.env['project.blocker'].sudo().search_count(domain=[('project_id', '=' , pro.id), ('state', 'in', ['raised', 'in_progress', 'testing'])])} blockers are still pending" for pro in request.env['project.project'].sudo().search([('date', '>=', f'{today} 00:00:00'), ('date', '<=', f'{today} 23:59:00')]) if request.env['project.blocker'].sudo().search_count(domain=[('project_id', '=' , pro.id), ('state', 'in', ['raised', 'in_progress', 'testing'])]) else f"Project in {pro.stage_id.name} Stage"],
-            #     "Tomorrow": [{} for pro in request.env['project.project'].sudo().search([('date', '>=', f'{tomorrow} 00:00:00'), ('date', '<=', f'{tomorrow} 23:59:00')])],
-            #     "This_Week": [{} for pro in request.env['project.project'].sudo().search([('date', '>', f'{tomorrow} 00:00:00'), ('date', '<=', f'{this_week} 23:59:00')])]
-            # }]
-            # for pro in request.env['project.project'].sudo().search([('date', '>=', f'{today} 00:00:00'), ('date', '<=', f'{today} 23:59:00')]):
-            #     blockers = request.env['project.blocker'].sudo().read_grou
-            #         domain=[(), ('state', 'in', ['raised', 'in_progress', 'testing'])],
-            #         fields=['priority'],
-            #         groupby=['priority']
-            #     )
-
-
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
@@ -212,3 +192,171 @@ class DashboardController(http.Controller):
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=500, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_pl_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_pl_dashboard_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            now = datetime.datetime.now()
+            today_date = now.date()
+            priority = {
+                '0': 'Low',
+                '1': 'Medium',
+                '2': 'High',
+                '3': 'Critical'
+            }
+
+            domain = ['|', '|', '|', '|',
+                      ('project_lead', '=', user_id.employee_id.id),
+                      ('project_aire', '=', user_id.employee_id.id),
+                      ('project_swe', '=', user_id.employee_id.id),
+                      ('project_qc_reviewer', '=', user_id.employee_id.id),
+                      ('project_tasker', '=', user_id.employee_id.id)
+                      ]
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                else:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+            if kwargs.get('project_id'):
+                domain.append(('id', '=', int(kwargs['project_id'])))
+
+            current_projects = request.env['project.project'].sudo().search(domain)
+
+            if not current_projects:
+                return return_Response(message="Success", status=200, data={"records": {}})
+
+            total_projects = [{
+                'stage': p['stage_id'][1] if p['stage_id'] else "Undefined",
+                'count': p['stage_id_count']
+            } for p in current_projects.sudo().read_group(
+                domain=domain,
+                fields=['stage_id'],
+                groupby=['stage_id']
+            )]
+
+            project_count = sum([i['count'] for i in total_projects]) or 0
+            project_message = ", ".join([f"{i['count']} in {i['stage']}" for i in total_projects if i['count']]) or ""
+
+            blockers = request.env['project.blocker'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids),
+                        ('state', 'in', ['raised', 'in_progress', 'testing'])],
+                fields=['priority'],
+                groupby=['priority']
+            )
+            blockers_count = sum([i['priority_count'] for i in blockers]) or 0
+            blockers_info = ", ".join(
+                [f"{block['priority_count']} {priority.get(block['priority'], 'Unknown')}" for block in blockers if block['priority_count']])
+
+            blocker_data = request.env['project.blocker'].sudo().read_group(
+                domain=[('state', 'in', ['raised', 'in_progress', 'testing'])],
+                fields=['project_id'],
+                groupby=['project_id']
+            )
+            blocker_counts = {item['project_id'][0]: item['project_id_count'] for item in blocker_data if
+                              item['project_id']}
+
+            total_task_record = request.env['base.project.task'].sudo().search(
+                [('project_id', 'in', current_projects.ids)])
+            task_count = len(total_task_record)
+
+            task_data = request.env['base.project.task'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids)],
+                fields=['status'],
+                groupby=['status']
+            )
+
+            total_employee = total_task_record.mapped('assignee_ids')
+            task_record_dict = {}
+
+            for emp in total_employee:
+                employee_task = total_task_record.filtered(lambda t: emp.id in t.assignee_ids.ids)
+                approved_task = employee_task.filtered(lambda t: t.status == 'approved')
+
+                task_total = len(employee_task)
+                task_record_dict[emp.id] = {
+                    'employee_id': emp.id,
+                    'employee_name': emp.name,
+                    'employee_task_count': task_total,
+                    'task_approval_rate': round((len(approved_task) / task_total) * 100, 2) if task_total > 0 else 0
+                }
+
+            vals = {
+                "project_cart": {
+                    'reviewer_count': len(current_projects[0].project_qc_reviewer) if current_projects else 0,
+                    'tasker_count': len(current_projects[0].project_tasker) if current_projects else 0,
+                    'kickoff_meeting': current_projects[0].training_event_id.name if current_projects and
+                                                                                     current_projects[
+                                                                                         0].training_event_id else False,
+                    'send_kickoff_mail': bool(current_projects[0].training_event_id) if current_projects else False
+                },
+                "my_project": {
+                    'project_count': project_count,
+                    'project_message': project_message
+                },
+                "daily_throughput": {
+                    'total_task_count': task_count,
+                    'done_task_count': len(total_task_record.filtered(lambda t: t.status == 'done')),
+                    'target_percentage': 10.0
+                },
+                'team_approval_rate': {
+                    'target_percentage': 100.0,
+                    'done_task_percentage': 100.0,
+                    'difference_percentage': 0.0,
+                },
+                'open_block': {
+                    'open_blockers_count': blockers_count,
+                    'blockers_info': blockers_info
+                },
+                'task_pipeline': {
+                    'total_projects': project_count,
+                    'task_pipeline_graph': [{
+                        'stage': i['status'] if i['status'] else "Undefined",
+                        'count': i['status_count'],
+                        'percentage': round((i['status_count'] / task_count) * 100, 2) if task_count > 0 else 0
+                    } for i in task_data]
+                },
+                'team_performance': list(task_record_dict.values())
+            }
+
+            def get_deadline_info(start_date, end_date):
+                projects = current_projects.filtered(lambda p: p.date and start_date <= p.date <= end_date)
+                results = []
+                for pro in projects:
+                    diff = (pro.date - today_date).days
+
+                    if diff < 0:
+                        due_label = "Overdue"
+                    elif diff == 0:
+                        due_label = "Today"
+                    else:
+                        due_label = f"In {diff} day{'s' if diff > 1 else ''}"
+
+                    count = blocker_counts.get(pro.id, 0)
+                    message = f"{count} blockers are pending" if count > 0 else f"{pro.stage_id.name or 'Initial'} stage is due"
+
+                    results.append({
+                        'name': pro.name,
+                        'message': message,
+                        'due_in': due_label,
+                        'status': 'blocked' if count > 0 else 'clear'
+                    })
+                return results
+
+            vals["upcoming_deadlines"] = {
+                "today": get_deadline_info(today_date, today_date),
+                "tomorrow": get_deadline_info(today_date + datetime.timedelta(days=1), today_date + datetime.timedelta(days=1)),
+                "this_week": get_deadline_info(today_date + datetime.timedelta(days=2), today_date + datetime.timedelta(days=7))
+            }
+
+            return return_Response(message="Success", status=200, data={"records": vals})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])

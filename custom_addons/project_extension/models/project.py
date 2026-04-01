@@ -48,6 +48,8 @@ class Project(models.Model):
     task_template_type = fields.Many2one('task.template.type', string="Task Template Type")
     lock_ttl= fields.Integer(string="Lock TTL (Minute)")
     daily_quota_per_tasker = fields.Integer(string="Daily Quota per Tasker")
+    approval_target = fields.Integer(string="Approval Target")
+    base_project_task = fields.One2many('base.project.task', 'project_id', string='Base Project Task')
 
     def create_slack_channel(self):
         user_ids = []

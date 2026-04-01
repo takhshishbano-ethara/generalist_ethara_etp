@@ -242,10 +242,7 @@ class ApiAuthController(http.Controller):
             if jdata.get('new_password') != jdata.get('confirm_password'):
                 return return_Response(message="The password and confirm password do not match.", status=400, errors=[])
             credential = {'login': user_id.login, 'password': jdata.get('old_password'), 'type': 'password'}
-            uid = request.session.authenticate(
-                request.session.db,
-                credential
-            )
+            uid = request.session.authenticate(request.env, credential)
             if 'uid' not in uid:
                 return return_Response(message="Incorrect Password.", status=400, errors=[])
             user_id.sudo().password = jdata.get('new_password')

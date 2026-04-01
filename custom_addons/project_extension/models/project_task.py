@@ -7,7 +7,7 @@ class BaseProjectTask(models.Model):
     _description = 'Base Project Task'
     _inherit = ['mail.thread', 'mail.activity.mixin']
 
-    name = fields.Char(string='Blocker Name', tracking=True)
+    name = fields.Char(string='Name', tracking=True)
     sequence = fields.Char(string='Sequence', tracking=True)
     project_id = fields.Many2one('project.project', string='Project')
     status = fields.Selection([('in_progress', 'In Progress'), ('qc_review', 'QC Review'), ('reword', 'Rework'), ('queued', 'Queued'), ('assigned', 'Assigned'), ('rejected', 'Rejected'), ('submitted', 'Submitted'), ('approved', 'Approved'), ('delivery', 'Delivery'), ('draft', 'Draft')], string='Status', default='draft')

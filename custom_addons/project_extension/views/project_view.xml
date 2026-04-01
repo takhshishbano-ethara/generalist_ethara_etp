@@ -50,13 +50,34 @@
                     </group>
                 </page>
 
-<!--                <page string="External Attachments" name="attachments">-->
-<!--                    <field name="project_attachments">-->
-<!--                        <list editable="bottom">-->
-<!--                            <field name="image_url" widget="url"/>-->
-<!--                        </list>-->
-<!--                    </field>-->
-<!--                </page>-->
+                <page string="Project Task" name="attachments">
+                    <field name="base_project_task">
+                        <list >
+                            <field name="name"/>
+                            <field name="sequence"/>
+                            <field name="status"/>
+                            <field name="priority"/>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                            <field name="is_sample_task"/>
+                        </list>
+                        <form>
+                            <sheet>
+                                <group>
+                                    <field name="name"/>
+                                    <field name="sequence"/>
+                                    <field name="status"/>
+                                    <field name="priority"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="is_sample_task"/>
+                                    <field name="assignee_ids" widget="many2many_tags"/>
+                                    <field name="tags" widget="many2many_tags"/>
+                                </group>
+                            </sheet>
+                        </form>
+                    </field>
+                </page>
             </xpath>
         </field>
     </record>
