@@ -211,13 +211,7 @@ class DashboardController(http.Controller):
                 '3': 'Critical'
             }
 
-            domain = ['|', '|', '|', '|',
-                      ('project_lead', '=', user_id.employee_id.id),
-                      ('project_aire', '=', user_id.employee_id.id),
-                      ('project_swe', '=', user_id.employee_id.id),
-                      ('project_qc_reviewer', '=', user_id.employee_id.id),
-                      ('project_tasker', '=', user_id.employee_id.id)
-                      ]
+            domain = [('project_lead', '=', user_id.employee_id.id)]
 
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
@@ -288,16 +282,20 @@ class DashboardController(http.Controller):
                     'employee_task_count': task_total,
                     'task_approval_rate': round((len(approved_task) / task_total) * 100, 2) if task_total > 0 else 0
                 }
-
+            project_id = current_projects[0] if current_projects else None
+            if kwargs.get('project_id'):
+                project_id = request.env['project.project'].sudo().search([('id', 'in', int(kwargs['project_id']))], limit=1)
             vals = {
                 "project_cart": {
-                    'reviewer_count': len(current_projects[0].project_qc_reviewer) if current_projects else 0,
-                    'tasker_count': len(current_projects[0].project_tasker) if current_projects else 0,
-                    'kickoff_meeting': current_projects[0].training_event_id.name if current_projects and
-                                                                                     current_projects[
-                                                                                         0].training_event_id else False,
-                    'send_kickoff_mail': bool(current_projects[0].training_event_id) if current_projects else False
-                },
+                    'reviewer_count': len(project_id.project_qc_reviewer) if project_id else 0,
+                    'tasker_count': len(project_id.project_tasker) if project_id else 0,
+                    'kickoff_meeting': project_id.training_event_id.name if project_id and project_id.training_event_id else False,
+                    'send_kickoff_mail': bool(project_id.training_event_id) if project_id else False,
+                    'is_pl_stage_completed': project_id.is_pl_stage_completed or False,
+                    'is_aire_stage_completed': project_id.is_aire_stage_completed or False,
+                    'is_swe_stage_completed': project_id.is_swe_stage_completed or False
+
+            },
                 "my_project": {
                     'project_count': project_count,
                     'project_message': project_message
@@ -355,6 +353,205 @@ class DashboardController(http.Controller):
                 "today": get_deadline_info(today_date, today_date),
                 "tomorrow": get_deadline_info(today_date + datetime.timedelta(days=1), today_date + datetime.timedelta(days=1)),
                 "this_week": get_deadline_info(today_date + datetime.timedelta(days=2), today_date + datetime.timedelta(days=7))
+            }
+
+            return return_Response(message="Success", status=200, data={"records": vals})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_aire_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_aire_dashboard_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            now = datetime.datetime.now()
+            today_date = now.date()
+            priority = {
+                '0': 'Low',
+                '1': 'Medium',
+                '2': 'High',
+                '3': 'Critical'
+            }
+
+            domain = [('project_aire', '=', user_id.employee_id.id)]
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                else:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+            if kwargs.get('project_id'):
+                domain.append(('id', '=', int(kwargs['project_id'])))
+
+            current_projects = request.env['project.project'].sudo().search(domain)
+
+            if not current_projects:
+                return return_Response(message="Success", status=200, data={"records": {}})
+            project_id = current_projects[0] if current_projects else None
+            if kwargs.get('project_id'):
+                project_id = request.env['project.project'].sudo().search([('id', 'in', int(kwargs['project_id']))],
+                                                                          limit=1)
+
+            total_projects = [{
+                'stage': p['stage_id'][1] if p['stage_id'] else "Undefined",
+                'count': p['stage_id_count']
+            } for p in current_projects.sudo().read_group(
+                domain=domain,
+                fields=['stage_id'],
+                groupby=['stage_id']
+            )]
+
+            project_count = sum([i['count'] for i in total_projects]) or 0
+            project_message = ", ".join([f"{i['count']} in {i['stage']}" for i in total_projects if i['count']]) or ""
+
+            blockers = request.env['project.blocker'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids),
+                        ('state', 'in', ['raised', 'in_progress', 'testing'])],
+                fields=['priority'],
+                groupby=['priority']
+            )
+            blockers_count = sum([i['priority_count'] for i in blockers]) or 0
+            blockers_info = ", ".join(
+                [f"{block['priority_count']} {priority.get(block['priority'], 'Unknown')}" for block in blockers if block['priority_count']])
+
+
+            vals = {
+                "project_cart": {
+                    'experimentation_design': len(project_id.project_experiment_design) if project_id else 0,
+                    'uploaded_document_count': len(project_id.project_tasker) if project_id else 0,
+                    'added_skill_tags_count': len(project_id.skill_tags) if project_id else 0,
+                    'add_research_note': bool(project_id.research_notes) if project_id else False,
+                    'is_pl_stage_completed': project_id.is_pl_stage_completed or False,
+                    'is_aire_stage_completed': project_id.is_aire_stage_completed or False,
+                    'is_swe_stage_completed': project_id.is_swe_stage_completed or False
+                },
+                "assigned_project": {
+                    'project_count': project_count,
+                    'project_message': project_message
+                },
+                'rfp_portal_pending': {
+                    'count': request.env['project.project'].sudo().search_count(domain + [('stage_id', '=', request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False).id)]),
+                    'message': f"{project_id.name} - your portal incompleted."
+                },
+                'open_block': {
+                    'open_blockers_count': blockers_count,
+                    'blockers_info': blockers_info
+                },
+                'your_projects': [{'id': i.id, 'name': i.name, 'client_name': i.client_name, 'project_seq': i.project_seq, 'status': i.stage_id.name, 'write_date': str(i.write_date),
+                    'is_pl_stage_completed': i.is_pl_stage_completed or False,
+                    'is_aire_stage_completed': i.is_aire_stage_completed or False,
+                    'is_swe_stage_completed': i.is_swe_stage_completed or False,
+                    'blocker_count': request.env['project.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['raised', 'in_progress', 'testing'])]),
+                    'total_task_count': len(i.base_project_task),
+                    'done_task_count': len(i.base_project_task.filtered(lambda p: p.status == 'delivery')),
+                    'difference_percentage': round(len(i.base_project_task.filtered(lambda p: p.status == 'delivery')) / len(i.base_project_task), 2) if i.base_project_task else 0.0
+                    } for i in current_projects]
+
+            }
+
+            return return_Response(message="Success", status=200, data={"records": vals})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_swe_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_swe_dashboard_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            now = datetime.datetime.now()
+            today_date = now.date()
+            priority = {
+                '0': 'Low',
+                '1': 'Medium',
+                '2': 'High',
+                '3': 'Critical'
+            }
+
+            domain = [('project_swe', '=', user_id.employee_id.id)]
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                else:
+                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
+                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+            if kwargs.get('project_id'):
+                domain.append(('id', '=', int(kwargs['project_id'])))
+
+            current_projects = request.env['project.project'].sudo().search(domain)
+
+            if not current_projects:
+                return return_Response(message="Success", status=200, data={"records": {}})
+            project_id = current_projects[0] if current_projects else None
+            if kwargs.get('project_id'):
+                project_id = request.env['project.project'].sudo().search([('id', 'in', int(kwargs['project_id']))],
+                                                                          limit=1)
+
+            total_projects = [{
+                'stage': p['stage_id'][1] if p['stage_id'] else "Undefined",
+                'count': p['stage_id_count']
+            } for p in current_projects.sudo().read_group(
+                domain=domain,
+                fields=['stage_id'],
+                groupby=['stage_id']
+            )]
+
+            project_count = sum([i['count'] for i in total_projects]) or 0
+            project_message = ", ".join([f"{i['count']} in {i['stage']}" for i in total_projects if i['count']]) or ""
+
+            blockers = request.env['project.blocker'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids),
+                        ('state', 'in', ['raised', 'in_progress', 'testing'])],
+                fields=['priority'],
+                groupby=['priority']
+            )
+            blockers_count = sum([i['priority_count'] for i in blockers]) or 0
+            blockers_info = ", ".join(
+                [f"{block['priority_count']} {priority.get(block['priority'], 'Unknown')}" for block in blockers if block['priority_count']])
+
+
+            vals = {
+                "project_cart": {
+                    'api_configuration': False,
+                    'infrastructure_setup': len(project_id.project_infrastructure_requirement) if project_id else 0,
+                    'technical_configuration': False,
+                    'is_pl_stage_completed': project_id.is_pl_stage_completed or False,
+                    'is_aire_stage_completed': project_id.is_aire_stage_completed or False,
+                    'is_swe_stage_completed': project_id.is_swe_stage_completed or False
+                },
+                "assigned_project": {
+                    'project_count': project_count,
+                    'project_message': project_message
+                },
+                'rfp_portal_pending': {
+                    'count': request.env['project.project'].sudo().search_count(domain + [('stage_id', '=', request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False).id)]),
+                    'message': f"{project_id.name} - your portal incompleted."
+                },
+                'open_block': {
+                    'open_blockers_count': blockers_count,
+                    'blockers_info': blockers_info
+                },
+                'your_projects': [{'id': i.id, 'name': i.name, 'client_name': i.client_name, 'project_seq': i.project_seq, 'status': i.stage_id.name, 'write_date': str(i.write_date),
+                    'is_pl_stage_completed': i.is_pl_stage_completed or False,
+                    'is_aire_stage_completed': i.is_aire_stage_completed or False,
+                    'is_swe_stage_completed': i.is_swe_stage_completed or False,
+                    'blocker_count': request.env['project.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['raised', 'in_progress', 'testing'])]),
+                    'total_task_count': len(i.base_project_task),
+                    'done_task_count': len(i.base_project_task.filtered(lambda p: p.status == 'delivery')),
+                    'difference_percentage': round(len(i.base_project_task.filtered(lambda p: p.status == 'delivery')) / len(i.base_project_task), 2) if i.base_project_task else 0.0
+                    } for i in current_projects]
+
             }
 
             return return_Response(message="Success", status=200, data={"records": vals})
