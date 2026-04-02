@@ -24,11 +24,10 @@ class DashboardController(http.Controller):
             domain = []
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                    domain.append(('date_start', '=', kwargs['start_date']))
                 else:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
 
             current_projects = request.env['project.project'].sudo().search_count(domain)
             last_month_domain = domain + [('create_date', '<', last_month.strftime('%Y-%m-%d 00:00:00'))]
@@ -215,11 +214,10 @@ class DashboardController(http.Controller):
 
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                    domain.append(('date_start', '=', kwargs['start_date']))
                 else:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
             if kwargs.get('project_id'):
                 domain.append(('id', '=', int(kwargs['project_id'])))
 
@@ -381,11 +379,10 @@ class DashboardController(http.Controller):
 
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                    domain.append(('date_start', '=', kwargs['start_date']))
                 else:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
             if kwargs.get('project_id'):
                 domain.append(('id', '=', int(kwargs['project_id'])))
 
@@ -481,11 +478,10 @@ class DashboardController(http.Controller):
 
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['start_date']} 23:59:00"))
+                    domain.append(('date_start', '=', kwargs['start_date']))
                 else:
-                    domain.append(('start_date', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    domain.append(('date', '<=', f"{kwargs['end_date']} 23:59:00"))
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
             if kwargs.get('project_id'):
                 domain.append(('id', '=', int(kwargs['project_id'])))
 

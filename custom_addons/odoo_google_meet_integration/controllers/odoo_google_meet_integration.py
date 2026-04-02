@@ -34,8 +34,7 @@ class GoogleMeetAuth(http.Controller):
     def get_auth_code(self, **kw):
         """  Retrieve the authentication code for Google Meet."""
         user_id = request.uid
-        company_id = http.request.env['res.users'].sudo().search(
-            [('id', '=', user_id)], limit=1).company_id
+        company_id = http.request.env['res.users'].sudo().search([('id', '=', user_id)], limit=1).company_id
         if kw.get('code'):
             company_id.write(
                 {'hangout_company_authorization_code': kw.get('code')})
@@ -53,26 +52,16 @@ class GoogleMeetAuth(http.Controller):
                 'https://accounts.google.com/o/oauth2/token', data=data,
                 headers={
                     'content-type': 'application/x-www-form-urlencoded'})
-            if response.json() and response.json().get('access_token'):
-                # company_id.write({
-                #     'hangout_company_access_token':
-                #         response.json().get('access_token'),
-                #     'hangout_company_access_token_expiry':
-                #         datetime.datetime.now() + datetime.timedelta(
-                #             seconds=response.json().get('expires_in')),
-                #     'hangout_company_refresh_token':
-                #         response.json().get('access_token'),
-                # })
+            data = response.json()
+            if data:
                 vals = {
-                    'hangout_company_access_token': response.json().get('access_token'),
-                    'hangout_company_access_token_expiry': datetime.datetime.now() + datetime.timedelta(seconds=response.json().get('expires_in')),
-                    'hangout_company_refresh_token': response.json().get('access_token')
+                    'hangout_company_access_token_expiry': datetime.datetime.now() + datetime.timedelta(seconds=response.json().get('expires_in'))
                 }
-                # Only update refresh token if Google provides a new one
-                if response.json().get('refresh_token'):
-                    vals['hangout_company_refresh_token'] = response.json().get('refresh_token')
-
-                company_id.write(vals)
+                if data.get('access_token'):
+                    vals['hangout_company_access_token'] = data.get('access_token')
+                if data.get('refresh_token'):
+                    vals['hangout_company_refresh_token'] = data.get('refresh_token')
+                company_id.sudo().write(vals)
                 return "Authentication Success. You Can Close this window"
             else:
                 raise UserError(
