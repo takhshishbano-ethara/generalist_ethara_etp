@@ -39,3 +39,5 @@ dist/
 build/
 
 CLAUDE.md
+/odoo.conf
+/.sisyphus

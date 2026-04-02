@@ -11,6 +11,12 @@
     "data": [
         "security/ir.model.access.csv",
         "views/res_config_settings_views.xml",
+    'author': 'Ethara',
+    'depends': ['base', 'web'],
+    'data': [
+        'security/ir.model.access.csv',
+        'views/domain_views.xml',
+        'views/menuitems.xml',
     ],
     "installable": True,
     "application": True,
