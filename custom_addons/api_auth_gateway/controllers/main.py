@@ -282,7 +282,7 @@ class ApiAuthController(http.Controller):
                 'team_size': 0,
                 'blocked_resolved': 0,
                 'avg_resolution': "",
-                'skills': [{"id": skill.skill_id.id, "name": skill.skill_id.name} for skill in request.env['hr.employee.skill'].sudo().search([('employee_id', '=', user_id.employee_id.id)])],
+                'skills': [{"id": skill.skill_id.id, "name": skill.skill_id.name, "is_verified": True} for skill in request.env['hr.employee.skill'].sudo().search([('employee_id', '=', user_id.employee_id.id)])],
                 'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date)} for i in projects],
                 'notification_line': []
             }
