@@ -37,3 +37,7 @@ sessions/
 *.egg-info/
 dist/
 build/
+
+CLAUDE.md
+/odoo.conf
+/.sisyphus
