@@ -1,9 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_commit0_pipeline_run_admin,commit0.pipeline.run.admin,model_commit0_pipeline_run,group_commit0_admin,1,1,1,1
-access_commit0_pipeline_run_user,commit0.pipeline.run.user,model_commit0_pipeline_run,group_commit0_user,1,1,1,0
-access_commit0_repo_entry_admin,commit0.repo.entry.admin,model_commit0_repo_entry,group_commit0_admin,1,1,1,1
-access_commit0_repo_entry_user,commit0.repo.entry.user,model_commit0_repo_entry,group_commit0_user,1,0,0,0
-access_commit0_discovery_candidate_admin,commit0.discovery.candidate.admin,model_commit0_discovery_candidate,group_commit0_admin,1,1,1,1
-access_commit0_discovery_candidate_user,commit0.discovery.candidate.user,model_commit0_discovery_candidate,group_commit0_user,1,0,0,0
 access_commit0_repo_evaluation_admin,commit0.repo.evaluation.admin,model_commit0_repo_evaluation,group_commit0_admin,1,1,1,1
 access_commit0_repo_evaluation_user,commit0.repo.evaluation.user,model_commit0_repo_evaluation,group_commit0_user,1,1,1,0

@@ -2,233 +2,397 @@
 <odoo>
 
     <!-- ================================================================== -->
-    <!-- Form View                                                          -->
+    <!-- Form View — 6-Stage Progressive Wizard                            -->
     <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_view_form" model="ir.ui.view">
         <field name="name">commit0.repo.evaluation.form</field>
         <field name="model">commit0.repo.evaluation</field>
         <field name="arch" type="xml">
-            <form string="Repo Evaluation">
+            <form string="Kaiju Task">
                 <header>
-                    <button name="action_submit_task"
-                            string="SUBMIT TASK"
-                            type="object"
-                            class="oe_highlight"
-                            invisible="state != 'draft'"/>
-                    <button name="action_validate"
-                            string="VALIDATE"
-                            type="object"
-                            class="oe_highlight"
-                            invisible="state != 'in_review'"/>
-                    <button name="action_reset_draft"
-                            string="Reset to Draft"
-                            type="object"
-                            invisible="state == 'draft'"/>
-                    <field name="state" widget="statusbar"
-                           statusbar_visible="draft,in_review,validated"/>
+                    <field name="current_stage" widget="statusbar"
+                           statusbar_visible="stage1,stage2,stage3,stage4,stage5,stage6,done"/>
                 </header>
                 <sheet>
-                    <!-- Title -->
-                    <div class="oe_title mb-3">
-                        <h1>
-                            <field name="repo_name"
-                                   placeholder="e.g. django/django"/>
-                        </h1>
-                        <div>
-                            <field name="repo_url" widget="url"
-                                   placeholder="https://github.com/owner/repo"/>
+                    <!-- Hidden fields for visibility control -->
+                    <field name="terminal_state" invisible="1"/>
+                    <field name="stage3_complete" invisible="1"/>
+                    <field name="doc_valid" invisible="1"/>
+                    <field name="repo_status" invisible="1"/>
+                    <field name="stub_proper" invisible="1"/>
+                    <field name="current_stage" widget="auto_refresh" invisible="1"/>
+
+                    <!-- ================================================= -->
+                    <!-- Terminal State Banners                             -->
+                    <!-- ================================================= -->
+                    <div class="alert alert-danger text-center fs-4" role="alert"
+                         invisible="terminal_state == 'none'">
+                        <span invisible="terminal_state != 'repo_not_suitable'">Repository Not Suitable</span>
+                        <span invisible="terminal_state != 'rejected'">Spec Document Rejected</span>
+                        <span invisible="terminal_state != 'not_stubbed'">Not Stubbed Properly</span>
+                    </div>
+                    <div class="alert alert-success text-center fs-4" role="alert"
+                         invisible="terminal_state != 'complete'">
+                        Pipeline Complete
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- STAGE 1: Repository Understanding                 -->
+                    <!-- Always visible (no invisible condition)            -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 1: Repository Understanding</h4>
                         </div>
-                    </div>
-
-                    <group>
-                        <group>
-                            <field name="name"/>
-                            <field name="user_id" widget="many2one_avatar_user"/>
-                        </group>
-                    </group>
-
-                    <!-- ===================================================== -->
-                    <!-- CRITICAL GATES (MUST) — Red Banner                    -->
-                    <!-- ===================================================== -->
-                    <div class="alert alert-danger mb-0 rounded-0" role="alert">
-                        <strong>CRITICAL GATES (MUST)</strong>
-                    </div>
-                    <group>
-                        <field name="check_language"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="1. Language (95% Python, No C/Rust/Extensions)"/>
-                        <field name="check_tests"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="2. Tests (Pytest, &lt;30m, No GPU)"/>
-                        <field name="check_documentation"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="3. Documentation (API Ref, Guide, Type Specs)"/>
-                    </group>
-
-                    <!-- ===================================================== -->
-                    <!-- QUALITY INDICATORS (SHOULD) — Yellow Banner           -->
-                    <!-- ===================================================== -->
-                    <div class="alert alert-warning mb-0 rounded-0" role="alert">
-                        <strong>QUALITY INDICATORS (SHOULD)</strong>
-                    </div>
-                    <group>
-                        <field name="check_github_metrics"
-                            widget="radio"
-                               options="{'horizontal': true}"
-                               string="4. GitHub (5k+ Stars, Not Fork/Archived)"/>
-                        <field name="check_project_structure"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="5. Project Structure (src/ layout, Installable)"/>
-                        <field name="check_build"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="6. Build (Docker Clean, No system pkgs)"/>
-                    </group>
-
-                    <!-- ===================================================== -->
-                    <!-- CODE &amp; RELIABILITY (CHECK) — Blue Banner          -->
-                    <!-- ===================================================== -->
-                    <div class="alert alert-info mb-0 rounded-0" role="alert">
-                        <strong>CODE &amp; RELIABILITY (CHECK)</strong>
-                    </div>
-                    <group>
-                        <field name="check_code_quality"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="7. Code Quality (Parses, Separate src/tests)"/>
-                        <field name="check_reliability"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="8. Reliability (Not Flaky, No Network, No Side Effects)"/>
-                        <field name="check_complexity"
-                               widget="radio"
-                               options="{'horizontal': true}"
-                               string="9. Complexity (50-500 Funcs, No Circular Imports)"/>
-                    </group>
-
-                    <!-- ===================================================== -->
-                    <!-- FINAL VERDICT                                         -->
-                    <!-- ===================================================== -->
-                    <div class="bg-200 p-4 mt-4 rounded">
-                        <h3 class="text-center mb-3">FINAL VERDICT</h3>
-                        <field name="must_gates_passed" invisible="1"/>
-                        <div class="text-center mb-3">
-                            <button name="action_select"
-                                    string="Selected"
-                                    type="object"
-                                    class="btn btn-lg btn-success me-3"
-                                    invisible="verdict == 'selected'"/>
-                            <field name="verdict" invisible="1"/>
-                            <button name="action_reject"
-                                    string="REJECTED"
-                                    type="object"
-                                    class="btn btn-lg btn-danger"
-                                    invisible="verdict == 'rejected'"/>
-                        </div>
-                        <div class="text-center mb-2"
-                             invisible="not verdict">
-                            <field name="verdict" widget="badge"
-                                   decoration-success="verdict == 'selected'"
-                                   decoration-danger="verdict == 'rejected'"
-                                   readonly="1"/>
-                        </div>
-                        <group>
-                            <field name="verdict_reason" nolabel="1"
-                                   placeholder="Reason: e.g. Failed MUST Gate (Tests). Repository requires GPU."/>
-                        </group>
-                    </div>
-
-                    <separator/>
-
-                    <!-- ===================================================== -->
-                    <!-- DOCUMENT VALIDATION (from Page 2)                     -->
-                    <!-- ===================================================== -->
-                    <notebook>
-                        <page string="Document Validation" name="document_validation">
+                        <div style="padding: 16px;">
                             <group>
                                 <group>
-                                    <field name="document_file"
-                                           filename="document_filename"/>
-                                    <field name="document_filename" invisible="1"/>
+                                    <field name="name" string="Instance ID" readonly="1"/>
+                                    <field name="repo_url" widget="url" string="GitHub URL"/>
                                 </group>
                                 <group>
-                                    <field name="doc_related_to_repo"/>
-                                    <field name="doc_not_blank"/>
+                                    <field name="repo_name"/>
+                                    <field name="user_id" widget="many2one_avatar_user"/>
                                 </group>
                             </group>
-                            <div>
-                                <button name="action_validate_document"
-                                        string="Validate Document"
+                            <!-- File browser (uses GitHub API when no clone_path) -->
+                            <field name="clone_path" widget="repo_browser"
+                                   invisible="not repo_url" nolabel="1"/>
+                            <!-- Gate: only show when at stage1 and not failed -->
+                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
+                                 invisible="current_stage != 'stage1'">
+                                <div class="d-flex align-items-center gap-3">
+                                    <field name="repo_understood" widget="boolean_toggle"/>
+                                    <label for="repo_understood"
+                                           string="I have gained a complete understanding of the repository."/>
+                                </div>
+                                <button name="action_confirm_understanding"
+                                        string="Go to next step"
                                         type="object"
-                                        class="btn btn-primary"/>
+                                        class="btn btn-primary mt-3"
+                                        invisible="not repo_understood"/>
                             </div>
-                        </page>
+                        </div>
+                    </div>
 
-                        <!-- Fork Repository Tab -->
-                        <page string="Fork Repository" name="fork"
-                              invisible="verdict != 'selected'">
+                    <!-- ================================================= -->
+                    <!-- STAGE 2: QC Checklist                             -->
+                    <!-- Visible when stage >= stage2                       -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
+                         invisible="current_stage == 'stage1'">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 2: Repository QC Checklist</h4>
+                        </div>
+                        <div style="padding: 16px;">
+                            <h5>Does the Repository follow the below list?</h5>
+                            <!-- Validate button -->
+                            <field name="validation_status" invisible="1"/>
+                            <div class="mb-3">
+                                <button name="action_validate_repo"
+                                        string="Run Validation (Filter 1 + 2)"
+                                        type="object"
+                                        class="btn btn-info"
+                                        invisible="validation_status == 'running'"/>
+                                <span class="badge text-bg-success ms-2"
+                                      invisible="validation_status != 'done'">Validation Complete</span>
+                                <span class="badge text-bg-warning ms-2"
+                                      invisible="validation_status != 'running'">Validating...</span>
+                            </div>
+                            <group>
+                                <field name="check_language"
+                                       string="1. Python-Only Implementation Without Native Extensions"
+                                       help="The repository must be 95%+ Python and should not rely on any compiled extensions or foreign language bindings (such as C/C++/Rust via ctypes, Cython, pybind11, or similar tools)."/>
+                                <field name="check_tests"
+                                       string="2. Comprehensive, Fast, and CPU-Only Test Suite Using Pytest"
+                                       help="Must use pytest, run in under 30 minutes on CPU only, no GPU requirements."/>
+                                <field name="check_documentation"
+                                       string="3. Complete and Structured Documentation with API and Type Specifications"
+                                       help="Must have API reference, user guide, and type annotations."/>
+                                <field name="check_github_metrics"
+                                       string="4. Strong Repository Maturity and Community Quality Signals"
+                                       help="5K+ stars, not a fork or archived, active maintenance."/>
+                                <field name="check_project_structure"
+                                       string="5. Clean, Standardized Project Structure with Clear Separation of Concerns"
+                                       help="Has src/ layout, installable via pip, proper packaging."/>
+                                <field name="check_build"
+                                       string="6. Reliable and Lightweight Build Process in Minimal Environments"
+                                       help="Docker-clean build with no system packages required."/>
+                                <field name="check_code_quality"
+                                       string="7. Readable, Modular, and Maintainable Codebase"
+                                       help="Code parses cleanly, separate src and test directories."/>
+                                <field name="check_reliability"
+                                       string="8. Deterministic, Isolated, and Dependency-Free Test Behavior"
+                                       help="Tests are not flaky, no network calls, no side effects."/>
+                                <field name="check_complexity"
+                                       string="9. Balanced Project Size, Complexity, and Dependency Footprint"
+                                       help="50-500 functions, no circular imports, manageable dependency count."/>
+                            </group>
+                            <!-- Validation Report -->
+                            <div invisible="not validation_details" class="mt-2 mb-3">
+                                <field name="validation_details" readonly="1" nolabel="1"
+                                       widget="code"/>
+                            </div>
+
+                            <!-- Gate: repo status toggle + failure reason -->
+                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
+                                 invisible="current_stage != 'stage2'">
+                                <group>
+                                    <field name="repo_status" widget="radio"
+                                           options="{'horizontal': true}"
+                                           string="Repo Status"/>
+                                </group>
+                                <!-- FAIL path -->
+                                <div invisible="repo_status != 'fail'">
+                                    <field name="failure_reason"
+                                           placeholder="Explain why the repository is not suitable..."
+                                           required="repo_status == 'fail'"/>
+                                    <button name="action_stage2_fail"
+                                            string="Repository Not Suitable"
+                                            type="object"
+                                            class="btn btn-danger mt-2"
+                                            confirm="Mark this repository as not suitable? This action cannot be undone."/>
+                                </div>
+                                <!-- PASS path -->
+                                <button name="action_stage2_pass"
+                                        string="Go to next step"
+                                        type="object"
+                                        class="btn btn-primary mt-2"
+                                        invisible="repo_status != 'pass'"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- STAGE 3: Automated Preparation                    -->
+                    <!-- Visible when stage >= stage3                       -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
+                         invisible="current_stage in ('stage1', 'stage2')">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 3: Automated Preparation</h4>
+                        </div>
+                        <div style="padding: 16px;">
+                            <group>
+                                <group string="1. Fork Public Repo into Ethara-AI">
+                                    <field name="fork_status" widget="badge"
+                                           decoration-success="fork_status == 'done'"
+                                           decoration-info="fork_status == 'running'"
+                                           decoration-danger="fork_status == 'failed'"
+                                           decoration-muted="fork_status == 'pending'"/>
+                                    <field name="fork_progress" widget="progressbar"/>
+                                    <field name="fork_url" widget="url"
+                                           invisible="not fork_url"/>
+                                </group>
+                                <group string="2. Commit Reference Code">
+                                    <field name="reference_commit_status" widget="badge"
+                                           decoration-success="reference_commit_status == 'done'"
+                                           decoration-info="reference_commit_status == 'running'"
+                                           decoration-danger="reference_commit_status == 'failed'"
+                                           decoration-muted="reference_commit_status == 'pending'"/>
+                                    <field name="reference_commit_progress" widget="progressbar"/>
+                                    <field name="base_commit"
+                                           invisible="not base_commit"/>
+                                    <field name="reference_commit"
+                                           invisible="not reference_commit"/>
+                                </group>
+                            </group>
+                            <group>
+                                <group string="3. Create Document">
+                                    <field name="document_create_status" widget="badge"
+                                           decoration-success="document_create_status == 'done'"
+                                           decoration-info="document_create_status == 'running'"
+                                           decoration-danger="document_create_status == 'failed'"
+                                           decoration-muted="document_create_status == 'pending'"/>
+                                    <field name="document_create_progress" widget="progressbar"/>
+                                </group>
+                                <group/>
+                            </group>
+                            <button name="action_advance_to_stage4"
+                                    string="Continue to Spec Review"
+                                    type="object"
+                                    class="btn btn-primary mt-2"
+                                    invisible="not stage3_complete or current_stage != 'stage3'"/>
+                        </div>
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- STAGE 4: Spec Document Review                     -->
+                    <!-- Visible when stage >= stage4                       -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
+                         invisible="current_stage in ('stage1', 'stage2', 'stage3')">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 4: Spec Document Review</h4>
+                        </div>
+                        <div style="padding: 16px;">
+                            <group>
+                                <field name="spec_doc_format" widget="radio"
+                                       options="{'horizontal': true}"/>
+                            </group>
+                            <!-- PDF viewer -->
+                            <div invisible="spec_doc_format != 'pdf'" class="mb-3"
+                                 style="height: 600px;">
+                                <field name="spec_pdf" widget="pdf_viewer"
+                                       readonly="1" nolabel="1"/>
+                                <field name="spec_pdf_filename" invisible="1"/>
+                            </div>
+                            <!-- JSON viewer -->
+                            <div invisible="spec_doc_format != 'json'" class="mb-3">
+                                <field name="spec_json" widget="code" readonly="1" nolabel="1"/>
+                            </div>
+                            <!-- YAML viewer -->
+                            <div invisible="spec_doc_format != 'yaml'" class="mb-3">
+                                <field name="spec_yaml" widget="code" readonly="1" nolabel="1"/>
+                            </div>
+
+                            <h5 class="mt-3">Validation Checklist</h5>
+                            <group>
+                                <field name="doc_check_related" string="Related to library"/>
+                                <field name="doc_check_not_blank" string="Does not contain any blank pages"/>
+                                <field name="doc_check_meaningful" string="Contains meaningful data"/>
+                            </group>
+
+                            <!-- Gate -->
+                            <div class="mt-3" invisible="current_stage != 'stage4'">
+                                <button name="action_reject_spec"
+                                        string="Rejected -- Invalid Spec Document"
+                                        type="object"
+                                        class="btn btn-danger me-2"
+                                        confirm="Reject this spec document? This cannot be undone."/>
+                                <button name="action_trigger_stubbing"
+                                        string="Stub Code"
+                                        type="object"
+                                        class="btn btn-primary"
+                                        invisible="not doc_valid"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- STAGE 5: Stub Code Review                         -->
+                    <!-- Visible when stage >= stage5                       -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
+                         invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4')">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 5: Stub Code Review</h4>
+                        </div>
+                        <div style="padding: 16px;">
+                            <group>
+                                <group string="Before Stubbing">
+                                    <field name="clone_path_original" widget="repo_browser"
+                                           nolabel="1"
+                                           invisible="not clone_path_original"/>
+                                </group>
+                                <group string="After Stubbing">
+                                    <field name="clone_path_stubbed" widget="repo_browser"
+                                           nolabel="1"
+                                           invisible="not clone_path_stubbed"/>
+                                </group>
+                            </group>
+
+                            <!-- Gate -->
+                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
+                                 invisible="current_stage != 'stage5'">
+                                <group>
+                                    <field name="stub_proper" widget="radio"
+                                           options="{'horizontal': true}"
+                                           string="Is the repository stubbed properly according to the guidelines?"/>
+                                </group>
+                                <!-- NO path -->
+                                <div invisible="stub_proper != 'no'">
+                                    <field name="stub_failure_reason"
+                                           placeholder="Explain what is wrong with the stubbing..."
+                                           required="stub_proper == 'no'"/>
+                                    <button name="action_stub_reject"
+                                            string="Not Stubbed Properly"
+                                            type="object"
+                                            class="btn btn-danger mt-2"/>
+                                </div>
+                                <!-- YES path: Submit button -->
+                                <button name="action_submit"
+                                        string="Submit"
+                                        type="object"
+                                        class="btn btn-success btn-lg mt-3"
+                                        invisible="stub_proper != 'yes'"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- STAGE 6: Docker Generation                        -->
+                    <!-- Visible when stage >= stage6                       -->
+                    <!-- ================================================= -->
+                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
+                         invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')">
+                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
+                            <h4 style="margin: 0; color: white;">Stage 6: Docker Generation</h4>
+                        </div>
+                        <div style="padding: 16px;">
                             <group>
                                 <group>
-                                    <button name="action_fork_repo"
-                                            string="Fork Repo into Ethara"
-                                            type="object"
-                                            class="btn btn-success mb-3"/>
-                                    <field name="fork_url" widget="url"/>
+                                    <field name="docker_status" widget="badge"
+                                           decoration-success="docker_status == 'done'"
+                                           decoration-info="docker_status in ('generating','llm_qc','multiarch','testing')"
+                                           decoration-danger="docker_status == 'failed'"/>
+                                    <field name="docker_progress" widget="progressbar"/>
                                 </group>
                                 <group>
-                                    <field name="fork_progress"
-                                           widget="progressbar"/>
+                                    <field name="docker_image_arm"
+                                           invisible="not docker_image_arm"/>
+                                    <field name="docker_image_amd"
+                                           invisible="not docker_image_amd"/>
+                                    <field name="ecr_url" widget="url"
+                                           invisible="not ecr_url"/>
                                 </group>
+                            </group>
+                        </div>
+                    </div>
+
+                    <!-- ================================================= -->
+                    <!-- LOGS (notebook at bottom)                          -->
+                    <!-- ================================================= -->
+                    <notebook>
+                        <page string="Logs" name="logs">
+                            <group>
+                                <field name="log_output" readonly="1"/>
+                                <field name="error_message" readonly="1"
+                                       invisible="not error_message"
+                                       decoration-danger="1"/>
                             </group>
                         </page>
                     </notebook>
                 </sheet>
-                <chatter/>
+                <!-- <chatter/> -->
             </form>
         </field>
     </record>
 
     <!-- ================================================================== -->
-    <!-- Tree View                                                          -->
+    <!-- List View                                                          -->
     <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_view_tree" model="ir.ui.view">
         <field name="name">commit0.repo.evaluation.list</field>
         <field name="model">commit0.repo.evaluation</field>
         <field name="arch" type="xml">
-            <list string="Repo Evaluations"
-                  decoration-success="verdict == 'selected'"
-                  decoration-danger="verdict == 'rejected'">
+            <list string="Kaiju Tasks"
+                  decoration-success="terminal_state == 'complete'"
+                  decoration-danger="current_stage == 'failed'"
+                  decoration-info="current_stage not in ('failed', 'done')">
                 <field name="name"/>
                 <field name="repo_name"/>
-                <field name="repo_url" widget="url" optional="hide"/>
-                <field name="check_language" widget="badge"
-                       decoration-success="check_language == 'pass'"
-                       decoration-danger="check_language == 'fail'"
+                <field name="repo_url" widget="url"/>
+                <field name="current_stage" widget="badge"
+                       decoration-success="current_stage == 'done'"
+                       decoration-danger="current_stage == 'failed'"
+                       decoration-info="current_stage not in ('done','failed')"/>
+                <field name="terminal_state" widget="badge"
+                       decoration-success="terminal_state == 'complete'"
+                       decoration-danger="terminal_state not in ('none','complete')"
                        optional="show"/>
-                <field name="check_tests" widget="badge"
-                       decoration-success="check_tests == 'pass'"
-                       decoration-danger="check_tests == 'fail'"
-                       optional="show"/>
-                <field name="check_documentation" widget="badge"
-                       decoration-success="check_documentation == 'pass'"
-                       decoration-danger="check_documentation == 'fail'"
-                       optional="show"/>
-                <field name="must_gates_passed" widget="boolean"
-                       string="MUST Passed"
-                       optional="show"/>
-                <field name="verdict" widget="badge"
-                       decoration-success="verdict == 'selected'"
-                       decoration-danger="verdict == 'rejected'"
-                       optional="show"/>
-                <field name="state" widget="badge"
-                       decoration-success="state == 'validated'"
-                       decoration-info="state == 'in_review'"
-                       decoration-muted="state == 'draft'"/>
                 <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="create_date" optional="hide"/>
             </list>
         </field>
     </record>
@@ -240,34 +404,28 @@
         <field name="name">commit0.repo.evaluation.search</field>
         <field name="model">commit0.repo.evaluation</field>
         <field name="arch" type="xml">
-            <search string="Search Evaluations">
+            <search string="Search Kaiju Tasks">
                 <field name="name"/>
                 <field name="repo_name"/>
+                <field name="repo_url"/>
                 <field name="user_id"/>
                 <separator/>
-                <filter string="My Evaluations" name="my_evaluations"
+                <filter string="My Tasks" name="my_tasks"
                         domain="[('user_id', '=', uid)]"/>
-                <filter string="Draft" name="draft"
-                        domain="[('state', '=', 'draft')]"/>
-                <filter string="In Review" name="in_review"
-                        domain="[('state', '=', 'in_review')]"/>
-                <filter string="Validated" name="validated"
-                        domain="[('state', '=', 'validated')]"/>
-                <separator/>
-                <filter string="Selected" name="selected"
-                        domain="[('verdict', '=', 'selected')]"/>
-                <filter string="Rejected" name="rejected"
-                        domain="[('verdict', '=', 'rejected')]"/>
-                <filter string="MUST Gates Failed" name="must_failed"
-                        domain="[('must_gates_passed', '=', False)]"/>
+                <filter string="Active" name="active"
+                        domain="[('current_stage', 'not in', ('done','failed'))]"/>
+                <filter string="Completed" name="completed"
+                        domain="[('terminal_state', '=', 'complete')]"/>
+                <filter string="Failed" name="failed"
+                        domain="[('current_stage', '=', 'failed')]"/>
                 <separator/>
                 <group>
-                    <filter string="Status" name="group_state"
-                            context="{'group_by': 'state'}"/>
-                    <filter string="Verdict" name="group_verdict"
-                            context="{'group_by': 'verdict'}"/>
+                    <filter string="Stage" name="group_stage"
+                            context="{'group_by': 'current_stage'}"/>
                     <filter string="Evaluator" name="group_user"
                             context="{'group_by': 'user_id'}"/>
+                    <filter string="Terminal State" name="group_terminal"
+                            context="{'group_by': 'terminal_state'}"/>
                 </group>
             </search>
         </field>
@@ -277,18 +435,17 @@
     <!-- Action                                                             -->
     <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_action" model="ir.actions.act_window">
-        <field name="name">Evaluations</field>
+        <field name="name">Kaiju Tasks</field>
         <field name="res_model">commit0.repo.evaluation</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="commit0_repo_evaluation_view_search"/>
-        <field name="context">{'search_default_my_evaluations': 1}</field>
+        <field name="context">{'search_default_my_tasks': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Create your first repo evaluation
+                Create your first Kaiju task
             </p>
             <p>
-                Evaluate repositories against language, testing, documentation,
-                and quality criteria for the Commit0 benchmark.
+                Start a new repository evaluation through the 6-stage Kaiju pipeline.
             </p>
         </field>
     </record>

@@ -7,7 +7,7 @@ import { SelectMenu } from "@web/core/select_menu/select_menu";
 import { rpc } from "@web/core/network/rpc";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
-import { Component, useState, onWillStart, onWillUpdateProps } from "@odoo/owl";
+import { Component, useState, onWillStart, onWillUpdateProps, onMounted } from "@odoo/owl";
 
 export class RepoBrowser extends Component {
     static template = "commit0_pipeline.RepoBrowser";
@@ -33,12 +33,17 @@ export class RepoBrowser extends Component {
             copied: false,
         });
 
-        onWillStart(() => this._loadTree());
+        onWillStart(() => {});
+        onMounted(() => {});
         onWillUpdateProps((nextProps) => {
             const currentPath = this.props.record.data[this.props.name];
             const nextPath = nextProps.record.data[nextProps.name];
-            if (nextPath !== currentPath) {
-                this._loadTree(nextPath);
+            if (nextPath !== currentPath && nextPath) {
+                this.state.treeLoaded = false;
+                this.state.tree = [];
+                this.state.flatFiles = [];
+                this.state.selectedPath = "";
+                this.state.fileContent = "";
             }
         });
     }
@@ -51,6 +56,10 @@ export class RepoBrowser extends Component {
         return this.props.record.resId;
     }
 
+    get pathField() {
+        return this.props.name;
+    }
+
     get selectMenuChoices() {
         return this.state.flatFiles.map((f) => ({
             value: f.path,
@@ -58,13 +67,13 @@ export class RepoBrowser extends Component {
         }));
     }
 
-    get hasClonePath() {
-        return Boolean(this.clonePath);
+    async onClickLoadTree() {
+        await this.props.record.save();
+        await this._loadTree();
     }
 
-    async _loadTree(clonePath) {
-        const path = clonePath || this.clonePath;
-        if (!path || !this.entryId) {
+    async _loadTree() {
+        if (!this.entryId) {
             return;
         }
 
@@ -73,7 +82,8 @@ export class RepoBrowser extends Component {
 
         try {
             const result = await rpc("/commit0/file_tree", {
-                entry_id: this.entryId,
+                eval_id: this.entryId,
+                path_field: this.pathField,
             });
 
             if (result.error) {
@@ -113,7 +123,8 @@ export class RepoBrowser extends Component {
 
         try {
             const result = await rpc("/commit0/file_content", {
-                entry_id: this.entryId,
+                eval_id: this.entryId,
+                path_field: this.pathField,
                 file_path: path,
             });
 

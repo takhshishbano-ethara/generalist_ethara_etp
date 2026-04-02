@@ -2,75 +2,76 @@
 <templates xml:space="preserve">
     <t t-name="commit0_pipeline.RepoBrowser">
         <div class="o_repo_browser d-flex flex-column">
-            <t t-if="!hasClonePath">
-                <div class="text-muted p-3 text-center">
-                    <i class="fa fa-info-circle me-1"/>
-                    No clone path set. Run the pipeline to clone the repository first.
+
+            <div class="o_repo_browser_toolbar d-flex align-items-center gap-2 px-2 py-1 border-bottom bg-100">
+                <i class="fa fa-code-fork text-primary"/>
+                <span class="fw-bold text-truncate" t-esc="state.repoName"/>
+
+                <div class="flex-grow-1">
+                    <SelectMenu
+                        choices="selectMenuChoices"
+                        value="state.selectedPath"
+                        onSelect.bind="onFileSelect"
+                        placeholder="'Select a file...'"
+                        class="'o_repo_browser_select w-100'"
+                    />
+                </div>
+
+                <t t-if="state.selectedPath">
+                    <span class="badge bg-secondary" t-esc="state.aceMode"/>
+                    <span class="text-muted small" t-esc="fileSizeFormatted"/>
+
+                    <button class="btn btn-sm btn-outline-secondary" t-on-click="onCopy" title="Copy to clipboard">
+                        <i t-attf-class="fa {{ state.copied ? 'fa-check text-success' : 'fa-clipboard' }}"/>
+                    </button>
+
+                    <button class="btn btn-sm btn-outline-secondary" t-on-click="toggleTheme" title="Toggle dark/light theme">
+                        <i t-attf-class="fa {{ state.darkTheme ? 'fa-sun-o' : 'fa-moon-o' }}"/>
+                    </button>
+                </t>
+
+                <t t-if="state.loading">
+                    <i class="fa fa-spinner fa-spin text-primary"/>
+                </t>
+            </div>
+
+            <t t-if="state.error">
+                <div class="alert alert-danger m-2 py-2">
+                    <i class="fa fa-exclamation-triangle me-1"/>
+                    <t t-esc="state.error"/>
                 </div>
             </t>
 
-            <t t-if="hasClonePath">
-                <div class="o_repo_browser_toolbar d-flex align-items-center gap-2 px-2 py-1 border-bottom bg-100">
-                    <i class="fa fa-code-fork text-primary"/>
-                    <span class="fw-bold text-truncate" t-esc="state.repoName"/>
-
-                    <div class="flex-grow-1">
-                        <SelectMenu
-                            choices="selectMenuChoices"
-                            value="state.selectedPath"
-                            onSelect.bind="onFileSelect"
-                            placeholder="'Select a file...'"
-                            class="'o_repo_browser_select w-100'"
-                        />
-                    </div>
-
-                    <t t-if="state.selectedPath">
-                        <span class="badge bg-secondary" t-esc="state.aceMode"/>
-                        <span class="text-muted small" t-esc="fileSizeFormatted"/>
-
-                        <button class="btn btn-sm btn-outline-secondary" t-on-click="onCopy" title="Copy to clipboard">
-                            <i t-attf-class="fa {{ state.copied ? 'fa-check text-success' : 'fa-clipboard' }}"/>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary" t-on-click="toggleTheme" title="Toggle dark/light theme">
-                            <i t-attf-class="fa {{ state.darkTheme ? 'fa-sun-o' : 'fa-moon-o' }}"/>
-                        </button>
-                    </t>
-
-                    <t t-if="state.loading">
-                        <i class="fa fa-spinner fa-spin text-primary"/>
-                    </t>
+            <t t-if="state.selectedPath and !state.error">
+                <div class="o_repo_browser_editor flex-grow-1">
+                    <CodeEditor
+                        value="state.fileContent"
+                        mode="state.aceMode"
+                        theme="editorTheme"
+                        readonly="true"
+                        sessionId="state.selectedPath"
+                    />
                 </div>
-
-                <t t-if="state.error">
-                    <div class="alert alert-danger m-2 py-2">
-                        <i class="fa fa-exclamation-triangle me-1"/>
-                        <t t-esc="state.error"/>
-                    </div>
-                </t>
-
-                <t t-if="state.selectedPath and !state.error">
-                    <div class="o_repo_browser_editor flex-grow-1">
-                        <CodeEditor
-                            value="state.fileContent"
-                            mode="state.aceMode"
-                            theme="editorTheme"
-                            readonly="true"
-                            sessionId="state.selectedPath"
-                        />
-                    </div>
-                </t>
-
-                <t t-if="!state.selectedPath and state.treeLoaded and !state.error">
-                    <div class="text-muted p-4 text-center">
-                        <i class="fa fa-file-code-o fa-3x mb-2 d-block opacity-50"/>
-                        <span>Select a file from the dropdown to view its contents.</span>
-                        <div class="mt-1 small">
-                            <t t-esc="state.flatFiles.length"/> files available
-                        </div>
-                    </div>
-                </t>
             </t>
+
+            <t t-if="!state.selectedPath and state.treeLoaded and !state.error">
+                <div class="text-muted p-4 text-center">
+                    <i class="fa fa-file-code-o fa-3x mb-2 d-block opacity-50"/>
+                    <span>Select a file from the dropdown to view its contents.</span>
+                    <div class="mt-1 small">
+                        <t t-esc="state.flatFiles.length"/> files available
+                    </div>
+                </div>
+            </t>
+
+            <t t-if="!state.treeLoaded and !state.loading and !state.error">
+                <div class="p-3 text-center">
+                    <button class="btn btn-primary" t-on-click="onClickLoadTree">
+                        <i class="fa fa-eye me-1"/>View Repository
+                    </button>
+                </div>
+            </t>
+
         </div>
     </t>
 </templates>

@@ -5,7 +5,7 @@
         <!-- Module Category -->
         <record id="module_category_commit0" model="ir.module.category">
             <field name="name">Commit0 Pipeline</field>
-            <field name="description">Commit0 AI coding agent trajectory pipeline</field>
+            <field name="description">Kaiju — Repository evaluation pipeline for commit0</field>
             <field name="sequence">30</field>
         </record>
 
@@ -25,7 +25,7 @@
             <field name="name">User</field>
             <field name="privilege_id" ref="res_groups_privilege_commit0"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
-            <field name="comment">Can create and manage own pipeline runs.</field>
+            <field name="comment">Can create and manage own Kaiju evaluation tasks.</field>
         </record>
 
         <!-- Admin Group (implies User) -->
@@ -33,68 +33,23 @@
             <field name="name">Admin</field>
             <field name="privilege_id" ref="res_groups_privilege_commit0"/>
             <field name="implied_ids" eval="[(4, ref('group_commit0_user'))]"/>
-            <field name="comment">Full access: manage all pipeline runs, repo entries, and configuration.</field>
+            <field name="comment">Full access: manage all Kaiju tasks and configuration.</field>
         </record>
 
     </data>
 
     <data noupdate="1">
 
-        <!-- Record Rules: Pipeline Runs -->
-        <record id="commit0_run_user_rule" model="ir.rule">
-            <field name="name">Commit0: User sees own pipeline runs</field>
-            <field name="model_id" ref="model_commit0_pipeline_run"/>
-            <field name="domain_force">[('user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_user'))]"/>
-        </record>
-
-        <record id="commit0_run_admin_rule" model="ir.rule">
-            <field name="name">Commit0: Admin sees all pipeline runs</field>
-            <field name="model_id" ref="model_commit0_pipeline_run"/>
-            <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_admin'))]"/>
-        </record>
-
-        <!-- Record Rules: Repo Entries -->
-        <record id="commit0_entry_user_rule" model="ir.rule">
-            <field name="name">Commit0: User sees own repo entries</field>
-            <field name="model_id" ref="model_commit0_repo_entry"/>
-            <field name="domain_force">[('pipeline_run_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_user'))]"/>
-        </record>
-
-        <record id="commit0_entry_admin_rule" model="ir.rule">
-            <field name="name">Commit0: Admin sees all repo entries</field>
-            <field name="model_id" ref="model_commit0_repo_entry"/>
-            <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_admin'))]"/>
-        </record>
-
-        <!-- Record Rules: Discovery Candidates -->
-        <record id="commit0_candidate_user_rule" model="ir.rule">
-            <field name="name">Commit0: User sees own discovery candidates</field>
-            <field name="model_id" ref="model_commit0_discovery_candidate"/>
-            <field name="domain_force">[('pipeline_run_id.user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_user'))]"/>
-        </record>
-
-        <record id="commit0_candidate_admin_rule" model="ir.rule">
-            <field name="name">Commit0: Admin sees all discovery candidates</field>
-            <field name="model_id" ref="model_commit0_discovery_candidate"/>
-            <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('group_commit0_admin'))]"/>
-        </record>
-
         <!-- Record Rules: Repo Evaluations -->
         <record id="commit0_evaluation_user_rule" model="ir.rule">
-            <field name="name">Commit0: User sees own evaluations</field>
+            <field name="name">Kaiju: User sees own tasks</field>
             <field name="model_id" ref="model_commit0_repo_evaluation"/>
             <field name="domain_force">[('user_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('group_commit0_user'))]"/>
         </record>
 
         <record id="commit0_evaluation_admin_rule" model="ir.rule">
-            <field name="name">Commit0: Admin sees all evaluations</field>
+            <field name="name">Kaiju: Admin sees all tasks</field>
             <field name="model_id" ref="model_commit0_repo_evaluation"/>
             <field name="domain_force">[(1, '=', 1)]</field>
             <field name="groups" eval="[(4, ref('group_commit0_admin'))]"/>

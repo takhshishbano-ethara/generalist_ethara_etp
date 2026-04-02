@@ -1,27 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Background pipeline execution service.
-
-Uses ThreadPoolExecutor to run commit0 CLI tools as subprocesses
-without blocking the Odoo HTTP worker.
-"""
-
 import atexit
-import json
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from odoo import fields
-
 _logger = logging.getLogger(__name__)
-
-# Module-level thread pool (2 workers — Docker builds are heavy)
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="commit0")
 _semaphore = threading.Semaphore(4)
 
@@ -32,75 +21,20 @@ def _shutdown_executor():
 
 atexit.register(_shutdown_executor)
 
+# ── Shared helpers ──────────────────────────────────────────────────────────
+
 
 def get_tools_path(env):
-    """Get the path to commit0 tools directory."""
     param = (
         env["ir.config_parameter"].sudo().get_param("commit0_pipeline.tools_path", "")
     )
     if param:
         return param
-    # Default: tools/ inside this module
     module_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(module_path, "tools")
 
 
-def submit_pipeline_async(db_name, uid, run_id):
-    """Submit a pipeline run for background execution.
-
-    Args:
-        db_name: Database name for creating new cursor
-        uid: User ID for the run
-        run_id: ID of the commit0.pipeline.run record
-    """
-    if not _semaphore.acquire(blocking=False):
-        _logger.warning("Pipeline semaphore full, rejecting run %s", run_id)
-        return False
-
-    _executor.submit(_run_pipeline_background, db_name, uid, run_id)
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _append_log(run, cr, message):
-    """Atomically append a log message to the pipeline run and commit."""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    line = "[%s] %s\n" % (timestamp, message)
-    current = run.log_output or ""
-    run.write({"log_output": current + line})
-    cr.commit()
-    _logger.info("Run %s: %s", run.id, message)
-
-
-def _set_state(run, cr, state, extra_vals=None):
-    """Transition pipeline run state and commit."""
-    vals = {"state": state}
-    if extra_vals:
-        vals.update(extra_vals)
-    run.write(vals)
-    cr.commit()
-
-
-def _is_cancelled(run, cr):
-    """Re-read the run record to check if user cancelled mid-execution."""
-    cr.execute("SELECT state FROM commit0_pipeline_run WHERE id = %s", [run.id])
-    row = cr.fetchone()
-    return row and row[0] == "cancelled"
-
-
-def _ensure_tools_on_path(tools_path):
-    """Put the tools parent directory on sys.path so `from tools.X import Y` works."""
-    parent = os.path.dirname(tools_path)
-    if parent not in sys.path:
-        sys.path.insert(0, parent)
-
-
 def _get_config(env):
-    """Read commit0_pipeline config parameters."""
     ICP = env["ir.config_parameter"].sudo()
     return {
         "github_token": ICP.get_param("commit0_pipeline.github_token", ""),
@@ -108,863 +42,496 @@ def _get_config(env):
     }
 
 
-# ---------------------------------------------------------------------------
-# State machine — SINGLE mode
-# ---------------------------------------------------------------------------
+def _ensure_tools_on_path(tools_path=None):
+    if tools_path is None:
+        module_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        tools_path = os.path.join(module_path, "tools")
+    parent = os.path.dirname(tools_path)
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
 
 
-def _run_single_discovering(run, cr, env, cfg, tools_path):
-    """Discovering step for single-repo mode.
+# ── Raw-SQL helpers (background threads have no ORM) ────────────────────────
 
-    If repo_url is provided directly, create one candidate from it.
-    Otherwise search GitHub with discover tools.
-    """
-    _append_log(run, cr, "=== DISCOVERING ===")
-    _ensure_tools_on_path(tools_path)
 
-    token = cfg["github_token"] or os.environ.get("GITHUB_TOKEN", "")
-    repo_url = run.repo_url or ""
+def _update_eval(cr, eval_id, vals):
+    if not vals:
+        return
+    cols, params = [], []
+    for col, val in vals.items():
+        cols.append('"%s" = %%s' % col)
+        params.append(val)
+    params.append(eval_id)
+    cr.execute(
+        "UPDATE commit0_repo_evaluation SET %s WHERE id = %%s" % ", ".join(cols), params
+    )
 
-    if repo_url:
-        # Direct URL — extract owner/repo, create a single candidate
-        full_name = repo_url.rstrip("/").replace("https://github.com/", "")
+
+def _append_eval_log(cr, eval_id, msg):
+    line = "[%s] %s\n" % (datetime.now().strftime("%H:%M:%S"), msg)
+    cr.execute(
+        "UPDATE commit0_repo_evaluation"
+        " SET log_output = COALESCE(log_output, '') || %s"
+        " WHERE id = %s",
+        [line, eval_id],
+    )
+    _logger.info("Eval %s: %s", eval_id, msg)
+
+
+def _fail_eval(cr, eval_id, field, exc):
+    _update_eval(cr, eval_id, {field: "failed", "error_message": str(exc)[:500]})
+    _append_eval_log(cr, eval_id, "%s FAILED: %s" % (field, str(exc)[:200]))
+    cr.commit()
+
+
+def _open_cursor(db_name):
+    import odoo  # noqa: deferred
+    from odoo.modules.registry import Registry
+
+    return Registry(db_name).cursor()
+
+
+def _safe_worker(fn):
+    """Decorator: release semaphore in finally, log crash to DB."""
+
+    def wrapper(db_name, uid, eval_id):
+        try:
+            fn(db_name, uid, eval_id)
+        except Exception as exc:
+            _logger.exception("%s crashed for eval %s", fn.__name__, eval_id)
+            try:
+                with _open_cursor(db_name) as cr:
+                    _update_eval(
+                        cr,
+                        eval_id,
+                        {
+                            "error_message": "%s crashed: %s"
+                            % (fn.__name__, str(exc)[:500]),
+                        },
+                    )
+                    cr.commit()
+            except Exception:
+                _logger.exception("Could not record crash for eval %s", eval_id)
+        finally:
+            _semaphore.release()
+
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
+# ── Public async entry points ───────────────────────────────────────────────
+
+
+def submit_stage3_async(db_name, uid, eval_id):
+    if not _semaphore.acquire(blocking=False):
+        _logger.warning("Executor busy — cannot submit stage3 for eval %s", eval_id)
+        return False
+    _executor.submit(_run_stage3_background, db_name, uid, eval_id)
+    return True
+
+
+def submit_stub_async(db_name, uid, eval_id):
+    if not _semaphore.acquire(blocking=False):
+        _logger.warning("Executor busy — cannot submit stub for eval %s", eval_id)
+        return False
+    _executor.submit(_run_stub_background, db_name, uid, eval_id)
+    return True
+
+
+def submit_docker_async(db_name, uid, eval_id):
+    if not _semaphore.acquire(blocking=False):
+        _logger.warning("Executor busy — cannot submit docker for eval %s", eval_id)
+        return False
+    _executor.submit(_run_docker_background, db_name, uid, eval_id)
+    return True
+
+
+# ── Background workers ──────────────────────────────────────────────────────
+
+
+@_safe_worker
+def _run_stage3_background(db_name, uid, eval_id):
+    import odoo
+
+    with _open_cursor(db_name) as cr:
+        env = odoo.api.Environment(cr, uid, {})
+        tools_path = get_tools_path(env)
+        cfg = _get_config(env)
+        _ensure_tools_on_path(tools_path)
+
+        cr.execute(
+            "SELECT repo_url, repo_name, src_dir"
+            " FROM commit0_repo_evaluation WHERE id = %s",
+            [eval_id],
+        )
+        row = cr.fetchone()
+        if not row:
+            _logger.error("Evaluation %s not found", eval_id)
+            return
+        repo_url, repo_name, src_dir = row
+
+        full_name = (repo_url or "").rstrip("/").replace("https://github.com/", "")
         if full_name.endswith(".git"):
             full_name = full_name[:-4]
-        repo_name = full_name.split("/")[-1]
+        token = cfg["github_token"] or os.environ.get("GITHUB_TOKEN", "")
+        org = cfg["github_org"] or "Ethara-Ai"
+        if token:
+            os.environ["GITHUB_TOKEN"] = token
 
-        _append_log(run, cr, "Direct repo URL provided: %s" % full_name)
-        env["commit0.discovery.candidate"].create(
-            {
-                "pipeline_run_id": run.id,
-                "full_name": full_name,
-                "stars": 0,
-                "python_pct": 0.0,
-                "has_pytest": False,
-                "description": "Direct entry from URL",
-                "selected": True,
-                "validation_status": "pending",
-            }
-        )
-        cr.commit()
-        _append_log(run, cr, "Created 1 candidate record for %s" % full_name)
-        return
+        import base64
+        import glob
+        import json
+        import shutil
+        import subprocess
 
-    # No direct URL — run GitHub search + enrichment
-    from tools.discover import search_python_repos, enrich_candidates
-
-    min_stars = run.min_stars or 5000
-    max_results = run.max_results or 200
-
-    _append_log(
-        run,
-        cr,
-        "Searching GitHub: min_stars=%d, max_results=%d" % (min_stars, max_results),
-    )
-    repos = search_python_repos(
-        min_stars=min_stars,
-        max_results=max_results,
-        token=token or None,
-    )
-    _append_log(run, cr, "Found %d raw repos from GitHub search" % len(repos))
-
-    if _is_cancelled(run, cr):
-        return
-
-    _append_log(run, cr, "Enriching candidates (language + pytest check)...")
-    candidates = enrich_candidates(repos, token=token or None)
-    _append_log(
-        run, cr, "Enrichment complete: %d candidates passed filters" % len(candidates)
-    )
-
-    # Create candidate records
-    for cand in candidates:
-        env["commit0.discovery.candidate"].create(
-            {
-                "pipeline_run_id": run.id,
-                "full_name": cand.get("full_name", ""),
-                "stars": cand.get("stars", 0),
-                "python_pct": cand.get("python_pct", 0.0),
-                "has_pytest": cand.get("has_pytest", False),
-                "license": cand.get("license", ""),
-                "description": (cand.get("description") or "")[:500],
-                "release_tag": cand.get("release_tag", ""),
-                "selected": True,
-                "validation_status": "pending",
-            }
-        )
-    cr.commit()
-    _append_log(run, cr, "Created %d discovery candidate records" % len(candidates))
-
-
-def _run_single_validating(run, cr, env, cfg, tools_path):
-    """Validating step for single-repo mode — clone + structural analysis."""
-    _append_log(run, cr, "=== VALIDATING ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.validate import validate_candidates
-
-    token = cfg["github_token"] or os.environ.get("GITHUB_TOKEN", "")
-    clone_dir = Path(tempfile.mkdtemp(prefix="commit0_validate_"))
-
-    candidates = run.candidate_ids.filtered(lambda c: c.selected)
-    if not candidates:
-        _append_log(run, cr, "No candidates to validate — skipping")
-        return
-
-    # Build list-of-dict for validate_candidates()
-    cand_list = []
-    for c in candidates:
-        cand_list.append(
-            {
-                "full_name": c.full_name,
-                "stars": c.stars or 0,
-                "default_branch": "main",
-            }
-        )
-
-    _append_log(
-        run, cr, "Validating %d candidates (clone + analysis)..." % len(cand_list)
-    )
-    results = validate_candidates(cand_list, clone_dir=clone_dir)
-
-    # Update candidate records with validation results
-    for res in results:
-        full_name = res.get("full_name", "")
-        matching = candidates.filtered(lambda c: c.full_name == full_name)
-        if matching:
-            status = "pass" if res.get("status") == "pass" else "fail"
-            issues = ", ".join(res.get("issues", []))
-            matching[0].write(
-                {
-                    "validation_status": status,
-                    "validation_issues": issues or False,
-                }
+        try:
+            from tools.prepare_repo import (
+                fork_repo,
+                full_clone,
+                create_stubbed_branch,
+                generate_setup_dict,
+                generate_test_dict,
+                push_to_fork,
+                create_dataset_entry,
             )
-    cr.commit()
-
-    passed = [r for r in results if r.get("status") == "pass"]
-    failed = [r for r in results if r.get("status") != "pass"]
-    _append_log(
-        run,
-        cr,
-        "Validation complete: %d passed, %d failed" % (len(passed), len(failed)),
-    )
-
-    # Store clone_dir path for reuse in later steps (via run context)
-    # We pass it back via a transient field on log
-    _append_log(run, cr, "Clone directory: %s" % clone_dir)
-
-
-def _run_single_preparing(run, cr, env, cfg, tools_path):
-    """Preparing step for single-repo mode — fork, stub, push."""
-    _append_log(run, cr, "=== PREPARING ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.prepare_repo import prepare_repos
-
-    token = cfg["github_token"] or ""
-    org = cfg["github_org"] or "Ethara-Ai"
-    removal_mode = run.stubbing_mode or "combined"
-    clone_dir = Path(tempfile.mkdtemp(prefix="commit0_prepare_"))
-
-    # Set GITHUB_TOKEN env for tools that read from os.environ
-    if token:
-        os.environ["GITHUB_TOKEN"] = token
-
-    # Build candidate list from validated candidates
-    validated = run.candidate_ids.filtered(lambda c: c.validation_status == "pass")
-    if not validated:
-        # If direct URL mode, all candidates are selected regardless of validation
-        validated = run.candidate_ids.filtered(lambda c: c.selected)
-
-    if not validated:
-        _append_log(run, cr, "No validated candidates to prepare")
-        return
-
-    cand_list = []
-    for c in validated:
-        cand_list.append(
-            {
-                "full_name": c.full_name,
-                "stars": c.stars or 0,
-                "default_branch": "main",
-                "status": "pass",
-                "release_tag": c.release_tag or None,
-                "analysis": None,  # will be detected during prepare
-            }
-        )
-
-    _append_log(run, cr, "Preparing %d repos (fork + stub + push)..." % len(cand_list))
-
-    entries = prepare_repos(
-        cand_list,
-        clone_dir=clone_dir,
-        org=org,
-        removal_mode=removal_mode,
-    )
-
-    _append_log(run, cr, "Prepare complete: %d dataset entries created" % len(entries))
-
-    # Create commit0.repo.entry records
-    for idx, entry in enumerate(entries):
-        full_name = entry.get("original_repo", "")
-        repo_name = full_name.split("/")[-1] if "/" in full_name else full_name
-        fork_name = entry.get("repo", "")
-        fork_url = "https://github.com/%s" % fork_name if fork_name else ""
-        setup = entry.get("setup", {})
-        test = entry.get("test", {})
-
-        env["commit0.repo.entry"].create(
-            {
-                "pipeline_run_id": run.id,
-                "sequence": (idx + 1) * 10,
-                "repo_name": repo_name,
-                "repo_url": "https://github.com/%s" % full_name if full_name else "",
-                "fork_url": fork_url,
-                "state": "dataset_created",
-                "base_commit": entry.get("base_commit", ""),
-                "reference_commit": entry.get("reference_commit", ""),
-                "src_dir": entry.get("src_dir", ""),
-                "test_dir": test.get("test_dir", "tests"),
-                "python_version": setup.get("python", "3.12"),
-                "install_cmd": setup.get("install", ""),
-                "stubbing_mode": removal_mode,
-                "clone_path": str(clone_dir / full_name.replace("/", "__"))
-                if full_name
-                else "",
-            }
-        )
-    cr.commit()
-
-    # Save dataset entries JSON for later steps
-    dataset_dir = Path(tempfile.mkdtemp(prefix="commit0_dataset_"))
-    dataset_path = dataset_dir / "dataset_entries.json"
-    dataset_path.write_text(json.dumps(entries, indent=2))
-    run.write({"entries_json_path": str(dataset_path)})
-    cr.commit()
-    _append_log(run, cr, "Saved entries JSON: %s" % dataset_path)
-
-
-def _run_single_creating_dataset(run, cr, env, cfg, tools_path):
-    """Creating dataset step — validate and write HF-compatible dataset JSON."""
-    _append_log(run, cr, "=== CREATING DATASET ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.create_dataset import validate_dataset, create_hf_dataset_dict
-
-    entries_path = run.entries_json_path
-    if not entries_path or not Path(entries_path).exists():
-        _append_log(run, cr, "No entries JSON found — building from repo entries")
-        # Reconstruct entries from repo entry records
-        entries = []
-        for re_entry in run.repo_entry_ids:
-            full_name = ""
-            if re_entry.repo_url:
-                full_name = re_entry.repo_url.replace("https://github.com/", "")
-            fork_name = ""
-            if re_entry.fork_url:
-                fork_name = re_entry.fork_url.replace("https://github.com/", "")
-            entries.append(
-                {
-                    "instance_id": "commit-0/%s" % (re_entry.repo_name or ""),
-                    "repo": fork_name,
-                    "original_repo": full_name,
-                    "base_commit": re_entry.base_commit or "",
-                    "reference_commit": re_entry.reference_commit or "",
-                    "setup": {
-                        "install": re_entry.install_cmd or 'pip install -e "."',
-                        "packages": "",
-                        "pip_packages": ["pytest", "pytest-json-report"],
-                        "pre_install": [],
-                        "python": re_entry.python_version or "3.12",
-                        "specification": "",
-                    },
-                    "test": {
-                        "test_cmd": "pytest",
-                        "test_dir": re_entry.test_dir or "tests",
-                    },
-                    "src_dir": re_entry.src_dir or "",
-                }
-            )
-    else:
-        entries = json.loads(Path(entries_path).read_text())
-
-    valid, issues = validate_dataset(entries)
-    if issues:
-        _append_log(run, cr, "Dataset validation issues: %s" % "; ".join(issues[:10]))
-    _append_log(
-        run, cr, "Dataset validation: %d/%d entries valid" % (len(valid), len(entries))
-    )
-
-    hf_entries = create_hf_dataset_dict(valid)
-
-    # Write dataset JSON
-    dataset_dir = Path(tempfile.mkdtemp(prefix="commit0_hf_"))
-    dataset_path = dataset_dir / "custom_dataset.json"
-    dataset_path.write_text(json.dumps(hf_entries, indent=2))
-
-    run.write({"dataset_json_path": str(dataset_path)})
-    cr.commit()
-    _append_log(
-        run, cr, "Wrote dataset JSON (%d entries): %s" % (len(hf_entries), dataset_path)
-    )
-
-
-def _run_single_generating_tests(run, cr, env, cfg, tools_path):
-    """Generating tests step — collect pytest test IDs from cloned repos."""
-    _append_log(run, cr, "=== GENERATING TESTS ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.generate_test_ids import collect_test_ids_local, save_test_ids
-
-    test_ids_dir = Path(tempfile.mkdtemp(prefix="commit0_test_ids_"))
-
-    for re_entry in run.repo_entry_ids:
-        if _is_cancelled(run, cr):
+        except ImportError:
+            _fail_eval(cr, eval_id, "fork_status", ImportError("tools.prepare_repo"))
             return
 
-        repo_name = re_entry.repo_name or ""
-        test_dir = re_entry.test_dir or "tests"
-        full_name = ""
-        if re_entry.repo_url:
-            full_name = re_entry.repo_url.replace("https://github.com/", "")
+        _append_eval_log(cr, eval_id, "=== STAGE 3 — Automated Preparation ===")
+        cr.commit()
 
-        _append_log(run, cr, "Collecting test IDs for %s..." % repo_name)
-
-        # Try to find an existing clone directory
-        repo_dir = None
-        possible_dirs = [
-            Path(tempfile.gettempdir()),
-        ]
-        for base in possible_dirs:
-            for prefix in ["commit0_prepare_", "commit0_validate_"]:
-                for d in base.iterdir() if base.exists() else []:
-                    if d.is_dir() and d.name.startswith(prefix):
-                        candidate = d / full_name.replace("/", "__")
-                        if candidate.is_dir():
-                            repo_dir = candidate
-                            break
-                if repo_dir:
-                    break
-            if repo_dir:
-                break
-
-        if not repo_dir or not repo_dir.is_dir():
-            _append_log(
-                run,
+        # Step 1: FORK
+        try:
+            _update_eval(cr, eval_id, {"fork_status": "running"})
+            cr.commit()
+            _append_eval_log(cr, eval_id, "Forking %s → %s..." % (full_name, org))
+            cr.commit()
+            fork_name = fork_repo(full_name, org, token=token or None)
+            fork_url = "https://github.com/%s" % fork_name
+            _update_eval(
                 cr,
-                "  Clone dir not found for %s — skipping test ID collection"
-                % repo_name,
+                eval_id,
+                {"fork_status": "done", "fork_progress": 100.0, "fork_url": fork_url},
             )
-            continue
+            cr.commit()
+            _append_eval_log(cr, eval_id, "Fork complete: %s" % fork_url)
+            cr.commit()
+        except Exception as exc:
+            _fail_eval(cr, eval_id, "fork_status", exc)
+            return
 
-        # Checkout reference commit for accurate test collection
-        if re_entry.reference_commit:
+        # Step 2: REFERENCE COMMIT
+        try:
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "reference_commit_status": "running",
+                    "reference_commit_progress": 10.0,
+                },
+            )
+            cr.commit()
+            clone_dir = Path(tempfile.mkdtemp(prefix="commit0_eval_"))
+            repo_dir = full_clone(full_name, clone_dir)
+            _append_eval_log(cr, eval_id, "Clone complete, creating stubbed branch...")
+            _update_eval(cr, eval_id, {"reference_commit_progress": 40.0})
+            cr.commit()
+            base_commit, reference_commit = create_stubbed_branch(
+                repo_dir, full_name, src_dir or None
+            )
+            setup = generate_setup_dict(repo_dir, full_name)
+            test_dict = generate_test_dict(repo_dir, setup.get("test_dir") or "tests")
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "reference_commit_status": "done",
+                    "reference_commit_progress": 100.0,
+                    "base_commit": base_commit,
+                    "reference_commit": reference_commit,
+                    "clone_path": str(repo_dir),
+                    "clone_path_original": str(repo_dir),
+                    "src_dir": setup.get("src_dir") or src_dir or "",
+                    "test_dir": test_dict.get("test_dir")
+                    or setup.get("test_dir")
+                    or "tests",
+                    "python_version": setup.get("python") or "3.12",
+                    "install_cmd": setup.get("install") or "",
+                },
+            )
+            cr.commit()
+            _append_eval_log(
+                cr,
+                eval_id,
+                "ref=%s base=%s" % (reference_commit[:12], base_commit[:12]),
+            )
+            cr.commit()
+        except Exception as exc:
+            _fail_eval(cr, eval_id, "reference_commit_status", exc)
+            return
+
+        # Step 3: DOCUMENT (spec scraping, PDF commit, read PDF binary)
+        spec_path = None
+        specs_dir = None
+        pdf_data = ""
+        repo_short = full_name.split("/")[-1]
+        try:
+            _update_eval(
+                cr,
+                eval_id,
+                {"document_create_status": "running", "document_create_progress": 10.0},
+            )
+            cr.commit()
             try:
+                from tools.scrape_pdf import scrape_spec_sync
+
+                spec_url = setup.get("specification") or ""
+                if spec_url:
+                    specs_dir = Path(tempfile.mkdtemp(prefix="commit0_specs_"))
+                    _append_eval_log(cr, eval_id, "Scraping spec from %s" % spec_url)
+                    _update_eval(cr, eval_id, {"document_create_progress": 30.0})
+                    cr.commit()
+                    spec_path = scrape_spec_sync(
+                        spec_url=spec_url,
+                        repo_name=repo_short,
+                        output_dir=str(specs_dir),
+                        github_token=token,
+                        full_name=full_name,
+                    )
+                    _update_eval(cr, eval_id, {"document_create_progress": 70.0})
+                    cr.commit()
+                    if spec_path:
+                        _append_eval_log(cr, eval_id, "Spec scraped: %s" % spec_path)
+                    else:
+                        _append_eval_log(cr, eval_id, "Spec scrape produced no PDF")
+                else:
+                    _append_eval_log(cr, eval_id, "No spec URL — skipping scrape")
+            except ImportError:
+                _logger.warning("scrape_pdf unavailable for eval %s", eval_id)
+                _append_eval_log(cr, eval_id, "scrape_pdf not available — skipping")
+            cr.commit()
+
+            if spec_path:
+                shutil.copy2(spec_path, repo_dir / Path(spec_path).name)
                 subprocess.run(
-                    ["git", "checkout", re_entry.reference_commit],
+                    ["git", "add", Path(spec_path).name],
+                    cwd=repo_dir,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", "Add spec PDF for %s" % repo_short],
+                    cwd=repo_dir,
+                    check=True,
+                    capture_output=True,
+                )
+                base_commit = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
                     cwd=repo_dir,
                     capture_output=True,
                     text=True,
-                    timeout=30,
                     check=True,
-                )
-            except Exception as e:
-                _append_log(
-                    run,
+                ).stdout.strip()
+                _update_eval(cr, eval_id, {"base_commit": base_commit})
+                _append_eval_log(
                     cr,
-                    "  Could not checkout reference_commit for %s: %s" % (repo_name, e),
+                    eval_id,
+                    "Updated base_commit with spec: %s" % base_commit[:12],
                 )
+                cr.commit()
 
-        test_ids = collect_test_ids_local(
-            repo_dir=repo_dir,
-            test_dir=test_dir,
-        )
+            if spec_path:
+                with open(spec_path, "rb") as f:
+                    pdf_data = base64.b64encode(f.read()).decode()
 
-        if test_ids:
-            out_file = save_test_ids(test_ids, repo_name, test_ids_dir)
-            re_entry.write({"test_count": len(test_ids), "state": "tests_generated"})
-            cr.commit()
-            _append_log(
-                run,
+            _update_eval(
                 cr,
-                "  %s: %d test IDs saved to %s" % (repo_name, len(test_ids), out_file),
-            )
-        else:
-            _append_log(run, cr, "  %s: 0 test IDs collected" % repo_name)
-            re_entry.write({"test_count": 0, "state": "tests_generated"})
-            cr.commit()
-
-    run.write({"test_ids_path": str(test_ids_dir)})
-    cr.commit()
-    _append_log(run, cr, "Test ID generation complete. Output dir: %s" % test_ids_dir)
-
-
-def _run_single_setting_up(run, cr, env, cfg, tools_path):
-    """Setting up step — run `commit0 setup` via subprocess."""
-    _append_log(run, cr, "=== SETTING UP (commit0 setup) ===")
-
-    dataset_path = run.dataset_json_path
-    if not dataset_path or not Path(dataset_path).exists():
-        _append_log(run, cr, "No dataset JSON found — skipping setup")
-        return
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "commit0",
-        "setup",
-        "all",
-        "--dataset-name",
-        dataset_path,
-    ]
-    _append_log(run, cr, "Running: %s" % " ".join(cmd))
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-        if result.returncode == 0:
-            _append_log(run, cr, "commit0 setup completed successfully")
-            for re_entry in run.repo_entry_ids:
-                if re_entry.state not in ("failed",):
-                    re_entry.write({"state": "setup_done"})
-            cr.commit()
-        else:
-            stderr = (result.stderr or "")[:1000]
-            _append_log(
-                run,
-                cr,
-                "commit0 setup failed (rc=%d): %s" % (result.returncode, stderr),
-            )
-    except subprocess.TimeoutExpired:
-        _append_log(run, cr, "commit0 setup timed out after 600s")
-    except FileNotFoundError:
-        _append_log(run, cr, "commit0 not found — skipping setup (not installed)")
-
-
-def _run_single_building(run, cr, env, cfg, tools_path):
-    """Building step — run `commit0 build` via subprocess."""
-    _append_log(run, cr, "=== BUILDING (commit0 build) ===")
-
-    dataset_path = run.dataset_json_path
-    if not dataset_path or not Path(dataset_path).exists():
-        _append_log(run, cr, "No dataset JSON found — skipping build")
-        return
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "commit0",
-        "build",
-        "--dataset-name",
-        dataset_path,
-    ]
-    _append_log(run, cr, "Running: %s" % " ".join(cmd))
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-        if result.returncode == 0:
-            _append_log(run, cr, "commit0 build completed successfully")
-            for re_entry in run.repo_entry_ids:
-                if re_entry.state not in ("failed",):
-                    re_entry.write({"state": "built"})
-            cr.commit()
-        else:
-            stderr = (result.stderr or "")[:1000]
-            _append_log(
-                run,
-                cr,
-                "commit0 build failed (rc=%d): %s" % (result.returncode, stderr),
-            )
-    except subprocess.TimeoutExpired:
-        _append_log(run, cr, "commit0 build timed out after 1800s")
-    except FileNotFoundError:
-        _append_log(run, cr, "commit0 not found — skipping build (not installed)")
-
-
-# ---------------------------------------------------------------------------
-# State machine — BATCH mode
-# ---------------------------------------------------------------------------
-
-
-def _run_batch_discovering(run, cr, env, cfg, tools_path):
-    """Discovering step for batch mode — parse CSV and create repo entries."""
-    _append_log(run, cr, "=== DISCOVERING (batch CSV) ===")
-
-    rows = run._parse_csv()
-    if not rows:
-        _append_log(run, cr, "CSV parse returned 0 rows")
-        return
-
-    _append_log(run, cr, "Parsed %d rows from CSV" % len(rows))
-
-    for idx, row in enumerate(rows):
-        github_url = row.get("github_url", "")
-        lib_name = row.get("library_name", "")
-        org_name = row.get("organization_name", "")
-
-        if not github_url:
-            _append_log(run, cr, "  Row %d: no GitHub URL — skipping" % (idx + 1))
-            continue
-
-        full_name = github_url.rstrip("/").replace("https://github.com/", "")
-        if full_name.endswith(".git"):
-            full_name = full_name[:-4]
-        repo_name = lib_name or (
-            full_name.split("/")[-1] if "/" in full_name else full_name
-        )
-
-        env["commit0.repo.entry"].create(
-            {
-                "pipeline_run_id": run.id,
-                "sequence": (idx + 1) * 10,
-                "repo_name": repo_name,
-                "repo_url": github_url,
-                "state": "pending",
-                "stubbing_mode": run.stubbing_mode or "combined",
-            }
-        )
-    cr.commit()
-    _append_log(
-        run, cr, "Created %d repo entry records from CSV" % len(run.repo_entry_ids)
-    )
-
-
-def _run_batch_validating(run, cr, env, cfg, tools_path):
-    """Validating step for batch mode — check each repo URL is accessible."""
-    _append_log(run, cr, "=== VALIDATING (batch) ===")
-
-    token = cfg["github_token"] or os.environ.get("GITHUB_TOKEN", "")
-    _ensure_tools_on_path(tools_path)
-    from tools.discover import github_api
-
-    for re_entry in run.repo_entry_ids:
-        if _is_cancelled(run, cr):
-            return
-
-        repo_url = re_entry.repo_url or ""
-        full_name = repo_url.rstrip("/").replace("https://github.com/", "")
-        if full_name.endswith(".git"):
-            full_name = full_name[:-4]
-
-        _append_log(run, cr, "Validating %s..." % full_name)
-
-        try:
-            github_api("/repos/%s" % full_name, token=token or None)
-            re_entry.write({"state": "preparing"})
-            cr.commit()
-            _append_log(run, cr, "  %s: accessible ✓" % full_name)
-        except Exception as e:
-            re_entry.write(
+                eval_id,
                 {
-                    "state": "failed",
-                    "error_message": "Validation failed: %s" % str(e)[:500],
-                }
+                    "document_create_status": "done",
+                    "document_create_progress": 100.0,
+                    "specs_dir": str(specs_dir) if specs_dir else "",
+                },
             )
             cr.commit()
-            _append_log(run, cr, "  %s: FAILED — %s" % (full_name, str(e)[:200]))
-
-
-def _run_batch_preparing(run, cr, env, cfg, tools_path):
-    """Preparing step for batch mode — fork + stub + push each repo."""
-    _append_log(run, cr, "=== PREPARING (batch) ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.batch_prepare import prepare_single_repo
-
-    token = cfg["github_token"] or ""
-    org = cfg["github_org"] or "Ethara-Ai"
-    removal_mode = run.stubbing_mode or "combined"
-    clone_dir = Path(tempfile.mkdtemp(prefix="commit0_batch_"))
-
-    if token:
-        os.environ["GITHUB_TOKEN"] = token
-
-    active_entries = run.repo_entry_ids.filtered(lambda e: e.state not in ("failed",))
-    all_dataset_entries = []
-
-    for re_entry in active_entries:
-        if _is_cancelled(run, cr):
+        except Exception as exc:
+            _fail_eval(cr, eval_id, "document_create_status", exc)
             return
 
-        repo_url = re_entry.repo_url or ""
-        full_name = repo_url.rstrip("/").replace("https://github.com/", "")
-        if full_name.endswith(".git"):
-            full_name = full_name[:-4]
-        repo_name = re_entry.repo_name or (
-            full_name.split("/")[-1] if "/" in full_name else full_name
-        )
-
-        _append_log(run, cr, "Preparing %s..." % full_name)
-        re_entry.write({"state": "forking"})
-        cr.commit()
-
+        # Step 4: PUSH TO FORK
         try:
-            entry = prepare_single_repo(
+            _append_eval_log(cr, eval_id, "Pushing to fork...")
+            cr.commit()
+            push_to_fork(
+                repo_dir,
+                fork_name,
+                branch="commit0_combined",
+                token=token or None,
+            )
+            _append_eval_log(cr, eval_id, "Push complete")
+            cr.commit()
+        except Exception as exc:
+            _append_eval_log(
+                cr,
+                eval_id,
+                "Push to fork failed (non-fatal): %s" % str(exc)[:200],
+            )
+            cr.commit()
+
+        # Step 5: GENERATE JSON + YAML + POPULATE STAGE 4 FIELDS
+        try:
+            dataset_entry = create_dataset_entry(
                 full_name=full_name,
-                clone_dir=clone_dir,
-                org=org,
-                removal_mode=removal_mode,
-                tag=run.tag or None,
+                fork_name=fork_name,
+                base_commit=base_commit,
+                reference_commit=reference_commit,
+                src_dir=setup.get("src_dir") or src_dir or "",
+                setup_dict=setup,
+                test_dict=test_dict,
             )
-        except Exception as e:
-            re_entry.write(
-                {
-                    "state": "failed",
-                    "error_message": "Prepare failed: %s" % str(e)[:500],
-                }
-            )
-            cr.commit()
-            _append_log(run, cr, "  %s: FAILED — %s" % (repo_name, str(e)[:200]))
-            continue
+            spec_json = json.dumps(dataset_entry, indent=2)
 
-        if entry is None:
-            re_entry.write(
-                {
-                    "state": "failed",
-                    "error_message": "prepare_single_repo returned None",
-                }
-            )
-            cr.commit()
-            _append_log(run, cr, "  %s: preparation returned no entry" % repo_name)
-            continue
+            try:
+                from tools.create_dataset import generate_commit0_yaml
 
-        fork_name = entry.get("repo", "")
-        fork_url = "https://github.com/%s" % fork_name if fork_name else ""
-        setup = entry.get("setup", {})
-        test = entry.get("test", {})
+                spec_yaml = generate_commit0_yaml(
+                    [dataset_entry],
+                    "custom",
+                    "Ethara-Ai/commit0_custom",
+                )
+            except ImportError:
+                spec_yaml = ""
 
-        re_entry.write(
-            {
-                "state": "dataset_created",
-                "fork_url": fork_url,
-                "base_commit": entry.get("base_commit", ""),
-                "reference_commit": entry.get("reference_commit", ""),
-                "src_dir": entry.get("src_dir", ""),
-                "test_dir": test.get("test_dir", "tests"),
-                "python_version": setup.get("python", "3.12"),
-                "install_cmd": setup.get("install", ""),
-                "clone_path": str(clone_dir / full_name.replace("/", "__"))
-                if full_name
-                else "",
+            updates = {
+                "spec_json": spec_json,
+                "spec_yaml": spec_yaml,
             }
-        )
-        cr.commit()
-        all_dataset_entries.append(entry)
-        _append_log(
-            run,
-            cr,
-            "  %s: prepared (base=%s)" % (repo_name, entry.get("base_commit", "")[:12]),
-        )
-
-    # Save combined dataset entries JSON
-    if all_dataset_entries:
-        dataset_dir = Path(tempfile.mkdtemp(prefix="commit0_dataset_"))
-        dataset_path = dataset_dir / "dataset_entries.json"
-        dataset_path.write_text(json.dumps(all_dataset_entries, indent=2))
-        run.write({"entries_json_path": str(dataset_path)})
-        cr.commit()
-        _append_log(
-            run, cr, "Saved %d entries to %s" % (len(all_dataset_entries), dataset_path)
-        )
-
-
-def _run_batch_creating_dataset(run, cr, env, cfg, tools_path):
-    """Creating dataset step for batch mode — same as single mode."""
-    _run_single_creating_dataset(run, cr, env, cfg, tools_path)
-
-
-def _run_batch_generating_tests(run, cr, env, cfg, tools_path):
-    """Generating tests step for batch mode — use dataset JSON + Docker if available."""
-    _append_log(run, cr, "=== GENERATING TESTS (batch) ===")
-    _ensure_tools_on_path(tools_path)
-
-    from tools.generate_test_ids import (
-        generate_for_dataset,
-        save_test_ids,
-        collect_test_ids_docker,
-    )
-
-    dataset_path = run.dataset_json_path
-    test_ids_dir = Path(tempfile.mkdtemp(prefix="commit0_test_ids_"))
-
-    if dataset_path and Path(dataset_path).exists():
-        _append_log(run, cr, "Generating test IDs from dataset: %s" % dataset_path)
-        results = generate_for_dataset(
-            dataset_path=Path(dataset_path),
-            output_dir=test_ids_dir,
-            use_docker=False,
-            timeout=300,
-        )
-        # Update repo entry test counts
-        for re_entry in run.repo_entry_ids:
-            repo_name = re_entry.repo_name or ""
-            count = results.get(repo_name, 0)
-            re_entry.write(
-                {
-                    "test_count": abs(count),
-                    "state": "tests_generated"
-                    if re_entry.state not in ("failed",)
-                    else "failed",
-                }
-            )
-        cr.commit()
-        total = sum(abs(v) for v in results.values())
-        _append_log(run, cr, "Test ID generation complete: %d total test IDs" % total)
-    else:
-        _append_log(run, cr, "No dataset JSON — skipping test ID generation")
-
-    run.write({"test_ids_path": str(test_ids_dir)})
-    cr.commit()
-
-
-def _run_batch_setting_up(run, cr, env, cfg, tools_path):
-    """Setting up step for batch mode — same as single."""
-    _run_single_setting_up(run, cr, env, cfg, tools_path)
-
-
-def _run_batch_building(run, cr, env, cfg, tools_path):
-    """Building step for batch mode — same as single."""
-    _run_single_building(run, cr, env, cfg, tools_path)
-
-
-# ---------------------------------------------------------------------------
-# Main background worker
-# ---------------------------------------------------------------------------
-
-# Pipeline state order and corresponding handler functions
-_SINGLE_STEPS = [
-    ("discovering", _run_single_discovering),
-    ("validating", _run_single_validating),
-    ("preparing", _run_single_preparing),
-    ("creating_dataset", _run_single_creating_dataset),
-    ("generating_tests", _run_single_generating_tests),
-    ("setting_up", _run_single_setting_up),
-    ("building", _run_single_building),
-]
-
-_BATCH_STEPS = [
-    ("discovering", _run_batch_discovering),
-    ("validating", _run_batch_validating),
-    ("preparing", _run_batch_preparing),
-    ("creating_dataset", _run_batch_creating_dataset),
-    ("generating_tests", _run_batch_generating_tests),
-    ("setting_up", _run_batch_setting_up),
-    ("building", _run_batch_building),
-]
-
-
-def _run_pipeline_background(db_name, uid, run_id):
-    """Background worker for pipeline execution.
-
-    Opens a fresh cursor, walks the state machine, calls subprocess
-    for each tool, captures output, updates state.
-    """
-    try:
-        import odoo
-        from odoo.modules.registry import Registry
-
-        registry = Registry(db_name)
-        with registry.cursor() as cr:
-            env = odoo.api.Environment(cr, uid, {})
-            run = env["commit0.pipeline.run"].browse(run_id)
-            if not run.exists():
-                _logger.error("Pipeline run %s not found", run_id)
-                return
-
-            _logger.info("Starting pipeline run %s (%s)", run.name, run.entry_type)
-            _append_log(
-                run, cr, "Pipeline execution started (mode=%s)" % run.entry_type
-            )
-
-            tools_path = get_tools_path(env)
-            cfg = _get_config(env)
-
-            # Select step handlers based on entry type
-            steps = _BATCH_STEPS if run.entry_type == "batch" else _SINGLE_STEPS
-
-            for state_name, handler_fn in steps:
-                # Check cancellation before each step
-                if _is_cancelled(run, cr):
-                    _append_log(run, cr, "Pipeline cancelled by user — stopping")
-                    return
-
-                # Transition to this step's state
-                _set_state(run, cr, state_name)
-
-                try:
-                    handler_fn(run, cr, env, cfg, tools_path)
-                except Exception as step_err:
-                    _logger.exception(
-                        "Pipeline run %s failed at step '%s': %s",
-                        run_id,
-                        state_name,
-                        step_err,
-                    )
-                    _append_log(
-                        run,
-                        cr,
-                        "FAILED at step '%s': %s" % (state_name, str(step_err)[:1000]),
-                    )
-                    _set_state(
-                        run,
-                        cr,
-                        "failed",
-                        {
-                            "error_message": "Failed at %s: %s"
-                            % (state_name, str(step_err)),
-                            "end_time": fields.Datetime.now(),
-                        },
-                    )
-                    return
-
-                # Check cancellation after each step
-                if _is_cancelled(run, cr):
-                    _append_log(
-                        run,
-                        cr,
-                        "Pipeline cancelled by user — stopping after '%s'" % state_name,
-                    )
-                    return
-
-            # All steps complete — mark repo entries and run as complete
-            for re_entry in run.repo_entry_ids:
-                if re_entry.state not in ("failed",):
-                    re_entry.write({"state": "complete"})
+            _update_eval(cr, eval_id, updates)
             cr.commit()
 
-            _set_state(run, cr, "complete", {"end_time": fields.Datetime.now()})
-            _append_log(run, cr, "Pipeline completed successfully")
+            # Binary field with attachment=True needs ORM, not raw SQL
+            if pdf_data:
+                spec_pdf_filename = (
+                    repo_short + ".pdf.bz2"
+                    if spec_path and spec_path.endswith(".bz2")
+                    else repo_short + ".pdf"
+                )
+                evaluation = env["commit0.repo.evaluation"].browse(eval_id)
+                evaluation.write(
+                    {
+                        "spec_pdf": pdf_data,
+                        "spec_pdf_filename": spec_pdf_filename,
+                    }
+                )
+                cr.commit()
 
-    except Exception as e:
-        _logger.exception("Pipeline run %s failed: %s", run_id, e)
+            _append_eval_log(
+                cr,
+                eval_id,
+                "Stage 4 fields populated (json=%d chars, yaml=%d chars, pdf=%s)"
+                % (len(spec_json), len(spec_yaml), "yes" if pdf_data else "no"),
+            )
+            cr.commit()
+        except Exception as exc:
+            _append_eval_log(
+                cr,
+                eval_id,
+                "Dataset entry generation failed (non-fatal): %s" % str(exc)[:200],
+            )
+            cr.commit()
+
+        # All steps done → advance
+        _update_eval(cr, eval_id, {"current_stage": "stage4"})
+        cr.commit()
+        _append_eval_log(cr, eval_id, "Stage 3 complete — advancing to Stage 4")
+        cr.commit()
+
+
+@_safe_worker
+def _run_stub_background(db_name, uid, eval_id):
+    import odoo
+
+    with _open_cursor(db_name) as cr:
+        env = odoo.api.Environment(cr, uid, {})
+        _ensure_tools_on_path(get_tools_path(env))
+
+        cr.execute(
+            "SELECT clone_path, src_dir FROM commit0_repo_evaluation WHERE id = %s",
+            [eval_id],
+        )
+        row = cr.fetchone()
+        if not row:
+            _logger.error("Evaluation %s not found", eval_id)
+            return
+        clone_path, src_dir = row
+
+        if not clone_path or not Path(clone_path).is_dir():
+            _fail_eval(
+                cr,
+                eval_id,
+                "stub_status",
+                ValueError("Clone path missing: %s" % clone_path),
+            )
+            return
         try:
-            import odoo
-            from odoo.modules.registry import Registry
+            from tools.stub import stub_directory
+        except ImportError:
+            _fail_eval(cr, eval_id, "stub_status", ImportError("tools.stub"))
+            return
 
-            registry = Registry(db_name)
-            with registry.cursor() as cr:
-                env = odoo.api.Environment(cr, uid, {})
-                run = env["commit0.pipeline.run"].browse(run_id)
-                if run.exists():
-                    run.write(
-                        {
-                            "state": "failed",
-                            "error_message": str(e),
-                            "end_time": fields.Datetime.now(),
-                        }
-                    )
-                    cr.commit()
-        except Exception:
-            _logger.exception("Failed to update pipeline run %s state", run_id)
-    finally:
-        _semaphore.release()
+        _update_eval(cr, eval_id, {"stub_status": "running"})
+        cr.commit()
+        _append_eval_log(cr, eval_id, "=== STUBBING ===")
+        cr.commit()
+
+        stubbed_dir = Path(tempfile.mkdtemp(prefix="commit0_stubbed_"))
+        source_dir = Path(clone_path) / src_dir if src_dir else Path(clone_path)
+        _append_eval_log(cr, eval_id, "Stubbing %s → %s" % (source_dir, stubbed_dir))
+        cr.commit()
+
+        stats = stub_directory(
+            source_dir=source_dir,
+            output_dir=stubbed_dir,
+            keep_docstrings=True,
+            removal_mode="combined",
+        )
+        _update_eval(
+            cr, eval_id, {"clone_path_stubbed": str(stubbed_dir), "stub_status": "done"}
+        )
+        cr.commit()
+        _append_eval_log(
+            cr,
+            eval_id,
+            "Done: %d files, %d stubbed"
+            % (stats.get("total_files", 0), stats.get("modified_files", 0)),
+        )
+        cr.commit()
+
+
+@_safe_worker
+def _run_docker_background(db_name, uid, eval_id):
+    with _open_cursor(db_name) as cr:
+        _append_eval_log(cr, eval_id, "=== DOCKER GENERATION (placeholder) ===")
+        cr.commit()
+        stages = [
+            ("generating", 20.0),
+            ("llm_qc", 40.0),
+            ("multiarch", 60.0),
+            ("testing", 80.0),
+            ("done", 100.0),
+        ]
+        for status, progress in stages:
+            _update_eval(
+                cr, eval_id, {"docker_status": status, "docker_progress": progress}
+            )
+            cr.commit()
+            _append_eval_log(cr, eval_id, "Docker: %s (%d%%)" % (status, int(progress)))
+            cr.commit()
+            if status != "done":
+                time.sleep(2)
+        _update_eval(
+            cr, eval_id, {"current_stage": "done", "terminal_state": "complete"}
+        )
+        cr.commit()
+        _append_eval_log(cr, eval_id, "Docker complete — evaluation done")
+        cr.commit()
