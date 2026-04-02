@@ -1,4 +1,4 @@
-nnotated-types==0.7.0
+annotated-types==0.7.0
 asn1crypto==1.5.1
 attrs==25.4.0
 Babel==2.10.3
