@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_pipeline_run" model="ir.sequence">
+            <field name="name">Pipeline Run</field>
+            <field name="code">commit0.pipeline.run</field>
+            <field name="prefix">C0-</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+        <record id="seq_repo_evaluation" model="ir.sequence">
+            <field name="name">Repo Evaluation</field>
+            <field name="code">commit0.repo.evaluation</field>
+            <field name="prefix">REPO-</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+    </data>
+</odoo>

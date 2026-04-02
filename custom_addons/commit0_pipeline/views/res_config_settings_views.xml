@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_commit0" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.commit0</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Commit0 Pipeline" string="Commit0 Pipeline" name="commit0_pipeline" groups="commit0_pipeline.group_commit0_admin">
+                    <block title="Commit0 Pipeline Configuration">
+                        <setting string="Tools Path" help="Path to the commit0 pipeline tools directory.">
+                            <field name="commit0_tools_path"/>
+                        </setting>
+                        <setting string="GitHub Token" help="Personal access token for GitHub API operations.">
+                            <field name="github_token" password="True"/>
+                        </setting>
+                        <setting string="GitHub Organization" help="GitHub organization to fork repositories into.">
+                            <field name="github_org"/>
+                        </setting>
+                        <setting string="Default Model" help="Default AI model preset for pipeline runs.">
+                            <field name="commit0_default_model"/>
+                        </setting>
+                        <setting string="Default Stubbing Mode" help="Default mode for code stubbing.">
+                            <field name="commit0_default_stubbing_mode"/>
+                        </setting>
+                        <setting string="Docker Status" help="Whether Docker is available on this system.">
+                            <field name="docker_available" widget="boolean"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
