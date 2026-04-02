@@ -1,0 +1,25 @@
+.o_repo_browser {
+    min-height: 450px;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 4px;
+    overflow: auto;
+
+    .o_repo_browser_toolbar {
+        min-height: 40px;
+        flex-shrink: 0;
+
+        .o_repo_browser_select {
+            max-width: 500px;
+        }
+    }
+
+    .o_repo_browser_editor {
+        min-height: 400px;
+        width: 1400px;
+
+        .ace_editor {
+            width: 100% !important;
+            min-height: 400px;
+        }
+    }
+}

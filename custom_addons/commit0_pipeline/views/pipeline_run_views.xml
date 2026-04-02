@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================== -->
+    <!-- Form View                                                          -->
+    <!-- ================================================================== -->
+    <record id="commit0_pipeline_run_view_form" model="ir.ui.view">
+        <field name="name">commit0.pipeline.run.form</field>
+        <field name="model">commit0.pipeline.run</field>
+        <field name="arch" type="xml">
+            <form string="Pipeline Run">
+                <header>
+                    <button name="action_validate_repo"
+                            string="Validate Repo"
+                            type="object"
+                            class="btn-info"
+                            invisible="state != 'idle' or entry_type != 'single'"/>
+                    <button name="action_start_pipeline"
+                            string="Start Pipeline"
+                            type="object"
+                            class="oe_highlight"
+                            invisible="state not in ('idle', 'failed')"/>
+                    <button name="action_cancel_pipeline"
+                            string="Cancel"
+                            type="object"
+                            class="btn-danger"
+                            invisible="state in ('idle', 'complete', 'cancelled', 'failed')"
+                            confirm="Are you sure you want to cancel this pipeline run?"/>
+                    <button name="action_retry_failed"
+                            string="Retry Failed"
+                            type="object"
+                            class="oe_highlight"
+                            invisible="state != 'failed'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="idle,discovering,validating,preparing,creating_dataset,generating_tests,setting_up,building,complete"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="entry_type" widget="radio"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'complete'"
+                                   decoration-danger="state == 'failed'"
+                                   decoration-info="state in ('discovering', 'validating', 'preparing', 'creating_dataset', 'generating_tests', 'setting_up', 'building')"
+                                   decoration-warning="state == 'cancelled'"/>
+                            <field name="repo_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <!-- Configuration Tab -->
+                        <page string="Configuration" name="config">
+                            <group>
+                                <group string="Repository Settings">
+                                    <field name="repo_url" invisible="entry_type != 'single'"
+                                           required="entry_type == 'single'"/>
+                                    <field name="stubbing_mode" invisible="entry_type != 'single'"/>
+                                    <field name="min_stars" invisible="entry_type != 'single'"/>
+                                    <field name="max_results" invisible="entry_type != 'single'"/>
+                                    <field name="tag" invisible="entry_type != 'single'"/>
+                                    <field name="csv_file" filename="csv_filename"
+                                           invisible="entry_type != 'batch'"
+                                           required="entry_type == 'batch'"/>
+                                     <field name="csv_filename" invisible="1"/>
+                                </group>
+                                <group string="Model Settings">
+                                    <field name="model_preset"/>
+                                    <field name="custom_model_id"
+                                           invisible="model_preset != 'custom'"
+                                           required="model_preset == 'custom'"/>
+                                    <field name="organization"/>
+                                    <field name="max_iteration"/>
+                                </group>
+                            </group>
+                            <group invisible="validation_status == 'not_validated'">
+                                <group string="Validation Result">
+                                    <field name="validation_status" widget="badge"
+                                           decoration-success="validation_status == 'passed'"
+                                           decoration-danger="validation_status == 'failed'"
+                                           decoration-info="validation_status == 'validating'"
+                                           decoration-muted="validation_status == 'not_validated'"/>
+                                </group>
+                            </group>
+                            <group invisible="validation_status not in ('passed', 'failed')">
+                                <field name="validation_details" readonly="1" widget="code"
+                                       nolabel="1" colspan="2"/>
+                            </group>
+                        </page>
+
+                        <!-- Repositories Tab -->
+                        <page string="Repositories" name="repositories">
+                            <field name="repo_entry_ids">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="repo_url"/>
+                                    <field name="state" widget="badge"
+                                           decoration-success="state == 'complete'"
+                                           decoration-danger="state == 'failed'"
+                                           decoration-info="state in ('preparing', 'forking', 'cloning', 'stubbing', 'pushing', 'dataset_created', 'tests_generated', 'setup_done', 'built')"/>
+                                    <field name="test_count"/>
+                                    <field name="error_message"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- Discovery Tab (Single mode only) -->
+                        <page string="Discovery" name="discovery"
+                              invisible="entry_type != 'single'">
+                            <field name="candidate_ids">
+                                <list>
+                                    <field name="selected" widget="boolean"/>
+                                    <field name="full_name"/>
+                                    <field name="stars"/>
+                                    <field name="python_pct"/>
+                                    <field name="has_pytest"/>
+                                    <field name="license"/>
+                                    <field name="validation_status" widget="badge"
+                                           decoration-success="validation_status == 'pass'"
+                                           decoration-danger="validation_status == 'fail'"
+                                           decoration-muted="validation_status == 'pending'"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- Logs Tab -->
+                        <page string="Logs" name="logs">
+                            <group>
+                                <field name="log_output" readonly="1" widget="code"/>
+                            </group>
+                            <group>
+                                <field name="error_message" readonly="1"/>
+                            </group>
+                        </page>
+
+                        <!-- Results Tab -->
+                        <page string="Results" name="results">
+                            <group>
+                                <group>
+                                    <field name="dataset_json_path"/>
+                                    <field name="entries_json_path"/>
+                                    <field name="test_ids_path"/>
+                                </group>
+                                <group>
+                                    <field name="start_time"/>
+                                    <field name="end_time"/>
+                                    <field name="progress_pct" widget="progressbar"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ================================================================== -->
+    <!-- Tree View                                                          -->
+    <!-- ================================================================== -->
+    <record id="commit0_pipeline_run_view_tree" model="ir.ui.view">
+        <field name="name">commit0.pipeline.run.list</field>
+        <field name="model">commit0.pipeline.run</field>
+        <field name="arch" type="xml">
+            <list string="Pipeline Runs"
+                  decoration-success="state == 'complete'"
+                  decoration-danger="state == 'failed'"
+                  decoration-info="state in ('discovering', 'validating', 'preparing', 'creating_dataset', 'generating_tests', 'setting_up', 'building')">
+                <field name="name"/>
+                <field name="entry_type"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'complete'"
+                       decoration-danger="state == 'failed'"
+                       decoration-info="state in ('discovering', 'validating', 'preparing', 'creating_dataset', 'generating_tests', 'setting_up', 'building')"
+                       decoration-warning="state == 'cancelled'"/>
+                <field name="repo_count"/>
+                <field name="progress_pct" widget="progressbar"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="start_time"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ================================================================== -->
+    <!-- Search View                                                        -->
+    <!-- ================================================================== -->
+    <record id="commit0_pipeline_run_view_search" model="ir.ui.view">
+        <field name="name">commit0.pipeline.run.search</field>
+        <field name="model">commit0.pipeline.run</field>
+        <field name="arch" type="xml">
+            <search string="Search Pipeline Runs">
+                <field name="name"/>
+                <field name="user_id"/>
+                <separator/>
+                <filter string="My Runs" name="my_runs"
+                        domain="[('user_id', '=', uid)]"/>
+                <filter string="Active" name="active"
+                        domain="[('state', 'not in', ('complete', 'cancelled', 'failed'))]"/>
+                <filter string="Completed" name="completed"
+                        domain="[('state', '=', 'complete')]"/>
+                <filter string="Failed" name="failed"
+                        domain="[('state', '=', 'failed')]"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter string="State" name="group_state"
+                            context="{'group_by': 'state'}"/>
+                    <filter string="Entry Type" name="group_entry_type"
+                            context="{'group_by': 'entry_type'}"/>
+                    <filter string="Created By" name="group_user"
+                            context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ================================================================== -->
+    <!-- Action                                                             -->
+    <!-- ================================================================== -->
+    <record id="commit0_pipeline_run_action" model="ir.actions.act_window">
+        <field name="name">Pipeline Runs</field>
+        <field name="res_model">commit0.pipeline.run</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="commit0_pipeline_run_view_search"/>
+        <field name="context">{'search_default_my_runs': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first pipeline run
+            </p>
+            <p>
+                Configure a single repository or batch CSV to run the commit0 AI coding agent trajectory pipeline.
+            </p>
+        </field>
+    </record>
+
+</odoo>
