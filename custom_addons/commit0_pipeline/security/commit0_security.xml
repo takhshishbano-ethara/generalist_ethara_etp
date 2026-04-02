@@ -9,6 +9,13 @@
             <field name="sequence">30</field>
         </record>
 
+        <!-- Privilege (v19: replaces category_id on res.groups) -->
+        <record id="res_groups_privilege_commit0" model="res.groups.privilege">
+            <field name="name">Commit0 Pipeline</field>
+            <field name="sequence">30</field>
+            <field name="category_id" ref="module_category_commit0"/>
+        </record>
+
     </data>
 
     <data noupdate="1">
@@ -16,7 +23,7 @@
         <!-- User Group -->
         <record id="group_commit0_user" model="res.groups">
             <field name="name">User</field>
-            <field name="category_id" ref="module_category_commit0"/>
+            <field name="privilege_id" ref="res_groups_privilege_commit0"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
             <field name="comment">Can create and manage own pipeline runs.</field>
         </record>
@@ -24,7 +31,7 @@
         <!-- Admin Group (implies User) -->
         <record id="group_commit0_admin" model="res.groups">
             <field name="name">Admin</field>
-            <field name="category_id" ref="module_category_commit0"/>
+            <field name="privilege_id" ref="res_groups_privilege_commit0"/>
             <field name="implied_ids" eval="[(4, ref('group_commit0_user'))]"/>
             <field name="comment">Full access: manage all pipeline runs, repo entries, and configuration.</field>
         </record>

@@ -208,7 +208,7 @@
                 <filter string="Failed" name="failed"
                         domain="[('state', '=', 'failed')]"/>
                 <separator/>
-                <group expand="0" string="Group By">
+                <group>
                     <filter string="State" name="group_state"
                             context="{'group_by': 'state'}"/>
                     <filter string="Entry Type" name="group_entry_type"

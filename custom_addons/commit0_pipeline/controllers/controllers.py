@@ -207,7 +207,7 @@ def _detect_ace_mode(file_path):
 
 
 class Commit0Controller(http.Controller):
-    @http.route("/commit0/start_pipeline", type="json", auth="user")
+    @http.route("/commit0/start_pipeline", type="jsonrpc", auth="user")
     def start_pipeline(self, run_id):
         """Start a pipeline run in the background."""
         run = request.env["commit0.pipeline.run"].browse(int(run_id))
@@ -216,7 +216,7 @@ class Commit0Controller(http.Controller):
         result = run.action_start_pipeline()
         return {"success": True, "state": run.state, "notification": result}
 
-    @http.route("/commit0/pipeline_status", type="json", auth="user")
+    @http.route("/commit0/pipeline_status", type="jsonrpc", auth="user")
     def pipeline_status(self, run_id):
         """Get current pipeline status for polling."""
         run = request.env["commit0.pipeline.run"].browse(int(run_id))
@@ -246,7 +246,7 @@ class Commit0Controller(http.Controller):
             "entries": entries,
         }
 
-    @http.route("/commit0/pipeline_logs", type="json", auth="user")
+    @http.route("/commit0/pipeline_logs", type="jsonrpc", auth="user")
     def pipeline_logs(self, run_id):
         """Get latest pipeline log output."""
         run = request.env["commit0.pipeline.run"].browse(int(run_id))
@@ -257,7 +257,7 @@ class Commit0Controller(http.Controller):
             "state": run.state,
         }
 
-    @http.route("/commit0/cancel_pipeline", type="json", auth="user")
+    @http.route("/commit0/cancel_pipeline", type="jsonrpc", auth="user")
     def cancel_pipeline(self, run_id):
         """Cancel a running pipeline."""
         run = request.env["commit0.pipeline.run"].browse(int(run_id))
@@ -270,7 +270,7 @@ class Commit0Controller(http.Controller):
     # File Browser endpoints
     # ------------------------------------------------------------------
 
-    @http.route("/commit0/file_tree", type="json", auth="user")
+    @http.route("/commit0/file_tree", type="jsonrpc", auth="user")
     def file_tree(self, entry_id):
         entry = request.env["commit0.repo.entry"].browse(int(entry_id))
         if not entry.exists():
@@ -280,7 +280,7 @@ class Commit0Controller(http.Controller):
         tree = _scan_directory(real_root)
         return {"tree": tree, "repo_name": entry.repo_name or ""}
 
-    @http.route("/commit0/file_content", type="json", auth="user")
+    @http.route("/commit0/file_content", type="jsonrpc", auth="user")
     def file_content(self, entry_id, file_path):
         entry = request.env["commit0.repo.entry"].browse(int(entry_id))
         if not entry.exists():

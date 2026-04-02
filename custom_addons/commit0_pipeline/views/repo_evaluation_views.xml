@@ -261,7 +261,7 @@
                 <filter string="MUST Gates Failed" name="must_failed"
                         domain="[('must_gates_passed', '=', False)]"/>
                 <separator/>
-                <group expand="0" string="Group By">
+                <group>
                     <filter string="Status" name="group_state"
                             context="{'group_by': 'state'}"/>
                     <filter string="Verdict" name="group_verdict"
