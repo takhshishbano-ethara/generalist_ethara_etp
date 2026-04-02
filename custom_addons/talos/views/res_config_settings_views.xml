@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_talos" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.talos</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Talos" string="Talos" name="talos">
+                    <block title="Bedrock LLM Configuration">
+                        <setting string="Inference Profile ARN" help="Full ARN of the AWS Bedrock application inference profile for Kimi K2.5.">
+                            <field name="talos_bedrock_inference_arn"/>
+                        </setting>
+                        <setting string="Bedrock Region" help="AWS region for the Bedrock endpoint.">
+                            <field name="talos_bedrock_region"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
