@@ -11,16 +11,16 @@ class NotificationController(http.Controller):
             jdata = params.get('jdata')
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             user_dict = {
-                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.partner_id.in_app_notification,
-                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.partner_id.email_notification,
-                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.partner_id.push_notification
+                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else False,
+                'email_notification': True if jdata.get('email_notification') in [1, '1'] else False,
+                'push_notification': True if jdata.get('push_notification') in [1, '1'] else False
             }
             if user_dict:
                 user_id.partner_id.sudo().write(user_dict)
             employee_dict = {
-                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else user_id.employee_id.in_app_notification,
-                'email_notification': True if jdata.get('email_notification') in [1, '1'] else user_id.employee_id.email_notification,
-                'push_notification': True if jdata.get('push_notification') in [1, '1'] else user_id.employee_id.push_notification
+                'in_app_notification': True if jdata.get('in_app_notification') in [1, '1'] else False,
+                'email_notification': True if jdata.get('email_notification') in [1, '1'] else False,
+                'push_notification': True if jdata.get('push_notification') in [1, '1'] else False
             }
             notification_line = []
             for notification in jdata.get('notification_line'):
@@ -57,7 +57,7 @@ class NotificationController(http.Controller):
                     'location': jdata.get('location') if jdata.get('location') else access_token_data.location,
                     'theme': jdata.get('theme') if jdata.get('theme') else access_token_data.theme,
                     'table_density': jdata.get('table_density') if jdata.get('table_density') else access_token_data.table_density,
-                    'collapse_sidebar': True if jdata.get('collapse_sidebar') in [1, '1'] else access_token_data.collapse_sidebar
+                    'collapse_sidebar': True if jdata.get('collapse_sidebar') in [1, '1'] else False
                 }
                 access_token_data.sudo().write(token_dict)
         except Exception as e:

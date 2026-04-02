@@ -66,7 +66,7 @@ class APIAccessToken(models.Model):
             access_token = access_token[0]
             if access_token.has_expired():
                 access_token = None
-        if not access_token and create:
+        if create:
             expires = datetime.now() + timedelta(seconds=3600)
             vals = {
                 'user_id': user_id,
