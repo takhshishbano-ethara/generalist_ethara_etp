@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_attendance_tree_task_forge" model="ir.ui.view">
+        <field name="name">hr.attendance.tree.task.forge</field>
+        <field name="model">hr.attendance</field>
+        <field name="inherit_id" ref="hr_attendance.view_attendance_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='worked_hours']" position="after">
+                <field name="geo_location"/>
+                <field name="geo_coordinates" optional="hide"/>
+                <field name="tasks_done"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_attendance_form_task_forge" model="ir.ui.view">
+        <field name="name">hr.attendance.form.task.forge</field>
+        <field name="model">hr.attendance</field>
+        <field name="inherit_id" ref="hr_attendance.hr_attendance_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='check_out']" position="after">
+                <field name="geo_location"/>
+                <field name="geo_coordinates"/>
+                <field name="tasks_done"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

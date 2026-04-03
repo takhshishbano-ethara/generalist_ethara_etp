@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="seq_task_forge_log" model="ir.sequence">
+        <field name="name">Task Forge Log</field>
+        <field name="code">task.forge.log</field>
+        <field name="prefix">TF-</field>
+        <field name="padding">5</field>
+    </record>
+
+    <record id="seq_task_forge_bug_report" model="ir.sequence">
+        <field name="name">Task Forge Bug Report</field>
+        <field name="code">task.forge.bug.report</field>
+        <field name="prefix">BR-</field>
+        <field name="padding">5</field>
+    </record>
+
+</odoo>

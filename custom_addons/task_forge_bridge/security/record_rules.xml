@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Allocation: Taskers see only their own allocations -->
+    <record id="tf_allocation_rule_tasker" model="ir.rule">
+        <field name="name">Task Forge Allocation: Tasker sees own</field>
+        <field name="model_id" ref="model_task_forge_allocation"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+        <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <!-- Allocation: QR sees their taskers' allocations -->
+    <record id="tf_allocation_rule_qr" model="ir.rule">
+        <field name="name">Task Forge Allocation: QR sees team</field>
+        <field name="model_id" ref="model_task_forge_allocation"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_reviewer'))]"/>
+        <field name="domain_force">['|', ('employee_id.task_forge_qr_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <!-- Allocation: PL sees their team's allocations -->
+    <record id="tf_allocation_rule_pl" model="ir.rule">
+        <field name="name">Task Forge Allocation: PL sees team</field>
+        <field name="model_id" ref="model_task_forge_allocation"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="domain_force">['|', ('employee_id.task_forge_pl_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <!-- Allocation: CTO sees all -->
+    <record id="tf_allocation_rule_admin" model="ir.rule">
+        <field name="name">Task Forge Allocation: Admin sees all</field>
+        <field name="model_id" ref="model_task_forge_allocation"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+</odoo>

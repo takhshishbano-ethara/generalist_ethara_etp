@@ -21,6 +21,9 @@
                   <group>
                       <field name="name"/>
                       <field name="parent_id"/>
+                      <field name="md_file1"/>
+                      <field name="md_file2"/>
+                      <field name="md_file3"/>
                   </group>
               </group>
           </sheet>

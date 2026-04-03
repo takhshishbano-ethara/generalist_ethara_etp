@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===== Task Log Rules ===== -->
+    <record id="tf_log_rule_tasker" model="ir.rule">
+        <field name="name">Task Log: Tasker sees own</field>
+        <field name="model_id" ref="model_task_forge_log"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+        <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_log_rule_qr" model="ir.rule">
+        <field name="name">Task Log: QR sees taskers</field>
+        <field name="model_id" ref="model_task_forge_log"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_reviewer'))]"/>
+        <field name="domain_force">['|', ('employee_id.task_forge_qr_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_log_rule_pl" model="ir.rule">
+        <field name="name">Task Log: PL sees team</field>
+        <field name="model_id" ref="model_task_forge_log"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="domain_force">['|', ('employee_id.task_forge_pl_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_log_rule_admin" model="ir.rule">
+        <field name="name">Task Log: Admin sees all</field>
+        <field name="model_id" ref="model_task_forge_log"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <!-- ===== Blocker Rules ===== -->
+    <record id="tf_blocker_rule_tasker" model="ir.rule">
+        <field name="name">Blocker: Tasker sees own</field>
+        <field name="model_id" ref="model_task_forge_blocker"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+        <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_blocker_rule_qr" model="ir.rule">
+        <field name="name">Blocker: QR sees team blockers</field>
+        <field name="model_id" ref="model_task_forge_blocker"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_reviewer'))]"/>
+        <field name="domain_force">['|', ('qr_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_blocker_rule_pl" model="ir.rule">
+        <field name="name">Blocker: PL sees team blockers</field>
+        <field name="model_id" ref="model_task_forge_blocker"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="domain_force">['|', ('pl_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_blocker_rule_admin" model="ir.rule">
+        <field name="name">Blocker: Admin sees all</field>
+        <field name="model_id" ref="model_task_forge_blocker"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <!-- ===== Validated Bug Rules ===== -->
+    <record id="tf_vbug_rule_pl" model="ir.rule">
+        <field name="name">Validated Bug: PL sees own team</field>
+        <field name="model_id" ref="model_task_forge_validated_bug"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="domain_force">['|', ('pl_id.user_id', '=', user.id), ('validated_by_id.user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="tf_vbug_rule_admin" model="ir.rule">
+        <field name="name">Validated Bug: Admin sees all</field>
+        <field name="model_id" ref="model_task_forge_validated_bug"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <!-- ===== Flag Rules ===== -->
+    <record id="tf_flag_rule_pl" model="ir.rule">
+        <field name="name">Flag: PL sees team flags</field>
+        <field name="model_id" ref="model_task_forge_flag"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="domain_force">['|', ('related_employee_id.task_forge_pl_id.user_id', '=', user.id), ('related_employee_id', '=', False)]</field>
+    </record>
+
+    <record id="tf_flag_rule_admin" model="ir.rule">
+        <field name="name">Flag: Admin sees all</field>
+        <field name="model_id" ref="model_task_forge_flag"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+</odoo>

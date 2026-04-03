@@ -89,6 +89,17 @@ class CalendarEvent(models.Model):
                 if not event.google_event_id: event._create_google_meet()
         return res
 
+    def action_google_meet_url(self):
+        """Open the Google Meet URL in a new browser tab."""
+        self.ensure_one()
+        if not self.google_meet_url:
+            raise ValidationError(_("No Google Meet URL available for this event."))
+        return {
+            'type': 'ir.actions.act_url',
+            'url': self.google_meet_url,
+            'target': 'new',
+        }
+
     def unlink(self):
         for event in self:
             if event.google_event_id: event._delete_google_meet(event.google_event_id)

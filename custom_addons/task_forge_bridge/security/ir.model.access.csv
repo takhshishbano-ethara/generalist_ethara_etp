@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_tf_allocation_tasker,task.forge.allocation.tasker,model_task_forge_allocation,etp_user_roles.group_tasker,1,0,0,0
+access_tf_allocation_qr,task.forge.allocation.qr,model_task_forge_allocation,etp_user_roles.group_quality_reviewer,1,1,1,0
+access_tf_allocation_pl,task.forge.allocation.pl,model_task_forge_allocation,etp_user_roles.group_project_lead,1,1,1,1
+access_tf_allocation_admin,task.forge.allocation.admin,model_task_forge_allocation,etp_user_roles.group_cto,1,1,1,1
