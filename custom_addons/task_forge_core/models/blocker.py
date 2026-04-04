@@ -17,6 +17,7 @@ class TaskForgeBlocker(models.Model):
     qr_id = fields.Many2one('hr.employee', string='QR')
     pl_id = fields.Many2one('hr.employee', string='PL')
     blocker_reason = fields.Text(string='Blocker Reason')
+    blocker_type = fields.Char('Blocker Type')
     state = fields.Selection([
         ('pending', 'Pending'),
         ('no_issue', 'No Issue'),

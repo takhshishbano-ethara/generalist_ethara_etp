@@ -8,6 +8,33 @@ import json
 
 class TaskForgeBlockerController(http.Controller):
 
+    @http.route('/api/v2/taskforge/create_blocker_record', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "int", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
+    def create_blocker_record(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            Blocker = request.env['task.forge.blocker'].sudo()
+            role = employee._get_task_forge_role()
+
+            if not role == 'tasker':
+                return return_Response(message="Only Tasker Can Create the Blocker", status=404)
+
+            blocker = Blocker.create({
+                'name': jdata.get('name'),
+                'task_id': jdata.get('task_id'),
+                'blocker_reason': jdata.get('blocker_reason'),
+                'blocker_type': jdata.get('blocker_type'),
+            })
+            return return_Response(message="Blockers list", status=200, data={'data': self._format_blocker(blocker)})
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v2/taskforge/blockers', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_blockers(self, **kwargs):

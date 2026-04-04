@@ -79,6 +79,14 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Image And Video URL">
+                            <field name="image_url_lines">
+                                <list>
+                                    <field name="image_url"/>
+                                    <field name="image_type"/>
+                                </list>
+                            </field>
+                        </page>
                     </notebook>
                 </sheet>
                 <chatter/>

@@ -49,6 +49,7 @@ class TaskForgeLog(models.Model):
 
     employee_name = fields.Char(related='employee_id.name', store=True)
     project_name = fields.Char(related='project_id.name', store=True)
+    image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
 
     @api.depends('start_time', 'end_time')
     def _compute_time_taken(self):
@@ -132,6 +133,7 @@ class TaskForgeLog(models.Model):
         }
         if end_screenshot_url:
             vals['end_screenshot_url'] = end_screenshot_url
+            vals['image_url_lines'] = [(0, 0, {'image_url': end_screenshot_url, 'image_type': 'end'})]
 
         if blocker_reason:
             vals['state'] = 'blocker'
@@ -162,3 +164,11 @@ class TaskForgeLog(models.Model):
             vals['state'] = 'completed'
             self.write(vals)
             return self
+
+class TaskForgeImages(models.Model):
+    _name = 'task.forge.image'
+
+    image_url = fields.Char(string='Image URL')
+    image_type = fields.Selection([('start', 'Start'), ('end', 'End')])
+    task_id = fields.Many2one('task.forge.log', string='Task')
+

@@ -82,11 +82,7 @@ class TaskForgeTaskController(http.Controller):
 
     @http.route('/api/v2/taskforge/tasks/start', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({
-        'task_name': {'type': 'string', 'required': True},
-        'project_id': {'type': 'int', 'required': False},
-    })
-    def start_task(self, jdata=None, **kwargs):
+    def start_task(self, **kwargs):
         try:
             user = request.env.user
             employee = user.employee_id
@@ -101,14 +97,14 @@ class TaskForgeTaskController(http.Controller):
             TaskLog._check_no_active_task(employee.id)
 
             vals = {
-                'name': jdata['task_name'],
+                'name': kwargs.get('task_name'),
                 'employee_id': employee.id,
                 'date': date.today(),
                 'state': 'in_progress',
                 'start_time': datetime.now(),
             }
-            if jdata.get('project_id'):
-                vals['project_id'] = jdata['project_id']
+            if kwargs.get('project_id'):
+                vals['project_id'] = int(kwargs.get('project_id'))
 
             # Handle start screenshot
             screenshot_file = request.httprequest.files.get('start_screenshot')
@@ -116,9 +112,11 @@ class TaskForgeTaskController(http.Controller):
                 img_data = base64.b64encode(screenshot_file.read())
                 url = generate_s3_link(img_data, prefix='taskforge/screenshots', uid=employee.id)
                 vals['start_screenshot_url'] = url
-            elif jdata.get('start_screenshot'):
-                url = generate_s3_link(jdata['start_screenshot'], prefix='taskforge/screenshots', uid=employee.id)
-                vals['start_screenshot_url'] = url
+                vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
+            # elif k.get('start_screenshot'):
+            #     url = generate_s3_link(jdata['start_screenshot'], prefix='taskforge/screenshots', uid=employee.id)
+            #     vals['start_screenshot_url'] = url
+            #     vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
 
             task = TaskLog.create(vals)
             return return_Response(message="Task started", status=200, data={'data': self._format_task(task)})
@@ -127,11 +125,7 @@ class TaskForgeTaskController(http.Controller):
 
     @http.route('/api/v2/taskforge/tasks/end', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({
-        'task_id': {'type': 'int', 'required': True},
-        'blocker_reason': {'type': 'string', 'required': False},
-    })
-    def end_task(self, jdata=None, **kwargs):
+    def end_task(self, **kwargs):
         try:
             user = request.env.user
             employee = user.employee_id
@@ -139,7 +133,7 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             TaskLog = request.env['task.forge.log'].sudo()
-            task = TaskLog.browse(jdata['task_id'])
+            task = TaskLog.browse(int(kwargs.get('task_id')))
             if not task.exists():
                 return return_Response(message="Task not found", status=404)
             if task.employee_id.id != employee.id:
@@ -153,12 +147,12 @@ class TaskForgeTaskController(http.Controller):
             if screenshot_file:
                 img_data = base64.b64encode(screenshot_file.read())
                 end_screenshot_url = generate_s3_link(img_data, prefix='taskforge/screenshots', uid=employee.id)
-            elif jdata.get('end_screenshot'):
-                end_screenshot_url = generate_s3_link(jdata['end_screenshot'], prefix='taskforge/screenshots', uid=employee.id)
+            # elif jdata.get('end_screenshot'):
+            #     end_screenshot_url = generate_s3_link(jdata['end_screenshot'], prefix='taskforge/screenshots', uid=employee.id)
 
             result = task.action_end(
                 end_screenshot_url=end_screenshot_url,
-                blocker_reason=jdata.get('blocker_reason'),
+                blocker_reason=kwargs.get('blocker_reason'),
             )
 
             task.invalidate_recordset()
@@ -228,4 +222,5 @@ class TaskForgeTaskController(http.Controller):
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',
             'created_at': task.create_date.isoformat() if task.create_date else '',
+            'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
         }

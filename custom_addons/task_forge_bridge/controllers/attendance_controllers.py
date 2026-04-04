@@ -11,10 +11,7 @@ class TaskForgeAttendanceController(http.Controller):
 
     @http.route('/api/v2/taskforge/attendance/punch_in', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({
-        'location': {'type': 'string', 'required': False},
-        'geo_coordinates': {'type': 'string', 'required': False},
-    })
+    @validate_request({})
     def punch_in(self, jdata=None, **kwargs):
         try:
             user = request.env.user
