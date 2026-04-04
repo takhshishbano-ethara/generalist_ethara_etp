@@ -27,7 +27,7 @@
         <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
     </record>
 
-    
+
 
     <!-- Project Lead -->
     <record id="group_project_lead" model="res.groups">

@@ -47,13 +47,13 @@ class HrEmployee(models.Model):
         user = self.user_id
         if not user:
             return 'tasker'
-        if user.has_group('etp_user_roles.group_cto'):
+        if user.has_group('etp_user_roles.group_cto') or user.user_role.id == self.env.ref('api_auth_gateway.role_cto_technical').id:
             return 'admin'
-        if user.has_group('etp_user_roles.group_project_lead'):
+        if user.has_group('etp_user_roles.group_project_lead') or user.user_role.id in [self.env.ref('api_auth_gateway.role_pl_technical').id, self.env.ref('api_auth_gateway.role_pl_stem').id, self.env.ref('api_auth_gateway.role_pl_non_stem').id]:
             return 'pl'
-        if user.has_group('etp_user_roles.group_quality_reviewer'):
+        if user.has_group('etp_user_roles.group_quality_reviewer') or user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id]:
             return 'qr'
-        if user.has_group('etp_user_roles.group_quality_lead'):
+        if user.has_group('etp_user_roles.group_quality_lead') or user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id]:
             return 'ql'
         return 'tasker'
 

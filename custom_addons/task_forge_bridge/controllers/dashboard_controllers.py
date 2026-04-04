@@ -122,3 +122,108 @@ class DashboardController(http.Controller):
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_pl_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def v2_get_pl_dashboard_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            domain = [('project_lead', '=', user_id.employee_id.id)]
+            if kwargs.get('project_type'):
+                domain.append(('y_project_type', '=', kwargs.get('project_type')))
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('date_start', '=', kwargs['start_date']))
+                else:
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
+
+            current_projects = request.env['project.project'].sudo().search(domain)
+            total_task = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids)])
+            escalated_blockers = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['pending', 'ack'])])
+
+            total_members = []
+            for project in current_projects:
+                total_members.extend(project.project_tasker.ids)
+                total_members.extend(project.project_qc_reviewer.ids)
+
+            pending_leave_count = request.env['hr.leave'].sudo().search_count([
+                ('employee_id', 'in', total_members),
+                ('state', '=', 'confirm'),
+                ('date_from', '<=', datetime.datetime.now().date()),
+                ('date_to', '>=', datetime.datetime.now().date())
+            ])
+            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['escalated'])])
+
+            data = request.env['task.forge.log'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids), ('state', 'in', ['completed']), ('end_time', '!=', False)],
+                fields=['end_time', 'name'],
+                groupby=['end_time:day']
+            )
+            labels = []
+            values = []
+
+            for line in data:
+                labels.append(line['end_time:day'])
+                values.append(line['end_time_count'])
+            vals = {
+                'total_task':{
+                  'total_task_count': total_task,
+                    'active_projects': len(current_projects),
+                },
+                'active_project':{
+                  'active_project_count': len(current_projects),
+                },
+                'escalated_task':{
+                  'escalated_task_count': escalated_task_count,
+                },
+                'pending_leave_count':{
+                    'pending_leave_count':  pending_leave_count
+                },
+                'task_completion_graph': {
+                    'days': labels,
+                    'total_completed': values,
+                }
+            }
+            return return_Response(message="Success", status=200, data={"records": vals})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_pl_dashboard_active_tasker_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_pl_dashboard_active_tasker_list(self, **kwargs):
+        temp = []
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            domain = [('project_lead', '=', user_id.employee_id.id)]
+            if kwargs.get('project_type'):
+                domain.append(('y_project_type', '=', kwargs.get('project_type')))
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('date_start', '=', kwargs['start_date']))
+                else:
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
+
+            current_projects = request.env['project.project'].sudo().search(domain)
+            for project in current_projects:
+                for emp in project.project_tasker:
+                    temp.append({
+                        'name':emp.name if emp.name else "",
+                        'project_name':project.name if project.name else "",
+                        'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
+                        'status': 'Active',
+                    })
+            return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])

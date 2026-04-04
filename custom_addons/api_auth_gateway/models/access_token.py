@@ -109,62 +109,12 @@ class Users(models.Model):
     token_ids = fields.One2many('api.access_token', 'user_id', string="Access Tokens")
     user_role = fields.Many2one('api.role', string='User Role')
 
-    ROLE_GROUP_MAP = {
-        'CTO': 'etp_user_roles.group_cto',
-        'PL': 'etp_user_roles.group_project_lead',
-        'PL-Stem': 'etp_user_roles.group_project_lead',
-        'PL-Non-Stem': 'etp_user_roles.group_project_lead',
-        'QC': 'etp_user_roles.group_quality_reviewer',
-        'QC-Stem': 'etp_user_roles.group_quality_reviewer',
-        'QC-Non-Stem': 'etp_user_roles.group_quality_reviewer',
-        'SWE': 'etp_user_roles.group_tasker',
-        'AIRE': 'etp_user_roles.group_tasker',
-        'Tasker': 'etp_user_roles.group_tasker',
-        'Tasker-Stem': 'etp_user_roles.group_tasker',
-        'Tasker-Non-Stem': 'etp_user_roles.group_tasker',
-    }
-
-    def _sync_role_groups(self):
-        managed_groups = self.env['res.groups']
-        for xmlid in set(self.ROLE_GROUP_MAP.values()):
-            grp = self.env.ref(xmlid, raise_if_not_found=False)
-            if grp:
-                managed_groups |= grp
-        managed_ids = set(managed_groups.ids)
-
-        for user in self:
-            new_group = None
-            if user.user_role and user.user_role.user_type:
-                xmlid = self.ROLE_GROUP_MAP.get(user.user_role.user_type)
-                if xmlid:
-                    new_group = self.env.ref(xmlid, raise_if_not_found=False)
-
-            commands = []
-            current_managed = managed_ids & set(user.groups_id.ids)
-            for gid in current_managed:
-                commands.append((3, gid))
-            if new_group:
-                commands.append((4, new_group.id))
-
-            if commands:
-                super(Users, user).write({'groups_id': commands})
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        users = super().create(vals_list)
-        users_with_role = users.filtered(lambda u: u.user_role)
-        if users_with_role:
-            users_with_role.sudo()._sync_role_groups()
-        return users
-
     def write(self, vals):
         res = super(Users, self).write(vals)
         if 'password' in vals or "active" in vals:
             if vals.get('password') or not vals.get('active'):
                 for tnk in self.token_ids:
                     tnk.sudo().unlink()
-        if 'user_role' in vals:
-            self.sudo()._sync_role_groups()
         return res
 
 

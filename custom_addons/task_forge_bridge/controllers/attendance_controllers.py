@@ -170,22 +170,34 @@ class TaskForgeAttendanceController(http.Controller):
             'tasks_done': rec.tasks_done,
         }
 
-
     @http.route('/api/v2/taskforge/all_employee_attendance/today', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def all_employee_attendance_today(self, **kwargs):
         temp = []
         try:
             user = request.env.user
-            current_projects = request.env['project.project'].sudo().search([])
-            if kwargs.get('project_id'):
-                current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
-            pl_employees = current_projects.mapped('project_lead')
-            qc_employees = current_projects.mapped('project_qc_reviewer')
-            tasker_employees = current_projects.mapped('project_tasker')
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            if user.user_role.id  == request.env.ref('api_auth_gateway.role_pl_non_stem').id:
+                current_projects = request.env['project.project'].sudo().search([('project_lead', '=', user.employee_id.id)])
+                if kwargs.get('project_id'):
+                    current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
+                                                                                    limit=1)
+                qc_employees = current_projects.mapped('project_qc_reviewer')
+                tasker_employees = current_projects.mapped('project_tasker')
+                all_target_employees = qc_employees | tasker_employees
+
+            else:
+                current_projects = request.env['project.project'].sudo().search([])
+                if kwargs.get('project_id'):
+                    current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
+                pl_employees = current_projects.mapped('project_lead')
+                qc_employees = current_projects.mapped('project_qc_reviewer')
+                tasker_employees = current_projects.mapped('project_tasker')
+                all_target_employees = pl_employees | qc_employees | tasker_employees
 
             # Create a combined unique list for the search domain
-            all_target_employees = pl_employees | qc_employees | tasker_employees
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
             attendance = Attendance.search([
