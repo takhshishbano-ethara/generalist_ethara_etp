@@ -208,8 +208,26 @@ class TaskForgeAttendanceController(http.Controller):
 
             if not attendance:
                 return return_Response(message="No attendance record for today", status=200, data={'data': None})
+            present_employee_ids = attendance.mapped('employee_id')
+            absent_employees = all_target_employees - present_employee_ids
             for atte in attendance:
                 temp.append(self._format_attendance(atte))
+            if kwargs.get('status') in ['non_punched_in', 'all']:
+                for ae in absent_employees:
+                    temp.append({
+                        'id': 0,
+                        'employee_id': ae.id if ae else 0,
+                        'employee_name': ae.name if ae.name else "",
+                        'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
+                        'date': '',
+                        'status': 'Absent',
+                        'punch_in_time': "",
+                        'punch_out_time': "",
+                        'hours_worked': 0,
+                        'location': '',
+                        'geo_coordinates': '',
+                        'tasks_done': 0,
+                    })
             return return_Response(
                 message="Today's attendance",
                 status=200,

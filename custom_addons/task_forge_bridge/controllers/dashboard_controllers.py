@@ -145,7 +145,6 @@ class DashboardController(http.Controller):
 
             current_projects = request.env['project.project'].sudo().search(domain)
             total_task = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids)])
-            escalated_blockers = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['pending', 'ack'])])
 
             total_members = []
             for project in current_projects:
@@ -224,6 +223,160 @@ class DashboardController(http.Controller):
                         'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
                         'status': 'Active' if request.env['task.forge.log'].sudo().search_count([('state', 'in', ['in_progress'])]) else "Idle"
                     })
+            return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_qc_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_qc_dashboard_list(self, **kwargs):
+        try:
+            from datetime import datetime, date, time
+            # 1. Use the authenticated user from the token (provided by @validate_token)
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            # 2. Build Project Domain
+            project_domain = [('project_qc_reviewer', '=', employee.id)]
+            if kwargs.get('project_type'):
+                project_domain.append(('y_project_type', '=', kwargs.get('project_type')))
+
+            # Date handling for projects
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                project_domain.extend([
+                    ('date_start', '>=', kwargs['start_date']),
+                    ('date_start', '<=', kwargs['end_date'])
+                ])
+
+            current_projects = request.env['project.project'].sudo().search(project_domain)
+
+            # 3. Tasker Stats (Working vs Idle)
+            # Find all taskers assigned to this QC Reviewer
+            total_tasker = request.env['hr.employee'].sudo().search([('task_forge_qr_id', '=', employee.id)])
+
+            # Find logs for these taskers that are currently 'in_progress'
+            working_logs = request.env['task.forge.log'].sudo().search([
+                ('employee_id', 'in', total_tasker.ids),
+                ('state', '=', 'in_progress')
+            ])
+
+            # Get unique employees who are actually working
+            working_tasker_ids = working_logs.mapped('employee_id')
+            idle_tasker = total_tasker - working_tasker_ids
+
+            # 4. Daily Task Counts
+            today_start = datetime.combine(date.today(), time.min)
+            today_end = datetime.combine(date.today(), time.max)
+
+            task_done_today = request.env['task.forge.log'].sudo().search_count([
+                ('project_id', 'in', current_projects.ids),
+                ('end_time', '>=', today_start),
+                ('end_time', '<=', today_end),
+                ('state', '=', 'completed')
+            ])
+
+            # 5. Pending Items
+            pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
+                ('project_id', 'in', current_projects.ids),
+                ('state', '=', 'pending')
+            ])
+
+            pending_leave_count = request.env['hr.leave'].sudo().search_count([
+                ('employee_id', 'in', total_tasker.ids),
+                ('state', '=', 'confirm'),
+                ('date_from', '<=', date.today()),
+                ('date_to', '>=', date.today())
+            ])
+
+            # 6. Throughput Graph Data
+            graph_data = request.env['task.forge.log'].sudo().read_group(
+                domain=[('project_id', 'in', current_projects.ids), ('state', '=', 'completed')],
+                fields=['end_time', 'name'],
+                groupby=['end_time:day']
+            )
+
+            labels = [line['end_time:day'] for line in graph_data]
+            values = [line['end_time_count'] for line in graph_data]
+
+            vals = {
+                'my_tasker': {
+                    'total_count': len(total_tasker),
+                    'working_count': len(working_tasker_ids),
+                    'idle_count': len(idle_tasker),
+                },
+                'task_today': {
+                    'task_done_today': task_done_today,
+                },
+                'pending_blocker': {
+                    'count': pending_blocker_count,
+                },
+                'pending_leave': {
+                    'count': pending_leave_count
+                },
+                'review_throughput_graph': {
+                    'days': labels,
+                    'total_completed': values,
+                }
+            }
+            return return_Response(message="Success", status=200, data=vals)
+
+        except Exception as e:
+            return return_Response(message="Dashboard Load Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_qc_dashboard_tasker_performance_breakdown', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_qc_dashboard_tasker_performance_breakdown(self, **kwargs):
+        temp = []
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            domain = [('project_qc_reviewer', '=', user_id.employee_id.id)]
+            if kwargs.get('project_type'):
+                domain.append(('y_project_type', '=', kwargs.get('project_type')))
+
+            if kwargs.get('start_date') and kwargs.get('end_date'):
+                if kwargs['start_date'] == kwargs['end_date']:
+                    domain.append(('date_start', '=', kwargs['start_date']))
+                else:
+                    domain.append(('date_start', '>=', kwargs['start_date']))
+                    domain.append(('date', '<=', kwargs['end_date']))
+            current_projects = request.env['project.project'].sudo().search(domain)
+            total_tasker = request.env['hr.employee'].sudo().search([('task_forge_qr_id', '=', user_id.employee_id.id)])
+            attendance = request.env['hr.attendance'].sudo().search([('check_in', '>=', f"{datetime.datetime.now().date()} 00:00:00"), ('check_in', '<', f"{datetime.datetime.now().date()} 23:59:00")])
+            present_employees = attendance.mapped('employee_id')
+            for tasker in total_tasker:
+                total_task = request.env['task.forge.log'].sudo().search([('project_id', 'in', current_projects.ids)])
+                total_count = len(total_task)
+                done_task = total_task.filtered(lambda t: t.state == 'completed')
+                done_count = len(done_task)
+                today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+                today_end = datetime.datetime.combine(datetime.date.today(), datetime.time.max)
+                today_task = total_task.filtered(lambda t: t.end_time and today_start <= t.end_time <= today_end)
+                avg_hours_time = 0.0
+                if total_count > 0:
+                    avg_hours_time = sum(total_task.mapped('time_taken_mins')) / total_count
+                completion_percent = 0.0
+                if total_count > 0:
+                    completion_percent = (done_count / total_count) * 100
+                else:
+                    completion_percent = 0.0
+
+                temp.append({
+                    'id': tasker.id if tasker else 0,
+                    'name': tasker.name if tasker.name else "",
+                    'status': "Present" if tasker in present_employees else "Absent",
+                    'total_task': total_count,
+                    'done_task': done_count,
+                    'today_task': len(today_task),
+                    'quality': completion_percent,
+                    'completion': completion_percent,
+                    'aht': avg_hours_time,
+                })
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])

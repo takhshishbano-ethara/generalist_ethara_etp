@@ -41,24 +41,22 @@ class TaskForgeBlockerController(http.Controller):
 
     @http.route('/api/v2/taskforge/blockers/qr_action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({
-        'blocker_id': {'type': 'int', 'required': True},
-        'action': {'type': 'string', 'required': True},
-        'notes': {'type': 'string', 'required': False},
-    })
-    def qr_action(self, jdata=None, **kwargs):
+    def qr_action(self, **kwargs):
         try:
             user = request.env.user
-            if not user.has_group('etp_user_roles.group_quality_reviewer'):
+            if not user.has_group('etp_user_roles.group_quality_reviewer') and not user.user_role.id in [
+                request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+
                 return return_Response(message="QR role required", status=403)
 
             Blocker = request.env['task.forge.blocker'].sudo()
-            blocker = Blocker.browse(jdata['blocker_id'])
+            blocker = Blocker.browse(int(kwargs.get('blocker_id')))
             if not blocker.exists():
                 return return_Response(message="Blocker not found", status=404)
 
-            action = jdata['action']
-            notes = jdata.get('notes')
+            action = kwargs.get('action')
+            notes = kwargs.get('notes')
 
             if action == 'no_issue':
                 blocker.action_qr_no_issue(notes=notes)
