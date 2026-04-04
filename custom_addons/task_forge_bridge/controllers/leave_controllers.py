@@ -5,6 +5,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 from datetime import datetime
 import json
+from odoo import fields
 
 
 class TaskForgeLeaveController(http.Controller):
@@ -220,6 +221,7 @@ class TaskForgeLeaveController(http.Controller):
             'id': leave.id,
             'employee_id': leave.employee_id.id,
             'employee_name': leave.employee_id.name,
+            'role': leave.employee_id.user_id.user_role.name,
             'from_date': str(leave.date_from) if leave.date_from else '',
             'to_date': str(leave.date_to) if leave.date_to else '',
             'reason': leave.name or '',
@@ -228,3 +230,35 @@ class TaskForgeLeaveController(http.Controller):
             'approved_by_name': leave.first_approver_id.name if leave.first_approver_id else '',
             'created_at': leave.create_date.isoformat() if leave.create_date else '',
         }
+
+    @http.route('/api/v2/taskforge/today_leaves_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def today_leaves_list(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            team_ids = employee._get_team_employee_ids()
+            Leave = request.env['hr.leave'].sudo()
+            current_projects = request.env['project.project'].sudo().search([])
+            if kwargs.get('project_id'):
+                current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
+                                                                                limit=1)
+            employee_list = current_projects.mapped('employee_id')
+            domain = [
+                ('employee_id', 'in', employee_list),
+                ('state', '=', 'validate'),
+                ('date_from', '<=',
+                 fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
+                ('date_to', '>=', fields.Datetime.to_string(fields.Datetime.now().replace(hour=0, minute=0, second=0)))
+            ]
+
+            leaves = Leave.search(domain, order='create_date desc', limit=200)
+            data = [self._format_leave(l) for l in leaves]
+
+            return return_Response(message="Leaves list", status=200, data={'data': data})
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+

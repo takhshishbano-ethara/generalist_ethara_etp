@@ -159,6 +159,7 @@ class TaskForgeAttendanceController(http.Controller):
             'id': rec.id,
             'employee_id': rec.employee_id.id,
             'employee_name': rec.employee_id.name,
+            'role': rec.employee_id.user_id.user_role.name,
             'date': str(rec.check_in.date()) if rec.check_in else '',
             'status': 'Present',
             'punch_in_time': rec.check_in.isoformat() if rec.check_in else None,
@@ -168,3 +169,40 @@ class TaskForgeAttendanceController(http.Controller):
             'geo_coordinates': rec.geo_coordinates or '',
             'tasks_done': rec.tasks_done,
         }
+
+
+    @http.route('/api/v2/taskforge/all_employee_attendance/today', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def all_employee_attendance_today(self, **kwargs):
+        temp = []
+        try:
+            user = request.env.user
+            current_projects = request.env['project.project'].sudo().search([])
+            if kwargs.get('project_id'):
+                current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
+            pl_employees = current_projects.mapped('project_lead')
+            qc_employees = current_projects.mapped('project_qc_reviewer')
+            tasker_employees = current_projects.mapped('project_tasker')
+
+            # Create a combined unique list for the search domain
+            all_target_employees = pl_employees | qc_employees | tasker_employees
+            today = date.today()
+            Attendance = request.env['hr.attendance'].sudo()
+            attendance = Attendance.search([
+                ('employee_id', 'in', all_target_employees),
+                ('check_in', '>=', datetime.combine(today, datetime.min.time())),
+                ('check_in', '<', datetime.combine(today, datetime.max.time())),
+            ], limit=1)
+
+            if not attendance:
+                return return_Response(message="No attendance record for today", status=200, data={'data': None})
+            for atte in attendance:
+                temp.append(self._format_attendance(atte))
+            return return_Response(
+                message="Today's attendance",
+                status=200,
+                data={'record': temp,'count': len(temp)},
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+

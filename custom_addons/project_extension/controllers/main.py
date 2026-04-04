@@ -154,6 +154,7 @@ class ProjectController(http.Controller):
                 'description': kwargs.get("description"),
                 "whatsapp_group_name": kwargs.get('whatsapp_group_name'),
                 'slack_channel_name': kwargs.get('slack_channel_name'),
+                'y_project_type': kwargs.get('y_project_type'),
                 "slack_members": [(6, 0, parse_ids("slack_members"))],
             }
 
@@ -199,8 +200,78 @@ class ProjectController(http.Controller):
 
             if attachment_ids:
                 vals['project_attachments'] = [(6, 0, attachment_ids)]
+            # '''''''''''''''''''''''''''''''''''''''
+            if kwargs.get('project_qc_reviewer'):
+                vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
+            if kwargs.get('project_tasker'):
+                vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
 
+            # Schedule Meeting
+            if kwargs.get('meeting_date'):
+                vals['meeting_date'] = kwargs.get('meeting_date')
+            if kwargs.get('meeting_link'):
+                vals['meeting_link'] = kwargs.get('meeting_link')
+            if kwargs.get('meeting_agenda'):
+                vals['meeting_agenda'] = kwargs.get('meeting_agenda')
+            if kwargs.get('meeting_to_mails'):
+                vals['meeting_to_mails'] = kwargs.get('meeting_to_mails')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            if kwargs.get('meeting_bcc_mails'):
+                vals['meeting_bcc_mails'] = kwargs.get('meeting_bcc_mails')
+            if kwargs.get('meeting_subject'):
+                vals['meeting_subject'] = kwargs.get('meeting_subject')
+            if kwargs.get('meeting_body'):
+                vals['meeting_body'] = kwargs.get('meeting_body')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            meeting_attachments = request.httprequest.files.getlist('meeting_attachments')
+            if meeting_attachments:
+                attachment_ids = []
+                for file in meeting_attachments:
+                    file_content = file.read()
+                    if not file_content: continue
+
+                    attachment = request.env['ir.attachment'].sudo().create({
+                        'name': file.filename,
+                        'datas': base64.b64encode(file_content),
+                        'res_model': 'project.project',
+                        'type': 'binary',
+                        'mimetype': file.content_type
+                    })
+                    attachment_ids.append(attachment.id)
+                if attachment_ids:
+                    vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             project = request.env['project.project'].sudo().create(vals)
+            try:
+                if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
+                    email_body = kwargs.get('meeting_body', '')
+                    meeting_info_html = f"""
+                                    <div style="margin-top: 30px; padding: 15px; border: 1px solid #e1e1e1; background-color: #f9f9f9; border-radius: 5px; font-family: sans-serif;">
+                                        <h4 style="margin-top: 0; color: #714B67;">📅 Meeting Information</h4>
+                                        <p><b>Date/Time:</b> {kwargs.get('meeting_date', 'TBD')}</p>
+                                        <p><b>Agenda:</b> {kwargs.get('meeting_agenda', 'N/A')}</p>
+                                        <p><b>Meeting Link:</b> <a href="{kwargs.get('meeting_link', '#')}" style="color: #008784; text-decoration: none;">{kwargs.get('meeting_link')}</a></p>
+                                    </div>
+                                """
+                    full_body = f"{email_body}{meeting_info_html}"
+
+                    mail_values = {
+                        'subject': kwargs.get('meeting_subject', f"Meeting Invitation: {project.name}"),
+                        'body_html': full_body,
+                        'email_to': kwargs.get('meeting_to_mails'),
+                        'email_cc': kwargs.get('meeting_cc_mails'),
+                        'email_add_signature': False,
+                        'email_bcc': kwargs.get('meeting_bcc_mails'),
+                        'attachment_ids': [(6, 0, project.meeting_attachments.ids)] if project.meeting_attachments else [],
+                        'auto_delete': False,
+                    }
+
+                    mail = request.env['mail.mail'].sudo().create(mail_values)
+                    mail.send()
+            except Exception as e:
+                print(f"Error While Sending Mail: {e}")
+
             return return_Response(
                 message="Project Created Successfully",
                 status=200,
@@ -254,6 +325,7 @@ class ProjectController(http.Controller):
                 "date_end": "date",  # Odoo field is 'date'
                 "description": "description",
                 "whatsapp_group_name": "whatsapp_group_name",
+                "y_project_type": "y_project_type",
                 "slack_channel_name": "slack_channel_name",
             }
 
@@ -308,8 +380,79 @@ class ProjectController(http.Controller):
                     attachment_ids.append(attachment.id)
                 if attachment_ids:
                     vals['project_attachments'] = [(4, aid) for aid in attachment_ids]
+
+                # '''''''''''''''''''''''''''''''''''''''
+                if kwargs.get('project_qc_reviewer'):
+                    vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
+                if kwargs.get('project_tasker'):
+                    vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
+
+                # Schedule Meeting
+                if kwargs.get('meeting_date'):
+                    vals['meeting_date'] = kwargs.get('meeting_date')
+                if kwargs.get('meeting_link'):
+                    vals['meeting_link'] = kwargs.get('meeting_link')
+                if kwargs.get('meeting_agenda'):
+                    vals['meeting_agenda'] = kwargs.get('meeting_agenda')
+                if kwargs.get('meeting_to_mails'):
+                    vals['meeting_to_mails'] = kwargs.get('meeting_to_mails')
+                if kwargs.get('meeting_cc_mails'):
+                    vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+                if kwargs.get('meeting_bcc_mails'):
+                    vals['meeting_bcc_mails'] = kwargs.get('meeting_bcc_mails')
+                if kwargs.get('meeting_subject'):
+                    vals['meeting_subject'] = kwargs.get('meeting_subject')
+                if kwargs.get('meeting_body'):
+                    vals['meeting_body'] = kwargs.get('meeting_body')
+                if kwargs.get('meeting_cc_mails'):
+                    vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+                meeting_attachments = request.httprequest.files.getlist('meeting_attachments')
+                if meeting_attachments:
+                    attachment_ids = []
+                    for file in meeting_attachments:
+                        file_content = file.read()
+                        if not file_content: continue
+
+                        attachment = request.env['ir.attachment'].sudo().create({
+                            'name': file.filename,
+                            'datas': base64.b64encode(file_content),
+                            'res_model': 'project.project',
+                            'type': 'binary',
+                            'mimetype': file.content_type
+                        })
+                        attachment_ids.append(attachment.id)
+                    if attachment_ids:
+                        vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             if vals:
                 project.sudo().write(vals)
+                try:
+                    if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
+                        email_body = kwargs.get('meeting_body', '')
+                        meeting_info_html = f"""
+                                            <div style="margin-top: 30px; padding: 15px; border: 1px solid #e1e1e1; background-color: #f9f9f9; border-radius: 5px; font-family: sans-serif;">
+                                                <h4 style="margin-top: 0; color: #714B67;">📅 Meeting Information</h4>
+                                                <p><b>Date/Time:</b> {kwargs.get('meeting_date', 'TBD')}</p>
+                                                <p><b>Agenda:</b> {kwargs.get('meeting_agenda', 'N/A')}</p>
+                                                <p><b>Meeting Link:</b> <a href="{kwargs.get('meeting_link', '#')}" style="color: #008784; text-decoration: none;">{kwargs.get('meeting_link')}</a></p>
+                                            </div>
+                                        """
+                        full_body = f"{email_body}{meeting_info_html}"
+
+                        mail_values = {
+                            'subject': kwargs.get('meeting_subject', f"Meeting Invitation: {project.name}"),
+                            'body_html': full_body,
+                            'email_to': kwargs.get('meeting_to_mails'),
+                            'email_cc': kwargs.get('meeting_cc_mails'),
+                            'email_add_signature': False,
+                            'email_bcc': kwargs.get('meeting_bcc_mails'),
+                            'attachment_ids': [(6, 0, project.meeting_attachments.ids)] if project.meeting_attachments else [],
+                            'auto_delete': False,
+                        }
+
+                        mail = request.env['mail.mail'].sudo().create(mail_values)
+                        mail.send()
+                except Exception as e:
+                    print(f"Error While Sending Mail: {e}")
 
             return return_Response(
                 message="Project Updated Successfully",
@@ -340,6 +483,10 @@ class ProjectController(http.Controller):
             p_type = kwargs.get('type')
             if p_type:
                 domain += [('project_type', '=', p_type)]
+
+            y_p_type = kwargs.get('project_type')
+            if y_p_type:
+                domain += [('y_project_type', '=', y_p_type)]
 
             # 6. Pagination Logic
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
@@ -443,6 +590,7 @@ class ProjectController(http.Controller):
                 "kick_off_body": safe_get_value(project, 'kick_off_body', 'str'),
                 "ai_generated_description": safe_get_value(project, 'ai_generated_description', 'str'),
                 "internal_client_name": safe_get_value(project, 'internal_client_name', 'str'),
+                "y_project_type": safe_get_value(project, 'y_project_type', 'str'),
                 "date_start": safe_get_value(project, 'date_start', 'str'),
                 "date_end": safe_get_value(project, 'date', 'str'),
                 "description": safe_get_value(project, 'description', 'str'),
@@ -454,6 +602,8 @@ class ProjectController(http.Controller):
                 "project_lead": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_lead],
                 "project_aire": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_aire],
                 "project_swe": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_swe],
+                "project_qc_reviewer": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_qc_reviewer],
+                "project_tasker": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_tasker],
                 "slack_members": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.slack_members],
                 "google_drive_id": project.google_drive_id.get_drive_data() if project.google_drive_id else {}
             }

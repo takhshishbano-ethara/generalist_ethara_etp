@@ -34,6 +34,12 @@ class TaskForgeBlocker(models.Model):
 
     employee_name = fields.Char(related='employee_id.name', store=True)
     task_name = fields.Char(related='task_id.name', store=True)
+    priority = fields.Selection([
+        ('0', 'Low'),
+        ('1', 'Medium'),
+        ('2', 'High'),
+        ('3', 'Critical')
+    ], default='1', string="Priority", tracking=True)
 
     def action_qr_no_issue(self, notes=None):
         """QR marks blocker as No Issue - returns task to tasker."""

@@ -35,6 +35,7 @@ class Project(models.Model):
     is_pl_stage_completed = fields.Boolean(string='Is PL Stage Completed')
     is_aire_stage_completed = fields.Boolean(string='Is AIRE Stage Completed')
     is_swe_stage_completed = fields.Boolean(string='Is SWE Stage Completed')
+    y_project_type = fields.Selection([('non-stem', 'Non Stem'), ('stem', 'Stem'), ('technical', 'Technical')], default='non-stem')
     # PL Portal
     project_guide_lines = fields.Many2many('google.drive.file','project_project_google_drive_file_guide_lines_rel', string='Project Guide Lines')
     skill_tags = fields.Many2many('project.skills', 'project_project_project_skills_rel', string='Project Skill Tags')
