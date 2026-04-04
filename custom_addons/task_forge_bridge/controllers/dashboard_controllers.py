@@ -222,7 +222,7 @@ class DashboardController(http.Controller):
                         'name':emp.name if emp.name else "",
                         'project_name':project.name if project.name else "",
                         'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
-                        'status': 'Active',
+                        'status': 'Active' if request.env['task.forge.log'].sudo().search_count([('state', 'in', ['in_progress'])]) else "Idle"
                     })
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:

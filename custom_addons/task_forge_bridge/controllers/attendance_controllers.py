@@ -156,18 +156,18 @@ class TaskForgeAttendanceController(http.Controller):
 
     def _format_attendance(self, rec):
         return {
-            'id': rec.id,
-            'employee_id': rec.employee_id.id,
-            'employee_name': rec.employee_id.name,
-            'role': rec.employee_id.user_id.user_role.name,
+            'id': rec.id if rec.id else 0,
+            'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
+            'employee_name': rec.employee_id.name if rec.employee_id.name else "",
+            'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
             'date': str(rec.check_in.date()) if rec.check_in else '',
             'status': 'Present',
-            'punch_in_time': rec.check_in.isoformat() if rec.check_in else None,
-            'punch_out_time': rec.check_out.isoformat() if rec.check_out else None,
+            'punch_in_time': rec.check_in.isoformat() if rec.check_in else "",
+            'punch_out_time': rec.check_out.isoformat() if rec.check_out else "",
             'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours else 0,
             'location': rec.geo_location or '',
             'geo_coordinates': rec.geo_coordinates or '',
-            'tasks_done': rec.tasks_done,
+            'tasks_done': rec.tasks_done or 0,
         }
 
     @http.route('/api/v2/taskforge/all_employee_attendance/today', methods=['GET'], type='http', auth='none', csrf=False, cors='*')

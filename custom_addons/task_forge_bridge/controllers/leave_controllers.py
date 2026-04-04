@@ -218,10 +218,10 @@ class TaskForgeLeaveController(http.Controller):
             'refuse': 'Rejected',
         }
         return {
-            'id': leave.id,
-            'employee_id': leave.employee_id.id,
-            'employee_name': leave.employee_id.name,
-            'role': leave.employee_id.user_id.user_role.name,
+            'id': leave.id if leave.id else 0,
+            'employee_id': leave.employee_id.id if leave.employee_id.id else 0,
+            'employee_name': leave.employee_id.name if leave.employee_id.name else "",
+            'role': leave.employee_id.user_id.user_role.name if leave.employee_id.user_id.user_role.name else "",
             'from_date': str(leave.date_from) if leave.date_from else '',
             'to_date': str(leave.date_to) if leave.date_to else '',
             'reason': leave.name or '',
