@@ -106,6 +106,7 @@ class ApiAuthController(http.Controller):
                     'refresh_token': refresh or "",
                     'address': address,
                     'user_role': safe_get_value(request.env.user, 'user_role.name', 'str'),
+                    'user_type': safe_get_value(request.env.user, 'user_role.user_type', 'str'),
                     'profile_pic': "",
                     'permissions':role_data
                 }

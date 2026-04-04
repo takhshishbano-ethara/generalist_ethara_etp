@@ -13,6 +13,19 @@ class ApiRole(models.Model):
 
     name = fields.Char(required=True)
     line_ids = fields.Many2many('api.role.line', string="Permissions")
+    project_type = fields.Selection([('non-stem', 'Non Stem'), ('stem', 'Stem'), ('technical', 'Technical')], default='technical')
+    user_type = fields.Char(string='User Type')
+
+    @api.onchange('user_type', 'name')
+    def onchange_user_type(self):
+        user_type = ''
+        if self.name and self.user_type:
+            user_type = f"{self.user_type}-({self.name})"
+        elif self.name:
+            user_type = self.name
+        elif self.user_type:
+            user_type = self.user_type
+        self.user_type = user_type
 
 
 class ApiRoleLine(models.Model):
