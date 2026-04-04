@@ -8,6 +8,7 @@
         'views/project_view.xml',
         'views/designation_views.xml',
         'views/project_blocker.xml',
+        'views/task_template_view.xml',
         'data/ir_sequence_data.xml',
         'data/designation_data.xml',
         'data/project_data.xml',
