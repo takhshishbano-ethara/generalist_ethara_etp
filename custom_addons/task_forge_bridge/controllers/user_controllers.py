@@ -158,6 +158,8 @@ class TaskForgeUserController(http.Controller):
             created = []
             errors = []
 
+            ApiRole = request.env['api.role'].sudo()
+
             for idx, row in enumerate(rows, start=2):
                 try:
                     name = row.get('name', '').strip()
@@ -174,11 +176,20 @@ class TaskForgeUserController(http.Controller):
                         errors.append(f"Row {idx}: {email} already exists")
                         continue
 
+                    api_role = False
+                    role_value = (row.get('user_type') or row.get('role') or '').strip()
+                    if role_value:
+                        api_role = ApiRole.search([('user_type', '=', role_value)], limit=1)
+                        if not api_role:
+                            errors.append(f"Row {idx}: unknown role '{role_value}'")
+                            continue
+
                     new_user = ResUsers.create({
                         'name': name,
                         'login': email,
                         'email': email,
                         'password': row.get('password', 'Ethara@123'),
+                        'user_role': api_role.id if api_role else False,
                     })
                     emp = new_user.employee_id
                     if not emp:
