@@ -1,5 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-,tasker task access,project.model_project_task,etp_user_roles.group_tasker,1,1,1,0
 access_quality_lead_task,quality lead task access,project.model_project_task,etp_user_roles.group_quality_lead,1,1,1,0
 access_quality_reviewer_task,quality reviewer task access,project.model_project_task,etp_user_roles.group_quality_reviewer,1,1,0,0
 access_delivery_manager_task,delivery manager task access,project.model_project_task,etp_user_roles.group_delivery_manager,1,1,1,0
