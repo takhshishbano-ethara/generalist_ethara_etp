@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── Tree View ────────────────────────────────────────────────────── -->
+    <record id="kaiju_app_view_list" model="ir.ui.view">
+        <field name="name">kaiju.app.list</field>
+        <field name="model">kaiju.app</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="repo_url"/>
+                <field name="default_branch"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Form View ────────────────────────────────────────────────────── -->
+    <record id="kaiju_app_view_form" model="ir.ui.view">
+        <field name="name">kaiju.app.form</field>
+        <field name="model">kaiju.app</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="repo_url"/>
+                            <field name="default_branch"/>
+                        </group>
+                        <group>
+                            <field name="default_dockerfile"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+</odoo>

@@ -20,7 +20,7 @@ Features:
     """,
     "author": "GRT Labs",
     "license": "LGPL-3",
-    "depends": ["base", "mail"],
+    "depends": ["base", "mail", "kaiju_build"],
     "data": [
         "security/commit0_security.xml",
         "security/ir.model.access.csv",
