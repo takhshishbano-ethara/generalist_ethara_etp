@@ -30,7 +30,8 @@ class TaskForgeBlockerController(http.Controller):
                 'task_id': jdata.get('task_id'),
                 'blocker_reason': jdata.get('blocker_reason'),
                 'blocker_type': jdata.get('blocker_type'),
-                'priority': jdata.get('priority')
+                'priority': jdata.get('priority'),
+                'employee_id': employee.id
             })
             return return_Response(message="Blockers list", status=200, data={'data': self._format_blocker(blocker)})
         except Exception as e:
