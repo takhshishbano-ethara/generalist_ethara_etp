@@ -3,7 +3,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request, generate_s3_link
 )
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import json
 import base64
 
@@ -28,9 +28,27 @@ class TaskForgeTaskController(http.Controller):
             if kwargs.get('project_id'):
                 domain.append(('project_id', '=', int(kwargs['project_id'])))
             if kwargs.get('status'):
-                domain.append(('state', '=', kwargs['status']))
+                if kwargs.get('status') != 'all':
+                    domain.append(('state', '=', kwargs['status']))
+            today = date.today()
             if kwargs.get('date'):
-                domain.append(('date', '=', kwargs['date']))
+                domain.append(('date', '=', kwargs.get('date')))
+
+            filter_type = kwargs.get('filter')
+            if filter_type == 'today':
+                domain.append(('date', '=', today))
+            elif filter_type == 'this_week':
+                start_date = today - timedelta(days=7)
+                domain.extend([('date', '>=', start_date), ('date', '<=', today)])
+            elif filter_type == 'this_month':
+                start_date = today - timedelta(days=30)
+                domain.extend([('date', '>=', start_date), ('date', '<=', today)])
+
+            # 4. Search Logic (The prefix notation fix)
+            search_val = kwargs.get('search')
+            if search_val:
+                # We add a '|' for the two following conditions
+                domain.extend(['|', ('employee_id.name', 'ilike', search_val), ('name', 'ilike', search_val)])
 
             tasks = TaskLog.search(domain, order='create_date desc', limit=int(kwargs.get('limit', 200)))
             data = [self._format_task(t) for t in tasks]
@@ -136,7 +154,8 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message="Not your task", status=403)
             if task.state != 'in_progress':
                 return return_Response(message="Task is not in progress", status=400)
-
+            if kwargs.get('pause_time'):
+                task.pause_time = kwargs.get('pause_time')
             # Handle end screenshot
             end_screenshot_url = None
             screenshot_file = request.httprequest.files.get('end_screenshot')

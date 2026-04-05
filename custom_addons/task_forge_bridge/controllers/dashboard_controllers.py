@@ -466,3 +466,102 @@ class DashboardController(http.Controller):
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
+    @validate_token
+    @http.route('/api/v2/get_tasker_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_tasker_dashboard_list(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            from datetime import datetime, date
+            today = date.today()
+            Attendance = request.env['hr.attendance'].sudo()
+            attendance = Attendance.search([
+                ('employee_id', '=', employee.id),
+                ('check_in', '>=', datetime.combine(today, datetime.min.time())),
+                ('check_in', '<=', datetime.combine(today, datetime.max.time())),
+            ], limit=1)
+            duration_display = "00:00"
+            if attendance and attendance.check_in and attendance.check_out:
+                diff = attendance.check_out - attendance.check_in
+                total_seconds = int(diff.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                duration_display = f"{hours:02d}:{minutes:02d}"
+
+            elif attendance and attendance.check_in and not attendance.check_out:
+                diff = datetime.now() - attendance.check_in
+                total_seconds = int(diff.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                duration_display = f"{hours:02d}:{minutes:02d}"
+            # 1. Fetch the records
+            task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id)])
+
+            # 2. Convert Char to Int and Sum
+            # We use a list comprehension with a check to ensure the string is numeric
+            pause_times = [int(p.pause_time) for p in task_record if p.pause_time and p.pause_time.isdigit()]
+            total_pause_mins = sum(pause_times)
+
+            # 3. Calculate Productive Duration (in hours)
+            productive_duration = total_pause_mins / 60 if total_pause_mins > 0 else 0.0
+
+            # 4. Get completed tasks for the graph
+            # Note: Since you already have task_record, filtering in memory is faster than a new search
+            completed_tasks = task_record.filtered(lambda p: p.state == 'completed')
+
+            # 5. Read Group for Quality Score Sum
+            graph_data = completed_tasks.read_group(
+                domain=[('id', 'in', completed_tasks.ids)],
+                fields=['quality_score'],
+                groupby=['end_time:day']
+            )
+
+            # Extract values for your frontend
+            labels = [line.get('end_time:day', '') for line in graph_data]
+            quality_sums = [line.get('quality_score', 0)  for line in graph_data]
+            pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
+                ('employee_id', '=', employee.id),
+                ('state', '=', 'pending')
+            ])
+            today_weekday = date.today().weekday()
+            # print(today_weekday)
+            # if today_weekday > 4:
+            #     remaining = 0
+            # else:
+            #     remaining = 4 - today_weekday
+            vals = {
+                'session_duration': duration_display,
+                'completed_task_count': len(completed_tasks),
+                'productive_duration': productive_duration,
+                'pending_blocker_count': pending_blocker_count,
+                'quality_trend_graph': {
+                    'days': labels,
+                    'total_completed': quality_sums,
+                },
+                'daily_streak': today_weekday + 1,
+            }
+            return return_Response(message="Success", status=200, data=vals)
+
+        except Exception as e:
+            return return_Response(message="Dashboard Load Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_tasker_name_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_tasker_name_list(self, **kwargs):
+        temp = []
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+            total_tasker = request.env['hr.employee'].sudo().search([('task_forge_qr_id', '=', user_id.employee_id.id)])
+            for tasker in total_tasker:
+                temp.append({
+                    'id': tasker.id if tasker else 0,
+                    'name': tasker.name if tasker.name else ""                })
+            return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
