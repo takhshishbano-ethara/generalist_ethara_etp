@@ -3,7 +3,7 @@ Prepare repos for a commit0 dataset.
 
 For each validated candidate:
 1. Fork to Ethara-Ai GitHub org
-2. Create a 'commit0_{removal_mode}' branch (e.g., commit0_combined)
+2. Create a 'commit0_{removal_mode}' branch (e.g., commit0_all)
 3. Apply AST stubbing (replace function bodies with pass)
 4. Commit stubbed version as base_commit
 5. Reset to original as reference_commit

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── Actions ──────────────────────────────────────────────────────── -->
+
+    <record id="kaiju_app_action" model="ir.actions.act_window">
+        <field name="name">Applications</field>
+        <field name="res_model">kaiju.app</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="kaiju_build_action" model="ir.actions.act_window">
+        <field name="name">Builds</field>
+        <field name="res_model">kaiju.build</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ── Menus (under existing Kaiju root) ────────────────────────────── -->
+
+    <menuitem id="kaiju_build_menu_parent"
+        name="Build Platform"
+        parent="commit0_pipeline.commit0_menu_root"
+        sequence="20"
+        groups="kaiju_build.group_kaiju_user"/>
+
+    <menuitem id="kaiju_build_menu_apps"
+        name="Applications"
+        parent="kaiju_build_menu_parent"
+        action="kaiju_app_action"
+        sequence="10"/>
+
+    <menuitem id="kaiju_build_menu_builds"
+        name="Builds"
+        parent="kaiju_build_menu_parent"
+        action="kaiju_build_action"
+        sequence="20"/>
+
+</odoo>

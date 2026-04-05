@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# All 54 original_repo values from wentingzhao/commit0_combined
+# All 54 original_repo values from wentingzhao/commit0_all
 EXISTING_COMMIT0_REPOS: set[str] = {
     "minitorch/minitorch",
     "wenting-zhao/simpy",

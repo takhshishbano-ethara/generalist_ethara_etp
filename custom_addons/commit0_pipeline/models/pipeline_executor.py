@@ -238,7 +238,7 @@ def _run_stage3_background(db_name, uid, eval_id):
             _update_eval(cr, eval_id, {"reference_commit_progress": 40.0})
             cr.commit()
             base_commit, reference_commit = create_stubbed_branch(
-                repo_dir, full_name, src_dir or None
+                repo_dir, full_name, src_dir or None, removal_mode="all"
             )
             setup = generate_setup_dict(repo_dir, full_name)
             test_dict = generate_test_dict(repo_dir, setup.get("test_dir") or "tests")
@@ -365,7 +365,7 @@ def _run_stage3_background(db_name, uid, eval_id):
             push_to_fork(
                 repo_dir,
                 fork_name,
-                branch="commit0_combined",
+                branch="commit0_all",
                 token=token or None,
             )
             _append_eval_log(cr, eval_id, "Push complete")
@@ -493,7 +493,7 @@ def _run_stub_background(db_name, uid, eval_id):
             source_dir=source_dir,
             output_dir=stubbed_dir,
             keep_docstrings=True,
-            removal_mode="combined",
+            removal_mode="all",
         )
         _update_eval(
             cr, eval_id, {"clone_path_stubbed": str(stubbed_dir), "stub_status": "done"}
@@ -510,28 +510,171 @@ def _run_stub_background(db_name, uid, eval_id):
 
 @_safe_worker
 def _run_docker_background(db_name, uid, eval_id):
+    import odoo  # noqa: deferred
+    from odoo.modules.registry import Registry
+
     with _open_cursor(db_name) as cr:
-        _append_eval_log(cr, eval_id, "=== DOCKER GENERATION (placeholder) ===")
-        cr.commit()
-        stages = [
-            ("generating", 20.0),
-            ("llm_qc", 40.0),
-            ("multiarch", 60.0),
-            ("testing", 80.0),
-            ("done", 100.0),
-        ]
-        for status, progress in stages:
-            _update_eval(
-                cr, eval_id, {"docker_status": status, "docker_progress": progress}
-            )
-            cr.commit()
-            _append_eval_log(cr, eval_id, "Docker: %s (%d%%)" % (status, int(progress)))
-            cr.commit()
-            if status != "done":
-                time.sleep(2)
+        _append_eval_log(cr, eval_id, "=== DOCKER GENERATION via Kaiju Build ===")
         _update_eval(
-            cr, eval_id, {"current_stage": "done", "terminal_state": "complete"}
+            cr, eval_id, {"docker_status": "generating", "docker_progress": 5.0}
         )
         cr.commit()
-        _append_eval_log(cr, eval_id, "Docker complete — evaluation done")
+
+        cr.execute(
+            "SELECT repo_name, spec_json FROM commit0_repo_evaluation WHERE id = %s",
+            [eval_id],
+        )
+        row = cr.fetchone()
+        if not row:
+            _fail_eval(
+                cr, eval_id, "docker_status", Exception("Evaluation record not found")
+            )
+            return
+        repo_name, dataset_json = row[0], row[1]
+
+        if not dataset_json:
+            _fail_eval(
+                cr,
+                eval_id,
+                "docker_status",
+                Exception(
+                    "Dataset JSON (spec_json) is empty — Stage 3 may not have completed"
+                ),
+            )
+            return
+
+        _append_eval_log(cr, eval_id, "Repo: %s" % repo_name)
         cr.commit()
+
+    registry = Registry(db_name)
+    with registry.cursor() as env_cr:
+        env = odoo.api.Environment(env_cr, uid, {})
+
+        app = env["kaiju.app"].search([("name", "=", repo_name)], limit=1)
+        if not app:
+            app = env["kaiju.app"].create(
+                {
+                    "name": repo_name,
+                    "repo_url": "",
+                }
+            )
+        env_cr.commit()
+
+        build = env["kaiju.build"].create(
+            {
+                "app_id": app.id,
+                "repo_name": repo_name,
+                "dataset_json": dataset_json,
+            }
+        )
+        env_cr.commit()
+
+        try:
+            build.action_build()
+            env_cr.commit()
+        except Exception as exc:
+            env_cr.rollback()
+            with _open_cursor(db_name) as cr:
+                _fail_eval(cr, eval_id, "docker_status", exc)
+            return
+
+        build_id = build.id
+        env_cr.commit()
+
+    with _open_cursor(db_name) as cr:
+        _append_eval_log(cr, eval_id, "Kaiju build started, polling for status...")
+        _update_eval(
+            cr, eval_id, {"docker_status": "generating", "docker_progress": 10.0}
+        )
+        cr.commit()
+
+    timeout_seconds = 45 * 60
+    poll_interval = 10
+    elapsed = 0
+    current_status = "queued"
+    current_image = ""
+    current_error = ""
+
+    while elapsed < timeout_seconds:
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+
+        with registry.cursor() as env_cr:
+            env = odoo.api.Environment(env_cr, uid, {})
+            build = env["kaiju.build"].browse(build_id)
+            current_status = build.status
+            current_image = build.image_uri or ""
+            current_error = build.error_message or ""
+
+        if current_status in ("success", "failed", "error"):
+            break
+
+        progress_pct = min(10.0 + (elapsed / timeout_seconds) * 80.0, 90.0)
+        docker_status = "multiarch" if elapsed > 30 else "generating"
+
+        with _open_cursor(db_name) as cr:
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "docker_status": docker_status,
+                    "docker_progress": progress_pct,
+                },
+            )
+            if elapsed % 60 == 0:
+                _append_eval_log(
+                    cr,
+                    eval_id,
+                    "Build status: %s (elapsed %ds)" % (current_status, elapsed),
+                )
+            cr.commit()
+
+    with _open_cursor(db_name) as cr:
+        if current_status == "success":
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "docker_status": "done",
+                    "docker_progress": 100.0,
+                    "docker_image_arm": current_image,
+                    "docker_image_amd": current_image,
+                    "ecr_url": current_image,
+                    "current_stage": "done",
+                    "terminal_state": "complete",
+                },
+            )
+            cr.commit()
+            _append_eval_log(cr, eval_id, "Docker complete — image: %s" % current_image)
+            cr.commit()
+        elif current_status in ("failed", "error"):
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "docker_status": "failed",
+                    "docker_progress": 0.0,
+                    "error_message": current_error[:500]
+                    if current_error
+                    else "Build failed",
+                },
+            )
+            cr.commit()
+            _append_eval_log(cr, eval_id, "Docker FAILED: %s" % current_error[:200])
+            cr.commit()
+        else:
+            _update_eval(
+                cr,
+                eval_id,
+                {
+                    "docker_status": "failed",
+                    "docker_progress": 0.0,
+                    "error_message": "Build timed out after %d seconds"
+                    % timeout_seconds,
+                },
+            )
+            cr.commit()
+            _append_eval_log(
+                cr, eval_id, "Docker FAILED: timeout after %ds" % timeout_seconds
+            )
+            cr.commit()
