@@ -8,7 +8,7 @@ import json
 
 class TaskForgeBlockerController(http.Controller):
 
-    @http.route('/api/v2/taskforge/create_blocker_record', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/taskforge/create_blocker_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "int", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
     def create_blocker_record(self, **kwargs):
@@ -30,6 +30,7 @@ class TaskForgeBlockerController(http.Controller):
                 'task_id': jdata.get('task_id'),
                 'blocker_reason': jdata.get('blocker_reason'),
                 'blocker_type': jdata.get('blocker_type'),
+                'priority': jdata.get('priority')
             })
             return return_Response(message="Blockers list", status=200, data={'data': self._format_blocker(blocker)})
         except Exception as e:
@@ -166,6 +167,7 @@ class TaskForgeBlockerController(http.Controller):
             'pl_id': b.pl_id.id if b.pl_id else 0,
             'pl_name': b.pl_id.name if b.pl_id else "",
             'blocker_reason': b.blocker_reason or '',
+            'priority': b.priority or '',
             'state': b.state or "",
             'qr_notes': b.qr_notes or '',
             'qr_video_url': b.qr_video_url or '',

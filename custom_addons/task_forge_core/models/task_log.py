@@ -51,6 +51,10 @@ class TaskForgeLog(models.Model):
     project_name = fields.Char(related='project_id.name', store=True)
     image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
 
+    # Rating Syste
+    task_score = fields.Integer(string='Task Score')
+    comment = fields.Char(string='Comment')
+
     @api.depends('start_time', 'end_time')
     def _compute_time_taken(self):
         for rec in self:
@@ -171,4 +175,6 @@ class TaskForgeImages(models.Model):
     image_url = fields.Char(string='Image URL')
     image_type = fields.Selection([('start', 'Start'), ('end', 'End')])
     task_id = fields.Many2one('task.forge.log', string='Task')
+    status = fields.Selection([('draft', 'Draft'), ('rejected', 'Rejected'), ('approved', 'Approved')], default='draft')
+
 
