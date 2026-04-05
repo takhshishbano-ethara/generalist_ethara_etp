@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_commit0_repo_evaluation_admin,commit0.repo.evaluation.admin,model_commit0_repo_evaluation,group_commit0_admin,1,1,1,1
 access_commit0_repo_evaluation_user,commit0.repo.evaluation.user,model_commit0_repo_evaluation,group_commit0_user,1,1,1,0
+access_commit0_import_repos_wizard_admin,commit0.import.repos.wizard.admin,model_commit0_import_repos_wizard,group_commit0_admin,1,1,1,1

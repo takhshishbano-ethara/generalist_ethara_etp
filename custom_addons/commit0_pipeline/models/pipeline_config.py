@@ -51,6 +51,12 @@ class Commit0PipelineConfig(models.TransientModel):
         config_parameter="commit0_pipeline.default_stubbing_mode",
         help="Default mode for code stubbing in pipeline runs.",
     )
+    max_active_tasks = fields.Integer(
+        string="Max Active Tasks Per User",
+        config_parameter="commit0_pipeline.max_active_tasks",
+        default=1,
+        help="Maximum number of concurrent active tasks a user can have.",
+    )
     docker_available = fields.Boolean(
         string="Docker Available",
         compute="_compute_docker_available",

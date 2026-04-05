@@ -27,6 +27,7 @@ Features:
         "data/commit0_data.xml",
         "views/repo_evaluation_views.xml",
         "views/res_config_settings_views.xml",
+        "views/import_repos_wizard_views.xml",
         "views/commit0_menus.xml",
     ],
     "installable": True,
@@ -34,6 +35,7 @@ Features:
     "auto_install": False,
     "assets": {
         "web.assets_backend": [
+            "commit0_pipeline/static/src/scss/kaiju_form.scss",
             "commit0_pipeline/static/src/components/repo_browser/repo_browser.js",
             "commit0_pipeline/static/src/components/repo_browser/repo_browser.xml",
             "commit0_pipeline/static/src/components/repo_browser/repo_browser.scss",
