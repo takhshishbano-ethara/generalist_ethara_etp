@@ -380,3 +380,43 @@ class DashboardController(http.Controller):
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_tasker_project_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_tasker_project_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            domain = [('project_tasker', '=', user_id.employee_id.id)]
+            search = kwargs.get('search')
+            if search:
+                domain += ['|', ('name', 'ilike', search), ('internal_project_name', 'ilike', search)]
+            projects = request.env['project.project'].sudo().search(domain)
+            project_data = []
+            for p in projects:
+                team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
+                unique_team_count = len(set(team_ids))
+                project_data.append({
+                    'id': safe_get_value(p, 'id', 'int'),
+                    'project_name': safe_get_value(p, 'name', 'str'),
+                    'project_id_code': safe_get_value(p, 'project_seq', 'str'),
+                    'client': safe_get_value(p, 'client_name', 'str'),
+                    'status': safe_get_value(p, 'stage_id.name', 'str'),
+                    'progress': 0,
+                    'tasks': safe_get_value(p, 'sample_task_number', 'int'),
+                    'team_count': unique_team_count,
+                    'blockers': 0,
+                    'category': safe_get_value(p, 'project_category', 'str'),
+                    'type': safe_get_value(p, 'project_type', 'str'),
+                    'date_start': safe_get_value(p, 'date_start', 'date'),
+                    'date_end': safe_get_value(p, 'date', 'date'),
+                })
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": project_data, "total_record_count": len(project_data), "count": len(project_data)})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])

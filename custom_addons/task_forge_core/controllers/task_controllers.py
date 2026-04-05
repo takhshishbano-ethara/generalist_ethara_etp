@@ -113,10 +113,6 @@ class TaskForgeTaskController(http.Controller):
                 url = generate_s3_link(img_data, prefix='taskforge/screenshots', uid=employee.id)
                 vals['start_screenshot_url'] = url
                 vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
-            # elif k.get('start_screenshot'):
-            #     url = generate_s3_link(jdata['start_screenshot'], prefix='taskforge/screenshots', uid=employee.id)
-            #     vals['start_screenshot_url'] = url
-            #     vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
 
             task = TaskLog.create(vals)
             return return_Response(message="Task started", status=200, data={'data': self._format_task(task)})
@@ -158,6 +154,39 @@ class TaskForgeTaskController(http.Controller):
             task.invalidate_recordset()
             return return_Response(
                 message="Task ended" if task.state == 'completed' else "Blocker raised",
+                status=200,
+                data={'data': self._format_task(task)}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/tasks/pause', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({"task_id": {"type": "str", "required": True}})
+    def pause_task(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(int(kwargs.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+            if task.state != 'in_progress':
+                return return_Response(message="Task is not in progress", status=400)
+            end_screenshot_url = None
+            screenshot_file = request.httprequest.files.get('screenshot')
+            if screenshot_file:
+                img_data = base64.b64encode(screenshot_file.read())
+                end_screenshot_url = generate_s3_link(img_data, prefix='taskforge/screenshots', uid=employee.id)
+                task.image_url_lines = [(0, 0, {'image_url': end_screenshot_url, 'image_type': 'start'})]
+            if kwargs.get('pause_time'):
+                task.pause_time = kwargs.get('pause_time')
+
+            return return_Response(
+                message="Task Paused",
                 status=200,
                 data={'data': self._format_task(task)}
             )
@@ -214,6 +243,7 @@ class TaskForgeTaskController(http.Controller):
             'status': task.state or "",
             'start_time': task.start_time.isoformat() if task.start_time else "",
             'end_time': task.end_time.isoformat() if task.end_time else "",
+            'pause_time': task.pause_time if task.pause_time else "",
             'time_taken_mins': task.time_taken_mins or 0,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',

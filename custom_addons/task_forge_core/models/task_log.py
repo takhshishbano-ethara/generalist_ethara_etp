@@ -35,7 +35,7 @@ class TaskForgeLog(models.Model):
         compute='_compute_time_taken',
         store=True,
     )
-
+    pause_time = fields.Char(string="Pause Time")
     start_screenshot_url = fields.Char(string='Start Screenshot URL')
     end_screenshot_url = fields.Char(string='End Screenshot URL')
 
