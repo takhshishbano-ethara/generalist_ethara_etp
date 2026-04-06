@@ -39,7 +39,21 @@ class TaskForgeLeaveController(http.Controller):
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
+            from_date = jdata.get('from_date')
+            to_date = jdata.get('to_date')
+            Leave = request.env['hr.leave'].sudo()
+            overlap_leave = Leave.search([
+                ('employee_id', '=', employee.id),
+                ('state', 'not in', ['refuse', 'cancel']),
+                ('date_from', '<=', to_date),
+                ('date_to', '>=', from_date),
+            ], limit=1)
 
+            if overlap_leave:
+                return return_Response(
+                    message=f"Leave request already exists between {overlap_leave.date_from.date()} and {overlap_leave.date_to.date()}",
+                    status=400
+                )
             Leave = request.env['hr.leave'].sudo()
             holiday_status_id = jdata.get('holiday_status_id')
             if not holiday_status_id:
