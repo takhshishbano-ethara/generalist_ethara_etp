@@ -175,8 +175,7 @@ class TaskForgeLeaveController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
             Leave = request.env['hr.leave'].sudo()
             today = datetime.now().date()
-
-            pls = Employee.search([('user_id.groups_id', 'in', [request.env.ref('etp_user_roles.group_project_lead').id])])
+            pls = Employee.search([('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_non_stem').id, request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id])])
             hierarchy = []
 
             for pl in pls:
