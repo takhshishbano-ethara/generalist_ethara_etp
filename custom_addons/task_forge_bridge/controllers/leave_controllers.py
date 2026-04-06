@@ -135,7 +135,7 @@ class TaskForgeLeaveController(http.Controller):
     def approve_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id,
                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id, request.env.ref('api_auth_gateway.role_qc_technical').id,
                                           request.env.ref('api_auth_gateway.role_qc_stem').id,
@@ -176,7 +176,7 @@ class TaskForgeLeaveController(http.Controller):
     def reject_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id,
                                      request.env.ref('api_auth_gateway.role_pl_stem').id,
                                      request.env.ref('api_auth_gateway.role_pl_non_stem').id,
                                      request.env.ref('api_auth_gateway.role_qc_technical').id,
