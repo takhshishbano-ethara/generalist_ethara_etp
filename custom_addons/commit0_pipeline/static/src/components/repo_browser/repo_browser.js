@@ -31,6 +31,9 @@ export class RepoBrowser extends Component {
             error: "",
             darkTheme: true,
             copied: false,
+            diffMode: false,
+            diffContent: "",
+            hasDiffChanges: false,
         });
 
         onWillStart(() => {});
@@ -137,6 +140,10 @@ export class RepoBrowser extends Component {
             this.state.fileContent = result.content || "";
             this.state.aceMode = result.mode || "python";
             this.state.fileSize = result.size || 0;
+
+            if (this.state.diffMode && this.canShowDiff) {
+                await this._loadDiff();
+            }
         } catch (e) {
             this.state.error = e.message || "Failed to load file";
         } finally {
@@ -160,6 +167,37 @@ export class RepoBrowser extends Component {
 
     toggleTheme() {
         this.state.darkTheme = !this.state.darkTheme;
+    }
+
+    get canShowDiff() {
+        return this.props.name === "clone_path_stubbed";
+    }
+
+    async toggleDiff() {
+        this.state.diffMode = !this.state.diffMode;
+        if (this.state.diffMode && this.state.selectedPath) {
+            await this._loadDiff();
+        }
+    }
+
+    async _loadDiff() {
+        this.state.loading = true;
+        try {
+            const result = await rpc("/commit0/file_diff", {
+                eval_id: this.entryId,
+                file_path: this.state.selectedPath,
+            });
+            this.state.diffContent = result.diff || "";
+            this.state.hasDiffChanges = result.has_changes || false;
+        } catch (e) {
+            this.state.error = e.message || "Failed to load diff";
+        } finally {
+            this.state.loading = false;
+        }
+    }
+
+    get diffLines() {
+        return (this.state.diffContent || "").split("\n");
     }
 
     get editorTheme() {

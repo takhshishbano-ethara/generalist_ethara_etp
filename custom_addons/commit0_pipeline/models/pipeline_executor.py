@@ -281,6 +281,8 @@ def _run_reference_commit_background(db_name, uid, eval_id):
                 create_stubbed_branch,
                 generate_setup_dict,
                 generate_test_dict,
+                git as repo_git,
+                get_default_branch,
             )
         except ImportError:
             _fail_eval(
@@ -315,6 +317,8 @@ def _run_reference_commit_background(db_name, uid, eval_id):
                 ctx["src_dir"] or None,
                 removal_mode="all",
             )
+            default_branch = get_default_branch(repo_dir)
+            repo_git(repo_dir, "checkout", default_branch)
             setup = generate_setup_dict(repo_dir, ctx["full_name"])
             test_dict = generate_test_dict(repo_dir, setup.get("test_dir") or "tests")
             _update_eval(
@@ -648,6 +652,8 @@ def _run_stage3_background(db_name, uid, eval_id):
                 generate_test_dict,
                 push_to_fork,
                 create_dataset_entry,
+                git as repo_git,
+                get_default_branch,
             )
         except ImportError:
             _fail_eval(cr, eval_id, "fork_status", ImportError("tools.prepare_repo"))
@@ -695,6 +701,10 @@ def _run_stage3_background(db_name, uid, eval_id):
             base_commit, reference_commit = create_stubbed_branch(
                 repo_dir, full_name, src_dir or None, removal_mode="all"
             )
+            # Restore working tree to original code so clone_path / clone_path_original
+            # serve the unstubbed source in the file browsers.
+            default_branch = get_default_branch(repo_dir)
+            repo_git(repo_dir, "checkout", default_branch)
             setup = generate_setup_dict(repo_dir, full_name)
             test_dict = generate_test_dict(repo_dir, setup.get("test_dir") or "tests")
             _update_eval(
@@ -958,7 +968,7 @@ def _run_stub_background(db_name, uid, eval_id):
             cr,
             eval_id,
             "Done: %d files, %d stubbed"
-            % (stats.get("total_files", 0), stats.get("modified_files", 0)),
+            % (stats.get("files_processed", 0), stats.get("files_modified", 0)),
         )
         cr.commit()
 
