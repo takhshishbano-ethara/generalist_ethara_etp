@@ -143,26 +143,85 @@ class TaskForgeAttendanceController(http.Controller):
             if user_id_param:
                 domain.append(('employee_id', '=', int(user_id_param)))
 
+            # Determine date range for filtering and stats
             date_param = kwargs.get('date')
+            start_date_param = kwargs.get('start_date')
+            end_date_param = kwargs.get('end_date')
+
             if date_param:
+                # Single date filter: records for that day, stats for that month
                 filter_date = datetime.strptime(date_param, '%Y-%m-%d').date()
                 domain.append(('check_in', '>=', datetime.combine(filter_date, datetime.min.time())))
                 domain.append(('check_in', '<', datetime.combine(filter_date + timedelta(days=1), datetime.min.time())))
+                stats_start = filter_date.replace(day=1)
+                next_month = (stats_start + timedelta(days=32)).replace(day=1)
+                stats_end = next_month - timedelta(days=1)
+            elif start_date_param or end_date_param:
+                # Date range filter: records and stats within the range
+                stats_start = datetime.strptime(start_date_param, '%Y-%m-%d').date() if start_date_param else None
+                stats_end = datetime.strptime(end_date_param, '%Y-%m-%d').date() if end_date_param else None
+                if stats_start:
+                    domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                if stats_end:
+                    domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
             else:
-                start_date = kwargs.get('start_date')
-                end_date = kwargs.get('end_date')
-                if start_date:
-                    sd = datetime.strptime(start_date, '%Y-%m-%d').date()
-                    domain.append(('check_in', '>=', datetime.combine(sd, datetime.min.time())))
-                if end_date:
-                    ed = datetime.strptime(end_date, '%Y-%m-%d').date()
-                    domain.append(('check_in', '<', datetime.combine(ed + timedelta(days=1), datetime.min.time())))
+                # No date filter: records unlimited, stats for current month
+                today = date.today()
+                stats_start = today.replace(day=1)
+                stats_end = today
 
             records = Attendance.search(domain, order='check_in desc', limit=200)
-
             data = [self._format_attendance(rec) for rec in records]
 
-            return return_Response(message="Attendance list", status=200, data={'data': data})
+            # Compute summary stats over the stats date range
+            emp_domain = [('employee_id', 'in', team_ids)]
+            if user_id_param:
+                emp_domain.append(('employee_id', '=', int(user_id_param)))
+
+            stats_domain = list(emp_domain)
+            if date_param or (not start_date_param and not end_date_param):
+                stats_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                stats_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
+            else:
+                if stats_start:
+                    stats_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                if stats_end:
+                    stats_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
+
+            stats_records = Attendance.search(stats_domain)
+            total_present_days = len(set(rec.check_in.date() for rec in stats_records if rec.check_in))
+            total_hours = sum(rec.worked_hours or 0 for rec in stats_records)
+            avg_working_hours = round(total_hours / total_present_days, 2) if total_present_days else 0
+
+            # Count approved leave days in stats range
+            Leave = request.env['hr.leave'].sudo()
+            leave_domain = [
+                ('employee_id', 'in', team_ids),
+                ('state', '=', 'validate'),
+            ]
+            if user_id_param:
+                leave_domain.append(('employee_id', '=', int(user_id_param)))
+            if date_param or (not start_date_param and not end_date_param):
+                leave_domain.append(('date_from', '<=', datetime.combine(stats_end, datetime.max.time())))
+                leave_domain.append(('date_to', '>=', datetime.combine(stats_start, datetime.min.time())))
+            else:
+                if stats_start:
+                    leave_domain.append(('date_to', '>=', datetime.combine(stats_start, datetime.min.time())))
+                if stats_end:
+                    leave_domain.append(('date_from', '<=', datetime.combine(stats_end, datetime.max.time())))
+
+            leave_records = Leave.search(leave_domain)
+            total_leave_days = sum(leave.number_of_days or 0 for leave in leave_records)
+
+            summary = {
+                'total_present_days': total_present_days,
+                'total_leave_days': total_leave_days,
+                'avg_working_hours': avg_working_hours,
+                'stats_start': str(stats_start) if stats_start else None,
+                'stats_end': str(stats_end) if stats_end else None,
+            }
+
+            return return_Response(message="Attendance list", status=200, data={'data': data, 'summary': summary})
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
@@ -209,7 +268,12 @@ class TaskForgeAttendanceController(http.Controller):
                 tasker_employees = current_projects.mapped('project_tasker')
                 all_target_employees = pl_employees | qc_employees | tasker_employees
 
-            # Create a combined unique list for the search domain
+            search_key = kwargs.get('search', '').strip()
+            if search_key:
+                all_target_employees = all_target_employees.filtered(
+                    lambda e: search_key.lower() in (e.name or '').lower()
+                )
+
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
             attendance = Attendance.search([
@@ -243,7 +307,7 @@ class TaskForgeAttendanceController(http.Controller):
             return return_Response(
                 message="Today's attendance",
                 status=200,
-                data={'record': temp,'count': len(temp)},
+                data={'data': temp,'count': len(temp)},
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
