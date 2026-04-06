@@ -10,6 +10,21 @@ from odoo import fields
 
 class TaskForgeLeaveController(http.Controller):
 
+    @validate_token
+    @http.route('/api/v2/get_leave_types', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_leave_types(self, **kwargs):
+        try:
+            leave_types = request.env['hr.leave.type'].sudo().search([])
+            type_list = []
+            for l_type in leave_types:
+                type_list.append({
+                    'id': l_type.id,
+                    'name': l_type.name or ""
+                })
+            return return_Response(message="Leave types fetched successfully", status=200, data={"record": type_list})
+        except Exception as e:
+            return return_Response(message="Failed to fetch leave types", status=400, errors=[str(e)])
+
     @http.route('/api/v2/taskforge/leaves', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
