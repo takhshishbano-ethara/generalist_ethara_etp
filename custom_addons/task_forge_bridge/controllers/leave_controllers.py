@@ -33,52 +33,72 @@ class TaskForgeLeaveController(http.Controller):
         'reason': {'type': 'string', 'required': True},
         'holiday_status_id': {'type': 'int', 'required': False},
     })
-    def apply_leave(self, jdata=None, **kwargs):
+    def apply_leave(self, **kwargs):
         try:
+            jdata = kwargs.get('jdata')
             user = request.env.user
             employee = user.employee_id
+
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
+
             from_date = jdata.get('from_date')
             to_date = jdata.get('to_date')
+            reason = jdata.get('reason', 'Applied via TaskForge')
+
+            if not from_date or not to_date:
+                return return_Response(message="Start and End dates are required", status=400)
+
+            # 2. Strict Manual Overlap Check
+            # We check this FIRST to provide a friendly 400 error instead of a 422 crash
             Leave = request.env['hr.leave'].sudo()
-            overlap_leave = Leave.search([
+            existing_overlap = Leave.search([
                 ('employee_id', '=', employee.id),
                 ('state', 'not in', ['refuse', 'cancel']),
-                ('date_from', '<=', to_date),
-                ('date_to', '>=', from_date),
+                ('request_date_from', '<=', f"{to_date} 00:00:00"),
+                ('request_date_to', '>=', f"{from_date} 23:59:00"),
             ], limit=1)
 
-            if overlap_leave:
+            if existing_overlap:
                 return return_Response(
-                    message=f"Leave request already exists between {overlap_leave.date_from.date()} and {overlap_leave.date_to.date()}",
+                    message=f"Overlap Error: You already have a leave request from {existing_overlap.request_date_from} to {existing_overlap.request_date_to}.",
                     status=400
                 )
-            Leave = request.env['hr.leave'].sudo()
+
+            # 3. Handle Leave Type (Holiday Status)
             holiday_status_id = jdata.get('holiday_status_id')
             if not holiday_status_id:
+                # Fallback to the first available leave type if not provided
                 leave_type = request.env['hr.leave.type'].sudo().search([], limit=1)
-                holiday_status_id = leave_type.id if leave_type else False
+                if not leave_type:
+                    return return_Response(message="Configuration Error: No Time Off types found in Odoo.", status=400)
+                holiday_status_id = leave_type.id
 
-            if not holiday_status_id:
-                return return_Response(message="No leave type configured", status=400)
+            # 4. Attempt Creation
+            # We wrap this in a sub-try to catch Odoo's internal 'No Allocation' or 'Date Range' UserErrors
+            try:
+                new_leave = Leave.create({
+                    'employee_id': employee.id,
+                    'holiday_status_id': holiday_status_id,
+                    'request_date_from': from_date,
+                    'request_date_to': to_date,
+                    'name': reason,
+                })
 
-            leave = Leave.create({
-                'employee_id': employee.id,
-                'holiday_status_id': holiday_status_id,
-                'date_from': jdata['from_date'],
-                'date_to': jdata['to_date'],
-                'name': jdata['reason'],
-            })
+                # Optional: If your workflow requires immediate confirmation/approval
+                # new_leave.action_confirm()
 
-            return return_Response(
-                message="Leave applied successfully",
-                status=200,
-                data={'data': self._format_leave(leave)}
-            )
+                return return_Response(
+                    message="Leave request submitted successfully",
+                    status=200,
+                    data={'data': self._format_leave(new_leave)}
+                )
+
+            except Exception as odoo_internal_error:
+                return return_Response(message=str(odoo_internal_error), status=400)
+
         except Exception as e:
-            return return_Response(message=str(e), status=400)
-
+            return return_Response(message="An unexpected error occurred", status=400, errors=[str(e)])
     @http.route('/api/v2/taskforge/leaves', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_leaves(self, **kwargs):
@@ -115,7 +135,12 @@ class TaskForgeLeaveController(http.Controller):
     def approve_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if not user.has_group('etp_user_roles.group_quality_reviewer'):
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                        request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                        request.env.ref('api_auth_gateway.role_pl_non_stem').id, request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id, request.env.ref('api_auth_gateway.role_cto_technical').id]:
+
                 return return_Response(message="Insufficient permissions", status=403)
 
             Leave = request.env['hr.leave'].sudo()
@@ -151,7 +176,13 @@ class TaskForgeLeaveController(http.Controller):
     def reject_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if not user.has_group('etp_user_roles.group_quality_reviewer'):
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                     request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                     request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                                     request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                     request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                     request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                                     request.env.ref('api_auth_gateway.role_cto_technical').id]:
                 return return_Response(message="Insufficient permissions", status=403)
 
             Leave = request.env['hr.leave'].sudo()
