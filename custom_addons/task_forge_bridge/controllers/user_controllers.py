@@ -205,6 +205,25 @@ class TaskForgeUserController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
+    @validate_token
+    @http.route('/api/v2/get_tasker_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({})
+    def get_tasker_list(self, **kwargs):
+        temp = []
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+            domain = [('task_forge_qr_id', '=', user_id.employee_id.id)]
+            if kwargs.get('qr_id'):
+                domain = [('task_forge_qr_id', '=', int(kwargs.get('qr_id')))]
+            total_tasker = request.env['hr.employee'].sudo().search(domain)
+            temp = [self._format_employee(emp) for emp in total_tasker]
+            return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
+        except Exception as e:
+            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+
     def _format_employee(self, emp):
         Allocation = request.env['task.forge.allocation'].sudo()
         alloc = Allocation.search([('employee_id', '=', emp.id)], limit=1)

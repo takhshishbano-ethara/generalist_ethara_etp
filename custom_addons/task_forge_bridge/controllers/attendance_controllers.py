@@ -6,7 +6,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from datetime import datetime, date, timedelta
 import json
 
-
+from odoo import fields
 class TaskForgeAttendanceController(http.Controller):
 
     @http.route('/api/v2/taskforge/attendance/punch_in', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -288,22 +288,50 @@ class TaskForgeAttendanceController(http.Controller):
             absent_employees = all_target_employees - present_employee_ids
             for atte in attendance:
                 temp.append(self._format_attendance(atte))
-            if kwargs.get('status') in ['non_punched_in', 'all']:
-                for ae in absent_employees:
-                    temp.append({
-                        'id': 0,
-                        'employee_id': ae.id if ae else 0,
-                        'employee_name': ae.name if ae.name else "",
-                        'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
-                        'date': '',
-                        'status': 'Absent',
-                        'punch_in_time': "",
-                        'punch_out_time': "",
-                        'hours_worked': 0,
-                        'location': '',
-                        'geo_coordinates': '',
-                        'tasks_done': 0,
-                    })
+            Leave = request.env['hr.leave'].sudo()
+            domain = [
+                ('employee_id', 'in', absent_employees),
+                ('state', '=', 'validate'),
+                ('date_from', '<=',
+                 fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
+                ('date_to', '>=', fields.Datetime.to_string(fields.Datetime.now().replace(hour=0, minute=0, second=0)))
+            ]
+            leaves = Leave.search(domain, order='create_date desc')
+            leaves_employee = leaves.mapped('employee_id')
+            absent_employees = absent_employees - leaves_employee
+            if kwargs.get('status') in ['non_punched_in', 'all', 'absent', 'on_leave']:
+                if kwargs.get('status') in ['non_punched_in', 'all', 'absent']:
+                    for ae in absent_employees:
+                        temp.append({
+                            'id': 0,
+                            'employee_id': ae.id if ae else 0,
+                            'employee_name': ae.name if ae.name else "",
+                            'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
+                            'date': '',
+                            'status': 'Absent',
+                            'punch_in_time': "",
+                            'punch_out_time': "",
+                            'hours_worked': 0,
+                            'location': '',
+                            'geo_coordinates': '',
+                            'tasks_done': 0,
+                        })
+                if kwargs.get('status') in ['non_punched_in', 'all', 'on_leave']:
+                    for ae in leaves_employee:
+                        temp.append({
+                            'id': 0,
+                            'employee_id': ae.id if ae else 0,
+                            'employee_name': ae.name if ae.name else "",
+                            'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
+                            'date': '',
+                            'status': 'On Leave',
+                            'punch_in_time': "",
+                            'punch_out_time': "",
+                            'hours_worked': 0,
+                            'location': '',
+                            'geo_coordinates': '',
+                            'tasks_done': 0,
+                        })
             return return_Response(
                 message="Today's attendance",
                 status=200,
