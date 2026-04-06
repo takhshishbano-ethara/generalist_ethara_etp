@@ -169,7 +169,7 @@ class TaskForgeLeaveController(http.Controller):
     def leave_hierarchy(self, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id != self.env.ref('api_auth_gateway.role_cto_technical').id
+            if user.user_role.id != self.env.ref('api_auth_gateway.role_cto_technical').id:
                 return return_Response(message="Admin access required", status=403)
 
             Employee = request.env['hr.employee'].sudo()
@@ -261,7 +261,8 @@ class TaskForgeLeaveController(http.Controller):
             if kwargs.get('project_id'):
                 current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
                                                                                 limit=1)
-            employee_list = current_projects.mapped('employee_id')
+            employee_list = current_projects.mapped('project_lead') | current_projects.mapped('project_tasker') | current_projects.mapped('project_qc_reviewer')
+            
             domain = [
                 ('employee_id', 'in', employee_list),
                 ('state', '=', 'validate'),
