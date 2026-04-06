@@ -212,6 +212,35 @@ class TaskForgeTaskController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
+    @http.route('/api/v2/taskforge/tasks/rating', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({"task_id": {"type": "str", "required": True}})
+    def rate_task(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(int(kwargs.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+            if task.state != 'in_progress':
+                return return_Response(message="Task is not in progress", status=400)
+            if kwargs.get('rating'):
+                task.quality_score = kwargs.get('rating')
+            if kwargs.get('comment'):
+                task.comment = kwargs.get('comment')
+
+            return return_Response(
+                message="Task Rated",
+                status=200,
+                data={'data': self._format_task(task)}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v2/taskforge/tasks/create', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
