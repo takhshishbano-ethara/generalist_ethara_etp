@@ -519,8 +519,10 @@ class DashboardController(http.Controller):
             )
 
             # Extract values for your frontend
-            labels = [line.get('end_time:day', '') for line in graph_data]
-            quality_sums = [line.get('quality_score', 0)  for line in graph_data]
+            # labels = [line.get('end_time:day', '') for line in graph_data]
+            labels = [line.get('end_time:day') or '' for line in graph_data]
+            # quality_sums = [line.get('quality_score', 0) for line in graph_data]
+            quality_sums = [line.get('quality_score') or 0 for line in graph_data]
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
                 ('employee_id', '=', employee.id),
                 ('state', '=', 'pending')
