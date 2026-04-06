@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="commit0_pipeline.AutoRefresh">
-        <span/>
+        <div t-if="state.active" class="kj-polling-indicator">
+            <i class="fa fa-refresh fa-spin me-1"/>
+            <span>Auto-refreshing…</span>
+        </div>
     </t>
 </templates>

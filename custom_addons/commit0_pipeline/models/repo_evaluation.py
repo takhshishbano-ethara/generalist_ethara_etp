@@ -66,7 +66,7 @@ class Commit0RepoEvaluation(models.Model):
         "res.users",
         string="Evaluator",
         default=lambda self: self.env.uid,
-        readonly=True,
+        tracking=True,
     )
     repo_name = fields.Char(
         string="Repository Name",
@@ -360,6 +360,53 @@ class Commit0RepoEvaluation(models.Model):
         return super().create(vals_list)
 
     # -------------------------------------------------------------------------
+    # Task Allocation
+    # -------------------------------------------------------------------------
+    @api.model
+    def action_start_task(self):
+        """Assign the oldest unassigned task to the current user."""
+        max_active = int(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("commit0_pipeline.max_active_tasks", "1")
+        )
+        active_count = self.search_count(
+            [
+                ("user_id", "=", self.env.uid),
+                ("current_stage", "not in", ("done", "failed")),
+            ]
+        )
+        if active_count >= max_active:
+            raise UserError(
+                f"You already have {active_count} active task(s). "
+                f"Maximum allowed: {max_active}. "
+                "Complete or release a task before starting a new one."
+            )
+        task = self.sudo().search(
+            [
+                ("user_id", "=", False),
+                ("current_stage", "not in", ("done", "failed")),
+            ],
+            order="id asc",
+            limit=1,
+        )
+        if not task:
+            raise UserError("No unassigned tasks available in the pool.")
+        task.write({"user_id": self.env.uid})
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": "commit0.repo.evaluation",
+            "res_id": task.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    def action_release_task(self):
+        """Release this task back to the unassigned pool."""
+        self.ensure_one()
+        self.write({"user_id": False})
+
+    # -------------------------------------------------------------------------
     # Computed Fields
     # -------------------------------------------------------------------------
     @api.depends("repo_url")
@@ -549,7 +596,6 @@ class Commit0RepoEvaluation(models.Model):
         if self.repo_status != "pass":
             raise UserError("Repository status must be set to 'Pass' before advancing.")
         self.write({"current_stage": "stage3"})
-        self.action_start_automation()
 
     def action_stage2_fail(self):
         """Fail QC checklist — repository is not suitable."""
@@ -569,7 +615,7 @@ class Commit0RepoEvaluation(models.Model):
     # Stage 3 Actions
     # -------------------------------------------------------------------------
     def action_start_automation(self):
-        """Kick off asynchronous Stage 3 automation tasks."""
+        """Kick off all Stage 3 tasks sequentially (legacy, kept for compatibility)."""
         self.ensure_one()
         self.write(
             {
@@ -585,6 +631,54 @@ class Commit0RepoEvaluation(models.Model):
         uid = self.env.uid
         self.env.cr.postcommit.add(
             lambda: pipeline_executor.submit_stage3_async(dbname, uid, rec_id)
+        )
+
+    def _submit_stage3_task(self, status_field, submit_fn):
+        """Reset a Stage 3 sub-task status and submit it to the background executor."""
+        self.ensure_one()
+        if self.current_stage != "stage3":
+            raise UserError("This action is only available during Stage 3.")
+        self.write({status_field: "pending", "error_message": False})
+        from . import pipeline_executor
+
+        rec_id = self.id
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        submit = getattr(pipeline_executor, submit_fn)
+        self.env.cr.postcommit.add(lambda: submit(dbname, uid, rec_id))
+
+    def action_start_fork(self):
+        self._submit_stage3_task("fork_status", "submit_fork_async")
+
+    def action_retry_fork(self):
+        self._submit_stage3_task("fork_status", "submit_fork_async")
+
+    def action_start_reference_commit(self):
+        self.ensure_one()
+        if self.fork_status != "done":
+            raise UserError("Fork must be completed before committing reference code.")
+        self._submit_stage3_task(
+            "reference_commit_status", "submit_reference_commit_async"
+        )
+
+    def action_retry_reference_commit(self):
+        self._submit_stage3_task(
+            "reference_commit_status", "submit_reference_commit_async"
+        )
+
+    def action_start_document_create(self):
+        self.ensure_one()
+        if self.reference_commit_status != "done":
+            raise UserError(
+                "Reference commit must be completed before creating the document."
+            )
+        self._submit_stage3_task(
+            "document_create_status", "submit_document_create_async"
+        )
+
+    def action_retry_document_create(self):
+        self._submit_stage3_task(
+            "document_create_status", "submit_document_create_async"
         )
 
     def action_advance_to_stage4(self):

@@ -27,6 +27,9 @@
                         <setting string="Docker Status" help="Whether Docker is available on this system.">
                             <field name="docker_available" widget="boolean"/>
                         </setting>
+                        <setting string="Task Allocation" help="Maximum number of active (non-terminal) tasks per user.">
+                            <field name="max_active_tasks"/>
+                        </setting>
                     </block>
                 </app>
             </xpath>

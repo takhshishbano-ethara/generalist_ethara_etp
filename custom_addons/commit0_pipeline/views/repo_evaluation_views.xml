@@ -1,262 +1,456 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- ================================================================== -->
-    <!-- Form View — 6-Stage Progressive Wizard                            -->
-    <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_view_form" model="ir.ui.view">
         <field name="name">commit0.repo.evaluation.form</field>
         <field name="model">commit0.repo.evaluation</field>
         <field name="arch" type="xml">
-            <form string="Kaiju Task">
+            <form string="Kaiju Task" class="kj-task-form">
                 <header>
+                    <button name="action_release_task"
+                            string="Release Task"
+                            type="object"
+                            class="btn-warning"
+                            groups="commit0_pipeline.group_commit0_admin"
+                            invisible="not user_id or current_stage in ('done', 'failed')"
+                            confirm="Release this task back to the unassigned pool?"/>
                     <field name="current_stage" widget="statusbar"
                            statusbar_visible="stage1,stage2,stage3,stage4,stage5,stage6,done"/>
                 </header>
+
+                <!-- Terminal state alerts -->
+                <div class="alert alert-danger text-center fs-4" role="alert"
+                     invisible="terminal_state in ('none', 'complete')">
+                    <span invisible="terminal_state != 'repo_not_suitable'">
+                        <i class="fa fa-ban me-2"/>Repository Not Suitable
+                    </span>
+                    <span invisible="terminal_state != 'rejected'">
+                        <i class="fa fa-times-circle me-2"/>Spec Document Rejected
+                    </span>
+                    <span invisible="terminal_state != 'not_stubbed'">
+                        <i class="fa fa-exclamation-triangle me-2"/>Not Stubbed Properly
+                    </span>
+                </div>
+                <div class="alert alert-success text-center fs-4" role="alert"
+                     invisible="terminal_state != 'complete'">
+                    <i class="fa fa-check-circle me-2"/>Pipeline Complete
+                </div>
+
                 <sheet>
-                    <!-- Hidden fields for visibility control -->
+                    <!-- Hidden technical fields -->
                     <field name="terminal_state" invisible="1"/>
                     <field name="stage3_complete" invisible="1"/>
                     <field name="doc_valid" invisible="1"/>
                     <field name="repo_status" invisible="1"/>
                     <field name="stub_proper" invisible="1"/>
-                    <field name="current_stage" widget="auto_refresh" invisible="1"/>
+                    <field name="validation_status" invisible="1"/>
+                    <field name="fork_status" invisible="1"/>
+                    <field name="reference_commit_status" invisible="1"/>
+                    <field name="document_create_status" invisible="1"/>
+                    <field name="docker_status" invisible="1"/>
 
-                    <!-- ================================================= -->
-                    <!-- Terminal State Banners                             -->
-                    <!-- ================================================= -->
-                    <div class="alert alert-danger text-center fs-4" role="alert"
-                         invisible="terminal_state == 'none'">
-                        <span invisible="terminal_state != 'repo_not_suitable'">Repository Not Suitable</span>
-                        <span invisible="terminal_state != 'rejected'">Spec Document Rejected</span>
-                        <span invisible="terminal_state != 'not_stubbed'">Not Stubbed Properly</span>
-                    </div>
-                    <div class="alert alert-success text-center fs-4" role="alert"
-                         invisible="terminal_state != 'complete'">
-                        Pipeline Complete
+                    <!-- Stat buttons -->
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" icon="fa-check-circle"
+                                invisible="current_stage == 'stage1'" disabled="1">
+                            <field name="repo_status" string="QC Status" widget="badge"
+                                   decoration-success="repo_status == 'pass'"
+                                   decoration-danger="repo_status == 'fail'"
+                                   decoration-muted="repo_status == 'pending'"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-code-fork"
+                                invisible="current_stage in ('stage1', 'stage2')" disabled="1">
+                            <field name="fork_status" string="Fork" widget="badge"
+                                   decoration-success="fork_status == 'done'"
+                                   decoration-info="fork_status == 'running'"
+                                   decoration-danger="fork_status == 'failed'"
+                                   decoration-muted="fork_status == 'pending'"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-cube"
+                                invisible="current_stage not in ('stage6', 'done', 'failed')" disabled="1">
+                            <field name="docker_status" string="Docker" widget="badge"
+                                   decoration-success="docker_status == 'done'"
+                                   decoration-info="docker_status in ('generating','llm_qc','multiarch','testing')"
+                                   decoration-danger="docker_status == 'failed'"/>
+                        </button>
                     </div>
 
-                    <!-- ================================================= -->
-                    <!-- STAGE 1: Repository Understanding                 -->
-                    <!-- Always visible (no invisible condition)            -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 1: Repository Understanding</h4>
-                        </div>
-                        <div style="padding: 16px;">
-                            <group>
-                                <group>
-                                    <field name="name" string="Instance ID" readonly="1"/>
-                                    <field name="repo_url" widget="url" string="GitHub URL"/>
-                                </group>
-                                <group>
-                                    <field name="repo_name"/>
-                                    <field name="user_id" widget="many2one_avatar_user"/>
-                                </group>
-                            </group>
-                            <!-- File browser (uses GitHub API when no clone_path) -->
+                    <!-- Ribbons -->
+                    <widget name="web_ribbon" title="Not Suitable" bg_color="text-bg-danger"
+                            invisible="terminal_state != 'repo_not_suitable'"/>
+                    <widget name="web_ribbon" title="Spec Rejected" bg_color="text-bg-danger"
+                            invisible="terminal_state != 'rejected'"/>
+                    <widget name="web_ribbon" title="Stubs Rejected" bg_color="text-bg-danger"
+                            invisible="terminal_state != 'not_stubbed'"/>
+                    <widget name="web_ribbon" title="Complete" bg_color="text-bg-success"
+                            invisible="terminal_state != 'complete'"/>
+
+                    <!-- Title + identity -->
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group>
+                            <field name="repo_url" widget="url" string="GitHub URL"/>
+                            <field name="repo_name"/>
+                        </group>
+                        <group>
+                            <field name="user_id" widget="many2one_avatar_user" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <field name="current_stage" widget="auto_refresh" nolabel="1"/>
+
+                    <!-- ================================================ -->
+                    <!-- STAGE 1: Repository Understanding                -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage == 'stage1'"/>
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage1'"/>
+                        Stage 1 — Repository Understanding
+                    </div>
+                    <div class="kj-card">
+                        <!-- Active header: shown when stage1 is current -->
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="current_stage != 'stage1'">Repository Browser</div>
+                        <!-- Done header: shown after stage1 -->
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="current_stage == 'stage1'">Repository Browser</div>
+                        <div class="kj-card-body">
                             <field name="clone_path" widget="repo_browser"
                                    invisible="not repo_url" nolabel="1"/>
-                            <!-- Gate: only show when at stage1 and not failed -->
-                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
-                                 invisible="current_stage != 'stage1'">
-                                <div class="d-flex align-items-center gap-3">
-                                    <field name="repo_understood" widget="boolean_toggle"/>
-                                    <label for="repo_understood"
-                                           string="I have gained a complete understanding of the repository."/>
-                                </div>
-                                <button name="action_confirm_understanding"
-                                        string="Go to next step"
-                                        type="object"
-                                        class="btn btn-primary mt-3"
-                                        invisible="not repo_understood"/>
+                        </div>
+                    </div>
+                    <div class="kj-card" invisible="current_stage != 'stage1'">
+                        <div class="kj-card-header kj-card-header-active">Confirm Understanding</div>
+                        <div class="kj-card-body">
+                            <div class="d-flex align-items-center gap-3 mb-3">
+                                <field name="repo_understood" widget="boolean_toggle"/>
+                                <label for="repo_understood"
+                                       string="I have gained a complete understanding of the repository."/>
                             </div>
+                            <button name="action_confirm_understanding"
+                                    string="Go to next step"
+                                    type="object"
+                                    class="btn btn-primary"
+                                    invisible="not repo_understood"/>
                         </div>
                     </div>
 
-                    <!-- ================================================= -->
-                    <!-- STAGE 2: QC Checklist                             -->
-                    <!-- Visible when stage >= stage2                       -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
-                         invisible="current_stage == 'stage1'">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 2: Repository QC Checklist</h4>
+                    <!-- ================================================ -->
+                    <!-- STAGE 2: QC Checklist                            -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <!-- Done icon: shown for completed stages -->
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage in ('stage1', 'stage2')"/>
+                        <!-- Active icon: shown when this is the current stage -->
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage2'"/>
+                        <!-- Locked icon: shown when stage not yet reached -->
+                        <i class="fa fa-lock text-muted me-1"
+                           invisible="current_stage != 'stage1'"/>
+                        Stage 2 — Repository QC Checklist
+                    </div>
+                    <!-- Locked placeholder: visible when stage not yet reached -->
+                    <div class="kj-card kj-stage-locked" invisible="current_stage != 'stage1'">
+                        <div class="kj-card-header">Validation</div>
+                        <div class="kj-card-body text-muted fst-italic">
+                            Complete Stage 1 to unlock the QC checklist.
                         </div>
-                        <div style="padding: 16px;">
-                            <h5>Does the Repository follow the below list?</h5>
-                            <!-- Validate button -->
-                            <field name="validation_status" invisible="1"/>
+                    </div>
+                    <!-- Active/Done content: visible once stage is reached -->
+                    <div class="kj-card" invisible="current_stage == 'stage1'">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="current_stage != 'stage2'">Validation</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="current_stage in ('stage1', 'stage2')">Validation</div>
+                        <div class="kj-card-body">
                             <div class="mb-3">
                                 <button name="action_validate_repo"
                                         string="Run Validation (Filter 1 + 2)"
                                         type="object"
                                         class="btn btn-info"
-                                        invisible="validation_status == 'running'"/>
+                                        invisible="validation_status == 'running' or current_stage != 'stage2'"/>
                                 <span class="badge text-bg-success ms-2"
                                       invisible="validation_status != 'done'">Validation Complete</span>
                                 <span class="badge text-bg-warning ms-2"
-                                      invisible="validation_status != 'running'">Validating...</span>
+                                      invisible="validation_status != 'running'">Validating…</span>
                             </div>
-                            <group>
-                                <field name="check_language"
-                                       string="1. Python-Only Implementation Without Native Extensions"
-                                       help="The repository must be 95%+ Python and should not rely on any compiled extensions or foreign language bindings (such as C/C++/Rust via ctypes, Cython, pybind11, or similar tools)."/>
-                                <field name="check_tests"
-                                       string="2. Comprehensive, Fast, and CPU-Only Test Suite Using Pytest"
-                                       help="Must use pytest, run in under 30 minutes on CPU only, no GPU requirements."/>
-                                <field name="check_documentation"
-                                       string="3. Complete and Structured Documentation with API and Type Specifications"
-                                       help="Must have API reference, user guide, and type annotations."/>
-                                <field name="check_github_metrics"
-                                       string="4. Strong Repository Maturity and Community Quality Signals"
-                                       help="5K+ stars, not a fork or archived, active maintenance."/>
-                                <field name="check_project_structure"
-                                       string="5. Clean, Standardized Project Structure with Clear Separation of Concerns"
-                                       help="Has src/ layout, installable via pip, proper packaging."/>
-                                <field name="check_build"
-                                       string="6. Reliable and Lightweight Build Process in Minimal Environments"
-                                       help="Docker-clean build with no system packages required."/>
-                                <field name="check_code_quality"
-                                       string="7. Readable, Modular, and Maintainable Codebase"
-                                       help="Code parses cleanly, separate src and test directories."/>
-                                <field name="check_reliability"
-                                       string="8. Deterministic, Isolated, and Dependency-Free Test Behavior"
-                                       help="Tests are not flaky, no network calls, no side effects."/>
-                                <field name="check_complexity"
-                                       string="9. Balanced Project Size, Complexity, and Dependency Footprint"
-                                       help="50-500 functions, no circular imports, manageable dependency count."/>
-                            </group>
-                            <!-- Validation Report -->
-                            <div invisible="not validation_details" class="mt-2 mb-3">
-                                <field name="validation_details" readonly="1" nolabel="1"
-                                       widget="code"/>
-                            </div>
-
-                            <!-- Gate: repo status toggle + failure reason -->
-                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
-                                 invisible="current_stage != 'stage2'">
-                                <group>
-                                    <field name="repo_status" widget="radio"
-                                           options="{'horizontal': true}"
-                                           string="Repo Status"/>
-                                </group>
-                                <!-- FAIL path -->
-                                <div invisible="repo_status != 'fail'">
-                                    <field name="failure_reason"
-                                           placeholder="Explain why the repository is not suitable..."
-                                           required="repo_status == 'fail'"/>
-                                    <button name="action_stage2_fail"
-                                            string="Repository Not Suitable"
-                                            type="object"
-                                            class="btn btn-danger mt-2"
-                                            confirm="Mark this repository as not suitable? This action cannot be undone."/>
+                            <div class="kj-checklist">
+                                <div class="kj-check-item">
+                                    <field name="check_language" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_language"
+                                           string="1. Python-Only Implementation Without Native Extensions"
+                                           help="The repository must be 95%+ Python and should not rely on any compiled extensions or foreign language bindings."/>
                                 </div>
-                                <!-- PASS path -->
-                                <button name="action_stage2_pass"
-                                        string="Go to next step"
-                                        type="object"
-                                        class="btn btn-primary mt-2"
-                                        invisible="repo_status != 'pass'"/>
+                                <div class="kj-check-item">
+                                    <field name="check_tests" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_tests"
+                                           string="2. Comprehensive, Fast, and CPU-Only Test Suite Using Pytest"
+                                           help="Must use pytest, run in under 30 minutes on CPU only, no GPU requirements."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_documentation" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_documentation"
+                                           string="3. Complete and Structured Documentation with API and Type Specifications"
+                                           help="Must have API reference, user guide, and type annotations."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_github_metrics" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_github_metrics"
+                                           string="4. Strong Repository Maturity and Community Quality Signals"
+                                           help="5K+ stars, not a fork or archived, active maintenance."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_project_structure" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_project_structure"
+                                           string="5. Clean, Standardized Project Structure with Clear Separation of Concerns"
+                                           help="Has src/ layout, installable via pip, proper packaging."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_build" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_build"
+                                           string="6. Reliable and Lightweight Build Process in Minimal Environments"
+                                           help="Docker-clean build with no system packages required."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_code_quality" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_code_quality"
+                                           string="7. Readable, Modular, and Maintainable Codebase"
+                                           help="Code parses cleanly, separate src and test directories."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_reliability" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_reliability"
+                                           string="8. Deterministic, Isolated, and Dependency-Free Test Behavior"
+                                           help="Tests are not flaky, no network calls, no side effects."/>
+                                </div>
+                                <div class="kj-check-item">
+                                    <field name="check_complexity" widget="boolean_toggle" nolabel="1"/>
+                                    <label for="check_complexity"
+                                           string="9. Balanced Project Size, Complexity, and Dependency Footprint"
+                                           help="50-500 functions, no circular imports, manageable dependency count."/>
+                                </div>
+                            </div>
+                            <div invisible="not validation_details" class="mt-2 mb-3">
+                                <field name="validation_details" readonly="1" nolabel="1" widget="code"/>
                             </div>
                         </div>
                     </div>
-
-                    <!-- ================================================= -->
-                    <!-- STAGE 3: Automated Preparation                    -->
-                    <!-- Visible when stage >= stage3                       -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
-                         invisible="current_stage in ('stage1', 'stage2')">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 3: Automated Preparation</h4>
-                        </div>
-                        <div style="padding: 16px;">
+                    <!-- QC Decision card: only when stage2 is active -->
+                    <div class="kj-card" invisible="current_stage != 'stage2'">
+                        <div class="kj-card-header kj-card-header-active">QC Decision</div>
+                        <div class="kj-card-body">
                             <group>
-                                <group string="1. Fork Public Repo into Ethara-AI">
-                                    <field name="fork_status" widget="badge"
-                                           decoration-success="fork_status == 'done'"
-                                           decoration-info="fork_status == 'running'"
-                                           decoration-danger="fork_status == 'failed'"
-                                           decoration-muted="fork_status == 'pending'"/>
-                                    <field name="fork_progress" widget="progressbar"/>
-                                    <field name="fork_url" widget="url"
-                                           invisible="not fork_url"/>
-                                </group>
-                                <group string="2. Commit Reference Code">
-                                    <field name="reference_commit_status" widget="badge"
-                                           decoration-success="reference_commit_status == 'done'"
-                                           decoration-info="reference_commit_status == 'running'"
-                                           decoration-danger="reference_commit_status == 'failed'"
-                                           decoration-muted="reference_commit_status == 'pending'"/>
-                                    <field name="reference_commit_progress" widget="progressbar"/>
-                                    <field name="base_commit"
-                                           invisible="not base_commit"/>
-                                    <field name="reference_commit"
-                                           invisible="not reference_commit"/>
-                                </group>
+                                <field name="repo_status" widget="radio"
+                                       options="{'horizontal': true}" string="Repo Status"/>
                             </group>
-                            <group>
-                                <group string="3. Create Document">
-                                    <field name="document_create_status" widget="badge"
-                                           decoration-success="document_create_status == 'done'"
-                                           decoration-info="document_create_status == 'running'"
-                                           decoration-danger="document_create_status == 'failed'"
-                                           decoration-muted="document_create_status == 'pending'"/>
-                                    <field name="document_create_progress" widget="progressbar"/>
-                                </group>
-                                <group/>
-                            </group>
-                            <button name="action_advance_to_stage4"
-                                    string="Continue to Spec Review"
+                            <div invisible="repo_status != 'fail'">
+                                <field name="failure_reason"
+                                       placeholder="Explain why the repository is not suitable..."
+                                       required="repo_status == 'fail'"/>
+                                <button name="action_stage2_fail"
+                                        string="Repository Not Suitable"
+                                        type="object"
+                                        class="btn btn-danger mt-2"
+                                        confirm="Mark this repository as not suitable? This action cannot be undone."/>
+                            </div>
+                            <button name="action_stage2_pass"
+                                    string="Go to next step"
                                     type="object"
                                     class="btn btn-primary mt-2"
-                                    invisible="not stage3_complete or current_stage != 'stage3'"/>
+                                    invisible="repo_status != 'pass'"/>
                         </div>
                     </div>
 
-                    <!-- ================================================= -->
-                    <!-- STAGE 4: Spec Document Review                     -->
-                    <!-- Visible when stage >= stage4                       -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
-                         invisible="current_stage in ('stage1', 'stage2', 'stage3')">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 4: Spec Document Review</h4>
+                    <!-- ================================================ -->
+                    <!-- STAGE 3: Automated Preparation                   -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage in ('stage1', 'stage2', 'stage3')"/>
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage3'"/>
+                        <i class="fa fa-lock text-muted me-1"
+                           invisible="current_stage not in ('stage1', 'stage2')"/>
+                        Stage 3 — Automated Preparation
+                    </div>
+                    <!-- Locked placeholder -->
+                    <div class="kj-card kj-stage-locked" invisible="current_stage not in ('stage1', 'stage2')">
+                        <div class="kj-card-header">Automation Tasks</div>
+                        <div class="kj-card-body text-muted fst-italic">
+                            Complete Stage 2 to begin automated preparation.
                         </div>
-                        <div style="padding: 16px;">
+                    </div>
+                    <!-- Active/Done: 3 individual sub-task cards -->
+
+                    <!-- Sub-task 1: Fork -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2')">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="fork_status == 'done'">1. Fork Public Repo into Ethara-AI</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="fork_status != 'done'">1. Fork Public Repo into Ethara-AI</div>
+                        <div class="kj-card-body">
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <field name="fork_status" widget="badge"
+                                       decoration-success="fork_status == 'done'"
+                                       decoration-info="fork_status == 'running'"
+                                       decoration-danger="fork_status == 'failed'"
+                                       decoration-muted="fork_status == 'pending'" nolabel="1"/>
+                                <field name="fork_progress" widget="progressbar" nolabel="1"
+                                       invisible="fork_status not in ('running',)"/>
+                            </div>
+                            <field name="fork_url" widget="url" invisible="not fork_url"/>
+                            <div class="mt-2" invisible="current_stage != 'stage3'">
+                                <button name="action_start_fork"
+                                        string="Start Fork"
+                                        type="object"
+                                        class="btn btn-primary me-2"
+                                        invisible="fork_status not in ('pending',)"/>
+                                <button name="action_retry_fork"
+                                        string="Retry Fork"
+                                        type="object"
+                                        class="btn btn-warning"
+                                        invisible="fork_status != 'failed'"
+                                        confirm="Retry the fork operation?"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-task 2: Reference Commit -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2')">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="reference_commit_status == 'done'">2. Commit Reference Code</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="reference_commit_status != 'done'">2. Commit Reference Code</div>
+                        <div class="kj-card-body">
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <field name="reference_commit_status" widget="badge"
+                                       decoration-success="reference_commit_status == 'done'"
+                                       decoration-info="reference_commit_status == 'running'"
+                                       decoration-danger="reference_commit_status == 'failed'"
+                                       decoration-muted="reference_commit_status == 'pending'" nolabel="1"/>
+                                <field name="reference_commit_progress" widget="progressbar" nolabel="1"
+                                       invisible="reference_commit_status not in ('running',)"/>
+                            </div>
+                            <group invisible="not base_commit">
+                                <field name="base_commit"/>
+                                <field name="reference_commit"/>
+                            </group>
+                            <div class="mt-2" invisible="current_stage != 'stage3'">
+                                <button name="action_start_reference_commit"
+                                        string="Start Reference Commit"
+                                        type="object"
+                                        class="btn btn-primary me-2"
+                                        invisible="reference_commit_status not in ('pending',) or fork_status != 'done'"/>
+                                <button name="action_retry_reference_commit"
+                                        string="Retry Reference Commit"
+                                        type="object"
+                                        class="btn btn-warning"
+                                        invisible="reference_commit_status != 'failed'"
+                                        confirm="Retry the reference commit operation?"/>
+                                <span class="text-muted fst-italic ms-2"
+                                      invisible="fork_status == 'done' or reference_commit_status != 'pending'">
+                                    <i class="fa fa-info-circle me-1"/>Complete Fork first
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-task 3: Create Document -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2')">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="document_create_status == 'done'">3. Create Document</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="document_create_status != 'done'">3. Create Document</div>
+                        <div class="kj-card-body">
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <field name="document_create_status" widget="badge"
+                                       decoration-success="document_create_status == 'done'"
+                                       decoration-info="document_create_status == 'running'"
+                                       decoration-danger="document_create_status == 'failed'"
+                                       decoration-muted="document_create_status == 'pending'" nolabel="1"/>
+                                <field name="document_create_progress" widget="progressbar" nolabel="1"
+                                       invisible="document_create_status not in ('running',)"/>
+                            </div>
+                            <div class="mt-2" invisible="current_stage != 'stage3'">
+                                <button name="action_start_document_create"
+                                        string="Start Document Creation"
+                                        type="object"
+                                        class="btn btn-primary me-2"
+                                        invisible="document_create_status not in ('pending',) or reference_commit_status != 'done'"/>
+                                <button name="action_retry_document_create"
+                                        string="Retry Document Creation"
+                                        type="object"
+                                        class="btn btn-warning"
+                                        invisible="document_create_status != 'failed'"
+                                        confirm="Retry the document creation?"/>
+                                <span class="text-muted fst-italic ms-2"
+                                      invisible="reference_commit_status == 'done' or document_create_status != 'pending'">
+                                    <i class="fa fa-info-circle me-1"/>Complete Reference Commit first
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ================================================ -->
+                    <!-- STAGE 4: Spec Document Review                    -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4')"/>
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage4'"/>
+                        <i class="fa fa-lock text-muted me-1"
+                           invisible="current_stage not in ('stage1', 'stage2', 'stage3')"/>
+                        Stage 4 — Spec Document Review
+                    </div>
+                    <!-- Locked placeholder -->
+                    <div class="kj-card kj-stage-locked" invisible="current_stage not in ('stage1', 'stage2', 'stage3')">
+                        <div class="kj-card-header">Spec Document</div>
+                        <div class="kj-card-body text-muted fst-italic">
+                            Complete Stage 3 to review the spec document.
+                        </div>
+                    </div>
+                    <!-- Active/Done content -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2', 'stage3')">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="current_stage != 'stage4'">Spec Document</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4')">Spec Document</div>
+                        <div class="kj-card-body">
                             <group>
                                 <field name="spec_doc_format" widget="radio"
                                        options="{'horizontal': true}"/>
                             </group>
-                            <!-- PDF viewer -->
-                            <div invisible="spec_doc_format != 'pdf'" class="mb-3"
-                                 style="height: 600px;">
-                                <field name="spec_pdf" widget="pdf_viewer"
-                                       readonly="1" nolabel="1"/>
+                            <div invisible="spec_doc_format != 'pdf'" class="mb-3 overflow-auto">
+                                <field name="spec_pdf" widget="pdf_viewer" readonly="1" nolabel="1"/>
                                 <field name="spec_pdf_filename" invisible="1"/>
                             </div>
-                            <!-- JSON viewer -->
                             <div invisible="spec_doc_format != 'json'" class="mb-3">
                                 <field name="spec_json" widget="code" readonly="1" nolabel="1"/>
                             </div>
-                            <!-- YAML viewer -->
                             <div invisible="spec_doc_format != 'yaml'" class="mb-3">
                                 <field name="spec_yaml" widget="code" readonly="1" nolabel="1"/>
                             </div>
-
-                            <h5 class="mt-3">Validation Checklist</h5>
+                        </div>
+                    </div>
+                    <!-- Spec Validation card: only when stage4 is active -->
+                    <div class="kj-card" invisible="current_stage != 'stage4'">
+                        <div class="kj-card-header kj-card-header-active">Spec Validation</div>
+                        <div class="kj-card-body">
                             <group>
                                 <field name="doc_check_related" string="Related to library"/>
                                 <field name="doc_check_not_blank" string="Does not contain any blank pages"/>
                                 <field name="doc_check_meaningful" string="Contains meaningful data"/>
                             </group>
-
-                            <!-- Gate -->
-                            <div class="mt-3" invisible="current_stage != 'stage4'">
+                            <div class="mt-3">
                                 <button name="action_reject_spec"
-                                        string="Rejected -- Invalid Spec Document"
+                                        string="Rejected — Invalid Spec Document"
                                         type="object"
                                         class="btn btn-danger me-2"
                                         confirm="Reject this spec document? This cannot be undone."/>
@@ -269,67 +463,98 @@
                         </div>
                     </div>
 
-                    <!-- ================================================= -->
-                    <!-- STAGE 5: Stub Code Review                         -->
-                    <!-- Visible when stage >= stage5                       -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
-                         invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4')">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 5: Stub Code Review</h4>
+                    <!-- ================================================ -->
+                    <!-- STAGE 5: Stub Code Review                        -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')"/>
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage5'"/>
+                        <i class="fa fa-lock text-muted me-1"
+                           invisible="current_stage not in ('stage1', 'stage2', 'stage3', 'stage4')"/>
+                        Stage 5 — Stub Code Review
+                    </div>
+                    <!-- Locked placeholder -->
+                    <div class="kj-card kj-stage-locked" invisible="current_stage not in ('stage1', 'stage2', 'stage3', 'stage4')">
+                        <div class="kj-card-header">Stub Comparison</div>
+                        <div class="kj-card-body text-muted fst-italic">
+                            Complete Stage 4 to review the stubbed code.
                         </div>
-                        <div style="padding: 16px;">
-                            <group>
-                                <group string="Before Stubbing">
+                    </div>
+                    <!-- Active/Done content: side-by-side comparison -->
+                    <div class="kj-split" invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4')">
+                        <div class="kj-split-panel">
+                            <div class="kj-card">
+                                <div class="kj-card-header">Before Stubbing</div>
+                                <div class="kj-card-body">
                                     <field name="clone_path_original" widget="repo_browser"
-                                           nolabel="1"
-                                           invisible="not clone_path_original"/>
-                                </group>
-                                <group string="After Stubbing">
-                                    <field name="clone_path_stubbed" widget="repo_browser"
-                                           nolabel="1"
-                                           invisible="not clone_path_stubbed"/>
-                                </group>
-                            </group>
-
-                            <!-- Gate -->
-                            <div class="mt-3 p-3 rounded" style="background-color: #f8f9fa;"
-                                 invisible="current_stage != 'stage5'">
-                                <group>
-                                    <field name="stub_proper" widget="radio"
-                                           options="{'horizontal': true}"
-                                           string="Is the repository stubbed properly according to the guidelines?"/>
-                                </group>
-                                <!-- NO path -->
-                                <div invisible="stub_proper != 'no'">
-                                    <field name="stub_failure_reason"
-                                           placeholder="Explain what is wrong with the stubbing..."
-                                           required="stub_proper == 'no'"/>
-                                    <button name="action_stub_reject"
-                                            string="Not Stubbed Properly"
-                                            type="object"
-                                            class="btn btn-danger mt-2"/>
+                                           nolabel="1" invisible="not clone_path_original"/>
                                 </div>
-                                <!-- YES path: Submit button -->
-                                <button name="action_submit"
-                                        string="Submit"
-                                        type="object"
-                                        class="btn btn-success btn-lg mt-3"
-                                        invisible="stub_proper != 'yes'"/>
+                            </div>
+                        </div>
+                        <div class="kj-split-panel">
+                            <div class="kj-card">
+                                <div class="kj-card-header">After Stubbing</div>
+                                <div class="kj-card-body">
+                                    <field name="clone_path_stubbed" widget="repo_browser"
+                                           nolabel="1" invisible="not clone_path_stubbed"/>
+                                </div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- ================================================= -->
-                    <!-- STAGE 6: Docker Generation                        -->
-                    <!-- Visible when stage >= stage6                       -->
-                    <!-- ================================================= -->
-                    <div style="border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 16px; overflow: hidden;"
-                         invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')">
-                        <div style="background-color: #0d6efd; color: white; padding: 12px 16px;">
-                            <h4 style="margin: 0; color: white;">Stage 6: Docker Generation</h4>
+                    <!-- Stub Decision card: only when stage5 is active -->
+                    <div class="kj-card" invisible="current_stage != 'stage5'">
+                        <div class="kj-card-header kj-card-header-active">Stub Decision</div>
+                        <div class="kj-card-body">
+                            <group>
+                                <field name="stub_proper" widget="radio"
+                                       options="{'horizontal': true}"
+                                       string="Is the repository stubbed properly according to the guidelines?"/>
+                            </group>
+                            <div invisible="stub_proper != 'no'">
+                                <field name="stub_failure_reason"
+                                       placeholder="Explain what is wrong with the stubbing..."
+                                       required="stub_proper == 'no'"/>
+                                <button name="action_stub_reject"
+                                        string="Not Stubbed Properly"
+                                        type="object"
+                                        class="btn btn-danger mt-2"/>
+                            </div>
+                            <button name="action_submit"
+                                    string="Submit"
+                                    type="object"
+                                    class="btn btn-success btn-lg mt-3"
+                                    invisible="stub_proper != 'yes'"/>
                         </div>
-                        <div style="padding: 16px;">
+                    </div>
+
+                    <!-- ================================================ -->
+                    <!-- STAGE 6: Docker Generation                       -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-check-circle text-success me-1"
+                           invisible="current_stage not in ('done',)"/>
+                        <i class="fa fa-arrow-circle-right text-primary me-1"
+                           invisible="current_stage != 'stage6'"/>
+                        <i class="fa fa-lock text-muted me-1"
+                           invisible="current_stage not in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')"/>
+                        Stage 6 — Docker Generation
+                    </div>
+                    <!-- Locked placeholder -->
+                    <div class="kj-card kj-stage-locked" invisible="current_stage not in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')">
+                        <div class="kj-card-header">Docker Build</div>
+                        <div class="kj-card-body text-muted fst-italic">
+                            Complete Stage 5 to begin Docker image generation.
+                        </div>
+                    </div>
+                    <!-- Active/Done content -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2', 'stage3', 'stage4', 'stage5')">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="current_stage != 'stage6'">Docker Build</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="current_stage != 'done'">Docker Build</div>
+                        <div class="kj-card-body">
                             <group>
                                 <group>
                                     <field name="docker_status" widget="badge"
@@ -339,48 +564,99 @@
                                     <field name="docker_progress" widget="progressbar"/>
                                 </group>
                                 <group>
-                                    <field name="docker_image_arm"
-                                           invisible="not docker_image_arm"/>
-                                    <field name="docker_image_amd"
-                                           invisible="not docker_image_amd"/>
-                                    <field name="ecr_url" widget="url"
-                                           invisible="not ecr_url"/>
+                                    <field name="docker_image_arm" invisible="not docker_image_arm"/>
+                                    <field name="docker_image_amd" invisible="not docker_image_amd"/>
+                                    <field name="ecr_url" widget="url" invisible="not ecr_url"/>
                                 </group>
                             </group>
                         </div>
                     </div>
 
-                    <!-- ================================================= -->
-                    <!-- LOGS (notebook at bottom)                          -->
-                    <!-- ================================================= -->
-                    <notebook>
-                        <page string="Logs" name="logs">
+                    <!-- ================================================ -->
+                    <!-- Pipeline Output (on completion)                  -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider" invisible="terminal_state != 'complete'">
+                        <i class="fa fa-trophy text-success me-1"/>
+                        Pipeline Output
+                    </div>
+                    <div class="kj-card" invisible="terminal_state != 'complete'">
+                        <div class="kj-card-header kj-card-header-done">Final Artifacts</div>
+                        <div class="kj-card-body">
                             <group>
-                                <field name="log_output" readonly="1"/>
-                                <field name="error_message" readonly="1"
-                                       invisible="not error_message"
-                                       decoration-danger="1"/>
+                                <group>
+                                    <field name="fork_url" widget="url" readonly="1"/>
+                                    <field name="ecr_url" widget="url" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="docker_image_arm" readonly="1"/>
+                                    <field name="docker_image_amd" readonly="1"/>
+                                </group>
                             </group>
-                        </page>
-                    </notebook>
+                        </div>
+                    </div>
+
+                    <!-- ================================================ -->
+                    <!-- Logs + Details (always at bottom)                 -->
+                    <!-- ================================================ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-file-text-o me-1"/>
+                        Logs &amp; Details
+                    </div>
+                    <div class="kj-card">
+                        <div class="kj-card-header">Log Output</div>
+                        <div class="kj-card-body">
+                            <field name="log_output" readonly="1" nolabel="1"
+                                   placeholder="No log output yet."/>
+                            <div invisible="not error_message" class="mt-2">
+                                <div class="alert alert-danger mb-0">
+                                    <field name="error_message" readonly="1" nolabel="1"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="kj-card">
+                        <div class="kj-card-header">Details</div>
+                        <div class="kj-card-body">
+                            <group>
+                                <group string="Repository">
+                                    <field name="fork_url" widget="url" readonly="1"/>
+                                    <field name="base_commit" readonly="1"/>
+                                    <field name="reference_commit" readonly="1"/>
+                                </group>
+                                <group string="Configuration">
+                                    <field name="src_dir" readonly="1"/>
+                                    <field name="test_dir" readonly="1"/>
+                                    <field name="python_version" readonly="1"/>
+                                    <field name="install_cmd" readonly="1"/>
+                                </group>
+                            </group>
+                            <group>
+                                <group string="Spec Document">
+                                    <field name="spec_doc_format" readonly="1"/>
+                                </group>
+                                <group string="Docker">
+                                    <field name="docker_image_arm" readonly="1"/>
+                                    <field name="docker_image_amd" readonly="1"/>
+                                    <field name="ecr_url" widget="url" readonly="1"/>
+                                </group>
+                            </group>
+                        </div>
+                    </div>
                 </sheet>
                 <!-- <chatter/> -->
             </form>
         </field>
     </record>
 
-    <!-- ================================================================== -->
-    <!-- List View                                                          -->
-    <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_view_tree" model="ir.ui.view">
         <field name="name">commit0.repo.evaluation.list</field>
         <field name="model">commit0.repo.evaluation</field>
         <field name="arch" type="xml">
-            <list string="Kaiju Tasks"
+            <list string="Kaiju Tasks" sample="1"
                   decoration-success="terminal_state == 'complete'"
                   decoration-danger="current_stage == 'failed'"
                   decoration-info="current_stage not in ('failed', 'done')">
-                <field name="name"/>
+                <field name="name" decoration-bf="1"/>
                 <field name="repo_name"/>
                 <field name="repo_url" widget="url"/>
                 <field name="current_stage" widget="badge"
@@ -397,9 +673,6 @@
         </field>
     </record>
 
-    <!-- ================================================================== -->
-    <!-- Search View                                                        -->
-    <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_view_search" model="ir.ui.view">
         <field name="name">commit0.repo.evaluation.search</field>
         <field name="model">commit0.repo.evaluation</field>
@@ -418,6 +691,8 @@
                         domain="[('terminal_state', '=', 'complete')]"/>
                 <filter string="Failed" name="failed"
                         domain="[('current_stage', '=', 'failed')]"/>
+                <filter string="Unassigned" name="unassigned"
+                        domain="[('user_id', '=', False)]"/>
                 <separator/>
                 <group>
                     <filter string="Stage" name="group_stage"
@@ -431,9 +706,6 @@
         </field>
     </record>
 
-    <!-- ================================================================== -->
-    <!-- Action                                                             -->
-    <!-- ================================================================== -->
     <record id="commit0_repo_evaluation_action" model="ir.actions.act_window">
         <field name="name">Kaiju Tasks</field>
         <field name="res_model">commit0.repo.evaluation</field>
@@ -442,12 +714,19 @@
         <field name="context">{'search_default_my_tasks': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Create your first Kaiju task
+                No tasks assigned yet
             </p>
             <p>
-                Start a new repository evaluation through the 6-stage Kaiju pipeline.
+                Click <b>Start Task</b> to pick up a repository evaluation from the pool.
             </p>
         </field>
+    </record>
+
+    <record id="action_start_task_server" model="ir.actions.server">
+        <field name="name">Start Task</field>
+        <field name="model_id" ref="model_commit0_repo_evaluation"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_start_task()</field>
     </record>
 
 </odoo>

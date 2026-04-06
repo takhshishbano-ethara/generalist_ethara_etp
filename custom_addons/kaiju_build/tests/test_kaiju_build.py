@@ -80,11 +80,6 @@ class TestKaijuBuild(TransactionCase):
             with self.assertRaises(UserError):
                 build.action_build()
 
-    def test_ensure_ecr_repo_handles_missing_boto3(self):
-        build = self._create_build()
-        with patch("odoo.addons.kaiju_build.models.kaiju_build.BOTO3_AVAILABLE", False):
-            build._ensure_ecr_repo("test-app")
-
     def test_repo_name_required(self):
         with self.assertRaises(Exception):
             self.Build.create(

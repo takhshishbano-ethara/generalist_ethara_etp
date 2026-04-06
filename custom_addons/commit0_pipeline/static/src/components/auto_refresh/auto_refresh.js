@@ -2,10 +2,10 @@
 
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, onMounted, onWillUnmount, onWillUpdateProps } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, onWillUpdateProps, useState } from "@odoo/owl";
 
 const POLL_STAGES = new Set(["stage3", "stage5", "stage6"]);
-const POLL_INTERVAL = 2000;
+const POLL_INTERVAL = 3000;
 
 export class AutoRefresh extends Component {
     static template = "commit0_pipeline.AutoRefresh";
@@ -15,6 +15,7 @@ export class AutoRefresh extends Component {
         this._interval = null;
         this._polling = false;
         this._reloading = false;
+        this.state = useState({ active: false });
         onMounted(() => this._checkAndPoll());
         onWillUpdateProps(() => this._checkAndPoll());
         onWillUnmount(() => this._stop());
@@ -32,6 +33,7 @@ export class AutoRefresh extends Component {
     _start() {
         if (this._polling) return;
         this._polling = true;
+        this.state.active = true;
         this._interval = setInterval(() => this._poll(), POLL_INTERVAL);
     }
 
@@ -39,16 +41,19 @@ export class AutoRefresh extends Component {
         if (this._reloading) return;
         this._reloading = true;
         try {
-            await this.props.record.model.load();
+            await this.props.record.load();
+            this.props.record.model.notify();
         } catch {
             this._stop();
         } finally {
             this._reloading = false;
+            this._checkAndPoll();
         }
     }
 
     _stop() {
         this._polling = false;
+        this.state.active = false;
         if (this._interval) {
             clearInterval(this._interval);
             this._interval = null;

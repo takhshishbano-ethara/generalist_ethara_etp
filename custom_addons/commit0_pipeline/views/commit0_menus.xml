@@ -14,6 +14,13 @@
         action="commit0_repo_evaluation_action"
         sequence="10"/>
 
+    <!-- Start Task (pick from pool) -->
+    <menuitem id="commit0_menu_start_task"
+        name="Start Task"
+        parent="commit0_menu_root"
+        action="action_start_task_server"
+        sequence="20"/>
+
     <!-- Configuration submenu -->
     <menuitem id="commit0_menu_config"
         name="Configuration"
@@ -26,4 +33,10 @@
         parent="commit0_menu_config"
         action="base_setup.action_general_configuration"
         sequence="10"/>
+
+    <menuitem id="commit0_menu_import_repos"
+        name="Import Repos"
+        parent="commit0_menu_config"
+        action="import_repos_wizard_action"
+        sequence="20"/>
 </odoo>
