@@ -15,27 +15,9 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
-try:
-    import boto3
-
-    BOTO3_AVAILABLE = True
-except ImportError:
-    BOTO3_AVAILABLE = False
-
 NAMESPACE = "ethara"
 ECR_REGISTRY = "426628337772.dkr.ecr.ap-south-1.amazonaws.com"
-ECR_REGION = "ap-south-1"
 MAX_CONCURRENT_BUILDS = 1500
-
-ECR_TAGS = [
-    {"Key": "Environment", "Value": "Production"},
-    {"Key": "Project", "Value": "Kaiju"},
-    {"Key": "Owner", "Value": "Ethara AI"},
-    {"Key": "Team", "Value": "DevOps"},
-    {"Key": "ManagedBy", "Value": "Ethara-internal"},
-    {"Key": "CostCenter", "Value": "RD-001"},
-    {"Key": "map-migrated", "Value": "migWBK9WXSX89"},
-]
 
 WEBHOOK_SECRET = os.environ.get("KAIJU_WEBHOOK_TOKEN", "")
 
@@ -90,8 +72,6 @@ class KaijuBuild(models.Model):
                 "Please try again shortly." % active_count
             )
 
-        self._ensure_ecr_repo(self.app_name)
-
         build_id = uuid.uuid4().hex[:12]
         tag = "%s-%s" % (build_id, fields.Datetime.now().strftime("%Y%m%d%H%M%S"))
 
@@ -110,31 +90,17 @@ class KaijuBuild(models.Model):
             self.write({"status": "building"})
         except Exception as e:
             _logger.error("Failed to create K8s Job for build %s: %s", build_id, e)
-            self.write(
+            self.env.cr.rollback()
+            self.env.clear()
+            build = self.browse(self.id)
+            build.write(
                 {
                     "status": "error",
                     "error_message": str(e),
+                    "progress": "Creating build job...\nERROR: %s" % str(e),
                 }
             )
-
-    def _ensure_ecr_repo(self, app_name):
-        if not BOTO3_AVAILABLE:
-            _logger.warning("boto3 not available, skipping ECR repo creation")
-            return
-        ecr_repo_name = "kaiju-%s" % app_name
-        ecr = boto3.client("ecr", region_name=ECR_REGION)
-        try:
-            ecr.create_repository(
-                repositoryName=ecr_repo_name,
-                imageTagMutability="MUTABLE",
-                imageScanningConfiguration={"scanOnPush": False},
-                tags=ECR_TAGS,
-            )
-            _logger.info("Created ECR repository: %s", ecr_repo_name)
-        except ecr.exceptions.RepositoryAlreadyExistsException:
-            pass
-        except Exception as e:
-            _logger.warning("ECR repo check failed for %s: %s", ecr_repo_name, e)
+            self.env.cr.commit()
 
     def _create_build_job(self, build_id, tag):
         config.load_incluster_config()
@@ -158,7 +124,6 @@ class KaijuBuild(models.Model):
             spec=client.V1JobSpec(
                 ttl_seconds_after_finished=300,
                 backoff_limit=1,
-                active_deadline_seconds=2400,
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(
                         labels={
@@ -178,7 +143,8 @@ class KaijuBuild(models.Model):
                         containers=[
                             client.V1Container(
                                 name="builder",
-                                image="docker:27-dind",
+                                image="426628337772.dkr.ecr.ap-south-1.amazonaws.com/kaiju-q1-coding:builder-latest",
+                                image_pull_policy="Always",
                                 security_context=client.V1SecurityContext(
                                     privileged=True,
                                 ),
@@ -188,6 +154,26 @@ class KaijuBuild(models.Model):
                                         value="",
                                     ),
                                     client.V1EnvVar(
+                                        name="AWS_REGION",
+                                        value="ap-south-1",
+                                    ),
+                                    client.V1EnvVar(
+                                        name="ECR_REGISTRY",
+                                        value="426628337772.dkr.ecr.ap-south-1.amazonaws.com",
+                                    ),
+                                    client.V1EnvVar(
+                                        name="S3_BUCKET",
+                                        value="production-grtlabs-tag",
+                                    ),
+                                    client.V1EnvVar(
+                                        name="BASE_IMAGE_ECR",
+                                        value="426628337772.dkr.ecr.ap-south-1.amazonaws.com/kaiju-q1-coding-base:commit0.test.multiarch__v0",
+                                    ),
+                                    client.V1EnvVar(
+                                        name="ECR_REPO_NAME",
+                                        value="kaiju-q1-coding",
+                                    ),
+                                    client.V1EnvVar(
                                         name="REPO_NAME",
                                         value=self.repo_name,
                                     ),
@@ -195,16 +181,20 @@ class KaijuBuild(models.Model):
                                         name="DATASET_JSON",
                                         value=self.dataset_json,
                                     ),
+                                    client.V1EnvVar(
+                                        name="GH_TOKEN",
+                                        value_from=client.V1EnvVarSource(
+                                            secret_key_ref=client.V1SecretKeySelector(
+                                                name="github-token",
+                                                key="GH_TOKEN",
+                                            ),
+                                        ),
+                                    ),
                                 ],
                                 resources=client.V1ResourceRequirements(
                                     requests={
-                                        "cpu": "1",
-                                        "memory": "2Gi",
-                                        "ephemeral-storage": "10Gi",
-                                    },
-                                    limits={
-                                        "cpu": "4",
-                                        "memory": "8Gi",
+                                        "cpu": "2",
+                                        "memory": "4Gi",
                                         "ephemeral-storage": "20Gi",
                                     },
                                 ),
