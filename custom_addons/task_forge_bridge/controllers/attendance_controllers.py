@@ -3,7 +3,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import json
 
 
@@ -142,6 +142,21 @@ class TaskForgeAttendanceController(http.Controller):
             user_id_param = kwargs.get('user_id')
             if user_id_param:
                 domain.append(('employee_id', '=', int(user_id_param)))
+
+            date_param = kwargs.get('date')
+            if date_param:
+                filter_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+                domain.append(('check_in', '>=', datetime.combine(filter_date, datetime.min.time())))
+                domain.append(('check_in', '<', datetime.combine(filter_date + timedelta(days=1), datetime.min.time())))
+            else:
+                start_date = kwargs.get('start_date')
+                end_date = kwargs.get('end_date')
+                if start_date:
+                    sd = datetime.strptime(start_date, '%Y-%m-%d').date()
+                    domain.append(('check_in', '>=', datetime.combine(sd, datetime.min.time())))
+                if end_date:
+                    ed = datetime.strptime(end_date, '%Y-%m-%d').date()
+                    domain.append(('check_in', '<', datetime.combine(ed + timedelta(days=1), datetime.min.time())))
 
             records = Attendance.search(domain, order='check_in desc', limit=200)
 
