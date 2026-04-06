@@ -474,7 +474,11 @@ class StubTransformer:
             if not body:
                 continue
 
-            body_start_1 = body[0].lineno
+            first_node = body[0]
+            if hasattr(first_node, "decorator_list") and first_node.decorator_list:
+                body_start_1 = first_node.decorator_list[0].lineno
+            else:
+                body_start_1 = first_node.lineno
             body_end_1 = self._get_end_lineno(body[-1], lines)
 
             body_start_0 = body_start_1 - 1

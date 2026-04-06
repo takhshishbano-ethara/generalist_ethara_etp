@@ -21,6 +21,12 @@
                     <span class="badge bg-secondary" t-esc="state.aceMode"/>
                     <span class="text-muted small" t-esc="fileSizeFormatted"/>
 
+                    <t t-if="canShowDiff">
+                        <button t-attf-class="btn btn-sm {{ state.diffMode ? 'btn-primary' : 'btn-outline-secondary' }}" t-on-click="toggleDiff" title="Toggle diff view">
+                            <i class="fa fa-exchange me-1"/>Diff
+                        </button>
+                    </t>
+
                     <button class="btn btn-sm btn-outline-secondary" t-on-click="onCopy" title="Copy to clipboard">
                         <i t-attf-class="fa {{ state.copied ? 'fa-check text-success' : 'fa-clipboard' }}"/>
                     </button>
@@ -42,7 +48,7 @@
                 </div>
             </t>
 
-            <t t-if="state.selectedPath and !state.error">
+            <t t-if="state.selectedPath and !state.error and (!state.diffMode or !canShowDiff)">
                 <div class="o_repo_browser_editor flex-grow-1">
                     <CodeEditor
                         value="state.fileContent"
@@ -51,6 +57,21 @@
                         readonly="true"
                         sessionId="state.selectedPath"
                     />
+                </div>
+            </t>
+
+            <t t-if="state.selectedPath and !state.error and state.diffMode and canShowDiff">
+                <div class="o_repo_browser_diff flex-grow-1 overflow-auto">
+                    <t t-if="!state.hasDiffChanges">
+                        <div class="text-muted p-4 text-center">
+                            <i class="fa fa-check-circle fa-2x mb-2 d-block text-success opacity-75"/>
+                            <span>No changes — file is identical in both versions.</span>
+                        </div>
+                    </t>
+                    <t t-if="state.hasDiffChanges">
+                        <pre class="o_diff_output m-0 p-2"><t t-foreach="diffLines" t-as="line" t-key="line_index"><span t-attf-class="o_diff_line {{ line.startsWith('+') and !line.startsWith('+++') ? 'o_diff_add' : line.startsWith('-') and !line.startsWith('---') ? 'o_diff_del' : line.startsWith('@@') ? 'o_diff_hunk' : 'o_diff_ctx' }}" t-esc="line"/>
+</t></pre>
+                    </t>
                 </div>
             </t>
 

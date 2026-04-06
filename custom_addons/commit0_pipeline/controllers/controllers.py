@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import base64
+import difflib
 import logging
 import os
+import subprocess
 import urllib.request
 import json as json_lib
 
@@ -269,11 +271,78 @@ class Commit0Controller(http.Controller):
     # File Browser endpoints
     # ------------------------------------------------------------------
 
+    def _get_git_context(self, evaluation, path_field):
+        if path_field != "clone_path_original":
+            return None
+        ref = evaluation.reference_commit
+        repo = evaluation.clone_path_original or evaluation.clone_path
+        if not ref or not repo or not os.path.isdir(repo):
+            return None
+        return {"repo": repo, "ref": ref, "src_dir": evaluation.src_dir or ""}
+
+    def _git_tree(self, repo_path, ref, src_dir):
+        tree_path = "%s:%s" % (ref, src_dir) if src_dir else "%s:" % ref
+        try:
+            result = subprocess.run(
+                ["git", "ls-tree", "-r", "--name-only", tree_path],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                return []
+        except Exception:
+            return []
+
+        root = {}
+        for line in result.stdout.strip().splitlines():
+            if not _is_text_file(os.path.basename(line)):
+                continue
+            parts = line.split("/")
+            node = root
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    node.setdefault("__files__", []).append(part)
+                else:
+                    node.setdefault(part, {})
+                    node = node[part]
+
+        def build_entries(node, prefix=""):
+            dirs = []
+            files = []
+            for key in sorted(node):
+                if key == "__files__":
+                    continue
+                rel = os.path.join(prefix, key) if prefix else key
+                child = node[key]
+                dirs.append(
+                    {
+                        "name": key,
+                        "path": rel,
+                        "is_dir": True,
+                        "children": build_entries(child, rel),
+                    }
+                )
+            for fname in sorted(node.get("__files__", [])):
+                if _should_skip(fname):
+                    continue
+                rel = os.path.join(prefix, fname) if prefix else fname
+                files.append({"name": fname, "path": rel, "is_dir": False})
+            return dirs + files
+
+        return build_entries(root)
+
     @http.route("/commit0/file_tree", type="jsonrpc", auth="user")
     def file_tree(self, eval_id, path_field="clone_path"):
         evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
         if not evaluation.exists():
             return {"error": "Evaluation not found"}
+
+        git_ctx = self._get_git_context(evaluation, path_field)
+        if git_ctx:
+            tree = self._git_tree(git_ctx["repo"], git_ctx["ref"], git_ctx["src_dir"])
+            return {"tree": tree, "repo_name": evaluation.repo_name or ""}
 
         clone_path = evaluation[path_field]
         if clone_path and os.path.isdir(clone_path):
@@ -297,6 +366,33 @@ class Commit0Controller(http.Controller):
         evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
         if not evaluation.exists():
             return {"error": "Evaluation not found"}
+
+        git_ctx = self._get_git_context(evaluation, path_field)
+        if git_ctx:
+            git_path = (
+                os.path.join(git_ctx["src_dir"], file_path)
+                if git_ctx["src_dir"]
+                else file_path
+            )
+            try:
+                result = subprocess.run(
+                    ["git", "show", "%s:%s" % (git_ctx["ref"], git_path)],
+                    cwd=git_ctx["repo"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    return {"error": "File not found: %s" % file_path}
+                content = result.stdout
+            except Exception as e:
+                return {"error": "Failed to read file: %s" % str(e)[:200]}
+            return {
+                "content": content,
+                "path": file_path,
+                "mode": _detect_ace_mode(file_path),
+                "size": len(content.encode("utf-8")),
+            }
 
         clone_path = evaluation[path_field]
         if clone_path and os.path.isdir(clone_path):
@@ -345,3 +441,66 @@ class Commit0Controller(http.Controller):
             }
         except Exception as e:
             return {"error": "GitHub API error: %s" % str(e)[:200]}
+
+    @http.route("/commit0/file_diff", type="jsonrpc", auth="user")
+    def file_diff(self, eval_id, file_path):
+        evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
+        if not evaluation.exists():
+            return {"error": "Evaluation not found"}
+
+        clone_path = evaluation.clone_path_original or evaluation.clone_path
+        ref_commit = evaluation.reference_commit
+        stubbed_root = evaluation.clone_path_stubbed
+        src_dir = evaluation.src_dir or ""
+
+        if not stubbed_root or not os.path.isdir(stubbed_root):
+            return {"error": "Stubbed clone path not available"}
+        if not clone_path or not os.path.isdir(clone_path):
+            return {"error": "Clone path not available"}
+        if not ref_commit:
+            return {"error": "Reference commit not available"}
+
+        git_path = os.path.join(src_dir, file_path) if src_dir else file_path
+        try:
+            result = subprocess.run(
+                ["git", "show", "%s:%s" % (ref_commit, git_path)],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                orig_lines = []
+            else:
+                orig_lines = result.stdout.splitlines(keepends=True)
+        except Exception:
+            orig_lines = []
+
+        stubbed_root = os.path.realpath(stubbed_root)
+        stub_file = _check_path_traversal(stubbed_root, file_path)
+        stub_lines = []
+        if os.path.isfile(stub_file):
+            try:
+                with open(stub_file, "r", errors="replace") as f:
+                    stub_lines = f.readlines()
+            except Exception:
+                pass
+
+        if not orig_lines and not stub_lines:
+            return {"error": "File not found in either version"}
+
+        diff = list(
+            difflib.unified_diff(
+                orig_lines,
+                stub_lines,
+                fromfile="original/" + file_path,
+                tofile="stubbed/" + file_path,
+                lineterm="",
+            )
+        )
+        has_changes = len(diff) > 0
+        return {
+            "diff": "\n".join(diff),
+            "has_changes": has_changes,
+            "path": file_path,
+        }
