@@ -257,14 +257,14 @@ class TaskForgeLeaveController(http.Controller):
 
             team_ids = employee._get_team_employee_ids()
             Leave = request.env['hr.leave'].sudo()
-            current_projects = request.env['project.project'].sudo().search([])
-            if kwargs.get('project_id'):
-                current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
-                                                                                limit=1)
-            employee_list = current_projects.mapped('project_lead') | current_projects.mapped('project_tasker') | current_projects.mapped('project_qc_reviewer')
-            
+            # current_projects = request.env['project.project'].sudo().search([])
+            # if kwargs.get('project_id'):
+            #     current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
+            #                                                                     limit=1)
+            # employee_list = current_projects.mapped('project_lead') | current_projects.mapped('project_tasker') | current_projects.mapped('project_qc_reviewer')
+
             domain = [
-                ('employee_id', 'in', employee_list),
+                ('employee_id', 'in', team_ids),
                 ('state', '=', 'validate'),
                 ('date_from', '<=',
                  fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
