@@ -475,13 +475,18 @@ class DashboardController(http.Controller):
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
             from datetime import datetime, date
+
             today = date.today()
+            # start_date_param = kwargs.get('start_date')
+            # end_date_param = kwargs.get('end_date')
+
             Attendance = request.env['hr.attendance'].sudo()
             attendance = Attendance.search([
                 ('employee_id', '=', employee.id),
                 ('check_in', '>=', datetime.combine(today, datetime.min.time())),
                 ('check_in', '<=', datetime.combine(today, datetime.max.time())),
             ], limit=1)
+
             duration_display = "00:00"
             if attendance and attendance.check_in and attendance.check_out:
                 diff = attendance.check_out - attendance.check_in
@@ -496,11 +501,8 @@ class DashboardController(http.Controller):
                 hours = total_seconds // 3600
                 minutes = (total_seconds % 3600) // 60
                 duration_display = f"{hours:02d}:{minutes:02d}"
-            # 1. Fetch the records
-            task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id)])
 
-            # 2. Convert Char to Int and Sum
-            # We use a list comprehension with a check to ensure the string is numeric
+            task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', date.today())])
             pause_times = [int(p.pause_time) for p in task_record if p.pause_time and p.pause_time.isdigit()]
             total_pause_mins = sum(pause_times)
 
