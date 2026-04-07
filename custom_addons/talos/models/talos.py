@@ -10,6 +10,7 @@ import time
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 from odoo.modules.module import get_module_path
+from odoo.tools import config as odoo_config
 
 _logger = logging.getLogger(__name__)
 
@@ -19,6 +20,52 @@ DB_PORT_BASE = 15432
 
 _HEALTH_WAIT_TIMEOUT = 120
 _HEALTH_POLL_INTERVAL = 3
+
+_env_cache = None
+
+
+def _load_dotenv():
+    """Load KEY=VALUE pairs from the project-root .env file.
+
+    Merges on top of ``os.environ`` so that process-level env vars
+    still take precedence (set in shell > .env file).
+    """
+    global _env_cache
+    if _env_cache is not None:
+        return _env_cache
+
+    env = os.environ.copy()
+
+    # Walk up from the odoo config file (or addons path) to find .env
+    root = None
+    conf_path = odoo_config.rcfile
+    if conf_path:
+        root = os.path.dirname(os.path.abspath(conf_path))
+    if not root:
+        root = os.getcwd()
+
+    dotenv_path = os.path.join(root, ".env")
+    if os.path.isfile(dotenv_path):
+        with open(dotenv_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                # Don't override vars already set in the process environment
+                if key not in os.environ:
+                    env[key] = value
+        _logger.debug("Loaded .env from %s", dotenv_path)
+    else:
+        _logger.debug("No .env file found at %s", dotenv_path)
+
+    _env_cache = env
+    return env
+
 
 _DEFAULT_LITELLM_CONFIG = """\
 model_list:
@@ -253,7 +300,6 @@ class Talos(models.Model):
     def _prepare_workdir(
         self, persona, gateway_token, gateway_port, litellm_port, db_port
     ):
-        ICP = self.env["ir.config_parameter"].sudo()
         source_dir = _module_sandbox_dir()
         if not source_dir or not os.path.isdir(source_dir):
             raise UserError(
@@ -309,10 +355,11 @@ class Talos(models.Model):
                 with open(os.path.join(ws_dir, fname), "w") as f:
                     f.write(content)
 
-        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
-        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
-        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
-        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
+        env = _load_dotenv()
+        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
+        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
         if not litellm_key:
             litellm_key = "sk-talos-%s" % secrets.token_hex(8)
 
@@ -329,7 +376,10 @@ class Talos(models.Model):
             "gateway": {
                 "bind": "lan",
                 "auth": {"mode": "token", "token": gateway_token},
-                "controlUi": {"allowedOrigins": origins},
+                "controlUi": {
+                    "allowedOrigins": origins,
+                    "dangerouslyDisableDeviceAuth": True,
+                },
             },
             "browser": {
                 "enabled": True,
@@ -365,43 +415,44 @@ class Talos(models.Model):
                     }
                 ],
             }
-            providers["litellm"] = {
-                "baseUrl": "http://litellm:4000/v1",
-                "apiKey": litellm_key,
-                "auth": "api-key",
-                "api": "openai-responses",
-                "models": [
-                    {
-                        "id": "claude-opus-4.6",
-                        "name": "claude-opus-4.6",
-                        "reasoning": True,
-                        "input": ["text", "image"],
-                        "cost": {
-                            "input": 0,
-                            "output": 0,
-                            "cacheRead": 0,
-                            "cacheWrite": 0,
-                        },
-                        "contextWindow": 200000,
-                        "maxTokens": 8192,
+
+        providers["litellm"] = {
+            "baseUrl": "http://litellm:4000/v1",
+            "apiKey": litellm_key,
+            "auth": "api-key",
+            "api": "openai-responses",
+            "models": [
+                {
+                    "id": "claude-opus-4.6",
+                    "name": "claude-opus-4.6",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
                     },
-                    {
-                        "id": "kimi-k2.5",
-                        "name": "kimi-k2.5",
-                        "reasoning": True,
-                        "input": ["text", "image"],
-                        "cost": {
-                            "input": 0,
-                            "output": 0,
-                            "cacheRead": 0,
-                            "cacheWrite": 0,
-                        },
-                        "contextWindow": 131072,
-                        "maxTokens": 8192,
+                    "contextWindow": 200000,
+                    "maxTokens": 8192,
+                },
+                {
+                    "id": "kimi-k2.5",
+                    "name": "kimi-k2.5",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
                     },
-                ],
-            }
-            config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+                    "contextWindow": 131072,
+                    "maxTokens": 8192,
+                },
+            ],
+        }
+        config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
 
         with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
             json.dump(config, f)
@@ -437,33 +488,14 @@ class Talos(models.Model):
 
     def _build_compose_env(self, gateway_token):
         self.ensure_one()
-        ICP = self.env["ir.config_parameter"].sudo()
         persona = self.persona_id
 
-        env = os.environ.copy()
+        env = _load_dotenv().copy()
         env["PERSONA"] = persona.name
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
-        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
-        if aws_bearer:
-            env["AWS_BEARER_TOKEN_BEDROCK"] = aws_bearer
-
-        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
-        env["AWS_REGION"] = aws_region
-
-        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
-        if bedrock_arn:
-            env["BEDROCK_MODEL_ARN"] = bedrock_arn
-
-        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
-        if litellm_key:
-            env["LITELLM_MASTER_KEY"] = litellm_key
-        else:
+        if not env.get("LITELLM_MASTER_KEY"):
             env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
-
-        litellm_db_pw = ICP.get_param("talos.litellm_db_password", "").strip()
-        if litellm_db_pw:
-            env["LITELLM_DB_PASSWORD"] = litellm_db_pw
 
         return env
 
@@ -588,7 +620,6 @@ class Talos(models.Model):
             project_name,
             "up",
             "-d",
-            "--build",
         ]
 
         try:
