@@ -272,6 +272,8 @@ class Talos(models.Model):
             dst = os.path.join(workdir, filename)
             if os.path.isfile(src):
                 shutil.copy2(src, dst)
+                if filename.endswith(".sh"):
+                    os.chmod(dst, 0o755)
 
         if persona.docker_compose_yaml:
             with open(os.path.join(workdir, "docker-compose.yml"), "w") as f:
