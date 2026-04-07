@@ -28,6 +28,13 @@ class KaijuBuild(models.Model):
     _order = "create_date desc"
 
     build_id = fields.Char(string="Build ID", readonly=True, index=True, copy=False)
+    user_id = fields.Many2one(
+        "res.users",
+        string="Created By",
+        default=lambda self: self.env.uid,
+        index=True,
+        readonly=True,
+    )
     app_id = fields.Many2one(
         "kaiju.app", string="Application", required=True, ondelete="restrict"
     )

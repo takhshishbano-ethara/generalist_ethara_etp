@@ -1,6 +1,9 @@
 <odoo>
   <data>
+<<<<<<< Updated upstream
     <!-- ============ talos.talos views ============ -->
+=======
+>>>>>>> Stashed changes
     <record model="ir.ui.view" id="talos_talos_list">
       <field name="name">talos.talos.list</field>
       <field name="model">talos.talos</field>
@@ -8,8 +11,20 @@
         <list>
           <field name="task_id"/>
           <field name="parsona"/>
+<<<<<<< Updated upstream
           <field name="employee_id"/>
           <field name="task_status"/>
+=======
+          <field name="docker_persona"/>
+          <field name="employee_id"/>
+          <field name="task_status"/>
+          <field name="docker_status" widget="badge"
+                 decoration-success="docker_status == 'running'"
+                 decoration-danger="docker_status == 'error'"
+                 decoration-info="docker_status == 'starting'"
+                 decoration-muted="docker_status == 'stopped'"/>
+          <field name="docker_port"/>
+>>>>>>> Stashed changes
         </list>
       </field>
     </record>
@@ -19,6 +34,17 @@
       <field name="model">talos.talos</field>
       <field name="arch" type="xml">
         <form>
+<<<<<<< Updated upstream
+=======
+          <header>
+            <button name="action_start_sandbox" type="object"
+                    string="Start Sandbox" class="oe_highlight"
+                    invisible="docker_status == 'running'"/>
+            <button name="action_stop_sandbox" type="object"
+                    string="Stop Sandbox" class="btn-danger"
+                    invisible="docker_status != 'running'"/>
+          </header>
+>>>>>>> Stashed changes
           <sheet>
             <group>
               <group>
@@ -41,6 +67,31 @@
                   </list>
                 </field>
               </page>
+<<<<<<< Updated upstream
+=======
+              <page string="Sandbox">
+                <group>
+                  <group string="Configuration">
+                    <field name="docker_persona"/>
+                    <field name="docker_status" widget="badge"
+                           decoration-success="docker_status == 'running'"
+                           decoration-danger="docker_status == 'error'"
+                           decoration-info="docker_status == 'starting'"
+                           decoration-muted="docker_status == 'stopped'"/>
+                  </group>
+                  <group string="Runtime">
+                    <field name="docker_compose_project"/>
+                    <field name="docker_port"/>
+                    <field name="docker_litellm_port"/>
+                    <field name="docker_gateway_token"/>
+                    <field name="docker_dashboard_url" widget="url"/>
+                  </group>
+                </group>
+                <group invisible="not docker_error">
+                  <field name="docker_error"/>
+                </group>
+              </page>
+>>>>>>> Stashed changes
             </notebook>
           </sheet>
         </form>
