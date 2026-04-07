@@ -16,8 +16,6 @@
                             <field name="talos_bedrock_region"/>
                         </setting>
                     </block>
-<<<<<<< Updated upstream
-=======
                     <block title="Sandbox Deployment">
                         <setting string="Deployment Mode" help="Local mode uses Docker Compose (admin only). K8s mode creates Kubernetes resources.">
                             <field name="talos_deployment_mode" widget="radio"/>
@@ -62,7 +60,6 @@
                             <field name="talos_litellm_db_password" password="True"/>
                         </setting>
                     </block>
->>>>>>> Stashed changes
                 </app>
             </xpath>
         </field>

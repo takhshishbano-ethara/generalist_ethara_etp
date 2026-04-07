@@ -1,40 +1,20 @@
-<<<<<<< Updated upstream
-from odoo import models, fields, api
-
-
-class Talos(models.Model):
-    _name = 'talos.talos'
-    _description = 'Talos'
-
-    task_id = fields.Char(string="Task ID", readonly=True, copy=False)
-    parsona = fields.Many2one('talos.domain', string='Parsona')
-    task_status = fields.Selection([('Submitted', 'Submitted'), ('NotSubmitted', 'Not Submitted')])
-    employee_id = fields.Many2one('hr.employee')
-    user_id = fields.Many2one(related='employee_id.user_id')
-    turn_ids = fields.One2many('talos.turn', 'talos_id', string='Turns')
-
-class TalosTurn(models.Model):
-    _name = 'talos.turn'
-    _description = 'Talos Turn'
-
-    talos_id = fields.Many2one('talos.talos', string='Talos')
-    turn_number = fields.Integer(string='Turn Number')
-    turn_status = fields.Selection([('Pending', 'Pending'), ('Completed', 'Completed')])
-    prompt = fields.Text(string='Prompt')
-=======
 import logging
 import os
 import secrets
 import subprocess
+import time
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-GATEWAY_PORT_BASE = 19000
-LITELLM_PORT_BASE = 14000
-DB_PORT_BASE = 15432
+GATEWAY_PORT = 18789
+LITELLM_PORT = 4000
+
+# Maximum time (seconds) to wait for the gateway health-check after compose up.
+_HEALTH_WAIT_TIMEOUT = 120
+_HEALTH_POLL_INTERVAL = 3
 
 
 def _docker_available():
@@ -238,16 +218,7 @@ class Talos(models.Model):
             raise UserError("Sandbox docker directory not found: %s" % docker_dir)
         return sandbox_dir
 
-    def _allocate_ports(self):
-        self.ensure_one()
-        offset = self.id % 1000
-        return (
-            GATEWAY_PORT_BASE + offset,
-            LITELLM_PORT_BASE + offset,
-            DB_PORT_BASE + offset,
-        )
-
-    def _build_compose_env(self, sandbox_dir, gateway_port, gateway_token):
+    def _build_compose_env(self, sandbox_dir, gateway_token):
         self.ensure_one()
         ICP = self.env["ir.config_parameter"].sudo()
         persona = self.docker_persona or "marcus"
@@ -279,24 +250,117 @@ class Talos(models.Model):
 
         return env
 
-    def _write_port_override(self, project_dir, gateway_port, litellm_port, db_port):
-        override_path = os.path.join(project_dir, "docker-compose.override.yml")
-        content = (
-            "services:\n"
-            "  openclaw:\n"
-            "    ports:\n"
-            '      - "%d:18789"\n'
-            "  litellm:\n"
-            "    ports:\n"
-            '      - "%d:4000"\n'
-            "  db:\n"
-            "    ports:\n"
-            '      - "%d:5432"\n'
-        ) % (gateway_port, litellm_port, db_port)
+    def _ensure_data_dir(self, docker_dir, persona):
+        """Create the per-persona data directory if it doesn't exist.
 
-        with open(override_path, "w") as f:
-            f.write(content)
-        return override_path
+        The base docker-compose.yml bind-mounts ``./data/{persona}`` into the
+        container.  If the directory is missing Docker will create it as
+        root-owned, which causes permission errors inside the container.
+        """
+        data_dir = os.path.join(docker_dir, "data", persona)
+        os.makedirs(data_dir, exist_ok=True)
+
+    def _reset_stale_config(self, docker_dir, persona):
+        """Remove the previous openclaw.json so the entrypoint writes a fresh one.
+
+        The ``openclaw config set`` command can hang indefinitely when it tries
+        to update a config file that contains a stale gateway token from a
+        prior run.  Deleting the file forces the entrypoint to write config
+        from scratch, which is always the desired behavior for ephemeral
+        sandbox containers.
+        """
+        data_dir = os.path.join(docker_dir, "data", persona)
+        for name in ("openclaw.json",):
+            path = os.path.join(data_dir, name)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    _logger.debug("Removed stale config: %s", path)
+                except OSError as e:
+                    _logger.warning("Could not remove stale config %s: %s", path, e)
+
+    def _wait_for_health(self, compose_bin, project_name, docker_dir):
+        """Poll ``docker compose ps`` until the openclaw service is healthy.
+
+        Returns ``True`` when the gateway is healthy, ``False`` on timeout or
+        if the container exited.
+        """
+        deadline = time.monotonic() + _HEALTH_WAIT_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                result = subprocess.run(
+                    compose_bin
+                    + ["-p", project_name, "ps", "--format", "json", "openclaw"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                    cwd=docker_dir,
+                )
+                output = result.stdout.strip()
+                if not output:
+                    time.sleep(_HEALTH_POLL_INTERVAL)
+                    continue
+
+                # compose v2 may return one JSON object per line or a JSON array
+                import json
+
+                try:
+                    data = json.loads(output)
+                except json.JSONDecodeError:
+                    # multiple JSON objects (one per line) — take the first
+                    data = json.loads(output.splitlines()[0])
+
+                if isinstance(data, list):
+                    data = data[0] if data else {}
+
+                state = (data.get("State") or "").lower()
+                health = (data.get("Health") or "").lower()
+
+                if state == "exited" or state == "dead":
+                    _logger.warning(
+                        "openclaw container exited during health wait "
+                        "(project=%s, state=%s)",
+                        project_name,
+                        state,
+                    )
+                    return False
+
+                if health == "healthy" or state == "running":
+                    # Also probe the gateway directly to be sure
+                    try:
+                        import urllib.request
+
+                        urllib.request.urlopen(
+                            "http://localhost:%d/healthz" % self.docker_port,
+                            timeout=5,
+                        )
+                        return True
+                    except Exception:
+                        # Container running but healthz not responding yet
+                        pass
+
+            except (subprocess.TimeoutExpired, Exception) as e:
+                _logger.debug("Health poll error: %s", e)
+
+            time.sleep(_HEALTH_POLL_INTERVAL)
+
+        return False
+
+    def _capture_container_logs(self, compose_bin, project_name, docker_dir):
+        """Capture the last few lines of openclaw container logs."""
+        try:
+            result = subprocess.run(
+                compose_bin + ["-p", project_name, "logs", "--tail", "30", "openclaw"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                cwd=docker_dir,
+            )
+            return result.stdout.strip() or result.stderr.strip()
+        except Exception:
+            return ""
 
     def _start_local(self):
         if not self.env.user.has_group("talos.group_talos_admin"):
@@ -317,32 +381,41 @@ class Talos(models.Model):
 
         sandbox_dir = self._get_sandbox_dir()
         docker_dir = os.path.join(sandbox_dir, "docker")
-        gateway_port, litellm_port, db_port = self._allocate_ports()
         gateway_token = secrets.token_hex(32)
         project_name = "talos-%d" % self.id
+        persona = self.docker_persona or "marcus"
+
+        persona_dir = os.path.join(sandbox_dir, "personas", persona)
+        if not os.path.isdir(persona_dir):
+            available = []
+            personas_root = os.path.join(sandbox_dir, "personas")
+            if os.path.isdir(personas_root):
+                available = sorted(
+                    d
+                    for d in os.listdir(personas_root)
+                    if os.path.isdir(os.path.join(personas_root, d))
+                    and not d.startswith(".")
+                )
+            raise UserError(
+                "Persona directory not found: %s\n"
+                "Available personas: %s"
+                % (persona_dir, ", ".join(available) or "(none)")
+            )
 
         self.write({"docker_status": "starting", "docker_error": False})
 
         try:
-            override_path = self._write_port_override(
-                docker_dir, gateway_port, litellm_port, db_port
-            )
+            self._ensure_data_dir(docker_dir, persona)
         except Exception as e:
-            self.write(
-                {
-                    "docker_status": "error",
-                    "docker_error": "Failed to write port override: %s" % str(e)[:500],
-                }
-            )
-            return
+            _logger.warning("Could not pre-create data dir: %s", e)
 
-        compose_env = self._build_compose_env(sandbox_dir, gateway_port, gateway_token)
+        self._reset_stale_config(docker_dir, persona)
+
+        compose_env = self._build_compose_env(sandbox_dir, gateway_token)
 
         cmd = compose_bin + [
             "-f",
             "docker-compose.yml",
-            "-f",
-            "docker-compose.override.yml",
             "-p",
             project_name,
             "up",
@@ -374,28 +447,57 @@ class Talos(models.Model):
             self.write(
                 {
                     "docker_compose_project": project_name,
-                    "docker_status": "running",
-                    "docker_port": gateway_port,
-                    "docker_litellm_port": litellm_port,
+                    "docker_status": "starting",
+                    "docker_port": GATEWAY_PORT,
+                    "docker_litellm_port": LITELLM_PORT,
                     "docker_gateway_token": gateway_token,
                     "docker_error": False,
                 }
             )
-            _logger.info(
-                "Started local sandbox stack (project=%s) for task %s — "
-                "gateway=:%d litellm=:%d persona=%s",
-                project_name,
-                self.id,
-                gateway_port,
-                litellm_port,
-                self.docker_persona or "marcus",
-            )
+
+            # Wait for the gateway health-check before declaring "running".
+            healthy = self._wait_for_health(compose_bin, project_name, docker_dir)
+
+            if healthy:
+                self.write({"docker_status": "running"})
+                _logger.info(
+                    "Started local sandbox stack (project=%s) for task %s — "
+                    "gateway=:%d litellm=:%d persona=%s",
+                    project_name,
+                    self.id,
+                    GATEWAY_PORT,
+                    LITELLM_PORT,
+                    persona,
+                )
+            else:
+                logs = self._capture_container_logs(
+                    compose_bin, project_name, docker_dir
+                )
+                error_detail = (
+                    "Sandbox containers started but the gateway never became "
+                    "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
+                )
+                if logs:
+                    error_detail += (
+                        "\n\nContainer logs (last 30 lines):\n%s" % logs[:2000]
+                    )
+                self.write(
+                    {
+                        "docker_status": "error",
+                        "docker_error": error_detail[:4000],
+                    }
+                )
+                _logger.error(
+                    "Gateway health-check failed for project %s (task %s)",
+                    project_name,
+                    self.id,
+                )
 
         except subprocess.TimeoutExpired:
             self.write(
                 {
                     "docker_status": "error",
-                    "docker_error": "docker compose up timed out after 300 seconds",
+                    "docker_error": "docker compose up timed out after 900 seconds",
                 }
             )
         except Exception as e:
@@ -420,10 +522,6 @@ class Talos(models.Model):
 
                 cmd = compose_bin + ["-p", project_name]
                 cmd += ["-f", "docker-compose.yml"]
-                if os.path.isfile(
-                    os.path.join(docker_dir, "docker-compose.override.yml")
-                ):
-                    cmd += ["-f", "docker-compose.override.yml"]
                 cmd += ["down", "--volumes", "--remove-orphans"]
 
                 subprocess.run(
@@ -460,20 +558,6 @@ class Talos(models.Model):
                     "Failed to stop compose project %s: %s", project_name, e
                 )
 
-            override_path = None
-            try:
-                sandbox_dir = self._get_sandbox_dir()
-                override_path = os.path.join(
-                    sandbox_dir, "docker", "docker-compose.override.yml"
-                )
-            except UserError:
-                pass
-            if override_path and os.path.isfile(override_path):
-                try:
-                    os.remove(override_path)
-                except OSError:
-                    pass
-
         self.write(
             {
                 "docker_compose_project": False,
@@ -494,4 +578,3 @@ class TalosTurn(models.Model):
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
     prompt = fields.Text(string="Prompt")
->>>>>>> Stashed changes
