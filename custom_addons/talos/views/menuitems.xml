@@ -1,4 +1,5 @@
 <odoo>
+<<<<<<< Updated upstream
     <!-- Top-level menu -->
     <menuitem name="Talos" id="talos.menu_talos_root"/>
     <!-- Sub-menus -->
@@ -6,4 +7,13 @@
               action="talos_talos_action_window" sequence="1"/>
     <menuitem name="Domains" id="talos.menu_talos_domain" parent="talos.menu_talos_root"
               action="domain_action_window" sequence="2"/>
+=======
+
+    <menuitem name="Talos" id="talos.menu_talos_root"/>
+
+    <menuitem name="Tasks" id="talos.menu_talos_tasks" parent="talos.menu_talos_root"
+              action="talos_talos_action_window" sequence="10"/>
+    <menuitem name="Domains" id="talos.menu_talos_domain" parent="talos.menu_talos_root"
+              action="domain_action_window" sequence="20"/>
+>>>>>>> Stashed changes
 </odoo>

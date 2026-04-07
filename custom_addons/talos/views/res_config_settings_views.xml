@@ -16,6 +16,53 @@
                             <field name="talos_bedrock_region"/>
                         </setting>
                     </block>
+<<<<<<< Updated upstream
+=======
+                    <block title="Sandbox Deployment">
+                        <setting string="Deployment Mode" help="Local mode uses Docker Compose (admin only). K8s mode creates Kubernetes resources.">
+                            <field name="talos_deployment_mode" widget="radio"/>
+                        </setting>
+                    </block>
+                    <block title="Local Mode (Docker Compose)" invisible="talos_deployment_mode != 'local'">
+                        <setting string="Docker Status" help="Whether Docker daemon is accessible from this server.">
+                            <field name="talos_docker_available" widget="boolean_toggle" readonly="True"/>
+                        </setting>
+                        <setting string="Sandbox Directory" help="Absolute path to the Telos Sandbox directory.">
+                            <field name="talos_sandbox_dir"/>
+                        </setting>
+                    </block>
+                    <block title="Kubernetes Mode" invisible="talos_deployment_mode != 'k8s'">
+                        <setting string="Sandbox Directory" help="Path to Sandbox directory (for reading persona files and litellm config).">
+                            <field name="talos_sandbox_dir"/>
+                        </setting>
+                        <setting string="OpenClaw Image" help="Container image for the OpenClaw gateway.">
+                            <field name="talos_openclaw_image"/>
+                        </setting>
+                        <setting string="LiteLLM Image" help="Container image for the LiteLLM proxy.">
+                            <field name="talos_litellm_image"/>
+                        </setting>
+                        <setting string="Storage Class" help="Kubernetes StorageClass for PersistentVolumeClaims.">
+                            <field name="talos_k8s_storage_class"/>
+                        </setting>
+                    </block>
+                    <block title="AWS &amp; Provider Credentials">
+                        <setting string="AWS Bearer Token (Bedrock)" help="AWS bearer token for Bedrock API access inside sandbox containers.">
+                            <field name="talos_aws_bearer_token" password="True"/>
+                        </setting>
+                        <setting string="AWS Region">
+                            <field name="talos_aws_region"/>
+                        </setting>
+                        <setting string="Bedrock Model ARN" help="ARN for the Bedrock model used inside OpenClaw containers.">
+                            <field name="talos_bedrock_model_arn"/>
+                        </setting>
+                        <setting string="LiteLLM Master Key" help="Master key for the LiteLLM proxy sidecar.">
+                            <field name="talos_litellm_master_key" password="True"/>
+                        </setting>
+                        <setting string="LiteLLM DB Password" help="PostgreSQL password for the LiteLLM database.">
+                            <field name="talos_litellm_db_password" password="True"/>
+                        </setting>
+                    </block>
+>>>>>>> Stashed changes
                 </app>
             </xpath>
         </field>
