@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_tf_validated_bug_tree" model="ir.ui.view">
+        <field name="name">task.forge.validated.bug.tree</field>
+        <field name="model">task.forge.validated.bug</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="impact == 'critical'" decoration-warning="impact == 'high'">
+                <field name="name"/>
+                <field name="project_name"/>
+                <field name="employee_name"/>
+                <field name="impact" widget="badge"/>
+                <field name="state" widget="badge"/>
+                <field name="validated_by_id"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_tf_validated_bug_form" model="ir.ui.view">
+        <field name="name">task.forge.validated.bug.form</field>
+        <field name="model">task.forge.validated.bug</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="open,in_review,fixed,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Bug Details">
+                            <field name="project_id"/>
+                            <field name="task_id"/>
+                            <field name="blocker_id"/>
+                            <field name="impact"/>
+                        </group>
+                        <group string="People">
+                            <field name="employee_id"/>
+                            <field name="qr_id"/>
+                            <field name="pl_id"/>
+                            <field name="validated_by_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Description">
+                            <group>
+                                <field name="bug_description"/>
+                                <field name="steps_to_reproduce"/>
+                                <field name="pages_affected"/>
+                                <field name="impact_details"/>
+                                <field name="blocker_reason"/>
+                            </group>
+                        </page>
+                        <page string="Attachments">
+                            <group>
+                                <field name="qr_video_url" widget="url"/>
+                                <field name="qr_image_url" widget="url"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_tf_validated_bug" model="ir.actions.act_window">
+        <field name="name">Validated Bugs</field>
+        <field name="res_model">task.forge.validated.bug</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

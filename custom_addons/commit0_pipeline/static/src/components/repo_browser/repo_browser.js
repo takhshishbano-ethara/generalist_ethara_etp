@@ -7,7 +7,7 @@ import { SelectMenu } from "@web/core/select_menu/select_menu";
 import { rpc } from "@web/core/network/rpc";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
-import { Component, useState, onWillStart, onWillUpdateProps } from "@odoo/owl";
+import { Component, useState, onWillStart, onWillUpdateProps, onMounted } from "@odoo/owl";
 
 export class RepoBrowser extends Component {
     static template = "commit0_pipeline.RepoBrowser";
@@ -31,14 +31,22 @@ export class RepoBrowser extends Component {
             error: "",
             darkTheme: true,
             copied: false,
+            diffMode: false,
+            diffContent: "",
+            hasDiffChanges: false,
         });
 
-        onWillStart(() => this._loadTree());
+        onWillStart(() => {});
+        onMounted(() => {});
         onWillUpdateProps((nextProps) => {
             const currentPath = this.props.record.data[this.props.name];
             const nextPath = nextProps.record.data[nextProps.name];
-            if (nextPath !== currentPath) {
-                this._loadTree(nextPath);
+            if (nextPath !== currentPath && nextPath) {
+                this.state.treeLoaded = false;
+                this.state.tree = [];
+                this.state.flatFiles = [];
+                this.state.selectedPath = "";
+                this.state.fileContent = "";
             }
         });
     }
@@ -51,6 +59,10 @@ export class RepoBrowser extends Component {
         return this.props.record.resId;
     }
 
+    get pathField() {
+        return this.props.name;
+    }
+
     get selectMenuChoices() {
         return this.state.flatFiles.map((f) => ({
             value: f.path,
@@ -58,13 +70,13 @@ export class RepoBrowser extends Component {
         }));
     }
 
-    get hasClonePath() {
-        return Boolean(this.clonePath);
+    async onClickLoadTree() {
+        await this.props.record.save();
+        await this._loadTree();
     }
 
-    async _loadTree(clonePath) {
-        const path = clonePath || this.clonePath;
-        if (!path || !this.entryId) {
+    async _loadTree() {
+        if (!this.entryId) {
             return;
         }
 
@@ -73,7 +85,8 @@ export class RepoBrowser extends Component {
 
         try {
             const result = await rpc("/commit0/file_tree", {
-                entry_id: this.entryId,
+                eval_id: this.entryId,
+                path_field: this.pathField,
             });
 
             if (result.error) {
@@ -113,7 +126,8 @@ export class RepoBrowser extends Component {
 
         try {
             const result = await rpc("/commit0/file_content", {
-                entry_id: this.entryId,
+                eval_id: this.entryId,
+                path_field: this.pathField,
                 file_path: path,
             });
 
@@ -126,6 +140,10 @@ export class RepoBrowser extends Component {
             this.state.fileContent = result.content || "";
             this.state.aceMode = result.mode || "python";
             this.state.fileSize = result.size || 0;
+
+            if (this.state.diffMode && this.canShowDiff) {
+                await this._loadDiff();
+            }
         } catch (e) {
             this.state.error = e.message || "Failed to load file";
         } finally {
@@ -149,6 +167,37 @@ export class RepoBrowser extends Component {
 
     toggleTheme() {
         this.state.darkTheme = !this.state.darkTheme;
+    }
+
+    get canShowDiff() {
+        return this.props.name === "clone_path_stubbed";
+    }
+
+    async toggleDiff() {
+        this.state.diffMode = !this.state.diffMode;
+        if (this.state.diffMode && this.state.selectedPath) {
+            await this._loadDiff();
+        }
+    }
+
+    async _loadDiff() {
+        this.state.loading = true;
+        try {
+            const result = await rpc("/commit0/file_diff", {
+                eval_id: this.entryId,
+                file_path: this.state.selectedPath,
+            });
+            this.state.diffContent = result.diff || "";
+            this.state.hasDiffChanges = result.has_changes || false;
+        } catch (e) {
+            this.state.error = e.message || "Failed to load diff";
+        } finally {
+            this.state.loading = false;
+        }
+    }
+
+    get diffLines() {
+        return (this.state.diffContent || "").split("\n");
     }
 
     get editorTheme() {

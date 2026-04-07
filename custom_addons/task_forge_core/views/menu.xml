@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Root Menu -->
+    <menuitem id="menu_task_forge_root" name="Task Forge" sequence="25" web_icon="task_forge_core,static/description/icon.png"/>
+
+    <!-- Task Logs -->
+    <menuitem id="menu_tf_task_logs" name="Task Logs" parent="menu_task_forge_root" action="action_task_forge_log" sequence="10"/>
+
+    <!-- Blockers -->
+    <menuitem id="menu_tf_blockers" name="Blockers" parent="menu_task_forge_root" action="action_task_forge_blocker" sequence="20"/>
+
+    <!-- Bugs -->
+    <menuitem id="menu_tf_bugs_parent" name="Bugs" parent="menu_task_forge_root" sequence="30"/>
+    <menuitem id="menu_tf_validated_bugs" name="Validated Bugs" parent="menu_tf_bugs_parent" action="action_tf_validated_bug" sequence="10"/>
+    <menuitem id="menu_tf_bug_reports" name="Bug Reports" parent="menu_tf_bugs_parent" action="action_tf_bug_report" sequence="20"/>
+
+    <!-- Flags -->
+    <menuitem id="menu_tf_flags" name="Flags" parent="menu_task_forge_root" action="action_tf_flag" sequence="40"/>
+
+</odoo>

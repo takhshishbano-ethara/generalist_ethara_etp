@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
+import base64
+import difflib
 import logging
 import os
+import subprocess
+import urllib.request
+import json as json_lib
 
 from odoo import http
 from odoo.exceptions import AccessError
@@ -79,11 +84,10 @@ SKIP_NAMES = {
 }
 
 
-def _validate_repo_path(entry):
-    """Return the validated clone_path for a repo entry, or raise."""
-    clone_path = entry.clone_path
+def _validate_clone_path(clone_path):
+    """Return the validated real path for a clone directory, or raise."""
     if not clone_path:
-        raise AccessError("No clone path set for this repository entry.")
+        raise AccessError("No clone path set for this evaluation.")
     real_root = os.path.realpath(clone_path)
     if not os.path.isdir(real_root):
         raise AccessError("Clone directory does not exist: %s" % clone_path)
@@ -206,108 +210,297 @@ def _detect_ace_mode(file_path):
     return ext_map.get(ext, "python")
 
 
-class Commit0Controller(http.Controller):
-    @http.route("/commit0/start_pipeline", type="jsonrpc", auth="user")
-    def start_pipeline(self, run_id):
-        """Start a pipeline run in the background."""
-        run = request.env["commit0.pipeline.run"].browse(int(run_id))
-        if not run.exists():
-            return {"error": "Pipeline run not found"}
-        result = run.action_start_pipeline()
-        return {"success": True, "state": run.state, "notification": result}
+def _extract_github_full_name(repo_url):
+    url = (repo_url or "").strip().rstrip("/").replace(".git", "")
+    if "github.com/" in url:
+        parts = url.split("github.com/")[-1].split("/")
+        if len(parts) >= 2:
+            return "%s/%s" % (parts[0], parts[1])
+    return None
 
-    @http.route("/commit0/pipeline_status", type="jsonrpc", auth="user")
-    def pipeline_status(self, run_id):
-        """Get current pipeline status for polling."""
-        run = request.env["commit0.pipeline.run"].browse(int(run_id))
-        if not run.exists():
-            return {"error": "Pipeline run not found"}
-        entries = []
-        for entry in run.repo_entry_ids:
-            entries.append(
-                {
-                    "id": entry.id,
-                    "name": entry.name,
-                    "repo_name": entry.repo_name or "",
-                    "state": entry.state,
-                    "test_count": entry.test_count,
-                    "error_message": entry.error_message or "",
-                }
+
+def _github_api_get(path, token=""):
+    url = "https://api.github.com%s" % path
+    req = urllib.request.Request(url)
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("User-Agent", "Kaiju-Pipeline")
+    if token:
+        req.add_header("Authorization", "token %s" % token)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json_lib.loads(resp.read().decode())
+
+
+def _github_tree_to_local_format(items, prefix=""):
+    dirs = []
+    files = []
+    for item in items:
+        name = item.get("name", "")
+        if _should_skip(name):
+            continue
+        rel = "%s/%s" % (prefix, name) if prefix else name
+        if item.get("type") == "dir":
+            dirs.append({"name": name, "path": rel, "is_dir": True, "children": []})
+        elif _is_text_file(name):
+            files.append({"name": name, "path": rel, "is_dir": False})
+    dirs.sort(key=lambda d: d["name"])
+    files.sort(key=lambda f: f["name"])
+    return dirs + files
+
+
+def _github_tree_recursive(full_name, path="", token="", depth=0):
+    if depth > 4:
+        return []
+    api_path = "/repos/%s/contents/%s" % (full_name, path)
+    try:
+        items = _github_api_get(api_path, token)
+    except Exception:
+        return []
+    if not isinstance(items, list):
+        return []
+    entries = _github_tree_to_local_format(items, path)
+    for entry in entries:
+        if entry["is_dir"]:
+            entry["children"] = _github_tree_recursive(
+                full_name, entry["path"], token, depth + 1
             )
-        return {
-            "id": run.id,
-            "name": run.name,
-            "state": run.state,
-            "progress_pct": run.progress_pct,
-            "repo_count": run.repo_count,
-            "error_message": run.error_message or "",
-            "start_time": str(run.start_time) if run.start_time else "",
-            "end_time": str(run.end_time) if run.end_time else "",
-            "entries": entries,
-        }
+    return entries
 
-    @http.route("/commit0/pipeline_logs", type="jsonrpc", auth="user")
-    def pipeline_logs(self, run_id):
-        """Get latest pipeline log output."""
-        run = request.env["commit0.pipeline.run"].browse(int(run_id))
-        if not run.exists():
-            return {"error": "Pipeline run not found"}
-        return {
-            "log_output": run.log_output or "",
-            "state": run.state,
-        }
 
-    @http.route("/commit0/cancel_pipeline", type="jsonrpc", auth="user")
-    def cancel_pipeline(self, run_id):
-        """Cancel a running pipeline."""
-        run = request.env["commit0.pipeline.run"].browse(int(run_id))
-        if not run.exists():
-            return {"error": "Pipeline run not found"}
-        run.action_cancel_pipeline()
-        return {"success": True, "state": run.state}
-
+class Commit0Controller(http.Controller):
     # ------------------------------------------------------------------
     # File Browser endpoints
     # ------------------------------------------------------------------
 
-    @http.route("/commit0/file_tree", type="jsonrpc", auth="user")
-    def file_tree(self, entry_id):
-        entry = request.env["commit0.repo.entry"].browse(int(entry_id))
-        if not entry.exists():
-            return {"error": "Repository entry not found"}
+    def _get_git_context(self, evaluation, path_field):
+        if path_field != "clone_path_original":
+            return None
+        ref = evaluation.reference_commit
+        repo = evaluation.clone_path_original or evaluation.clone_path
+        if not ref or not repo or not os.path.isdir(repo):
+            return None
+        return {"repo": repo, "ref": ref, "src_dir": evaluation.src_dir or ""}
 
-        real_root = _validate_repo_path(entry)
-        tree = _scan_directory(real_root)
-        return {"tree": tree, "repo_name": entry.repo_name or ""}
+    def _git_tree(self, repo_path, ref, src_dir):
+        tree_path = "%s:%s" % (ref, src_dir) if src_dir else "%s:" % ref
+        try:
+            result = subprocess.run(
+                ["git", "ls-tree", "-r", "--name-only", tree_path],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                return []
+        except Exception:
+            return []
+
+        root = {}
+        for line in result.stdout.strip().splitlines():
+            if not _is_text_file(os.path.basename(line)):
+                continue
+            parts = line.split("/")
+            node = root
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    node.setdefault("__files__", []).append(part)
+                else:
+                    node.setdefault(part, {})
+                    node = node[part]
+
+        def build_entries(node, prefix=""):
+            dirs = []
+            files = []
+            for key in sorted(node):
+                if key == "__files__":
+                    continue
+                rel = os.path.join(prefix, key) if prefix else key
+                child = node[key]
+                dirs.append(
+                    {
+                        "name": key,
+                        "path": rel,
+                        "is_dir": True,
+                        "children": build_entries(child, rel),
+                    }
+                )
+            for fname in sorted(node.get("__files__", [])):
+                if _should_skip(fname):
+                    continue
+                rel = os.path.join(prefix, fname) if prefix else fname
+                files.append({"name": fname, "path": rel, "is_dir": False})
+            return dirs + files
+
+        return build_entries(root)
+
+    @http.route("/commit0/file_tree", type="jsonrpc", auth="user")
+    def file_tree(self, eval_id, path_field="clone_path"):
+        evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
+        if not evaluation.exists():
+            return {"error": "Evaluation not found"}
+
+        git_ctx = self._get_git_context(evaluation, path_field)
+        if git_ctx:
+            tree = self._git_tree(git_ctx["repo"], git_ctx["ref"], git_ctx["src_dir"])
+            return {"tree": tree, "repo_name": evaluation.repo_name or ""}
+
+        clone_path = evaluation[path_field]
+        if clone_path and os.path.isdir(clone_path):
+            real_root = _validate_clone_path(clone_path)
+            tree = _scan_directory(real_root)
+            return {"tree": tree, "repo_name": evaluation.repo_name or ""}
+
+        full_name = _extract_github_full_name(evaluation.repo_url)
+        if not full_name:
+            return {"error": "No clone path or valid GitHub URL"}
+        token = (
+            request.env["ir.config_parameter"]
+            .sudo()
+            .get_param("commit0_pipeline.github_token", "")
+        )
+        tree = _github_tree_recursive(full_name, token=token)
+        return {"tree": tree, "repo_name": evaluation.repo_name or ""}
 
     @http.route("/commit0/file_content", type="jsonrpc", auth="user")
-    def file_content(self, entry_id, file_path):
-        entry = request.env["commit0.repo.entry"].browse(int(entry_id))
-        if not entry.exists():
-            return {"error": "Repository entry not found"}
+    def file_content(self, eval_id, file_path, path_field="clone_path"):
+        evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
+        if not evaluation.exists():
+            return {"error": "Evaluation not found"}
 
-        real_root = _validate_repo_path(entry)
-        full_path = _check_path_traversal(real_root, file_path)
-
-        if not os.path.isfile(full_path):
-            return {"error": "File not found: %s" % file_path}
-
-        file_size = os.path.getsize(full_path)
-        if file_size > MAX_FILE_SIZE:
+        git_ctx = self._get_git_context(evaluation, path_field)
+        if git_ctx:
+            git_path = (
+                os.path.join(git_ctx["src_dir"], file_path)
+                if git_ctx["src_dir"]
+                else file_path
+            )
+            try:
+                result = subprocess.run(
+                    ["git", "show", "%s:%s" % (git_ctx["ref"], git_path)],
+                    cwd=git_ctx["repo"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    return {"error": "File not found: %s" % file_path}
+                content = result.stdout
+            except Exception as e:
+                return {"error": "Failed to read file: %s" % str(e)[:200]}
             return {
-                "error": "File too large (%d bytes). Max: %d bytes."
-                % (file_size, MAX_FILE_SIZE)
+                "content": content,
+                "path": file_path,
+                "mode": _detect_ace_mode(file_path),
+                "size": len(content.encode("utf-8")),
             }
 
-        try:
-            with open(full_path, "r", errors="replace") as f:
-                content = f.read()
-        except Exception as e:
-            return {"error": "Cannot read file: %s" % str(e)[:200]}
+        clone_path = evaluation[path_field]
+        if clone_path and os.path.isdir(clone_path):
+            real_root = _validate_clone_path(clone_path)
+            full_path = _check_path_traversal(real_root, file_path)
+            if not os.path.isfile(full_path):
+                return {"error": "File not found: %s" % file_path}
+            file_size = os.path.getsize(full_path)
+            if file_size > MAX_FILE_SIZE:
+                return {
+                    "error": "File too large (%d bytes). Max: %d bytes."
+                    % (file_size, MAX_FILE_SIZE)
+                }
+            try:
+                with open(full_path, "r", errors="replace") as f:
+                    content = f.read()
+            except Exception as e:
+                return {"error": "Cannot read file: %s" % str(e)[:200]}
+            return {
+                "content": content,
+                "path": file_path,
+                "mode": _detect_ace_mode(file_path),
+                "size": file_size,
+            }
 
+        full_name = _extract_github_full_name(evaluation.repo_url)
+        if not full_name:
+            return {"error": "No clone path or valid GitHub URL"}
+        token = (
+            request.env["ir.config_parameter"]
+            .sudo()
+            .get_param("commit0_pipeline.github_token", "")
+        )
+        try:
+            api_path = "/repos/%s/contents/%s" % (full_name, file_path)
+            data = _github_api_get(api_path, token)
+            if isinstance(data, list):
+                return {"error": "Path is a directory, not a file"}
+            content_b64 = data.get("content", "")
+            content = base64.b64decode(content_b64).decode("utf-8", errors="replace")
+            return {
+                "content": content,
+                "path": file_path,
+                "mode": _detect_ace_mode(file_path),
+                "size": data.get("size", 0),
+            }
+        except Exception as e:
+            return {"error": "GitHub API error: %s" % str(e)[:200]}
+
+    @http.route("/commit0/file_diff", type="jsonrpc", auth="user")
+    def file_diff(self, eval_id, file_path):
+        evaluation = request.env["commit0.repo.evaluation"].browse(int(eval_id))
+        if not evaluation.exists():
+            return {"error": "Evaluation not found"}
+
+        clone_path = evaluation.clone_path_original or evaluation.clone_path
+        ref_commit = evaluation.reference_commit
+        stubbed_root = evaluation.clone_path_stubbed
+        src_dir = evaluation.src_dir or ""
+
+        if not stubbed_root or not os.path.isdir(stubbed_root):
+            return {"error": "Stubbed clone path not available"}
+        if not clone_path or not os.path.isdir(clone_path):
+            return {"error": "Clone path not available"}
+        if not ref_commit:
+            return {"error": "Reference commit not available"}
+
+        git_path = os.path.join(src_dir, file_path) if src_dir else file_path
+        try:
+            result = subprocess.run(
+                ["git", "show", "%s:%s" % (ref_commit, git_path)],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                orig_lines = []
+            else:
+                orig_lines = result.stdout.splitlines(keepends=True)
+        except Exception:
+            orig_lines = []
+
+        stubbed_root = os.path.realpath(stubbed_root)
+        stub_file = _check_path_traversal(stubbed_root, file_path)
+        stub_lines = []
+        if os.path.isfile(stub_file):
+            try:
+                with open(stub_file, "r", errors="replace") as f:
+                    stub_lines = f.readlines()
+            except Exception:
+                pass
+
+        if not orig_lines and not stub_lines:
+            return {"error": "File not found in either version"}
+
+        diff = list(
+            difflib.unified_diff(
+                orig_lines,
+                stub_lines,
+                fromfile="original/" + file_path,
+                tofile="stubbed/" + file_path,
+                lineterm="",
+            )
+        )
+        has_changes = len(diff) > 0
         return {
-            "content": content,
+            "diff": "\n".join(diff),
+            "has_changes": has_changes,
             "path": file_path,
-            "mode": _detect_ace_mode(file_path),
-            "size": file_size,
         }

@@ -15,11 +15,47 @@
 
     .o_repo_browser_editor {
         min-height: 400px;
-        width: 1400px;
+        width: 100%;
 
         .ace_editor {
             width: 100% !important;
             min-height: 400px;
+        }
+    }
+
+    .o_repo_browser_diff {
+        font-family: monospace;
+        font-size: 12px;
+        background: #1e1e1e;
+        min-height: 400px;
+
+        .o_diff_output {
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        .o_diff_line {
+            display: block;
+            padding: 0 8px;
+        }
+
+        .o_diff_add {
+            background: rgba(40, 167, 69, 0.2);
+            color: #85e89d;
+        }
+
+        .o_diff_del {
+            background: rgba(220, 53, 69, 0.2);
+            color: #f97583;
+        }
+
+        .o_diff_hunk {
+            background: rgba(13, 110, 253, 0.15);
+            color: #79b8ff;
+        }
+
+        .o_diff_ctx {
+            color: #8b949e;
         }
     }
 }

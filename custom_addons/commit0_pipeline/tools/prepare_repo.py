@@ -3,7 +3,7 @@ Prepare repos for a commit0 dataset.
 
 For each validated candidate:
 1. Fork to Ethara-Ai GitHub org
-2. Create a 'commit0_{removal_mode}' branch (e.g., commit0_combined)
+2. Create a 'commit0_{removal_mode}' branch (e.g., commit0_all)
 3. Apply AST stubbing (replace function bodies with pass)
 4. Commit stubbed version as base_commit
 5. Reset to original as reference_commit
@@ -77,14 +77,27 @@ def _get_scrape_func():
 
 def git(repo_dir: Path, *args: str, check: bool = True, timeout: int = 120) -> str:
     """Run a git command in repo_dir, return stdout."""
+    lock_file = repo_dir / ".git" / "index.lock"
+    if lock_file.exists():
+        logger.warning("  Removing stale index.lock: %s", lock_file)
+        lock_file.unlink(missing_ok=True)
+
     result = subprocess.run(
         ["git", *args],
         cwd=repo_dir,
         capture_output=True,
         text=True,
         timeout=timeout,
-        check=check,
+        check=False,
     )
+    if check and result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            ["git", *args],
+            output=result.stdout,
+            stderr=stderr,
+        )
     return result.stdout.strip()
 
 
@@ -277,7 +290,16 @@ def create_stubbed_branch(
 
     logger.info("  Stubbed %d files (%d errors)", stubbed_count, errors)
 
-    git(repo_dir, "add", "-A")
+    try:
+        git(repo_dir, "add", "-A", timeout=300)
+    except subprocess.CalledProcessError as e:
+        logger.warning("  git add -A failed (rc=%d): %s", e.returncode, e.stderr)
+        logger.info("  Retrying with chunked git add...")
+        git(repo_dir, "reset", check=False, timeout=60)
+        for py_file in sorted(stub_target.rglob("*.py")):
+            rel = py_file.relative_to(repo_dir)
+            git(repo_dir, "add", "--", str(rel), check=False, timeout=60)
+        git(repo_dir, "add", "-u", timeout=300)
 
     status = git(repo_dir, "status", "--porcelain")
     if not status:

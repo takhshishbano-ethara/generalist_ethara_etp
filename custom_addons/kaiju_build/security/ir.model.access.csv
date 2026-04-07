@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_kaiju_app_user,kaiju.app.user,model_kaiju_app,group_kaiju_user,1,1,1,0
+access_kaiju_app_admin,kaiju.app.admin,model_kaiju_app,group_kaiju_admin,1,1,1,1
+access_kaiju_build_user,kaiju.build.user,model_kaiju_build,group_kaiju_user,1,1,1,0
+access_kaiju_build_admin,kaiju.build.admin,model_kaiju_build,group_kaiju_admin,1,1,1,1

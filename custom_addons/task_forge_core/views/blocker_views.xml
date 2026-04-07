@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_task_forge_blocker_tree" model="ir.ui.view">
+        <field name="name">task.forge.blocker.tree</field>
+        <field name="model">task.forge.blocker</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="state == 'pending'" decoration-warning="state == 'ack'" decoration-success="state == 'no_issue'">
+                <field name="name"/>
+                <field name="task_name"/>
+                <field name="employee_name"/>
+                <field name="qr_id"/>
+                <field name="pl_id"/>
+                <field name="state" widget="badge"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_task_forge_blocker_form" model="ir.ui.view">
+        <field name="name">task.forge.blocker.form</field>
+        <field name="model">task.forge.blocker</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="pending,ack,escalated"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Blocker Info">
+                            <field name="name"/>
+                            <field name="task_id"/>
+                            <field name="project_id"/>
+                            <field name="blocker_reason"/>
+                        </group>
+                        <group string="Hierarchy">
+                            <field name="employee_id"/>
+                            <field name="qr_id"/>
+                            <field name="pl_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="QR Review">
+                            <group>
+                                <field name="qr_notes"/>
+                                <field name="qr_video_url" widget="url"/>
+                                <field name="qr_image_url" widget="url"/>
+                                <field name="qr_action_at"/>
+                            </group>
+                        </page>
+                        <page string="PL Validation">
+                            <group>
+                                <field name="pl_validated_at"/>
+                                <field name="validated_bug_id"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_task_forge_blocker" model="ir.actions.act_window">
+        <field name="name">Blockers</field>
+        <field name="res_model">task.forge.blocker</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

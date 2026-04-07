@@ -59,6 +59,34 @@ tags:
     description: WhatsApp Cloud API webhook handlers
   - name: Blockers
     description: Project blocker management
+  - name: TaskForge Users
+    description: TaskForge user management (users, team, PLS, QRs)
+  - name: TaskForge Leaves
+    description: TaskForge leave management (apply, approve, reject)
+  - name: TaskForge Attendance
+    description: TaskForge attendance tracking (punch in/out)
+  - name: TaskForge Projects
+    description: TaskForge project and allocation management
+  - name: TaskForge Tasks
+    description: TaskForge task logging and tracking
+  - name: TaskForge Bugs
+    description: TaskForge bug reports and validation
+  - name: TaskForge Flags
+    description: TaskForge flag management
+  - name: TaskForge Analytics
+    description: TaskForge analytics and productivity metrics
+  - name: TaskForge Files
+    description: TaskForge file uploads and exports
+  - name: Preference Ranking API
+    description: Preference Ranking REST API for tasks and evaluations
+  - name: Slack Integration
+    description: Slack channel and user integration
+  - name: Google Integration
+    description: Google Drive and Meet authentication
+  - name: Accounting Reports
+    description: XLSX report generation
+  - name: HR Reminders
+    description: HR reminder endpoints
 
 components:
   securitySchemes:
@@ -689,6 +717,888 @@ components:
       type: object
       description: Key-value pairs of human-editable fields
       additionalProperties: true
+
+    # ============================================================
+    # TaskForge Schemas
+    # ============================================================
+
+    TaskForgeBugReportRequest:
+      type: object
+      required:
+        - task_id
+      properties:
+        task_id:
+          type: integer
+          description: ID of the task to report bug for
+        description:
+          type: string
+          description: Bug description
+
+    TaskForgeBugReportItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        task_id:
+          type: integer
+        task_name:
+          type: string
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        video_url:
+          type: string
+        description:
+          type: string
+        state:
+          type: string
+
+    TaskForgeValidatedBugItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        project_name:
+          type: string
+        employee_name:
+          type: string
+        impact:
+          type: string
+        state:
+          type: string
+        bug_description:
+          type: string
+        steps_to_reproduce:
+          type: string
+        pages_affected:
+          type: string
+        impact_details:
+          type: string
+        blocker_reason:
+          type: string
+        qr_video_url:
+          type: string
+        qr_image_url:
+          type: string
+        validated_by:
+          type: string
+        created_at:
+          type: string
+
+    TaskForgeNotificationItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        is_read:
+          type: boolean
+        priority:
+          type: string
+        created_at:
+          type: string
+
+    TaskForgeFounderDashboard:
+      type: object
+      properties:
+        total_members:
+          type: integer
+        present_today:
+          type: integer
+        on_leave_today:
+          type: integer
+        tasks_completed_today:
+          type: integer
+        live_projects:
+          type: integer
+        open_blockers:
+          type: integer
+        pending_leaves:
+          type: integer
+        role_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+
+    TaskForgeProjectHealthItem:
+      type: object
+      properties:
+        project_id:
+          type: integer
+        project_name:
+          type: string
+        total_tasks:
+          type: integer
+        completed:
+          type: integer
+        pending:
+          type: integer
+        blockers:
+          type: integer
+        overdue:
+          type: integer
+        health:
+          type: string
+          enum: [healthy, warning, at_risk]
+
+    TaskForgeRankings:
+      type: object
+      properties:
+        top_taskers:
+          type: array
+          items:
+            type: object
+            properties:
+              employee_id:
+                type: integer
+              employee_name:
+                type: string
+              total_tasks:
+                type: integer
+              completed:
+                type: integer
+              productivity:
+                type: number
+        low_performers:
+          type: array
+          items:
+            type: object
+            properties:
+              employee_id:
+                type: integer
+              employee_name:
+                type: string
+              total_tasks:
+                type: integer
+              completed:
+                type: integer
+              productivity:
+                type: number
+
+    TaskForgeLeaveImpact:
+      type: object
+      properties:
+        on_leave_today:
+          type: integer
+        affected_pls:
+          type: array
+          items:
+            type: string
+        affected_qrs:
+          type: array
+          items:
+            type: string
+        pending_approvals:
+          type: integer
+
+    TaskForgeRiskQuality:
+      type: object
+      properties:
+        open_blockers:
+          type: integer
+        overdue_tasks:
+          type: integer
+        low_hours_members:
+          type: array
+          items:
+            type: object
+            properties:
+              employee_id:
+                type: integer
+              employee_name:
+                type: string
+              hours_worked:
+                type: number
+
+    TaskForgeQRAnalytics:
+      type: object
+      properties:
+        team_size:
+          type: integer
+        present_today:
+          type: integer
+        completion_rate:
+          type: number
+        taskers:
+          type: array
+          items:
+            type: object
+            properties:
+              employee_id:
+                type: integer
+              employee_name:
+                type: string
+              total_tasks:
+                type: integer
+              completed:
+                type: integer
+              productivity:
+                type: number
+              present_today:
+                type: boolean
+
+    TaskForgeHierarchyPerformance:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: integer
+          name:
+            type: string
+          qrs:
+            type: array
+            items:
+              type: object
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                taskers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      total_tasks:
+                        type: integer
+                      completed:
+                        type: integer
+                      productivity:
+                        type: number
+
+    TaskForgeAnalyticsOverview:
+      type: object
+      properties:
+        present_today:
+          type: integer
+        tasks_completed_today:
+          type: integer
+        live_projects:
+          type: integer
+        avg_aht:
+          type: number
+        active_taskers:
+          type: integer
+        pending_leaves:
+          type: integer
+        unresolved_flags:
+          type: integer
+
+    TaskForgeProductivityItem:
+      type: object
+      properties:
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        tasks_completed:
+          type: integer
+        total_tasks:
+          type: integer
+        productivity:
+          type: number
+        aht:
+          type: number
+
+    TaskForgeTaskerProductivity:
+      type: object
+      properties:
+        date:
+          type: string
+        per_task:
+          type: array
+          items:
+            type: object
+            properties:
+              task_id:
+                type: integer
+              task_name:
+                type: string
+              project_name:
+                type: string
+              time_taken_mins:
+                type: integer
+              status:
+                type: string
+        per_project:
+          type: array
+          items:
+            type: object
+            properties:
+              project:
+                type: string
+              tasks:
+                type: integer
+              total_mins:
+                type: integer
+        total_tasks:
+          type: integer
+        completed:
+          type: integer
+        completion_rate:
+          type: number
+        hours_logged:
+          type: number
+
+    TaskForgeFlagItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        message:
+          type: string
+        severity:
+          type: string
+        related_employee_id:
+          type: integer
+        related_employee_name:
+          type: string
+        related_project_id:
+          type: integer
+        related_project_name:
+          type: string
+        is_resolved:
+          type: boolean
+        resolved_at:
+          type: string
+        created_at:
+          type: string
+
+    TaskForgeFlagCreateRequest:
+      type: object
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          description: Flag type
+        message:
+          type: string
+          description: Flag message
+        severity:
+          type: string
+          description: "Flag severity (default: medium)"
+        related_employee_id:
+          type: integer
+        related_project_id:
+          type: integer
+
+    TaskForgeBlockerItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        task_id:
+          type: integer
+        task_name:
+          type: string
+        project_id:
+          type: integer
+        project_name:
+          type: string
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        qr_id:
+          type: integer
+        qr_name:
+          type: string
+        pl_id:
+          type: integer
+        pl_name:
+          type: string
+        blocker_reason:
+          type: string
+        state:
+          type: string
+        qr_notes:
+          type: string
+        qr_video_url:
+          type: string
+        qr_image_url:
+          type: string
+        qr_action_at:
+          type: string
+        pl_validated_at:
+          type: string
+        validated_bug_id:
+          type: integer
+        created_at:
+          type: string
+
+    TaskForgeQRActionRequest:
+      type: object
+      required:
+        - blocker_id
+        - action
+      properties:
+        blocker_id:
+          type: integer
+        action:
+          type: string
+          enum: [no_issue, escalate]
+          description: QR action type
+        notes:
+          type: string
+          description: Optional notes for the action
+
+    TaskForgePLValidateRequest:
+      type: object
+      required:
+        - blocker_id
+        - bug_title
+      properties:
+        blocker_id:
+          type: integer
+        bug_title:
+          type: string
+        bug_description:
+          type: string
+        steps_to_reproduce:
+          type: string
+        pages_affected:
+          type: string
+        impact:
+          type: string
+        impact_details:
+          type: string
+
+    TaskForgeTaskItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        sequence:
+          type: integer
+        task_name:
+          type: string
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        project_id:
+          type: integer
+        project_name:
+          type: string
+        date:
+          type: string
+        status:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        time_taken_mins:
+          type: integer
+        start_screenshot_url:
+          type: string
+        end_screenshot_url:
+          type: string
+        blocker_reason:
+          type: string
+        quality_score:
+          type: number
+        prompt_justification:
+          type: string
+        feedback_note:
+          type: string
+        created_at:
+          type: string
+
+    TaskForgeStartTaskRequest:
+      type: object
+      required:
+        - task_name
+      properties:
+        task_name:
+          type: string
+        project_id:
+          type: integer
+
+    TaskForgeEndTaskRequest:
+      type: object
+      required:
+        - task_id
+      properties:
+        task_id:
+          type: integer
+        blocker_reason:
+          type: string
+
+    TaskForgeCreateTaskRequest:
+      type: object
+      required:
+        - task_name
+      properties:
+        task_name:
+          type: string
+        employee_id:
+          type: integer
+        project_id:
+          type: integer
+        date:
+          type: string
+          format: date
+        time_taken_mins:
+          type: integer
+        status:
+          type: string
+
+    TaskForgeFileUploadResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        size:
+          type: integer
+
+    TaskForgeUserItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        job_title:
+          type: string
+        location:
+          type: string
+        allocation_status:
+          type: string
+        is_active:
+          type: boolean
+        pl_id:
+          type: integer
+        pl_name:
+          type: string
+        qr_id:
+          type: integer
+        qr_name:
+          type: string
+        current_project:
+          type: string
+        current_project_id:
+          type: integer
+
+    TaskForgeLeaveItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        from_date:
+          type: string
+        to_date:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+        is_paid:
+          type: boolean
+        approved_by_name:
+          type: string
+        created_at:
+          type: string
+
+    TaskForgeLeaveRequest:
+      type: object
+      required:
+        - from_date
+        - to_date
+        - reason
+      properties:
+        from_date:
+          type: string
+          format: date
+        to_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        holiday_status_id:
+          type: integer
+
+    TaskForgeAttendanceItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        date:
+          type: string
+        status:
+          type: string
+        punch_in_time:
+          type: string
+        punch_out_time:
+          type: string
+        hours_worked:
+          type: number
+        location:
+          type: string
+        geo_coordinates:
+          type: string
+        tasks_done:
+          type: string
+
+    TaskForgePunchInRequest:
+      type: object
+      properties:
+        location:
+          type: string
+        geo_coordinates:
+          type: string
+
+    TaskForgeProjectItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        platform:
+          type: string
+        is_allocated:
+          type: boolean
+        created_at:
+          type: string
+
+    TaskForgeAllocationItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        project_name:
+          type: string
+        project_status:
+          type: string
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        allocated_by:
+          type: string
+        is_tested:
+          type: boolean
+        is_visible_on_multimango:
+          type: boolean
+        created_at:
+          type: string
+
+    TaskForgeBulkOnboardRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+          description: "CSV or XLSX file with columns: name, email, password (optional), pl_id (optional), qr_id (optional)"
+
+    # ============================================================
+    # Preference Ranking API Schemas
+    # ============================================================
+
+    PrefRankLoginRequest:
+      type: object
+      required:
+        - login
+        - password
+      properties:
+        login:
+          type: string
+          example: admin@example.com
+        password:
+          type: string
+          example: password123
+
+    PrefRankTokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+
+    PrefRankUserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        login:
+          type: string
+        role:
+          type: string
+
+    PrefRankTaskItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+        submitted:
+          type: boolean
+        processed:
+          type: boolean
+        qc_passed:
+          type: boolean
+        qc_status:
+          type: string
+        human_scores:
+          type: object
+        llm_scores:
+          type: object
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    PrefRankCreateTaskRequest:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              data:
+                type: object
+
+    PrefRankUpdateTaskRequest:
+      type: object
+      properties:
+        human_scores:
+          type: object
+          description: Human preference scores
+        comments:
+          type: string
+        rubrics:
+          type: object
+
+    PrefRankDashboardStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        submitted:
+          type: integer
+        processed:
+          type: integer
+        ratable:
+          type: integer
+        qc_passed:
+          type: integer
+        qc_failed:
+          type: integer
+
+    PrefRankEmployeeStats:
+      type: object
+      properties:
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        total_tasks:
+          type: integer
+        submitted:
+          type: integer
+        completion_rate:
+          type: number
+
+    PrefRankTokenUsage:
+      type: object
+      properties:
+        model:
+          type: string
+        type:
+          type: string
+        total_tokens:
+          type: integer
+        cost_usd:
+          type: number
+
+    PrefRankQCSummary:
+      type: object
+      properties:
+        qc_passed:
+          type: integer
+        qc_failed:
+          type: integer
+        pass_rate:
+          type: number
+        avg_human_score:
+          type: number
+        avg_llm_score:
+          type: number
+
+    PrefRankEvalRequest:
+      type: object
+      properties:
+        enhanced_prompt:
+          type: string
+          description: Optional enhanced prompt for evaluation
+
+    PrefRankBulkEvalRequest:
+      type: object
+      properties:
+        record_ids:
+          type: array
+          items:
+            type: integer
+          description: Specific record IDs to evaluate
+        filter:
+          type: object
+          description: Filter criteria for records to evaluate
 
     JsonlImportRequest:
       type: object
@@ -2314,3 +3224,2450 @@ paths:
       responses:
         '200':
           description: OK
+
+  # ============================================================
+  # TaskForge Core - Bugs
+  # ============================================================
+  /api/v2/taskforge/validated_bugs:
+    get:
+      tags: [TaskForge Bugs]
+      summary: List validated bugs
+      description: Get list of validated bugs. Requires PL role.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Validated bugs list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeValidatedBugItem'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/bug_reports:
+    get:
+      tags: [TaskForge Bugs]
+      summary: List bug reports
+      description: Get list of bug reports for the user's team.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Bug reports list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeBugReportItem'
+    post:
+      tags: [TaskForge Bugs]
+      summary: Create bug report
+      description: Create a new bug report for a task. Supports optional video upload.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskForgeBugReportRequest'
+      responses:
+        '200':
+          description: Bug report created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          name:
+                            type: string
+                          task_id:
+                            type: integer
+                          video_url:
+                            type: string
+                          state:
+                            type: string
+        '400':
+          description: Error
+
+  /api/v2/taskforge/bug_reports/delete:
+    post:
+      tags: [TaskForge Bugs]
+      summary: Delete bug report
+      description: Delete a bug report. Reverts task state if blocker.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bug_report_id
+              properties:
+                bug_report_id:
+                  type: integer
+      responses:
+        '200':
+          description: Bug report deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '404':
+          description: Bug report not found
+
+  # ============================================================
+  # TaskForge Core - Notifications
+  # ============================================================
+  /api/v2/taskforge/notifications:
+    get:
+      tags: [TaskForge Notifications]
+      summary: List notifications
+      description: Get list of notifications for the current user.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeNotificationItem'
+
+  /api/v2/taskforge/notifications/read:
+    post:
+      tags: [TaskForge Notifications]
+      summary: Mark notification(s) as read
+      description: Mark a specific notification as read, or all notifications if no ID provided.
+      security:
+        - AccessToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notification_id:
+                  type: integer
+                  description: Optional notification ID to mark as read
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  # ============================================================
+  # TaskForge Core - Dashboard
+  # ============================================================
+  /api/v2/taskforge/dashboard/founder:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get founder/CTO dashboard
+      description: Get organization-wide dashboard data including members, attendance, projects, blockers.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Founder dashboard data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeFounderDashboard'
+        '403':
+          description: Admin access required
+
+  /api/v2/taskforge/dashboard/project_health:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get project health status
+      description: Get health status of all live projects (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Project health list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeProjectHealthItem'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/dashboard/rankings:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get productivity rankings
+      description: Get top taskers and low performers rankings (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Productivity rankings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeRankings'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/dashboard/leave_impact:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get leave impact analysis
+      description: Get analysis of who is on leave and affected PLs/QRs (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Leave impact data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeLeaveImpact'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/dashboard/risk_quality:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get risk and quality metrics
+      description: Get open blockers, overdue tasks, and low hours members (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Risk quality data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeRiskQuality'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/dashboard/qr_analytics:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get QR analytics
+      description: Get QR's team analytics including present members and productivity (requires QR role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: QR analytics data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeQRAnalytics'
+        '403':
+          description: QR role required
+
+  /api/v2/taskforge/hierarchy/performance:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get hierarchy performance
+      description: Get nested hierarchy (PLs > QRs > Taskers) with productivity stats (requires Admin).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Hierarchy performance data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeHierarchyPerformance'
+        '403':
+          description: Admin access required
+
+  # ============================================================
+  # TaskForge Core - Analytics
+  # ============================================================
+  /api/v2/taskforge/analytics/overview:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get analytics overview
+      description: Get team analytics overview including attendance, tasks, projects.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeAnalyticsOverview'
+
+  /api/v2/taskforge/analytics/productivity:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get team productivity
+      description: Get productivity metrics for team members.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Team productivity
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeProductivityItem'
+
+  /api/v2/taskforge/productivity/tasker:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get specific tasker productivity
+      description: Get detailed productivity for a specific tasker by employee_id and optional date.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: employee_id
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Employee ID of the tasker
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Date in YYYY-MM-DD format (defaults to today)
+      responses:
+        '200':
+          description: Tasker productivity
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeTaskerProductivity'
+        '400':
+          description: employee_id required
+
+  /api/v2/taskforge/inactivity_check:
+    get:
+      tags: [TaskForge Analytics]
+      summary: Get inactive taskers
+      description: Get list of taskers inactive for 3+ days (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Inactive members list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                employee_id:
+                                  type: integer
+                                employee_name:
+                                  type: string
+                                pl_name:
+                                  type: string
+                                qr_name:
+                                  type: string
+        '403':
+          description: PL role required
+
+  # ============================================================
+  # TaskForge Core - Flags
+  # ============================================================
+  /api/v2/taskforge/flags:
+    get:
+      tags: [TaskForge Flags]
+      summary: List flags
+      description: Get list of flags (requires PL role).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Flags list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeFlagItem'
+        '403':
+          description: PL role required
+    post:
+      tags: [TaskForge Flags]
+      summary: Create flag
+      description: Create a new flag (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskForgeFlagCreateRequest'
+      responses:
+        '200':
+          description: Flag created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          type:
+                            type: string
+                          message:
+                            type: string
+                          severity:
+                            type: string
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/flags/resolve:
+    post:
+      tags: [TaskForge Flags]
+      summary: Resolve flag
+      description: Mark a flag as resolved (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - flag_id
+              properties:
+                flag_id:
+                  type: integer
+      responses:
+        '200':
+          description: Flag resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '403':
+          description: PL role required
+        '404':
+          description: Flag not found
+
+  # ============================================================
+  # TaskForge Core - Blockers
+  # ============================================================
+  /api/v2/taskforge/blockers:
+    get:
+      tags: [Blockers]
+      summary: List blockers
+      description: Get list of blockers filtered by role.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Blockers list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeBlockerItem'
+
+  /api/v2/taskforge/blockers/qr_action:
+    post:
+      tags: [Blockers]
+      summary: QR action on blocker
+      description: Perform QR action (no_issue or escalate) on a blocker (requires QR role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskForgeQRActionRequest'
+      responses:
+        '200':
+          description: QR action completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeBlockerItem'
+        '400':
+          description: Invalid action
+        '403':
+          description: QR role required
+
+  /api/v2/taskforge/blockers/pl_validate:
+    post:
+      tags: [Blockers]
+      summary: PL validate blocker as bug
+      description: Validate a blocker and create a bug report (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskForgePLValidateRequest'
+      responses:
+        '200':
+          description: Bug validated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          blocker:
+                            $ref: '#/components/schemas/TaskForgeBlockerItem'
+                          validated_bug:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              impact:
+                                type: string
+                              state:
+                                type: string
+        '403':
+          description: PL role required
+        '404':
+          description: Blocker not found
+
+  # ============================================================
+  # TaskForge Core - Tasks
+  # ============================================================
+  /api/v2/taskforge/tasks:
+    get:
+      tags: [TaskForge Tasks]
+      summary: List tasks
+      description: Get list of tasks with optional filtering.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: employee_id
+          in: query
+          schema:
+            type: integer
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Tasks list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeTaskItem'
+
+  /api/v2/taskforge/tasks/today:
+    get:
+      tags: [TaskForge Tasks]
+      summary: Get today's tasks
+      description: Get tasks for the current user for today.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Today's tasks
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeTaskItem'
+
+  /api/v2/taskforge/tasks/active:
+    get:
+      tags: [TaskForge Tasks]
+      summary: Get active task
+      description: Get the current in-progress task for the user.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Active task or null
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            oneOf:
+                              - $ref: '#/components/schemas/TaskForgeTaskItem'
+                              - type: 'null'
+
+  /api/v2/taskforge/tasks/start:
+    post:
+      tags: [TaskForge Tasks]
+      summary: Start a task
+      description: Start a new task. Requires punch-in and no active task.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskForgeStartTaskRequest'
+      responses:
+        '200':
+          description: Task started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeTaskItem'
+        '400':
+          description: Already punched in or active task exists
+
+  /api/v2/taskforge/tasks/end:
+    post:
+      tags: [TaskForge Tasks]
+      summary: End a task
+      description: End the current in-progress task.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskForgeEndTaskRequest'
+      responses:
+        '200':
+          description: Task ended or blocker raised
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeTaskItem'
+        '400':
+          description: Task not found or not in progress
+        '403':
+          description: Not your task
+
+  /api/v2/taskforge/tasks/create:
+    post:
+      tags: [TaskForge Tasks]
+      summary: Create task (backdoor)
+      description: Create a task manually (backdoor for bulk logging).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskForgeCreateTaskRequest'
+      responses:
+        '200':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeTaskItem'
+
+  # ============================================================
+  # TaskForge Core - Files
+  # ============================================================
+  /api/v2/taskforge/files/upload:
+    post:
+      tags: [TaskForge Files]
+      summary: Upload file
+      description: Upload an image or video file to S3.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image (max 10MB) or video (max 100MB)
+      responses:
+        '200':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeFileUploadResponse'
+        '400':
+          description: Invalid file or size exceeded
+
+  /api/v2/taskforge/files/delete:
+    post:
+      tags: [TaskForge Files]
+      summary: Delete file
+      description: Soft delete a file record.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_id
+              properties:
+                file_id:
+                  type: integer
+      responses:
+        '200':
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '404':
+          description: File not found
+
+  # ============================================================
+  # TaskForge Core - Export
+  # ============================================================
+  /api/v2/taskforge/export/tasks:
+    get:
+      tags: [TaskForge Files]
+      summary: Export task logs
+      description: Export task logs as CSV or XLSX.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv, xlsx]
+          default: csv
+      responses:
+        '200':
+          description: Task logs export file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /api/v2/taskforge/export/validated_bugs:
+    get:
+      tags: [TaskForge Files]
+      summary: Export validated bugs
+      description: Export validated bugs as CSV or XLSX (requires PL role).
+      security:
+        - AccessToken: []
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv, xlsx]
+          default: csv
+      responses:
+        '200':
+          description: Validated bugs export file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: PL role required
+
+  # ============================================================
+  # TaskForge Bridge - Users
+  # ============================================================
+  /api/v2/taskforge/users:
+    get:
+      tags: [TaskForge Users]
+      summary: List users
+      description: Get list of users in the current user's team.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeUserItem'
+
+  /api/v2/taskforge/users/team:
+    get:
+      tags: [TaskForge Users]
+      summary: List team users
+      description: Get list of active team users with attendance status.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Team users list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              allOf:
+                                - $ref: '#/components/schemas/TaskForgeUserItem'
+                                - type: object
+                                  properties:
+                                    tasking_status:
+                                      type: string
+
+  /api/v2/taskforge/users/offboarded:
+    get:
+      tags: [TaskForge Users]
+      summary: List offboarded users
+      description: Get list of inactive/offboarded users.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Offboarded users list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeUserItem'
+
+  /api/v2/taskforge/users/pls:
+    get:
+      tags: [TaskForge Users]
+      summary: List Project Leads
+      description: Get list of all active Project Leads.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: PLs list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: integer
+                                name:
+                                  type: string
+
+  /api/v2/taskforge/users/qrs:
+    get:
+      tags: [TaskForge Users]
+      summary: List Quality Reviewers
+      description: Get list of all active Quality Reviewers.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: pl_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by PL ID
+      responses:
+        '200':
+          description: QRs list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: integer
+                                name:
+                                  type: string
+                                pl_id:
+                                  type: integer
+
+  /api/v2/taskforge/users/bulk_onboard:
+    post:
+      tags: [TaskForge Users]
+      summary: Bulk onboard users
+      description: Bulk create users from CSV/XLSX file (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskForgeBulkOnboardRequest'
+      responses:
+        '200':
+          description: Bulk onboard complete
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          created:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: integer
+                                name:
+                                  type: string
+                                email:
+                                  type: string
+                          errors:
+                            type: array
+                            items:
+                              type: string
+        '403':
+          description: PL role required
+
+  # ============================================================
+  # TaskForge Bridge - Leaves
+  # ============================================================
+  /api/v2/taskforge/leaves:
+    get:
+      tags: [TaskForge Leaves]
+      summary: List leaves
+      description: Get list of leaves with optional status filter.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Pending, Approved, Rejected]
+      responses:
+        '200':
+          description: Leaves list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeLeaveItem'
+    post:
+      tags: [TaskForge Leaves]
+      summary: Apply for leave
+      description: Apply for a new leave.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskForgeLeaveRequest'
+      responses:
+        '200':
+          description: Leave applied
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeLeaveItem'
+
+  /api/v2/taskforge/leaves/approve:
+    post:
+      tags: [TaskForge Leaves]
+      summary: Approve leave
+      description: Approve a leave request (requires QR role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - leave_id
+              properties:
+                leave_id:
+                  type: integer
+      responses:
+        '200':
+          description: Leave approved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeLeaveItem'
+        '403':
+          description: QR role required
+        '404':
+          description: Leave not found
+
+  /api/v2/taskforge/leaves/reject:
+    post:
+      tags: [TaskForge Leaves]
+      summary: Reject leave
+      description: Reject a leave request (requires QR role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - leave_id
+              properties:
+                leave_id:
+                  type: integer
+      responses:
+        '200':
+          description: Leave rejected
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeLeaveItem'
+        '403':
+          description: QR role required
+        '404':
+          description: Leave not found
+
+  /api/v2/taskforge/leaves/hierarchy:
+    get:
+      tags: [TaskForge Leaves]
+      summary: Get leave hierarchy
+      description: Get nested hierarchy of PLs, QRs, and taskers with leave status (requires Admin).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Leave hierarchy
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: integer
+                                name:
+                                  type: string
+                                on_leave:
+                                  type: boolean
+                                qrs:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      id:
+                                        type: integer
+                                      name:
+                                        type: string
+                                      taskers:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            id:
+                                              type: integer
+                                            name:
+                                              type: string
+                                            on_leave:
+                                              type: boolean
+                                            pending_leaves:
+                                              type: integer
+        '403':
+          description: Admin access required
+
+  # ============================================================
+  # TaskForge Bridge - Attendance
+  # ============================================================
+  /api/v2/taskforge/attendance/punch_in:
+    post:
+      tags: [TaskForge Attendance]
+      summary: Punch in
+      description: Record attendance punch-in.
+      security:
+        - AccessToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskForgePunchInRequest'
+      responses:
+        '200':
+          description: Punched in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          employee_id:
+                            type: integer
+                          employee_name:
+                            type: string
+                          date:
+                            type: string
+                          punch_in_time:
+                            type: string
+                          location:
+                            type: string
+                          geo_coordinates:
+                            type: string
+                          status:
+                            type: string
+        '400':
+          description: Already punched in
+
+  /api/v2/taskforge/attendance/punch_out:
+    post:
+      tags: [TaskForge Attendance]
+      summary: Punch out
+      description: Record attendance punch-out.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Punched out
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          employee_id:
+                            type: integer
+                          employee_name:
+                            type: string
+                          date:
+                            type: string
+                          punch_in_time:
+                            type: string
+                          punch_out_time:
+                            type: string
+                          hours_worked:
+                            type: number
+                          status:
+                            type: string
+        '400':
+          description: No active punch-in found
+
+  /api/v2/taskforge/attendance/today:
+    get:
+      tags: [TaskForge Attendance]
+      summary: Get today's attendance
+      description: Get today's attendance record for current user.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Today's attendance
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            oneOf:
+                              - $ref: '#/components/schemas/TaskForgeAttendanceItem'
+                              - type: 'null'
+
+  /api/v2/taskforge/attendance:
+    get:
+      tags: [TaskForge Attendance]
+      summary: List attendance records
+      description: Get attendance records with optional user filter.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Attendance list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeAttendanceItem'
+
+  # ============================================================
+  # TaskForge Bridge - Projects
+  # ============================================================
+  /api/v2/taskforge/projects:
+    get:
+      tags: [TaskForge Projects]
+      summary: List projects
+      description: Get list of projects based on user role.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Projects list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeProjectItem'
+    post:
+      tags: [TaskForge Projects]
+      summary: Create project
+      description: Create a new project (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                category:
+                  type: string
+                status:
+                  type: string
+                platform:
+                  type: string
+      responses:
+        '200':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeProjectItem'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/projects/update:
+    post:
+      tags: [TaskForge Projects]
+      summary: Update project
+      description: Update an existing project (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project_id
+              properties:
+                project_id:
+                  type: integer
+                name:
+                  type: string
+                status:
+                  type: string
+                platform:
+                  type: string
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeProjectItem'
+        '403':
+          description: PL role required
+        '404':
+          description: Project not found
+
+  /api/v2/taskforge/allocations:
+    get:
+      tags: [TaskForge Projects]
+      summary: List allocations
+      description: Get list of task allocations.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Allocations list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeAllocationItem'
+    post:
+      tags: [TaskForge Projects]
+      summary: Create allocation
+      description: Create a task allocation (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project_id
+                - employee_id
+              properties:
+                project_id:
+                  type: integer
+                employee_id:
+                  type: integer
+      responses:
+        '200':
+          description: Allocation created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/TaskForgeAllocationItem'
+        '403':
+          description: PL role required
+
+  /api/v2/taskforge/allocations/delete:
+    post:
+      tags: [TaskForge Projects]
+      summary: Delete allocation
+      description: Delete a task allocation (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - allocation_id
+              properties:
+                allocation_id:
+                  type: integer
+      responses:
+        '200':
+          description: Allocation removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '403':
+          description: PL role required
+        '404':
+          description: Allocation not found
+
+  /api/v2/taskforge/allocations/bulk:
+    post:
+      tags: [TaskForge Projects]
+      summary: Bulk allocate
+      description: Create multiple allocations at once (requires PL role).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project_id
+                - employee_ids
+              properties:
+                project_id:
+                  type: integer
+                employee_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          description: Allocations created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          data:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/TaskForgeAllocationItem'
+        '403':
+          description: PL role required
+
+  # ============================================================
+  # Preference Ranking API
+  # ============================================================
+  /api/v1/auth/login:
+    post:
+      tags: [Preference Ranking API]
+      summary: Login to Preference Ranking
+      description: Authenticate with login/password and get JWT tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankLoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTokenResponse'
+        '401':
+          description: Invalid credentials
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Preference Ranking API]
+      summary: Logout
+      description: Logout endpoint (client should discard tokens).
+      responses:
+        '200':
+          description: Logout successful
+
+  /api/v1/auth/me:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get current user
+      description: Get the current authenticated user's profile.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankUserProfile'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Preference Ranking API]
+      summary: Refresh token
+      description: Exchange refresh token for new access and refresh tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTokenResponse'
+
+  /api/v1/tasks:
+    get:
+      tags: [Preference Ranking API]
+      summary: List tasks
+      description: Get list of tasks with optional filters.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: processed
+          in: query
+          schema:
+            type: boolean
+        - name: qc_status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tasks list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/create:
+    post:
+      tags: [Preference Ranking API]
+      summary: Create tasks
+      description: Create one or more tasks manually (admin only).
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankCreateTaskRequest'
+      responses:
+        '200':
+          description: Tasks created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get task detail
+      description: Get full task detail including scores and rubrics.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+        '404':
+          description: Task not found
+    patch:
+      tags: [Preference Ranking API]
+      summary: Update task
+      description: Update human-editable fields on a task.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankUpdateTaskRequest'
+      responses:
+        '200':
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/submit:
+    post:
+      tags: [Preference Ranking API]
+      summary: Submit task
+      description: Submit a completed task.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Task submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/eval:
+    post:
+      tags: [Preference Ranking API]
+      summary: Trigger full evaluation
+      description: Trigger the full evaluation pipeline (LLM, responses, rubrics, comparisons).
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankEvalRequest'
+      responses:
+        '200':
+          description: Evaluation triggered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/evaluate-scores:
+    post:
+      tags: [Preference Ranking API]
+      summary: Evaluate scores
+      description: Compare human vs LLM scores and flag discrepancies.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Evaluation complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/submit-prompt:
+    post:
+      tags: [Preference Ranking API]
+      summary: Submit with enhanced prompt
+      description: Clear downstream fields and re-run with enhanced prompt.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankEvalRequest'
+      responses:
+        '200':
+          description: Prompt submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/qc:
+    post:
+      tags: [Preference Ranking API]
+      summary: Run QC checks
+      description: Perform quality control validation on a task.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: QC complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/{task_id}/eval-status:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get evaluation status
+      description: Poll the processing status of a task.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Evaluation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankTaskItem'
+
+  /api/v1/tasks/bulk-eval:
+    post:
+      tags: [Preference Ranking API]
+      summary: Bulk evaluate tasks
+      description: Queue multiple tasks for evaluation via RabbitMQ.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefRankBulkEvalRequest'
+      responses:
+        '200':
+          description: Tasks queued for evaluation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued:
+                    type: integer
+                  message:
+                    type: string
+
+  /api/v1/ingest/jsonl:
+    post:
+      tags: [Preference Ranking API]
+      summary: Import JSONL data
+      description: Import tasks from JSONL URL with randomized response order.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonlImportRequest'
+      responses:
+        '200':
+          description: Data imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  records_created:
+                    type: integer
+                  records_queued:
+                    type: integer
+
+  /api/v1/dashboard/stats:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get dashboard statistics
+      description: Get overview statistics for all tasks.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankDashboardStats'
+
+  /api/v1/dashboard/employee-stats:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get employee statistics
+      description: Get per-employee task completion statistics.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Employee stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrefRankEmployeeStats'
+
+  /api/v1/dashboard/token-usage:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get token usage
+      description: Get aggregated token usage by AI model (admin only).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Token usage
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrefRankTokenUsage'
+
+  /api/v1/dashboard/qc-summary:
+    get:
+      tags: [Preference Ranking API]
+      summary: Get QC summary
+      description: Get QC pass/fail breakdown with average scores.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: QC summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefRankQCSummary'
+
+  /api/v1/users:
+    get:
+      tags: [Preference Ranking API]
+      summary: List users
+      description: List all active users with roles (admin only).
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrefRankUserProfile'
+
+  /api/v1/employees:
+    get:
+      tags: [Preference Ranking API]
+      summary: List employees
+      description: List all employees with task counts and submission stats.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Employees list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    total_tasks:
+                      type: integer
+                    submitted:
+                      type: integer
+
+  # ============================================================
+  # Slack Integration
+  # ============================================================
+  /api/create_slack_channel:
+    post:
+      tags: [Slack Integration]
+      summary: Create Slack channel
+      description: Create a Slack channel and invite specified Odoo users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - channel_name
+                - admin_id
+                - user_ids
+              properties:
+                channel_name:
+                  type: string
+                admin_id:
+                  type: integer
+                user_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '200':
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  channel_id:
+                    type: string
+                  message:
+                    type: string
+
+  /api/invite_slack_user:
+    post:
+      tags: [Slack Integration]
+      summary: Invite user to Slack
+      description: Invite an Odoo user to the Slack workspace by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+              properties:
+                user_id:
+                  type: integer
+      responses:
+        '200':
+          description: User invited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  # ============================================================
+  # Google Integration
+  # ============================================================
+  /google_drive/callback:
+    get:
+      tags: [Google Integration]
+      summary: Google Drive OAuth callback
+      description: OAuth callback for Google Drive authorization.
+      responses:
+        '200':
+          description: Authorization result
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /google_meet_authentication:
+    get:
+      tags: [Google Integration]
+      summary: Google Meet OAuth callback
+      description: OAuth callback for Google Meet authentication.
+      responses:
+        '200':
+          description: Authorization result
+          content:
+            text/html:
+              schema:
+                type: string
+
+  # ============================================================
+  # Accounting Reports
+  # ============================================================
+  /xlsx_report:
+    post:
+      tags: [Accounting Reports]
+      summary: Generate XLSX report
+      description: Generate and download an XLSX report.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - model
+                - options
+              properties:
+                model:
+                  type: string
+                options:
+                  type: object
+                output_format:
+                  type: string
+                report_name:
+                  type: string
+      responses:
+        '200':
+          description: Report file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  # ============================================================
+  # HR Reminders
+  # ============================================================
+  /hr_reminder/all_reminder:
+    get:
+      tags: [HR Reminders]
+      summary: Get all reminders
+      description: Get all active HR reminders based on date criteria.
+      responses:
+        '200':
+          description: Reminders list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    name:
+                      type: string
+                    reminder_type:
+                      type: string
+                    date:
+                      type: string
+
+  /hr_reminder/reminder_active:
+    get:
+      tags: [HR Reminders]
+      summary: Get active reminder
+      description: Get details of a specific active reminder.
+      responses:
+        '200':
+          description: Reminder detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  model:
+                    type: string
+                  field:
+                    type: string
+                  days_before:
+                    type: integer

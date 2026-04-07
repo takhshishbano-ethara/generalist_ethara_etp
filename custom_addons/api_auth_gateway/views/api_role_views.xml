@@ -27,6 +27,14 @@
                         <h1>
                             <field name="name" placeholder="e.g. Mobile App User"/>
                         </h1>
+                        <label for="project_type"/>
+                        <h1>
+                            <field name="project_type" placeholder="e.g. Project Type"/>
+                        </h1>
+                        <label for="user_type"/>
+                        <h1>
+                            <field name="user_type" placeholder="e.g. Mobile App User"/>
+                        </h1>
                     </div>
                     <group>
                         <separator string="Access Control List"/>

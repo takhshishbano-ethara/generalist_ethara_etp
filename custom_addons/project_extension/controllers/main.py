@@ -154,6 +154,7 @@ class ProjectController(http.Controller):
                 'description': kwargs.get("description"),
                 "whatsapp_group_name": kwargs.get('whatsapp_group_name'),
                 'slack_channel_name': kwargs.get('slack_channel_name'),
+                'y_project_type': kwargs.get('y_project_type'),
                 "slack_members": [(6, 0, parse_ids("slack_members"))],
             }
 
@@ -199,8 +200,78 @@ class ProjectController(http.Controller):
 
             if attachment_ids:
                 vals['project_attachments'] = [(6, 0, attachment_ids)]
+            # '''''''''''''''''''''''''''''''''''''''
+            if kwargs.get('project_qc_reviewer'):
+                vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
+            if kwargs.get('project_tasker'):
+                vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
 
+            # Schedule Meeting
+            if kwargs.get('meeting_date'):
+                vals['meeting_date'] = kwargs.get('meeting_date')
+            if kwargs.get('meeting_link'):
+                vals['meeting_link'] = kwargs.get('meeting_link')
+            if kwargs.get('meeting_agenda'):
+                vals['meeting_agenda'] = kwargs.get('meeting_agenda')
+            if kwargs.get('meeting_to_mails'):
+                vals['meeting_to_mails'] = kwargs.get('meeting_to_mails')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            if kwargs.get('meeting_bcc_mails'):
+                vals['meeting_bcc_mails'] = kwargs.get('meeting_bcc_mails')
+            if kwargs.get('meeting_subject'):
+                vals['meeting_subject'] = kwargs.get('meeting_subject')
+            if kwargs.get('meeting_body'):
+                vals['meeting_body'] = kwargs.get('meeting_body')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            meeting_attachments = request.httprequest.files.getlist('meeting_attachments')
+            if meeting_attachments:
+                attachment_ids = []
+                for file in meeting_attachments:
+                    file_content = file.read()
+                    if not file_content: continue
+
+                    attachment = request.env['ir.attachment'].sudo().create({
+                        'name': file.filename,
+                        'datas': base64.b64encode(file_content),
+                        'res_model': 'project.project',
+                        'type': 'binary',
+                        'mimetype': file.content_type
+                    })
+                    attachment_ids.append(attachment.id)
+                if attachment_ids:
+                    vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             project = request.env['project.project'].sudo().create(vals)
+            try:
+                if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
+                    email_body = kwargs.get('meeting_body', '')
+                    meeting_info_html = f"""
+                                    <div style="margin-top: 30px; padding: 15px; border: 1px solid #e1e1e1; background-color: #f9f9f9; border-radius: 5px; font-family: sans-serif;">
+                                        <h4 style="margin-top: 0; color: #714B67;">📅 Meeting Information</h4>
+                                        <p><b>Date/Time:</b> {kwargs.get('meeting_date', 'TBD')}</p>
+                                        <p><b>Agenda:</b> {kwargs.get('meeting_agenda', 'N/A')}</p>
+                                        <p><b>Meeting Link:</b> <a href="{kwargs.get('meeting_link', '#')}" style="color: #008784; text-decoration: none;">{kwargs.get('meeting_link')}</a></p>
+                                    </div>
+                                """
+                    full_body = f"{email_body}{meeting_info_html}"
+
+                    mail_values = {
+                        'subject': kwargs.get('meeting_subject', f"Meeting Invitation: {project.name}"),
+                        'body_html': full_body,
+                        'email_to': kwargs.get('meeting_to_mails'),
+                        'email_cc': kwargs.get('meeting_cc_mails'),
+                        'email_add_signature': False,
+                        'email_bcc': kwargs.get('meeting_bcc_mails'),
+                        'attachment_ids': [(6, 0, project.meeting_attachments.ids)] if project.meeting_attachments else [],
+                        'auto_delete': False,
+                    }
+
+                    mail = request.env['mail.mail'].sudo().create(mail_values)
+                    mail.send()
+            except Exception as e:
+                print(f"Error While Sending Mail: {e}")
+
             return return_Response(
                 message="Project Created Successfully",
                 status=200,
@@ -254,6 +325,7 @@ class ProjectController(http.Controller):
                 "date_end": "date",  # Odoo field is 'date'
                 "description": "description",
                 "whatsapp_group_name": "whatsapp_group_name",
+                "y_project_type": "y_project_type",
                 "slack_channel_name": "slack_channel_name",
             }
 
@@ -308,8 +380,79 @@ class ProjectController(http.Controller):
                     attachment_ids.append(attachment.id)
                 if attachment_ids:
                     vals['project_attachments'] = [(4, aid) for aid in attachment_ids]
+
+                # '''''''''''''''''''''''''''''''''''''''
+                if kwargs.get('project_qc_reviewer'):
+                    vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
+                if kwargs.get('project_tasker'):
+                    vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
+
+                # Schedule Meeting
+                if kwargs.get('meeting_date'):
+                    vals['meeting_date'] = kwargs.get('meeting_date')
+                if kwargs.get('meeting_link'):
+                    vals['meeting_link'] = kwargs.get('meeting_link')
+                if kwargs.get('meeting_agenda'):
+                    vals['meeting_agenda'] = kwargs.get('meeting_agenda')
+                if kwargs.get('meeting_to_mails'):
+                    vals['meeting_to_mails'] = kwargs.get('meeting_to_mails')
+                if kwargs.get('meeting_cc_mails'):
+                    vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+                if kwargs.get('meeting_bcc_mails'):
+                    vals['meeting_bcc_mails'] = kwargs.get('meeting_bcc_mails')
+                if kwargs.get('meeting_subject'):
+                    vals['meeting_subject'] = kwargs.get('meeting_subject')
+                if kwargs.get('meeting_body'):
+                    vals['meeting_body'] = kwargs.get('meeting_body')
+                if kwargs.get('meeting_cc_mails'):
+                    vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+                meeting_attachments = request.httprequest.files.getlist('meeting_attachments')
+                if meeting_attachments:
+                    attachment_ids = []
+                    for file in meeting_attachments:
+                        file_content = file.read()
+                        if not file_content: continue
+
+                        attachment = request.env['ir.attachment'].sudo().create({
+                            'name': file.filename,
+                            'datas': base64.b64encode(file_content),
+                            'res_model': 'project.project',
+                            'type': 'binary',
+                            'mimetype': file.content_type
+                        })
+                        attachment_ids.append(attachment.id)
+                    if attachment_ids:
+                        vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             if vals:
                 project.sudo().write(vals)
+                try:
+                    if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
+                        email_body = kwargs.get('meeting_body', '')
+                        meeting_info_html = f"""
+                                            <div style="margin-top: 30px; padding: 15px; border: 1px solid #e1e1e1; background-color: #f9f9f9; border-radius: 5px; font-family: sans-serif;">
+                                                <h4 style="margin-top: 0; color: #714B67;">📅 Meeting Information</h4>
+                                                <p><b>Date/Time:</b> {kwargs.get('meeting_date', 'TBD')}</p>
+                                                <p><b>Agenda:</b> {kwargs.get('meeting_agenda', 'N/A')}</p>
+                                                <p><b>Meeting Link:</b> <a href="{kwargs.get('meeting_link', '#')}" style="color: #008784; text-decoration: none;">{kwargs.get('meeting_link')}</a></p>
+                                            </div>
+                                        """
+                        full_body = f"{email_body}{meeting_info_html}"
+
+                        mail_values = {
+                            'subject': kwargs.get('meeting_subject', f"Meeting Invitation: {project.name}"),
+                            'body_html': full_body,
+                            'email_to': kwargs.get('meeting_to_mails'),
+                            'email_cc': kwargs.get('meeting_cc_mails'),
+                            'email_add_signature': False,
+                            'email_bcc': kwargs.get('meeting_bcc_mails'),
+                            'attachment_ids': [(6, 0, project.meeting_attachments.ids)] if project.meeting_attachments else [],
+                            'auto_delete': False,
+                        }
+
+                        mail = request.env['mail.mail'].sudo().create(mail_values)
+                        mail.send()
+                except Exception as e:
+                    print(f"Error While Sending Mail: {e}")
 
             return return_Response(
                 message="Project Updated Successfully",
@@ -340,6 +483,10 @@ class ProjectController(http.Controller):
             p_type = kwargs.get('type')
             if p_type:
                 domain += [('project_type', '=', p_type)]
+
+            y_p_type = kwargs.get('project_type')
+            if y_p_type:
+                domain += [('y_project_type', '=', y_p_type)]
 
             # 6. Pagination Logic
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
@@ -433,6 +580,7 @@ class ProjectController(http.Controller):
             record = {
                 'id': safe_get_value(project, 'id', 'int'),
                 'name': safe_get_value(project, 'name', 'str'),
+                'project_seq': safe_get_value(project, 'project_seq', 'str'),
                 'internal_project_name': safe_get_value(project, 'internal_project_name', 'str'),
                 "client_name": safe_get_value(project, 'client_name', 'str'),
                 "project_category": safe_get_value(project, 'project_category', 'str'),
@@ -443,6 +591,7 @@ class ProjectController(http.Controller):
                 "kick_off_body": safe_get_value(project, 'kick_off_body', 'str'),
                 "ai_generated_description": safe_get_value(project, 'ai_generated_description', 'str'),
                 "internal_client_name": safe_get_value(project, 'internal_client_name', 'str'),
+                "y_project_type": safe_get_value(project, 'y_project_type', 'str'),
                 "date_start": safe_get_value(project, 'date_start', 'str'),
                 "date_end": safe_get_value(project, 'date', 'str'),
                 "description": safe_get_value(project, 'description', 'str'),
@@ -454,10 +603,32 @@ class ProjectController(http.Controller):
                 "project_lead": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_lead],
                 "project_aire": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_aire],
                 "project_swe": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_swe],
+                "project_qc_reviewer": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_qc_reviewer],
+                "project_tasker": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.project_tasker],
                 "slack_members": [{'id': safe_get_value(i, 'id', 'int'), 'name': safe_get_value(i, 'name', 'str')} for i in project.slack_members],
-                "google_drive_id": project.google_drive_id.get_drive_data() if project.google_drive_id else {}
+                "google_drive_id": project.google_drive_id.get_drive_data() if project.google_drive_id else {},
+                "is_pl_stage_completed": safe_get_value(project, 'is_pl_stage_completed', 'bool'),
+                "is_aire_stage_completed": safe_get_value(project, 'is_aire_stage_completed', 'bool'),
+                "is_swe_stage_completed": safe_get_value(project, 'is_swe_stage_completed', 'bool'),
+                "project_guide_lines": [i.get_drive_data() for i in project.project_guide_lines],
+                "project_experiment_design": [i.get_drive_data() for i in project.project_experiment_design],
+                "project_research_document": [i.get_drive_data() for i in project.project_research_document],
+                "project_infrastructure_requirement": [i.get_drive_data() for i in project.project_infrastructure_requirement],
+                "skill_tags": [{"id": i.id, "name": i.name} for i in project.skill_tags],
+                "ai_recommendation_tags": [{"id": i.id, "name": i.name} for i in project.ai_recommendation_tags],
+                "research_notes": safe_get_value(project, 'research_notes', 'str'),
+                "lock_ttl": safe_get_value(project, 'lock_ttl', 'int'),
+                "daily_quota_per_tasker": safe_get_value(project, 'daily_quota_per_tasker', 'int'),
+                "rating_configuration": safe_get_value(project, 'rating_configuration', 'str'),
+                "meeting_date": safe_get_value(project, 'meeting_date', 'str'),
+                "meeting_link": safe_get_value(project, 'meeting_link', 'str'),
+                "meeting_agenda": safe_get_value(project, 'meeting_agenda', 'str'),
+                "meeting_to_mails": safe_get_value(project, 'meeting_to_mails', 'str'),
+                "meeting_cc_mails": safe_get_value(project, 'meeting_cc_mails', 'str'),
+                "meeting_bcc_mails": safe_get_value(project, 'meeting_bcc_mails', 'str'),
+                "meeting_subject": safe_get_value(project, 'meeting_subject', 'str'),
+                "meeting_body": safe_get_value(project, 'meeting_body', 'str'),
             }
-
             return return_Response(
                 message="Success",
                 status=200,
@@ -481,102 +652,42 @@ class ProjectController(http.Controller):
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
     @validate_token
-    @http.route('/api/v1/update_project_details_pl_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
-    @validate_request({
-        "project_id": {"type": "str", "required": True},
-        "meeting_body": {
-            "type": "dict",
-            "required": True,
-            "fields": {
-                "subject": {"type": "str", "required": True},
-                "start_datetime": {"type": "str", "required": True},
-                "stop_datetime": {"type": "str", "required": True},
-                "description": {"type": "str", "required": True},
-            }
-        },
-        "project_qc_reviewer": {"type": "list", "required": True},
-        "project_tasker": {"type": "list", "required": True}
-    })
-    def update_project_details_pl_portal_info(self, **kwargs):
+    @http.route('/api/v1/get_project_skill_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_project_skill_list(self, **kwargs):
         try:
-            jdata = kwargs.get('jdata')
-            project_id = jdata.get('project_id')
-
-            project = request.env['project.project'].sudo().browse(int(project_id))
-            if not project.exists():
-                return return_Response(message=f"Project {project_id} Not Found", status=404)
-
-            rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
-            if rfp_stage and project.stage_id.id != rfp_stage.id:
-                return return_Response(message="Project is not in the required RFP stage.", status=400)
-
-            qc_ids = jdata.get('project_qc_reviewer', [])
-            tasker_ids = jdata.get('project_tasker', [])
-
-            project.sudo().write({
-                "project_qc_reviewer": [(6, 0, qc_ids)],
-                "project_tasker": [(6, 0, tasker_ids)],
-            })
-
-            all_users = (project.project_swe | project.project_aire | project.project_lead |
-                         project.project_qc_reviewer | project.project_tasker).mapped('user_id')
-
-            partner_ids = all_users.mapped('partner_id').ids
-
-            meet_payload = jdata.get('meeting_body')
-            meet_payload['partner_ids'] = partner_ids
-
-            event_result = create_calendar_event(request, meet_payload)
-
-            project.sudo().write({'training_event_id': event_result.get('id')})
-
+            project_skills = request.env['project.skills'].sudo().search([])
+            temp = []
+            for pk in project_skills:
+                temp.append({
+                    'id': pk.id,
+                    'name': pk.name
+                })
             return return_Response(
-                message="Project details and meeting updated successfully.",
+                message="Success",
                 status=200,
-                data={"project_id": project.id, "meeting_id": event_result.get('id')}
-            )
+                data={"record": temp, "count": len(temp)})
 
         except Exception as e:
-            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
     @validate_token
-    @http.route('/api/v1/update_project_details_pl_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
-    def update_project_details_pl_portal_info(self, **kwargs):
+    @http.route('/api/v1/update_project_pl_portal_skill_teams', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    def update_project_pl_portal_skill_teams(self, **kwargs):
         try:
-            if not kwargs.get('project_id'):
-                return return_Response(message=f"Project Id is missing in the request body.", status=400)
-            project_id = kwargs.get('project_id')
-
-            project = request.env['project.project'].sudo().browse(int(project_id))
+            project = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
             if not project.exists():
-                return return_Response(message=f"Project {project_id} Not Found", status=404)
+                return return_Response(message=f"Project {kwargs.get('project_id')} Not Found", status=404)
 
             rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
             if rfp_stage and project.stage_id.id != rfp_stage.id:
                 return return_Response(message="Project is not in the required RFP stage.", status=400)
-
-            qc_ids = kwargs.get('project_qc_reviewer', [])
-            tasker_ids = kwargs.get('project_tasker', [])
-            vals = {}
-            if qc_ids:
-                vals['project_qc_reviewer'] = [(6, 0, qc_ids)]
-            if tasker_ids:
-                vals['project_tasker'] = [(6, 0, tasker_ids)]
-            if kwargs.get('meeting_body'):
-                all_users = (project.project_swe | project.project_aire | project.project_lead |
-                             project.project_qc_reviewer | project.project_tasker).mapped('user_id')
-                partner_ids = all_users.mapped('partner_id').ids
-                meet_payload = {
-                    "subject": kwargs.get('meeting_body').get('subject'),
-                    "start_datetime": kwargs.get('meeting_body').get('start_datetime'),
-                    "stop_datetime": kwargs.get('meeting_body').get('stop_datetime'),
-                    "description": kwargs.get('meeting_body').get('description')
-                }
-                meet_payload['partner_ids'] = partner_ids
-                event_result = create_calendar_event(request, meet_payload)
-                if event_result:
-                    vals['training_event_id'] = event_result.id
-
+            # Skills And Team Assign
+            vals = {
+                'project_qc_reviewer': [(6, 0, kwargs.get('project_qc_reviewer'))],
+                'project_tasker': [(6, 0, kwargs.get('project_tasker'))],
+                'skill_tags': [(6, 0, kwargs.get('skill_tags'))]
+            }
+            # Document Upload
             if request.httprequest.files.getlist('files'):
                 attachment_ids = []
                 files = request.httprequest.files.getlist('files')
@@ -597,11 +708,74 @@ class ProjectController(http.Controller):
                         attachment_ids.append(drive_record.id)
                 if attachment_ids:
                     vals['project_guide_lines'] = [(6, 0, attachment_ids)]
-            if vals:
-                vals['is_pl_stage_completed'] = True
-                project.sudo().write(vals)
-            return return_Response(message="Project PL Portal Updated Successfully.", status=200)
 
+            # Schedule Meeting
+            if kwargs.get('meeting_date'):
+                vals['meeting_date'] = kwargs.get('meeting_date')
+            if kwargs.get('meeting_link'):
+                vals['meeting_link'] = kwargs.get('meeting_link')
+            if kwargs.get('meeting_agenda'):
+                vals['meeting_agenda'] = kwargs.get('meeting_agenda')
+            if kwargs.get('meeting_to_mails'):
+                vals['meeting_to_mails'] = kwargs.get('meeting_to_mails')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            if kwargs.get('meeting_bcc_mails'):
+                vals['meeting_bcc_mails'] = kwargs.get('meeting_bcc_mails')
+            if kwargs.get('meeting_subject'):
+                vals['meeting_subject'] = kwargs.get('meeting_subject')
+            if kwargs.get('meeting_body'):
+                vals['meeting_body'] = kwargs.get('meeting_body')
+            if kwargs.get('meeting_cc_mails'):
+                vals['meeting_cc_mails'] = kwargs.get('meeting_cc_mails')
+            meeting_attachments = request.httprequest.files.getlist('meeting_attachments')
+            if meeting_attachments:
+                attachment_ids = []
+                for file in meeting_attachments:
+                    file_content = file.read()
+                    if not file_content: continue
+
+                    attachment = request.env['ir.attachment'].sudo().create({
+                        'name': file.filename,
+                        'datas': base64.b64encode(file_content),
+                        'res_model': 'project.project',
+                        'res_id': project.id,
+                        'type': 'binary',
+                        'mimetype': file.content_type
+                    })
+                    attachment_ids.append(attachment.id)
+                if attachment_ids:
+                    vals['meeting_attachments'] = [(6, 0, attachment_ids)]
+
+            project.sudo().write(vals)
+            try:
+                email_body = kwargs.get('meeting_body', '')
+                meeting_info_html = f"""
+                    <div style="margin-top: 30px; padding: 15px; border: 1px solid #e1e1e1; background-color: #f9f9f9; border-radius: 5px; font-family: sans-serif;">
+                        <h4 style="margin-top: 0; color: #714B67;">📅 Meeting Information</h4>
+                        <p><b>Date/Time:</b> {kwargs.get('meeting_date', 'TBD')}</p>
+                        <p><b>Agenda:</b> {kwargs.get('meeting_agenda', 'N/A')}</p>
+                        <p><b>Meeting Link:</b> <a href="{kwargs.get('meeting_link', '#')}" style="color: #008784; text-decoration: none;">{kwargs.get('meeting_link')}</a></p>
+                    </div>
+                """
+                full_body = f"{email_body}{meeting_info_html}"
+
+                mail_values = {
+                    'subject': kwargs.get('meeting_subject', f"Meeting Invitation: {project.name}"),
+                    'body_html': full_body,
+                    'email_to': kwargs.get('meeting_to_mails'),
+                    'email_cc': kwargs.get('meeting_cc_mails'),
+                    'email_add_signature': False,
+                    'email_bcc': kwargs.get('meeting_bcc_mails'),
+                    'attachment_ids': [(6, 0, project.meeting_attachments.ids)] if project.meeting_attachments else [],
+                    'auto_delete': False,
+                }
+
+                mail = request.env['mail.mail'].sudo().create(mail_values)
+                mail.send()
+            except Exception as e:
+                print(f"Error While Sending Mail: {e}")
+            return return_Response(message="Project PL Portal Updated Successfully.", status=200)
         except Exception as e:
             return return_Response(message="Operation Failed", status=500, errors=[str(e)])
 
@@ -628,9 +802,9 @@ class ProjectController(http.Controller):
             skill_tags = []
             if kwargs.get('skill_tags'):
                 for skill in kwargs.get('skill_tags'):
-                    p_skill = request.env['project.skill'].sudo().search([('name', '=', skill)], limit=1)
+                    p_skill = request.env['project.skills'].sudo().search([('name', '=', skill)], limit=1)
                     if not p_skill:
-                        p_skill = request.env['project.skill'].sudo().create({'name': skill})
+                        p_skill = request.env['project.skills'].sudo().create({'name': skill})
                     skill_tags.append(p_skill.id)
             if skill_tags:
                 vals['skill_tags'] = [(6, 0, skill_tags)]

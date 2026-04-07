@@ -16,8 +16,6 @@ class Project(models.Model):
     project_lead = fields.Many2many('hr.employee','project_project_hr_employee_lead_rel', string='Lead')
     project_aire = fields.Many2many('hr.employee','project_project_hr_employee_aire_rel', string='AI Research Engineer (AIRE)')
     project_swe = fields.Many2many('hr.employee','project_project_hr_employee_swe_rel', string='Software Engineer (SWE)')
-    project_qc_reviewer = fields.Many2many('hr.employee','project_project_hr_employee_qc_reviewer_rel', string='QC Reviewers')
-    project_tasker = fields.Many2many('hr.employee','project_project_hr_employee_tasker_rel', string='Tasker')
     ai_generated_description = fields.Text(string='AI Generated Description')
     # Whatsapp Group
     whatsapp_group_name = fields.Char(string='Whatsapp Group Name')
@@ -33,15 +31,32 @@ class Project(models.Model):
     kick_off_to_mails = fields.Char(string='Kick Off To Mails')
     kick_off_subject = fields.Char(string='Kick Off Subject')
     kick_off_body = fields.Text('Kick Off Body')
+
     is_pl_stage_completed = fields.Boolean(string='Is PL Stage Completed')
     is_aire_stage_completed = fields.Boolean(string='Is AIRE Stage Completed')
     is_swe_stage_completed = fields.Boolean(string='Is SWE Stage Completed')
+    y_project_type = fields.Selection([('non-stem', 'Non Stem'), ('stem', 'Stem'), ('technical', 'Technical')], default='non-stem')
+    # PL Portal
     project_guide_lines = fields.Many2many('google.drive.file','project_project_google_drive_file_guide_lines_rel', string='Project Guide Lines')
+    skill_tags = fields.Many2many('project.skills', 'project_project_project_skills_rel', string='Project Skill Tags')
+    project_qc_reviewer = fields.Many2many('hr.employee', 'project_project_hr_employee_qc_reviewer_rel',
+                                           string='QC Reviewers')
+    project_tasker = fields.Many2many('hr.employee', 'project_project_hr_employee_tasker_rel', string='Tasker')
+    meeting_date = fields.Datetime(string='Meeting Date')
+    meeting_link = fields.Char(string='Meeting Link')
+    meeting_agenda = fields.Text(string='Meeting Agenda')
+    meeting_to_mails = fields.Char(string='To Mails')
+    meeting_cc_mails = fields.Char(string='CC Mails')
+    meeting_bcc_mails = fields.Char(string='BCC Mails')
+    meeting_subject = fields.Char(string='Meeting Subject')
+    meeting_body = fields.Text(string='Meeting Body')
+    meeting_attachments = fields.Many2many('ir.attachment', 'project_project_ir_attachment_meeting_rel', string='Attachments')
+
+    # Extra
     project_experiment_design = fields.Many2many('google.drive.file','project_project_google_drive_experiment_design_rel', string='Project Experiment Design')
     project_research_document = fields.Many2many('google.drive.file','project_project_google_drive_research_document_rel', string='Project Research Document')
     project_infrastructure_requirement = fields.Many2many('google.drive.file','project_project_google_drive_infrastructure_requirement_rel', string='Project Infrastructure Requirement')
     training_event_id = fields.Many2one('calendar.event', 'Training Meeting linked', ondelete='cascade')
-    skill_tags = fields.Many2many('project.skills', 'project_project_project_skills_rel', string='Project Skill Tags')
     ai_recommendation_tags = fields.Many2many('project.ai.recommendation', 'project_project_ai_recommendation_rel', string='Project AI Recommendation Tags')
     research_notes = fields.Char(string='Research Notes')
     rating_configuration = fields.Selection([('stars', 'Stars'), ('binary', 'Binary'), ('rubric', 'Rubric')])
@@ -49,6 +64,7 @@ class Project(models.Model):
     lock_ttl= fields.Integer(string="Lock TTL (Minute)")
     daily_quota_per_tasker = fields.Integer(string="Daily Quota per Tasker")
     approval_target = fields.Integer(string="Approval Target")
+
     base_project_task = fields.One2many('base.project.task', 'project_id', string='Base Project Task')
 
     def create_slack_channel(self):
@@ -96,23 +112,29 @@ class Project(models.Model):
         return True
 
     def create_google_drive_folders(self):
-        self.ensure_one()
-        parent_wizard = self.env['google.drive.wizard'].create({
-            'name': self.name,
-            'upload_type': 'folder'
-        })
-        parent_folder = parent_wizard._create_folder()
+        try:
+            self.ensure_one()
+            parent_wizard = self.env['google.drive.wizard'].create({
+                'name': self.name,
+                'upload_type': 'folder'
+            })
+            parent_folder = parent_wizard._create_folder()
 
-        if parent_folder:
-            self.google_drive_id = parent_folder.id
-            for sub in ["Internal", "External"]:
-                drive_record = self.env['google.drive.wizard'].create({
-                    'name': sub,
-                    'upload_type': 'folder',
-                    'parent_folder_id': parent_folder.id
-                })._create_folder()
-                if self.project_attachments:
-                    self.upload_attachments_in_drive(drive_id = drive_record)
+            if parent_folder:
+                self.google_drive_id = parent_folder.id
+                for sub in ["Internal", "External"]:
+                    drive_record = self.env['google.drive.wizard'].create({
+                        'name': sub,
+                        'upload_type': 'folder',
+                        'parent_folder_id': parent_folder.id
+                    })._create_folder()
+                    if self.project_attachments:
+                        self.upload_attachments_in_drive(drive_id = drive_record)
+            if self.project_attachments:
+                for att in self.project_attachments:
+                    att.sudo().unlink()
+        except Exception as err:
+            print(f"An error occurred: {err}")
 
     def upload_attachments_in_drive(self, drive_id=None):
         import base64

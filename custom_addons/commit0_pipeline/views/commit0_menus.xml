@@ -7,42 +7,19 @@
         sequence="100"
         groups="commit0_pipeline.group_commit0_user"/>
 
-    <!-- Pipeline Runs -->
-    <menuitem id="commit0_menu_runs"
-        name="Pipeline Runs"
+    <!-- Kaiju Tasks (primary entry point) -->
+    <menuitem id="commit0_menu_tasks"
+        name="Tasks"
         parent="commit0_menu_root"
-        action="commit0_pipeline_run_action"
-        sequence="10"/>
-
-    <!-- Repository Status -->
-    <menuitem id="commit0_menu_repos"
-        name="Repository Status"
-        parent="commit0_menu_root"
-        action="commit0_repo_entry_action"
-        sequence="20"
-        groups="commit0_pipeline.group_commit0_admin"/>
-
-    <!-- Discovery Candidates -->
-    <menuitem id="commit0_menu_discovery"
-        name="Discovery Candidates"
-        parent="commit0_menu_root"
-        action="commit0_discovery_candidate_action"
-        sequence="30"
-        groups="commit0_pipeline.group_commit0_admin"/>
-
-    <!-- ================================================================== -->
-    <!-- Repo Checker Section                                               -->
-    <!-- ================================================================== -->
-    <menuitem id="commit0_menu_repo_checker"
-        name="Repo Checker"
-        parent="commit0_menu_root"
-        sequence="40"/>
-
-    <menuitem id="commit0_menu_evaluations"
-        name="Evaluations"
-        parent="commit0_menu_repo_checker"
         action="commit0_repo_evaluation_action"
         sequence="10"/>
+
+    <!-- Start Task (pick from pool) -->
+    <menuitem id="commit0_menu_start_task"
+        name="Start Task"
+        parent="commit0_menu_root"
+        action="action_start_task_server"
+        sequence="20"/>
 
     <!-- Configuration submenu -->
     <menuitem id="commit0_menu_config"
@@ -56,4 +33,10 @@
         parent="commit0_menu_config"
         action="base_setup.action_general_configuration"
         sequence="10"/>
+
+    <menuitem id="commit0_menu_import_repos"
+        name="Import Repos"
+        parent="commit0_menu_config"
+        action="import_repos_wizard_action"
+        sequence="20"/>
 </odoo>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="kaiju_build_view_list" model="ir.ui.view">
+        <field name="name">kaiju.build.list</field>
+        <field name="model">kaiju.build</field>
+        <field name="arch" type="xml">
+            <list decoration-success="status == 'success'"
+                  decoration-danger="status in ('failed','error')"
+                  decoration-info="status == 'building'"
+                  decoration-muted="status == 'draft'">
+                <field name="build_id"/>
+                <field name="app_name"/>
+                <field name="repo_name"/>
+                <field name="user_id" widget="many2one_avatar_user" optional="show"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'success'"
+                       decoration-danger="status in ('failed','error')"
+                       decoration-info="status == 'building'"
+                       decoration-warning="status == 'queued'"/>
+                <field name="tag"/>
+                <field name="image_uri"/>
+                <field name="started_at"/>
+                <field name="completed_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="kaiju_build_view_form" model="ir.ui.view">
+        <field name="name">kaiju.build.form</field>
+        <field name="model">kaiju.build</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_build" type="object"
+                            string="Build" class="oe_highlight"
+                            invisible="status != 'draft'"/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="draft,queued,building,success"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="build_id"/>
+                            <field name="app_id"/>
+                            <field name="app_name" invisible="True"/>
+                            <field name="repo_name"/>
+                            <field name="user_id" widget="many2one_avatar_user"/>
+                        </group>
+                        <group>
+                            <field name="tag"/>
+                            <field name="image_uri"/>
+                            <field name="started_at"/>
+                            <field name="completed_at"/>
+                        </group>
+                    </group>
+                    <group invisible="not error_message">
+                        <field name="error_message"/>
+                    </group>
+                    <notebook>
+                        <page string="Dataset JSON">
+                            <field name="dataset_json" readonly="True"/>
+                        </page>
+                        <page string="Build Logs">
+                            <field name="progress" readonly="True"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+</odoo>
