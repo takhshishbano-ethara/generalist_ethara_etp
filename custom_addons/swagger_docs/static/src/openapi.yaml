@@ -1,0 +1,2316 @@
+openapi: 3.0.3
+info:
+  title: Ethara ETP API
+  description: |
+    REST API documentation for Ethara ETP platform.
+
+    ## Authentication
+    Most endpoints require a custom token-based authentication.
+    - Call `POST /api/v1/auth_token` to get an `access_token` and `refresh_token`.
+    - Pass the `access_token` in the request header for all protected endpoints.
+    - When the access token expires, call `POST /api/v1/refresh_token` with the `refresh_token`.
+
+    ## Response Format
+    All responses follow this structure:
+    ```json
+    {
+      "message": "Success",
+      "status_code": 200,
+      "errors": [],
+      ...data fields
+    }
+    ```
+  version: 1.0.0
+  contact:
+    name: Ethara ETP Team
+
+servers:
+  - url: /
+    description: Current Odoo Instance
+
+tags:
+  - name: Authentication
+    description: Login, logout, token management
+  - name: User Profile
+    description: User profile and settings
+  - name: Notifications
+    description: In-app notification management
+  - name: Projects
+    description: Project CRUD and management
+  - name: Project Portal
+    description: PL / AIRE / SWE portal updates
+  - name: Dashboards
+    description: Role-based dashboards (CTO, PL, AIRE, SWE)
+  - name: Employees & Members
+    description: Employee list and WhatsApp members
+  - name: User Settings
+    description: Appearance, notification preferences
+  - name: Reports
+    description: Export reports
+  - name: AI Services
+    description: AI document extraction
+  - name: Valor
+    description: Valor LLM evaluation pipeline
+  - name: Preference Ranking
+    description: Preference ranking LLM evaluation pipeline
+  - name: Vindex Portal
+    description: Vindex annotation portal APIs
+  - name: WhatsApp Webhook
+    description: WhatsApp Cloud API webhook handlers
+  - name: Blockers
+    description: Project blocker management
+
+components:
+  securitySchemes:
+    AccessToken:
+      type: apiKey
+      in: header
+      name: access_token
+      description: Access token obtained from /api/v1/auth_token
+
+  schemas:
+    StandardResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Success
+        status_code:
+          type: integer
+          example: 200
+        errors:
+          type: array
+          items:
+            type: string
+          example: []
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Something Went Wrong.
+        status_code:
+          type: integer
+          example: 400
+        errors:
+          type: array
+          items:
+            type: string
+
+    AuthTokenRequest:
+      type: object
+      required:
+        - login
+        - password
+      properties:
+        login:
+          type: string
+          example: admin@example.com
+        password:
+          type: string
+          example: password123
+        browser_name:
+          type: string
+          example: Chrome
+        os_name:
+          type: string
+          example: Windows
+        location:
+          type: string
+          example: Mumbai, India
+
+    AuthTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                uid:
+                  type: integer
+                  example: 2
+                email:
+                  type: string
+                  example: admin@example.com
+                name:
+                  type: string
+                  example: John Doe
+                mobile:
+                  type: string
+                  example: "9876543210"
+                access_token:
+                  type: string
+                  example: abc123xyz
+                refresh_token:
+                  type: string
+                  example: ref456abc
+                address:
+                  type: string
+                  example: "123 Street, Mumbai, 400001, Maharashtra, India"
+                user_role:
+                  type: string
+                  example: Admin
+                profile_pic:
+                  type: string
+                  example: ""
+                permissions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MenuItem'
+
+    MenuItem:
+      type: object
+      properties:
+        id:
+          type: string
+          example: dashboard
+        is_visible:
+          type: boolean
+          example: true
+        order:
+          type: integer
+          example: 1
+        read:
+          type: boolean
+        write:
+          type: boolean
+        create:
+          type: boolean
+        delete:
+          type: boolean
+        child_list:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItem'
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          example: ref456abc
+
+    RefreshTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/StandardResponse'
+        - type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+
+    UserDetails:
+      type: object
+      properties:
+        id:
+          type: integer
+        login:
+          type: string
+        name:
+          type: string
+        mobile:
+          type: string
+        email:
+          type: string
+        employee_id:
+          type: integer
+        employee_name:
+          type: string
+        department_id:
+          type: integer
+        department_name:
+          type: string
+        education:
+          type: string
+        experience_years:
+          type: number
+          format: float
+        profile_url:
+          type: string
+        bio_data:
+          type: string
+        location:
+          type: string
+        in_app_notification:
+          type: boolean
+        email_notification:
+          type: boolean
+        push_notification:
+          type: boolean
+        join_date:
+          type: string
+        project_count:
+          type: integer
+        team_size:
+          type: integer
+        blocked_resolved:
+          type: integer
+        avg_resolution:
+          type: string
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        project_list:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              status:
+                type: string
+              since:
+                type: string
+        notification_line:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              in_app_notification:
+                type: boolean
+              email_notification:
+                type: boolean
+              push_notification:
+                type: boolean
+        approval_target:
+          type: number
+          format: float
+        approval_graph:
+          type: object
+        browser_name:
+          type: string
+        os_name:
+          type: string
+        theme:
+          type: string
+        table_density:
+          type: string
+        collapse_sidebar:
+          type: boolean
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        profile_pic:
+          type: string
+          description: Base64 image data or existing S3 URL
+        name:
+          type: string
+        bio:
+          type: string
+        location:
+          type: string
+        email:
+          type: string
+          format: email
+        mobile:
+          type: string
+          example: "9876543210"
+
+    ChangePasswordRequest:
+      type: object
+      required:
+        - old_password
+        - new_password
+        - confirm_password
+      properties:
+        old_password:
+          type: string
+        new_password:
+          type: string
+        confirm_password:
+          type: string
+
+    NotificationCreateRequest:
+      type: object
+      required:
+        - title
+        - message
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+        res_model:
+          type: string
+        res_id:
+          type: integer
+        priority:
+          type: string
+          enum: ["1", "2", "3"]
+          default: "1"
+        redirect_url:
+          type: string
+
+    NotificationUpdateRequest:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+        res_model:
+          type: string
+        res_id:
+          type: integer
+        priority:
+          type: string
+        redirect_url:
+          type: string
+
+    NotificationItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+        res_model:
+          type: string
+        priority:
+          type: string
+        res_id:
+          type: integer
+        is_read:
+          type: boolean
+        create_date:
+          type: string
+        write_date:
+          type: string
+        redirect_url:
+          type: string
+
+    EmployeeItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        mobile:
+          type: string
+        whatsapp_number:
+          type: string
+        email:
+          type: string
+
+    WhatsAppMemberRequest:
+      type: object
+      required:
+        - name
+        - email
+        - mobile
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        mobile:
+          type: string
+          example: "9876543210"
+        country_code:
+          type: string
+          example: "+91"
+
+    WhatsAppMemberItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        mobile:
+          type: string
+        country_code:
+          type: string
+
+    ProjectListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_name:
+          type: string
+        project_id_code:
+          type: string
+        client:
+          type: string
+        status:
+          type: string
+        progress:
+          type: integer
+        tasks:
+          type: integer
+        team_count:
+          type: integer
+        blockers:
+          type: integer
+        category:
+          type: string
+        type:
+          type: string
+        date_start:
+          type: string
+          format: date
+        date_end:
+          type: string
+          format: date
+
+    ProjectDetailRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        internal_project_name:
+          type: string
+        client_name:
+          type: string
+        project_category:
+          type: string
+        project_type:
+          type: string
+        sample_task_number:
+          type: integer
+        kick_off_to_mails:
+          type: string
+        kick_off_subject:
+          type: string
+        kick_off_body:
+          type: string
+        ai_generated_description:
+          type: string
+        internal_client_name:
+          type: string
+        date_start:
+          type: string
+        date_end:
+          type: string
+        description:
+          type: string
+        whatsapp_group_name:
+          type: string
+        slack_channel_name:
+          type: string
+        whatsapp_group_members:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              email:
+                type: string
+              mobile:
+                type: string
+              country_code:
+                type: string
+        stage_id:
+          type: integer
+        stage_name:
+          type: string
+        project_lead:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        project_aire:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        project_swe:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        slack_members:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+        google_drive_id:
+          type: object
+
+    ProjectStageGroup:
+      type: object
+      properties:
+        phase:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+
+    PLPortalUpdateRequest:
+      type: object
+      required:
+        - project_id
+      properties:
+        project_id:
+          type: string
+        project_qc_reviewer:
+          type: array
+          items:
+            type: integer
+        project_tasker:
+          type: array
+          items:
+            type: integer
+        meeting_body:
+          type: object
+          properties:
+            subject:
+              type: string
+            start_datetime:
+              type: string
+            stop_datetime:
+              type: string
+            description:
+              type: string
+
+    BlockerItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        state:
+          type: string
+        state_label:
+          type: string
+        priority:
+          type: string
+        priority_label:
+          type: string
+        project_id:
+          type: integer
+        project_name:
+          type: string
+        task_id:
+          type: integer
+        task_name:
+          type: string
+        raised_by:
+          type: string
+        escalation_level:
+          type: string
+        next_deadline:
+          type: string
+        remaining_time:
+          type: string
+        assigned_to:
+          type: array
+          items:
+            type: string
+
+    TaskTemplateTypeItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        project_key:
+          type: string
+        model_name:
+          type: string
+        mapping_field_name:
+          type: string
+
+    NotificationCategoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        notification:
+          type: string
+        in_app_notification:
+          type: boolean
+        email_notification:
+          type: boolean
+        push_notification:
+          type: boolean
+
+    VindexSaveRequest:
+      type: object
+      description: Key-value pairs of human-editable fields
+      additionalProperties: true
+
+    JsonlImportRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL to a JSONL file containing evaluation data
+
+paths:
+  # ============================================================
+  # Authentication
+  # ============================================================
+  /api/v1/auth_token:
+    post:
+      tags: [Authentication]
+      summary: Login and get access token
+      description: Authenticate with login/password and receive access + refresh tokens along with user details and role permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthTokenRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          description: Invalid credentials or deactivated account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/refresh_token:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      description: Exchange a valid refresh token for a new access + refresh token pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth_token_unlink:
+    get:
+      tags: [Authentication]
+      summary: Logout (delete access token)
+      description: Delete the current access token to log out.
+      parameters:
+        - name: access_token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '401':
+          description: Missing access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/sign_out_all_session:
+    get:
+      tags: [Authentication]
+      summary: Sign out all sessions
+      description: Delete all access tokens for the current user, logging out all sessions.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: All sessions signed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  # ============================================================
+  # User Profile
+  # ============================================================
+  /api/v1/get_logged_user_details:
+    get:
+      tags: [User Profile]
+      summary: Get current user details
+      description: Returns full profile of the logged-in user including skills, projects, notification preferences, and appearance settings.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        $ref: '#/components/schemas/UserDetails'
+        '400':
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/update_profile_information:
+    post:
+      tags: [User Profile]
+      summary: Update user profile
+      description: Update profile fields like name, email, mobile, bio, location, profile picture.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/change_users_password:
+    post:
+      tags: [User Profile]
+      summary: Change user password
+      description: Change the current user's password. Requires old password verification.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          description: Password mismatch or incorrect old password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/get_menu_list:
+    get:
+      tags: [User Profile]
+      summary: Get role-based menu list
+      description: Returns the hierarchical menu/permission tree for the current user's role.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by menu item ID
+      responses:
+        '200':
+          description: Menu list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      permissions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MenuItem'
+
+  # ============================================================
+  # Notifications
+  # ============================================================
+  /api/v1/create_notification:
+    post:
+      tags: [Notifications]
+      summary: Create a notification
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationCreateRequest'
+      responses:
+        '200':
+          description: Notification created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/update_notification:
+    post:
+      tags: [Notifications]
+      summary: Update a notification (mark as read)
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationUpdateRequest'
+      responses:
+        '200':
+          description: Notification updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/get_notification:
+    get:
+      tags: [Notifications]
+      summary: Get notifications (paginated)
+      description: Retrieve notifications for the current user. Supports pagination and filtering by priority, read status, and ID.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: id
+          in: query
+          schema:
+            type: integer
+          description: Filter by notification ID
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: ["1", "2", "3"]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [read, unread]
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/NotificationItem'
+                      record_count:
+                        type: integer
+                      read_message_count:
+                        type: integer
+                      unread_message_count:
+                        type: integer
+
+  # ============================================================
+  # Employees & Members
+  # ============================================================
+  /api/v1/get_employee_list:
+    get:
+      tags: [Employees & Members]
+      summary: Get employee list (paginated)
+      description: List employees with optional filtering by designation and search.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: designation
+          in: query
+          schema:
+            type: string
+            enum: [se, aire, pl, qc_review, tasker]
+          description: Filter by designation shortcode
+        - name: designation_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by designation record ID
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by employee name
+      responses:
+        '200':
+          description: Employee list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/EmployeeItem'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  /api/v1/add_whatsapp_members:
+    post:
+      tags: [Employees & Members]
+      summary: Add a WhatsApp group member
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WhatsAppMemberRequest'
+      responses:
+        '200':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        $ref: '#/components/schemas/WhatsAppMemberItem'
+
+  /api/v1/get_whatsapp_member_list:
+    get:
+      tags: [Employees & Members]
+      summary: Get WhatsApp members list (paginated)
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by name, email, or phone
+      responses:
+        '200':
+          description: Members list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WhatsAppMemberItem'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  # ============================================================
+  # Projects
+  # ============================================================
+  /api/v1/create_project_record:
+    post:
+      tags: [Projects]
+      summary: Create a new project
+      description: Create a project with optional file attachments. Supports multipart/form-data for file uploads.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                internal_project_name:
+                  type: string
+                client_name:
+                  type: string
+                project_category:
+                  type: string
+                project_type:
+                  type: string
+                sample_task_number:
+                  type: integer
+                  default: 0
+                project_lead:
+                  type: string
+                  description: "Comma-separated IDs or JSON array, e.g. [1,2,3]"
+                project_aire:
+                  type: string
+                  description: "Comma-separated IDs or JSON array"
+                project_swe:
+                  type: string
+                  description: "Comma-separated IDs or JSON array"
+                kick_off_to_mails:
+                  type: string
+                kick_off_subject:
+                  type: string
+                kick_off_body:
+                  type: string
+                ai_generated_description:
+                  type: string
+                internal_client_name:
+                  type: string
+                date_start:
+                  type: string
+                  format: date
+                date_end:
+                  type: string
+                  format: date
+                description:
+                  type: string
+                whatsapp_group_name:
+                  type: string
+                whatsapp_group_members:
+                  type: string
+                  description: "JSON array of {name, email, mobile}"
+                slack_channel_name:
+                  type: string
+                slack_members:
+                  type: string
+                  description: "Comma-separated IDs or JSON array"
+                save_as_draft:
+                  type: string
+                  enum: ["0", "1"]
+                  description: "1 to save as draft"
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: File attachments
+      responses:
+        '200':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      project_id:
+                        type: integer
+
+  /api/v1/update_project_record:
+    post:
+      tags: [Projects]
+      summary: Update an existing project
+      description: Update project fields and optionally upload new file attachments.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: integer
+                  description: Project ID to update
+                name:
+                  type: string
+                internal_project_name:
+                  type: string
+                client_name:
+                  type: string
+                project_category:
+                  type: string
+                project_type:
+                  type: string
+                sample_task_number:
+                  type: integer
+                project_lead:
+                  type: string
+                project_aire:
+                  type: string
+                project_swe:
+                  type: string
+                kick_off_to_mails:
+                  type: string
+                kick_off_subject:
+                  type: string
+                kick_off_body:
+                  type: string
+                ai_generated_description:
+                  type: string
+                internal_client_name:
+                  type: string
+                date_start:
+                  type: string
+                  format: date
+                date_end:
+                  type: string
+                  format: date
+                description:
+                  type: string
+                whatsapp_group_name:
+                  type: string
+                slack_channel_name:
+                  type: string
+                slack_members:
+                  type: string
+                stage_id:
+                  type: integer
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      project_id:
+                        type: integer
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/get_project_list:
+    get:
+      tags: [Projects]
+      summary: Get project list (paginated, filterable)
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by project name or internal name
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: "Comma-separated stage IDs, e.g. 1,2,3"
+        - name: client
+          in: query
+          schema:
+            type: string
+          description: Filter by client name
+        - name: type
+          in: query
+          schema:
+            type: string
+          description: Filter by project type
+      responses:
+        '200':
+          description: Project list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ProjectListItem'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  /api/v1/get_project_detail_view:
+    get:
+      tags: [Projects]
+      summary: Get project detail view
+      security:
+        - AccessToken: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Project ID
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        $ref: '#/components/schemas/ProjectDetailRecord'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/get_project_status:
+    get:
+      tags: [Projects]
+      summary: Get project stages grouped by phase
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Stages grouped by phase label
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ProjectStageGroup'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  /api/v1/get_project_customer_list:
+    get:
+      tags: [Projects]
+      summary: Get unique customer names
+      description: Returns a deduplicated list of all client names across projects.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Customer list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          type: string
+
+  /api/v1/get_task_template_type:
+    get:
+      tags: [Projects]
+      summary: Get task template types
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Template type list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TaskTemplateTypeItem'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  # ============================================================
+  # Project Portal (PL / AIRE / SWE)
+  # ============================================================
+  /api/v1/update_project_details_pl_portal_info:
+    post:
+      tags: [Project Portal]
+      summary: Update PL portal info
+      description: Update project lead portal details including QC reviewers, taskers, meeting, and guideline files.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - project_id
+              properties:
+                project_id:
+                  type: string
+                project_qc_reviewer:
+                  type: array
+                  items:
+                    type: integer
+                project_tasker:
+                  type: array
+                  items:
+                    type: integer
+                meeting_body:
+                  type: string
+                  description: "JSON object with subject, start_datetime, stop_datetime, description"
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Guideline files
+      responses:
+        '200':
+          description: PL portal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/update_project_details_aire_portal_info:
+    post:
+      tags: [Project Portal]
+      summary: Update AIRE portal info
+      description: Update AI Research Engineer portal details including skill tags, research notes, experiment files, and research documents.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - project_id
+              properties:
+                project_id:
+                  type: string
+                skill_tags:
+                  type: array
+                  items:
+                    type: string
+                  description: List of skill names
+                ai_recommendation_tags:
+                  type: array
+                  items:
+                    type: string
+                  description: List of AI recommendation names
+                research_notes:
+                  type: string
+                experiment_files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                research_document:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: AIRE portal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          description: PL stage not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/update_project_details_swe_portal_info:
+    post:
+      tags: [Project Portal]
+      summary: Update SWE portal info
+      description: Update Software Engineer portal details including rating configuration, task template, lock TTL, daily quota, and infrastructure requirements.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - project_id
+              properties:
+                project_id:
+                  type: string
+                rating_configuration:
+                  type: string
+                task_template_type:
+                  type: integer
+                lock_ttl:
+                  type: integer
+                daily_quota_per_tasker:
+                  type: integer
+                requirement_files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Infrastructure requirement files
+      responses:
+        '200':
+          description: SWE portal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+        '400':
+          description: AIRE stage not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================
+  # Dashboards
+  # ============================================================
+  /api/v1/get_cto_dashboard_list:
+    get:
+      tags: [Dashboards]
+      summary: Get CTO dashboard data
+      description: Organization-wide dashboard with active projects, pending deliveries, approval rate, blockers, phase graph, and upcoming deadlines.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: CTO dashboard data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      records:
+                        type: object
+                        properties:
+                          active_project:
+                            type: object
+                            properties:
+                              active_project_count:
+                                type: integer
+                              project_difference_percentage:
+                                type: number
+                              last_month_project_count:
+                                type: integer
+                          pending_deliveries:
+                            type: object
+                            properties:
+                              pending_deliveries_count:
+                                type: integer
+                              pending_deliveries_waiting_client_reviews:
+                                type: integer
+                              pending_deliveries_rework:
+                                type: integer
+                          org_approval:
+                            type: object
+                            properties:
+                              org_approval_rate:
+                                type: number
+                              org_approval_target:
+                                type: number
+                          open_blockers:
+                            type: object
+                            properties:
+                              open_blockers_count:
+                                type: integer
+                              blocker_info:
+                                type: string
+                          project_phase_graph:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                stage:
+                                  type: string
+                                count:
+                                  type: integer
+                                percentage:
+                                  type: number
+                          upcoming_deadlines:
+                            type: object
+                            properties:
+                              today:
+                                type: array
+                                items:
+                                  type: object
+                              tomorrow:
+                                type: array
+                                items:
+                                  type: object
+                              this_week:
+                                type: array
+                                items:
+                                  type: object
+
+  /api/v1/get_pl_dashboard_list:
+    get:
+      tags: [Dashboards]
+      summary: Get Project Lead dashboard data
+      description: Dashboard for project leads showing project cart, my projects, daily throughput, team approval rate, open blockers, task pipeline, team performance, and deadlines.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: PL dashboard data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      records:
+                        type: object
+
+  /api/v1/get_aire_dashboard_list:
+    get:
+      tags: [Dashboards]
+      summary: Get AIRE dashboard data
+      description: Dashboard for AI Research Engineers showing assigned projects, RFP portal pending, open blockers, and project details.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: AIRE dashboard data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      records:
+                        type: object
+
+  /api/v1/get_swe_dashboard_list:
+    get:
+      tags: [Dashboards]
+      summary: Get SWE dashboard data
+      description: Dashboard for Software Engineers showing assigned projects, RFP portal pending, open blockers, and project details.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: SWE dashboard data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      records:
+                        type: object
+
+  # ============================================================
+  # Blockers
+  # ============================================================
+  /api/v1/get_project_blockers:
+    get:
+      tags: [Blockers]
+      summary: Get project blockers
+      description: Retrieve project blockers filtered by project, task, or state.
+      security:
+        - AccessToken: []
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: integer
+        - name: task_id
+          in: query
+          schema:
+            type: integer
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [raised, in_progress, testing, resolved, cancelled]
+          description: "Filter by state. Defaults to excluding resolved and cancelled."
+      responses:
+        '200':
+          description: Blockers list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      blockers:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/BlockerItem'
+                      count:
+                        type: integer
+
+  # ============================================================
+  # User Settings
+  # ============================================================
+  /api/v1/update_user_appearance_notification:
+    post:
+      tags: [User Settings]
+      summary: Update notification preferences
+      description: Update in-app, email, and push notification preferences for the user and per-category notification settings.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                in_app_notification:
+                  type: integer
+                  enum: [0, 1]
+                email_notification:
+                  type: integer
+                  enum: [0, 1]
+                push_notification:
+                  type: integer
+                  enum: [0, 1]
+                notification_line:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: integer
+                        description: Notification category ID
+                      in_app_notification:
+                        type: integer
+                        enum: [0, 1]
+                      email_notification:
+                        type: integer
+                        enum: [0, 1]
+                      push_notification:
+                        type: integer
+                        enum: [0, 1]
+      responses:
+        '200':
+          description: Preferences updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/update_user_appearance:
+    post:
+      tags: [User Settings]
+      summary: Update UI appearance settings
+      description: Update theme, table density, sidebar collapse, and device info.
+      security:
+        - AccessToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                browser_name:
+                  type: string
+                os_name:
+                  type: string
+                location:
+                  type: string
+                theme:
+                  type: string
+                table_density:
+                  type: string
+                collapse_sidebar:
+                  type: integer
+                  enum: [0, 1]
+      responses:
+        '200':
+          description: Appearance updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+
+  /api/v1/get_notification_category_list:
+    get:
+      tags: [User Settings]
+      summary: Get notification categories
+      security:
+        - AccessToken: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Category list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      record:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/NotificationCategoryItem'
+                      total_record_count:
+                        type: integer
+                      count:
+                        type: integer
+
+  # ============================================================
+  # Reports
+  # ============================================================
+  /api/v1/export_project_project_report:
+    get:
+      tags: [Reports]
+      summary: Export project report (XLSX)
+      description: Generate an Excel report of all projects, upload to S3, and return the download URL.
+      security:
+        - AccessToken: []
+      responses:
+        '200':
+          description: Report URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/StandardResponse'
+                  - type: object
+                    properties:
+                      url:
+                        type: string
+                        format: uri
+                        description: S3 CDN URL to download the XLSX report
+
+  # ============================================================
+  # AI Services
+  # ============================================================
+  /api/v1/ai/extract:
+    post:
+      tags: [AI Services]
+      summary: Extract project data from documents
+      description: Upload one or more documents (PDF, images, DOCX) and extract structured project information using AWS Bedrock AI.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Documents to extract data from
+                file:
+                  type: string
+                  format: binary
+                  description: Single file upload (alternative to 'files')
+      responses:
+        '200':
+          description: Extraction result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  extraction_id:
+                    type: integer
+                  project_name:
+                    type: string
+        '400':
+          description: No files uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+        '503':
+          description: Bedrock not configured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+
+  # ============================================================
+  # Valor - LLM Evaluation
+  # ============================================================
+  /api/get_jsonl_data:
+    post:
+      tags: [Valor, Preference Ranking]
+      summary: Import JSONL evaluation data
+      description: |
+        Fetch a JSONL file from the given URL, randomize response pairs, and create evaluation records.
+        Used by both Valor and Preference Ranking modules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonlImportRequest'
+      responses:
+        '200':
+          description: Data imported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  records_created:
+                    type: integer
+                  records_queued:
+                    type: integer
+                  status:
+                    type: integer
+        '400':
+          description: Missing or empty URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  status:
+                    type: integer
+
+  /api/get_llm_response:
+    get:
+      tags: [Valor, Preference Ranking]
+      summary: Trigger LLM evaluation pipeline
+      description: |
+        Fetch model router configuration and trigger background LLM evaluation
+        for all unprocessed records. Used by both Valor and Preference Ranking modules.
+      responses:
+        '200':
+          description: Pipeline triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error_list:
+                    type: array
+                    items:
+                      type: object
+                  message:
+                    type: string
+                  status:
+                    type: integer
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  status:
+                    type: integer
+
+  # ============================================================
+  # Vindex Portal APIs
+  # ============================================================
+  /vindex/tasks/{task_id}/save:
+    post:
+      tags: [Vindex Portal]
+      summary: Save annotation fields
+      description: Save human-editable fields for a Vindex task. Requires Odoo session authentication.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VindexSaveRequest'
+      responses:
+        '200':
+          description: Fields saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  updated:
+                    type: array
+                    items:
+                      type: string
+        '403':
+          description: Access denied
+        '404':
+          description: Task not found
+
+  /vindex/tasks/{task_id}/evaluate:
+    post:
+      tags: [Vindex Portal]
+      summary: Trigger score evaluation
+      description: Compare human vs LLM scores for a task. Requires Odoo session authentication.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  errors_found:
+                    type: integer
+                  task:
+                    type: object
+
+  /vindex/tasks/{task_id}/submit:
+    post:
+      tags: [Vindex Portal]
+      summary: Submit completed task
+      description: Mark a Vindex task as submitted. Requires Odoo session authentication.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Task submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  task_status:
+                    type: string
+        '400':
+          description: Submission failed
+
+  # ============================================================
+  # WhatsApp Webhook
+  # ============================================================
+  /whatsapp_groups/webhook:
+    get:
+      tags: [WhatsApp Webhook]
+      summary: Webhook verification (Meta)
+      description: Handles Meta's webhook verification challenge for WhatsApp Cloud API.
+      parameters:
+        - name: hub.mode
+          in: query
+          required: true
+          schema:
+            type: string
+            example: subscribe
+        - name: hub.verify_token
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hub.challenge
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Challenge echoed back
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          description: Bad request
+        '403':
+          description: Invalid verify token
+    post:
+      tags: [WhatsApp Webhook]
+      summary: Receive webhook events
+      description: |
+        Receives webhook events from Meta WhatsApp Cloud API.
+        Supported events: group_lifecycle_update, group_participants_update, group_settings_update, group_status_update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                entry:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      changes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            field:
+                              type: string
+                              enum:
+                                - group_lifecycle_update
+                                - group_participants_update
+                                - group_settings_update
+                                - group_status_update
+                            value:
+                              type: object
+      responses:
+        '200':
+          description: OK
