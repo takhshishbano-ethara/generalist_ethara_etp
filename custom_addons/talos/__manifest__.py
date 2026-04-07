@@ -1,6 +1,6 @@
 {
     "name": "Talos",
-    "version": "19.0.4.0.0",
+    "version": "19.0.5.0.0",
     "category": "Tools",
     "summary": "Talos — LLM task management with sandbox environments",
     "description": """
@@ -14,8 +14,10 @@
         "security/talos_security.xml",
         "security/ir.model.access.csv",
         "data/cron.xml",
+        "data/persona_seed.xml",
         "views/res_config_settings_views.xml",
         "views/domain_views.xml",
+        "views/persona_views.xml",
         "views/talos_views.xml",
         "views/menuitems.xml",
     ],

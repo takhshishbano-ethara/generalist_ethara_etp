@@ -59,7 +59,7 @@ class TalosSandboxK8s(models.AbstractModel):
         apps_v1 = client.AppsV1Api()
 
         task_id = task_record.id
-        persona = task_record.docker_persona or "marcus"
+        persona = task_record.persona_id.name or "marcus"
         name = _resource_name(task_record)
         labels = _sandbox_labels(task_record)
         sandbox_dir = self._sandbox_dir()

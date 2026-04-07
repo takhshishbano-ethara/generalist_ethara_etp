@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+    <record model="ir.ui.view" id="talos_persona_list">
+      <field name="name">talos.persona.list</field>
+      <field name="model">talos.persona</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="name"/>
+          <field name="task_count"/>
+          <field name="active" column_invisible="True"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="talos_persona_form">
+      <field name="name">talos.persona.form</field>
+      <field name="model">talos.persona</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <div class="oe_title">
+              <label for="name"/>
+              <h1><field name="name" placeholder="e.g. marcus"/></h1>
+            </div>
+            <notebook>
+              <page string="Soul">
+                <field name="soul_md" widget="text" placeholder="Paste SOUL.md content here..."/>
+              </page>
+              <page string="Memory">
+                <field name="memory_md" widget="text" placeholder="Paste MEMORY.md content here..."/>
+              </page>
+              <page string="Agents">
+                <field name="agents_md" widget="text" placeholder="Paste AGENTS.md content here..."/>
+              </page>
+              <page string="LiteLLM Config">
+                <field name="litellm_config_yaml" widget="text"
+                       placeholder="Optional per-persona litellm_config.yaml. Leave empty to use global default."/>
+              </page>
+              <page string="Docker Compose">
+                <field name="docker_compose_yaml" widget="text"
+                       placeholder="Optional per-persona docker-compose.yml. Leave empty to use bundled default."/>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="talos_persona_action_window">
+      <field name="name">Personas</field>
+      <field name="res_model">talos.persona</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('talos_persona_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('talos_persona_form')})]"/>
+    </record>
+
+  </data>
+</odoo>

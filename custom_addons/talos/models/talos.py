@@ -1,20 +1,45 @@
+import json
 import logging
 import os
 import secrets
+import shutil
 import subprocess
+import tempfile
 import time
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+from odoo.modules.module import get_module_path
 
 _logger = logging.getLogger(__name__)
 
-GATEWAY_PORT = 18789
-LITELLM_PORT = 4000
+GATEWAY_PORT_BASE = 19000
+LITELLM_PORT_BASE = 14000
+DB_PORT_BASE = 15432
 
-# Maximum time (seconds) to wait for the gateway health-check after compose up.
 _HEALTH_WAIT_TIMEOUT = 120
 _HEALTH_POLL_INTERVAL = 3
+
+_DEFAULT_LITELLM_CONFIG = """\
+model_list:
+  - model_name: claude-opus-4.6
+    litellm_params:
+      model: bedrock/converse/{bedrock_arn}
+      aws_region_name: {aws_region}
+      input_cost_per_token: 0.000005
+      output_cost_per_token: 0.000025
+
+litellm_settings:
+  drop_params: true
+  telemetry: false
+  num_retries: 2
+  request_timeout: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: true
+"""
 
 
 def _docker_available():
@@ -46,6 +71,13 @@ def _compose_cmd():
     return None
 
 
+def _module_sandbox_dir():
+    mod_path = get_module_path("talos")
+    if not mod_path:
+        return None
+    return os.path.join(mod_path, "sandbox_docker")
+
+
 class Talos(models.Model):
     _name = "talos.talos"
     _description = "Talos"
@@ -59,7 +91,9 @@ class Talos(models.Model):
     user_id = fields.Many2one(related="employee_id.user_id")
     turn_ids = fields.One2many("talos.turn", "talos_id", string="Turns")
 
-    docker_persona = fields.Char(string="Persona", default="marcus")
+    persona_id = fields.Many2one(
+        "talos.persona", string="Persona", required=True, ondelete="restrict"
+    )
     docker_compose_project = fields.Char(
         string="Compose Project", readonly=True, copy=False
     )
@@ -83,6 +117,7 @@ class Talos(models.Model):
         string="Dashboard URL", compute="_compute_dashboard_url"
     )
     docker_error = fields.Text(string="Docker Error", readonly=True)
+    docker_workdir = fields.Char(string="Working Directory", readonly=True, copy=False)
 
     def _deployment_mode(self):
         return (
@@ -120,7 +155,6 @@ class Talos(models.Model):
     def action_start_sandbox(self):
         self.ensure_one()
         mode = self._deployment_mode()
-
         if mode == "k8s":
             self._start_k8s()
         else:
@@ -129,7 +163,6 @@ class Talos(models.Model):
     def action_stop_sandbox(self):
         self.ensure_one()
         mode = self._deployment_mode()
-
         if mode == "k8s":
             self._stop_k8s()
         else:
@@ -145,6 +178,10 @@ class Talos(models.Model):
         )
         if mode == "k8s":
             self.env["talos.sandbox.k8s"].reconcile_sandboxes()
+
+    # ------------------------------------------------------------------
+    # K8s methods (unchanged)
+    # ------------------------------------------------------------------
 
     def _start_k8s(self):
         if self.docker_status == "running":
@@ -173,16 +210,11 @@ class Talos(models.Model):
                 "Deployed K8s sandbox %s for task %s (persona=%s)",
                 svc_name,
                 self.id,
-                self.docker_persona or "marcus",
+                self.persona_id.name,
             )
         except Exception as e:
             _logger.error("K8s sandbox deploy failed for task %s: %s", self.id, e)
-            self.write(
-                {
-                    "docker_status": "error",
-                    "docker_error": str(e)[:1000],
-                }
-            )
+            self.write({"docker_status": "error", "docker_error": str(e)[:1000]})
 
     def _stop_k8s(self):
         if self.docker_status == "stopped":
@@ -205,26 +237,209 @@ class Talos(models.Model):
             }
         )
 
-    def _get_sandbox_dir(self):
-        ICP = self.env["ir.config_parameter"].sudo()
-        sandbox_dir = ICP.get_param("talos.sandbox_dir", "").strip()
-        if not sandbox_dir:
-            raise UserError(
-                "Sandbox directory not configured. "
-                "Go to Settings > Talos and set the Sandbox Docker Directory."
-            )
-        docker_dir = os.path.join(sandbox_dir, "docker")
-        if not os.path.isdir(docker_dir):
-            raise UserError("Sandbox docker directory not found: %s" % docker_dir)
-        return sandbox_dir
+    # ------------------------------------------------------------------
+    # Local (Docker Compose) methods
+    # ------------------------------------------------------------------
 
-    def _build_compose_env(self, sandbox_dir, gateway_token):
+    def _allocate_ports(self):
+        self.ensure_one()
+        offset = self.id % 1000
+        return (
+            GATEWAY_PORT_BASE + offset,
+            LITELLM_PORT_BASE + offset,
+            DB_PORT_BASE + offset,
+        )
+
+    def _prepare_workdir(
+        self, persona, gateway_token, gateway_port, litellm_port, db_port
+    ):
+        ICP = self.env["ir.config_parameter"].sudo()
+        source_dir = _module_sandbox_dir()
+        if not source_dir or not os.path.isdir(source_dir):
+            raise UserError(
+                "Bundled sandbox_docker directory not found in talos module."
+            )
+
+        workdir = os.path.join(
+            tempfile.gettempdir(), "talos-sandbox", "talos-%d" % self.id
+        )
+        if os.path.exists(workdir):
+            shutil.rmtree(workdir)
+        os.makedirs(workdir)
+
+        for filename in ("Dockerfile", "litellm-patch-entrypoint.sh"):
+            src = os.path.join(source_dir, filename)
+            dst = os.path.join(workdir, filename)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+
+        if persona.docker_compose_yaml:
+            with open(os.path.join(workdir, "docker-compose.yml"), "w") as f:
+                f.write(persona.docker_compose_yaml)
+        else:
+            src = os.path.join(source_dir, "docker-compose.yml")
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(workdir, "docker-compose.yml"))
+
+        persona_dir = os.path.join(workdir, "personas", persona.name)
+        os.makedirs(persona_dir)
+        for fname, content in [
+            ("SOUL.md", persona.soul_md),
+            ("MEMORY.md", persona.memory_md),
+            ("AGENTS.md", persona.agents_md),
+        ]:
+            if content:
+                with open(os.path.join(persona_dir, fname), "w") as f:
+                    f.write(content)
+
+        data_dir = os.path.join(workdir, "data", persona.name)
+        os.makedirs(data_dir, exist_ok=True)
+        ws_dir = os.path.join(data_dir, "workspace")
+        os.makedirs(os.path.join(ws_dir, "memory"), exist_ok=True)
+        os.makedirs(os.path.join(ws_dir, "skills"), exist_ok=True)
+
+        for fname, content in [
+            ("SOUL.md", persona.soul_md),
+            ("MEMORY.md", persona.memory_md),
+            ("AGENTS.md", persona.agents_md),
+        ]:
+            if content:
+                with open(os.path.join(ws_dir, fname), "w") as f:
+                    f.write(content)
+
+        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
+        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
+        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
+        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
+        if not litellm_key:
+            litellm_key = "sk-talos-%s" % secrets.token_hex(8)
+
+        origins = [
+            "http://localhost:18789",
+            "http://127.0.0.1:18789",
+            "http://0.0.0.0:18789",
+        ]
+        if gateway_port != 18789:
+            origins.append("http://localhost:%d" % gateway_port)
+            origins.append("http://127.0.0.1:%d" % gateway_port)
+
+        config = {
+            "gateway": {
+                "bind": "lan",
+                "auth": {"mode": "token", "token": gateway_token},
+                "controlUi": {"allowedOrigins": origins},
+            },
+            "browser": {
+                "enabled": True,
+                "headless": True,
+                "noSandbox": True,
+                "defaultProfile": "openclaw",
+            },
+            "models": {"providers": {}},
+        }
+
+        providers = config["models"]["providers"]
+
+        if aws_bearer and bedrock_arn:
+            providers["talos-bedrock"] = {
+                "baseUrl": "https://bedrock-runtime.%s.amazonaws.com" % aws_region,
+                "apiKey": aws_bearer,
+                "auth": "api-key",
+                "api": "bedrock-converse-stream",
+                "models": [
+                    {
+                        "id": bedrock_arn,
+                        "name": "claude-inference",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 200000,
+                        "maxTokens": 8192,
+                    }
+                ],
+            }
+            providers["litellm"] = {
+                "baseUrl": "http://litellm:4000/v1",
+                "apiKey": litellm_key,
+                "auth": "api-key",
+                "api": "openai-responses",
+                "models": [
+                    {
+                        "id": "claude-opus-4.6",
+                        "name": "claude-opus-4.6",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 200000,
+                        "maxTokens": 8192,
+                    },
+                    {
+                        "id": "kimi-k2.5",
+                        "name": "kimi-k2.5",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 131072,
+                        "maxTokens": 8192,
+                    },
+                ],
+            }
+            config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+
+        with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
+            json.dump(config, f)
+
+        litellm_yaml = persona.litellm_config_yaml
+        if not litellm_yaml:
+            litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
+                bedrock_arn=bedrock_arn or "PLACEHOLDER",
+                aws_region=aws_region,
+            )
+        with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
+            f.write(litellm_yaml)
+
+        override = (
+            "services:\n"
+            "  openclaw:\n"
+            '    entrypoint: ["node", "openclaw.mjs", "gateway",'
+            ' "--allow-unconfigured", "--token", "%s"]\n'
+            "    command: []\n"
+            "    ports: !override\n"
+            '      - "%d:18789"\n'
+            "  litellm:\n"
+            "    ports:\n"
+            '      - "%d:4000"\n'
+            "  db:\n"
+            "    ports:\n"
+            '      - "%d:5432"\n'
+        ) % (gateway_token, gateway_port, litellm_port, db_port)
+        with open(os.path.join(workdir, "docker-compose.override.yml"), "w") as f:
+            f.write(override)
+
+        return workdir
+
+    def _build_compose_env(self, gateway_token):
         self.ensure_one()
         ICP = self.env["ir.config_parameter"].sudo()
-        persona = self.docker_persona or "marcus"
+        persona = self.persona_id
 
         env = os.environ.copy()
-        env["PERSONA"] = persona
+        env["PERSONA"] = persona.name
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
         aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
@@ -250,41 +465,7 @@ class Talos(models.Model):
 
         return env
 
-    def _ensure_data_dir(self, docker_dir, persona):
-        """Create the per-persona data directory if it doesn't exist.
-
-        The base docker-compose.yml bind-mounts ``./data/{persona}`` into the
-        container.  If the directory is missing Docker will create it as
-        root-owned, which causes permission errors inside the container.
-        """
-        data_dir = os.path.join(docker_dir, "data", persona)
-        os.makedirs(data_dir, exist_ok=True)
-
-    def _reset_stale_config(self, docker_dir, persona):
-        """Remove the previous openclaw.json so the entrypoint writes a fresh one.
-
-        The ``openclaw config set`` command can hang indefinitely when it tries
-        to update a config file that contains a stale gateway token from a
-        prior run.  Deleting the file forces the entrypoint to write config
-        from scratch, which is always the desired behavior for ephemeral
-        sandbox containers.
-        """
-        data_dir = os.path.join(docker_dir, "data", persona)
-        for name in ("openclaw.json",):
-            path = os.path.join(data_dir, name)
-            if os.path.isfile(path):
-                try:
-                    os.remove(path)
-                    _logger.debug("Removed stale config: %s", path)
-                except OSError as e:
-                    _logger.warning("Could not remove stale config %s: %s", path, e)
-
-    def _wait_for_health(self, compose_bin, project_name, docker_dir):
-        """Poll ``docker compose ps`` until the openclaw service is healthy.
-
-        Returns ``True`` when the gateway is healthy, ``False`` on timeout or
-        if the container exited.
-        """
+    def _wait_for_health(self, compose_bin, project_name, workdir):
         deadline = time.monotonic() + _HEALTH_WAIT_TIMEOUT
         while time.monotonic() < deadline:
             try:
@@ -295,20 +476,16 @@ class Talos(models.Model):
                     text=True,
                     timeout=15,
                     check=False,
-                    cwd=docker_dir,
+                    cwd=workdir,
                 )
                 output = result.stdout.strip()
                 if not output:
                     time.sleep(_HEALTH_POLL_INTERVAL)
                     continue
 
-                # compose v2 may return one JSON object per line or a JSON array
-                import json
-
                 try:
                     data = json.loads(output)
                 except json.JSONDecodeError:
-                    # multiple JSON objects (one per line) — take the first
                     data = json.loads(output.splitlines()[0])
 
                 if isinstance(data, list):
@@ -317,17 +494,15 @@ class Talos(models.Model):
                 state = (data.get("State") or "").lower()
                 health = (data.get("Health") or "").lower()
 
-                if state == "exited" or state == "dead":
+                if state in ("exited", "dead"):
                     _logger.warning(
-                        "openclaw container exited during health wait "
-                        "(project=%s, state=%s)",
+                        "openclaw container exited (project=%s, state=%s)",
                         project_name,
                         state,
                     )
                     return False
 
                 if health == "healthy" or state == "running":
-                    # Also probe the gateway directly to be sure
                     try:
                         import urllib.request
 
@@ -337,7 +512,6 @@ class Talos(models.Model):
                         )
                         return True
                     except Exception:
-                        # Container running but healthz not responding yet
                         pass
 
             except (subprocess.TimeoutExpired, Exception) as e:
@@ -347,8 +521,7 @@ class Talos(models.Model):
 
         return False
 
-    def _capture_container_logs(self, compose_bin, project_name, docker_dir):
-        """Capture the last few lines of openclaw container logs."""
+    def _capture_container_logs(self, compose_bin, project_name, workdir):
         try:
             result = subprocess.run(
                 compose_bin + ["-p", project_name, "logs", "--tail", "30", "openclaw"],
@@ -356,7 +529,7 @@ class Talos(models.Model):
                 text=True,
                 timeout=15,
                 check=False,
-                cwd=docker_dir,
+                cwd=workdir,
             )
             return result.stdout.strip() or result.stderr.strip()
         except Exception:
@@ -379,43 +552,36 @@ class Talos(models.Model):
         if not compose_bin:
             raise UserError("docker compose (or docker-compose) not found.")
 
-        sandbox_dir = self._get_sandbox_dir()
-        docker_dir = os.path.join(sandbox_dir, "docker")
+        persona = self.persona_id
+        if not persona:
+            raise UserError("No persona selected for this task.")
+
         gateway_token = secrets.token_hex(32)
         project_name = "talos-%d" % self.id
-        persona = self.docker_persona or "marcus"
-
-        persona_dir = os.path.join(sandbox_dir, "personas", persona)
-        if not os.path.isdir(persona_dir):
-            available = []
-            personas_root = os.path.join(sandbox_dir, "personas")
-            if os.path.isdir(personas_root):
-                available = sorted(
-                    d
-                    for d in os.listdir(personas_root)
-                    if os.path.isdir(os.path.join(personas_root, d))
-                    and not d.startswith(".")
-                )
-            raise UserError(
-                "Persona directory not found: %s\n"
-                "Available personas: %s"
-                % (persona_dir, ", ".join(available) or "(none)")
-            )
+        gateway_port, litellm_port, db_port = self._allocate_ports()
 
         self.write({"docker_status": "starting", "docker_error": False})
 
         try:
-            self._ensure_data_dir(docker_dir, persona)
+            workdir = self._prepare_workdir(
+                persona, gateway_token, gateway_port, litellm_port, db_port
+            )
         except Exception as e:
-            _logger.warning("Could not pre-create data dir: %s", e)
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": "Failed to prepare sandbox: %s" % str(e)[:500],
+                }
+            )
+            return
 
-        self._reset_stale_config(docker_dir, persona)
-
-        compose_env = self._build_compose_env(sandbox_dir, gateway_token)
+        compose_env = self._build_compose_env(gateway_token)
 
         cmd = compose_bin + [
             "-f",
             "docker-compose.yml",
+            "-f",
+            "docker-compose.override.yml",
             "-p",
             project_name,
             "up",
@@ -430,7 +596,7 @@ class Talos(models.Model):
                 text=True,
                 timeout=900,
                 check=False,
-                cwd=docker_dir,
+                cwd=workdir,
                 env=compose_env,
             )
 
@@ -448,31 +614,26 @@ class Talos(models.Model):
                 {
                     "docker_compose_project": project_name,
                     "docker_status": "starting",
-                    "docker_port": GATEWAY_PORT,
-                    "docker_litellm_port": LITELLM_PORT,
+                    "docker_port": gateway_port,
+                    "docker_litellm_port": litellm_port,
                     "docker_gateway_token": gateway_token,
+                    "docker_workdir": workdir,
                     "docker_error": False,
                 }
             )
 
-            # Wait for the gateway health-check before declaring "running".
-            healthy = self._wait_for_health(compose_bin, project_name, docker_dir)
+            healthy = self._wait_for_health(compose_bin, project_name, workdir)
 
             if healthy:
                 self.write({"docker_status": "running"})
                 _logger.info(
-                    "Started local sandbox stack (project=%s) for task %s — "
-                    "gateway=:%d litellm=:%d persona=%s",
+                    "Started sandbox (project=%s) task=%s persona=%s",
                     project_name,
                     self.id,
-                    GATEWAY_PORT,
-                    LITELLM_PORT,
-                    persona,
+                    persona.name,
                 )
             else:
-                logs = self._capture_container_logs(
-                    compose_bin, project_name, docker_dir
-                )
+                logs = self._capture_container_logs(compose_bin, project_name, workdir)
                 error_detail = (
                     "Sandbox containers started but the gateway never became "
                     "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
@@ -501,12 +662,7 @@ class Talos(models.Model):
                 }
             )
         except Exception as e:
-            self.write(
-                {
-                    "docker_status": "error",
-                    "docker_error": str(e)[:500],
-                }
-            )
+            self.write({"docker_status": "error", "docker_error": str(e)[:500]})
 
     def _stop_local(self):
         if self.docker_status == "stopped":
@@ -514,14 +670,15 @@ class Talos(models.Model):
 
         compose_bin = _compose_cmd()
         project_name = self.docker_compose_project
+        workdir = self.docker_workdir
 
-        if compose_bin and project_name:
+        if compose_bin and project_name and workdir and os.path.isdir(workdir):
             try:
-                sandbox_dir = self._get_sandbox_dir()
-                docker_dir = os.path.join(sandbox_dir, "docker")
-
                 cmd = compose_bin + ["-p", project_name]
                 cmd += ["-f", "docker-compose.yml"]
+                override = os.path.join(workdir, "docker-compose.override.yml")
+                if os.path.isfile(override):
+                    cmd += ["-f", "docker-compose.override.yml"]
                 cmd += ["down", "--volumes", "--remove-orphans"]
 
                 subprocess.run(
@@ -530,33 +687,33 @@ class Talos(models.Model):
                     text=True,
                     timeout=60,
                     check=False,
-                    cwd=docker_dir,
+                    cwd=workdir,
                 )
                 _logger.info(
-                    "Stopped local sandbox stack (project=%s) for task %s",
-                    project_name,
-                    self.id,
+                    "Stopped sandbox (project=%s) task=%s", project_name, self.id
                 )
-            except UserError:
-                _logger.warning(
-                    "Sandbox dir not configured, attempting force stop of project %s",
-                    project_name,
-                )
-                try:
-                    subprocess.run(
-                        (compose_bin or ["docker", "compose"])
-                        + ["-p", project_name, "down", "--volumes", "--remove-orphans"],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                        check=False,
-                    )
-                except Exception as e:
-                    _logger.warning("Force stop failed: %s", e)
             except Exception as e:
                 _logger.warning(
                     "Failed to stop compose project %s: %s", project_name, e
                 )
+        elif compose_bin and project_name:
+            try:
+                subprocess.run(
+                    compose_bin
+                    + ["-p", project_name, "down", "--volumes", "--remove-orphans"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+            except Exception as e:
+                _logger.warning("Force stop failed: %s", e)
+
+        if workdir and os.path.isdir(workdir):
+            try:
+                shutil.rmtree(workdir)
+            except Exception as e:
+                _logger.warning("Could not clean workdir %s: %s", workdir, e)
 
         self.write(
             {
@@ -565,6 +722,7 @@ class Talos(models.Model):
                 "docker_port": 0,
                 "docker_litellm_port": 0,
                 "docker_gateway_token": False,
+                "docker_workdir": False,
                 "docker_error": False,
             }
         )
