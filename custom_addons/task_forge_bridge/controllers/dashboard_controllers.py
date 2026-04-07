@@ -507,13 +507,15 @@ class DashboardController(http.Controller):
             total_pause_mins = sum(pause_times)
 
             # 3. Calculate Productive Duration (in hours)
-            productive_duration = total_pause_mins / 60 if total_pause_mins > 0 else 0.0
+            hours = total_pause_mins // 3600
+            minutes = (total_pause_mins % 3600) // 60
+            productive_duration = f"{hours:02d}:{minutes:02d}"
+
 
             # 4. Get completed tasks for the graph
             # Note: Since you already have task_record, filtering in memory is faster than a new search
             completed_tasks = task_record.filtered(lambda p: p.state == 'completed')
 
-            # 5. Read Group for Quality Score Sum
             graph_data = completed_tasks.read_group(
                 domain=[('id', 'in', completed_tasks.ids)],
                 fields=['quality_score'],
@@ -521,20 +523,15 @@ class DashboardController(http.Controller):
             )
 
             # Extract values for your frontend
-            # labels = [line.get('end_time:day', '') for line in graph_data]
             labels = [line.get('end_time:day') or '' for line in graph_data]
-            # quality_sums = [line.get('quality_score', 0) for line in graph_data]
             quality_sums = [line.get('quality_score') or 0 for line in graph_data]
+
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
                 ('employee_id', '=', employee.id),
                 ('state', '=', 'pending')
             ])
+
             today_weekday = date.today().weekday()
-            # print(today_weekday)
-            # if today_weekday > 4:
-            #     remaining = 0
-            # else:
-            #     remaining = 4 - today_weekday
             vals = {
                 'session_duration': duration_display,
                 'completed_task_count': len(completed_tasks),
