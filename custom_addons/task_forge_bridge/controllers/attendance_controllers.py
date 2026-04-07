@@ -28,7 +28,29 @@ class TaskForgeAttendanceController(http.Controller):
             ], limit=1)
 
             if existing:
-                return return_Response(message="Already punched in today", status=400)
+                if existing.attendance_status == 'present':
+                    return return_Response(message="Already punched in today", status=400)
+                else:
+                    vals = {'attendance_status': 'present', 'check_in': datetime.now()}
+                    if jdata.get('location'):
+                        vals['geo_location'] = jdata['location']
+                    if jdata.get('geo_coordinates'):
+                        vals['geo_coordinates'] = jdata['geo_coordinates']
+                    existing.write(vals)
+                    return return_Response(
+                        message="Punched in successfully",
+                        status=200,
+                        data={'data': {
+                            'id': existing.id,
+                            'employee_id': employee.id,
+                            'employee_name': employee.name,
+                            'date': str(today),
+                            'punch_in_time': existing.check_in.isoformat() if existing.check_in else None,
+                            'location': existing.geo_location or '',
+                            'geo_coordinates': existing.geo_coordinates or '',
+                            'status': 'Present',
+                        }}
+                    )
 
             vals = {
                 'employee_id': employee.id,
@@ -113,6 +135,7 @@ class TaskForgeAttendanceController(http.Controller):
                 ('employee_id', '=', employee.id),
                 ('check_in', '>=', datetime.combine(today, datetime.min.time())),
                 ('check_in', '<', datetime.combine(today, datetime.max.time())),
+                ('attendance_status', '=', 'present')
             ], limit=1)
 
             if not attendance:
@@ -169,29 +192,30 @@ class TaskForgeAttendanceController(http.Controller):
                 today = date.today()
                 stats_start = today.replace(day=1)
                 stats_end = today
-
+            if kwargs.get('status'):
+                status = kwargs.get('status').split(',')
+                status = ['present', 'on_leave', 'absent'] if "all" in status else status
+                if status:
+                    domain.append(('attendance_status', 'in', status))
             records = Attendance.search(domain, order='check_in desc', limit=200)
             data = [self._format_attendance(rec) for rec in records]
 
             # Compute summary stats over the stats date range
-            emp_domain = [('employee_id', 'in', team_ids)]
+            emp_domain = [('employee_id', 'in', team_ids), ('attendance_status', '=', 'present')]
             if user_id_param:
                 emp_domain.append(('employee_id', '=', int(user_id_param)))
 
-            stats_domain = list(emp_domain)
             if date_param or (not start_date_param and not end_date_param):
-                stats_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
-                stats_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
+                emp_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                emp_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
             else:
                 if stats_start:
-                    stats_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                    emp_domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
                 if stats_end:
-                    stats_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
-
-            stats_records = Attendance.search(stats_domain)
-            total_present_days = len(set(rec.check_in.date() for rec in stats_records if rec.check_in))
-            total_hours = sum(rec.worked_hours or 0 for rec in stats_records)
-            avg_working_hours = round(total_hours / total_present_days, 2) if total_present_days else 0
+                    emp_domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
+            total_present_days = Attendance.search(emp_domain)
+            total_hours = sum(total_present_days.mapped('worked_hours'))
+            avg_working_hours = round(total_hours / len(total_present_days), 2) if total_present_days else 0
 
             # Count approved leave days in stats range
             Leave = request.env['hr.leave'].sudo()
@@ -211,10 +235,10 @@ class TaskForgeAttendanceController(http.Controller):
                     leave_domain.append(('date_from', '<=', datetime.combine(stats_end, datetime.max.time())))
 
             leave_records = Leave.search(leave_domain)
-            total_leave_days = sum(leave.number_of_days or 0 for leave in leave_records)
+            total_leave_days = sum(leave_records.mapped('number_of_days'))
 
             summary = {
-                'total_present_days': total_present_days,
+                'total_present_days': len(total_present_days),
                 'total_leave_days': total_leave_days,
                 'avg_working_hours': avg_working_hours,
                 'stats_start': str(stats_start) if stats_start else None,
@@ -226,13 +250,18 @@ class TaskForgeAttendanceController(http.Controller):
             return return_Response(message=str(e), status=400)
 
     def _format_attendance(self, rec):
+        attendance_status = {
+            'present': 'Present',
+            'absent': 'Absent',
+            'on_leave': 'Leave'
+        }
         return {
             'id': rec.id if rec.id else 0,
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
             'employee_name': rec.employee_id.name if rec.employee_id.name else "",
             'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
             'date': str(rec.check_in.date()) if rec.check_in else '',
-            'status': 'Present',
+            'status': attendance_status.get(rec.attendance_status) if rec.attendance_status else "Absent",
             'punch_in_time': rec.check_in.isoformat() if rec.check_in else "",
             'punch_out_time': rec.check_out.isoformat() if rec.check_out else "",
             'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours else 0,
@@ -250,90 +279,21 @@ class TaskForgeAttendanceController(http.Controller):
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
-            team_ids = employee._get_team_employee_ids()
-
-            # if user.user_role.id  == request.env.ref('api_auth_gateway.role_pl_non_stem').id:
-            #     current_projects = request.env['project.project'].sudo().search([('project_lead', '=', user.employee_id.id)])
-            #     if kwargs.get('project_id'):
-            #         current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
-            #                                                                         limit=1)
-            #     qc_employees = current_projects.mapped('project_qc_reviewer')
-            #     tasker_employees = current_projects.mapped('project_tasker')
-            #     all_target_employees = qc_employees | tasker_employees
-            #
-            # else:
-            #     current_projects = request.env['project.project'].sudo().search([])
-            #     if kwargs.get('project_id'):
-            #         current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
-            #     pl_employees = current_projects.mapped('project_lead')
-            #     qc_employees = current_projects.mapped('project_qc_reviewer')
-            #     tasker_employees = current_projects.mapped('project_tasker')
-            #     all_target_employees = pl_employees | qc_employees | tasker_employees
-
-            search_key = kwargs.get('search', '').strip()
-            domain = [('id', 'in', team_ids)]
-            if search_key:
-                domain.append(('name', 'ilike', search_key))
-            all_target_employees = request.env['hr.employee'].search(domain)
-
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
-            attendance = Attendance.search([
-                ('employee_id', 'in', all_target_employees),
-                ('check_in', '>=', datetime.combine(today, datetime.min.time())),
-                ('check_in', '<', datetime.combine(today, datetime.max.time())),
-            ], limit=1)
-
-            # if not attendance:
-            #     return return_Response(message="No attendance record for today", status=200, data={'data': None})
-            present_employee_ids = attendance.mapped('employee_id')
-            absent_employees = all_target_employees - present_employee_ids
-            if kwargs.get('status') not in ['on_leave', 'absent']:
-                for atte in attendance:
-                    temp.append(self._format_attendance(atte))
-            Leave = request.env['hr.leave'].sudo()
-            domain = [
-                ('employee_id', 'in', absent_employees),
-                ('state', '=', 'validate'),
-                ('date_from', '<=',
-                 fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
-                ('date_to', '>=', fields.Datetime.to_string(fields.Datetime.now().replace(hour=0, minute=0, second=0)))
-            ]
-            leaves = Leave.search(domain, order='create_date desc')
-            leaves_employee = leaves.mapped('employee_id')
-            absent_employees = absent_employees - leaves_employee
-            if kwargs.get('status') in ['all', 'absent'] and kwargs.get('status') not in ['on_leave', 'present']:
-                for ae in absent_employees:
-                    temp.append({
-                        'id': 0,
-                        'employee_id': ae.id if ae else 0,
-                        'employee_name': ae.name if ae.name else "",
-                        'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
-                        'date': '',
-                        'status': 'Absent',
-                        'punch_in_time': "",
-                        'punch_out_time': "",
-                        'hours_worked': 0,
-                        'location': '',
-                        'geo_coordinates': '',
-                        'tasks_done': 0,
-                    })
-            if kwargs.get('status') in ['all', 'on_leave'] and kwargs.get('status') not in ['absent', 'present']:
-                for ae in leaves_employee:
-                    temp.append({
-                        'id': 0,
-                        'employee_id': ae.id if ae else 0,
-                        'employee_name': ae.name if ae.name else "",
-                        'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
-                        'date': '',
-                        'status': 'On Leave',
-                        'punch_in_time': "",
-                        'punch_out_time': "",
-                        'hours_worked': 0,
-                        'location': '',
-                        'geo_coordinates': '',
-                        'tasks_done': 0,
-                    })
+            domain = [('check_in', '>=', datetime.combine(today, datetime.min.time())), ('check_in', '<', datetime.combine(today, datetime.max.time()))]
+            if kwargs.get('search', ''):
+                search_key = kwargs.get('search', '').strip()
+                if search_key:
+                    domain.append(('employee_id.name', 'ilike', search_key))
+            if kwargs.get('status'):
+                status = kwargs.get('status').split(',')
+                status = ['present', 'on_leave', 'absent'] if "all" in status else status
+                if status:
+                    domain.append(('attendance_status', 'in', status))
+            attendance = Attendance.search(domain)
+            for atte in attendance:
+                temp.append(self._format_attendance(atte))
             return return_Response(
                 message="Today's attendance",
                 status=200,

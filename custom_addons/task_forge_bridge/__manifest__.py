@@ -24,6 +24,7 @@
     'data': [
         'security/ir.model.access.csv',
         'security/record_rules.xml',
+        'data/ir_cron_data.xml',
         'views/hr_employee_views.xml',
         'views/hr_attendance_views.xml',
         'views/hr_leave_views.xml',
