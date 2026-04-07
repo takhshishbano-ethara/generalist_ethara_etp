@@ -1,9 +1,11 @@
+import json
 import logging
-import os
 import secrets
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+
+from .talos import _load_dotenv, _DEFAULT_LITELLM_CONFIG
 
 _logger = logging.getLogger(__name__)
 
@@ -37,18 +39,95 @@ def _resource_name(task_record):
     return "talos-sandbox-%s" % task_record.id
 
 
+def _build_openclaw_config(gateway_token, env):
+    """Build the openclaw.json dict — same logic as local mode."""
+    aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    aws_region = env.get("AWS_REGION", "ap-south-1").strip()
+    bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+    litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
+    if not litellm_key:
+        litellm_key = "sk-talos-%s" % secrets.token_hex(8)
+
+    config_dict = {
+        "gateway": {
+            "bind": "lan",
+            "auth": {"mode": "token", "token": gateway_token},
+            "controlUi": {
+                "allowedOrigins": [
+                    "http://localhost:18789",
+                    "http://127.0.0.1:18789",
+                    "http://0.0.0.0:18789",
+                ],
+                "dangerouslyDisableDeviceAuth": True,
+            },
+        },
+        "browser": {
+            "enabled": True,
+            "headless": True,
+            "noSandbox": True,
+            "defaultProfile": "openclaw",
+        },
+        "models": {"providers": {}},
+    }
+
+    providers = config_dict["models"]["providers"]
+
+    if aws_bearer and bedrock_arn:
+        providers["talos-bedrock"] = {
+            "baseUrl": "https://bedrock-runtime.%s.amazonaws.com" % aws_region,
+            "apiKey": aws_bearer,
+            "auth": "api-key",
+            "api": "bedrock-converse-stream",
+            "models": [
+                {
+                    "id": bedrock_arn,
+                    "name": "claude-inference",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                    "contextWindow": 200000,
+                    "maxTokens": 8192,
+                }
+            ],
+        }
+
+    providers["litellm"] = {
+        "baseUrl": "http://localhost:4000/v1",
+        "apiKey": litellm_key,
+        "auth": "api-key",
+        "api": "openai-responses",
+        "models": [
+            {
+                "id": "claude-opus-4.6",
+                "name": "claude-opus-4.6",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "contextWindow": 200000,
+                "maxTokens": 8192,
+            },
+            {
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "contextWindow": 131072,
+                "maxTokens": 8192,
+            },
+        ],
+    }
+    config_dict["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+
+    return config_dict
+
+
 class TalosSandboxK8s(models.AbstractModel):
     _name = "talos.sandbox.k8s"
     _description = "Talos K8s Sandbox Deployer"
 
     def _get_config_param(self, key, default=""):
         return self.env["ir.config_parameter"].sudo().get_param(key, default).strip()
-
-    def _sandbox_dir(self):
-        sandbox_dir = self._get_config_param("talos.sandbox_dir")
-        if not sandbox_dir:
-            raise UserError("talos.sandbox_dir not configured.")
-        return sandbox_dir
 
     def deploy_sandbox(self, task_record):
         if not K8S_AVAILABLE:
@@ -59,22 +138,24 @@ class TalosSandboxK8s(models.AbstractModel):
         apps_v1 = client.AppsV1Api()
 
         task_id = task_record.id
-        persona = task_record.persona_id.name or "marcus"
+        persona = task_record.persona_id
+        if not persona:
+            raise UserError("No persona selected for task %s." % task_id)
+        persona_name = persona.name
         name = _resource_name(task_record)
         labels = _sandbox_labels(task_record)
-        sandbox_dir = self._sandbox_dir()
 
-        litellm_master_key = self._get_config_param("talos.litellm_master_key")
+        env = _load_dotenv()
+        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
+        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+        litellm_master_key = env.get("LITELLM_MASTER_KEY", "").strip()
         if not litellm_master_key:
             litellm_master_key = "sk-talos-%s" % secrets.token_hex(8)
-
-        litellm_db_password = self._get_config_param("talos.litellm_db_password")
+        litellm_db_password = env.get("LITELLM_DB_PASSWORD", "").strip()
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
 
-        aws_bearer = self._get_config_param("talos.aws_bearer_token")
-        aws_region = self._get_config_param("talos.aws_region", "ap-south-1")
-        bedrock_arn = self._get_config_param("talos.bedrock_model_arn")
         openclaw_image = self._get_config_param(
             "talos.openclaw_image", "ghcr.io/openclaw/openclaw:latest"
         )
@@ -83,11 +164,13 @@ class TalosSandboxK8s(models.AbstractModel):
         )
         storage_class = self._get_config_param("talos.k8s_storage_class", "gp3")
 
+        gateway_token = task_record.docker_gateway_token
+
         self._create_secret(
             core_v1,
             task_id,
             labels,
-            gateway_token=task_record.docker_gateway_token,
+            gateway_token=gateway_token,
             litellm_master_key=litellm_master_key,
             litellm_db_password=litellm_db_password,
             aws_bearer=aws_bearer,
@@ -97,16 +180,33 @@ class TalosSandboxK8s(models.AbstractModel):
             core_v1,
             task_id,
             labels,
-            sandbox_dir,
             persona,
         )
 
-        self._create_litellm_configmap(core_v1, sandbox_dir)
+        openclaw_config = _build_openclaw_config(gateway_token, env)
+        self._create_openclaw_config_configmap(
+            core_v1,
+            task_id,
+            labels,
+            openclaw_config,
+        )
+
+        litellm_yaml = persona.litellm_config_yaml
+        if not litellm_yaml:
+            litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
+                bedrock_arn=bedrock_arn or "PLACEHOLDER",
+                aws_region=aws_region,
+            )
+        self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
         self._create_pvc(
             core_v1,
-            "talos-browser-%s" % persona,
-            {"platform": "talos", "component": "browser-profiles", "persona": persona},
+            "talos-browser-%s" % persona_name,
+            {
+                "platform": "talos",
+                "component": "browser-profiles",
+                "persona": persona_name,
+            },
             "5Gi",
             storage_class,
         )
@@ -123,7 +223,7 @@ class TalosSandboxK8s(models.AbstractModel):
             apps_v1,
             task_record,
             labels,
-            persona,
+            persona_name,
             name,
             openclaw_image,
             litellm_image,
@@ -132,6 +232,7 @@ class TalosSandboxK8s(models.AbstractModel):
             aws_bearer,
             aws_region,
             bedrock_arn,
+            gateway_token,
         )
 
         self._create_service(core_v1, task_record, labels, name)
@@ -167,14 +268,15 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_persona_configmap(self, core_v1, task_id, labels, sandbox_dir, persona):
-        persona_dir = os.path.join(sandbox_dir, "personas", persona)
+    def _create_persona_configmap(self, core_v1, task_id, labels, persona):
+        """Create ConfigMap from talos.persona DB fields."""
         data = {}
-        for filename in ("SOUL.md", "MEMORY.md", "AGENTS.md"):
-            filepath = os.path.join(persona_dir, filename)
-            if os.path.isfile(filepath):
-                with open(filepath, "r") as f:
-                    data[filename] = f.read()
+        if persona.soul_md:
+            data["SOUL.md"] = persona.soul_md
+        if persona.memory_md:
+            data["MEMORY.md"] = persona.memory_md
+        if persona.agents_md:
+            data["AGENTS.md"] = persona.agents_md
 
         cm = client.V1ConfigMap(
             api_version="v1",
@@ -192,26 +294,37 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_litellm_configmap(self, core_v1, sandbox_dir):
-        config_path = os.path.join(sandbox_dir, "docker", "litellm-config.yaml")
-        data = {}
-        if os.path.isfile(config_path):
-            with open(config_path, "r") as f:
-                data["config.yaml"] = f.read()
-
+    def _create_openclaw_config_configmap(
+        self, core_v1, task_id, labels, openclaw_config
+    ):
+        """Create ConfigMap with pre-built openclaw.json so the entrypoint is bypassed."""
         cm = client.V1ConfigMap(
             api_version="v1",
             kind="ConfigMap",
             metadata=client.V1ObjectMeta(
-                name="talos-litellm-config",
+                name="talos-sandbox-openclaw-config-%s" % task_id,
                 namespace=NAMESPACE,
-                labels={
-                    "platform": "talos",
-                    "component": "litellm-config",
-                    "app.kubernetes.io/managed-by": "talos-odoo",
-                },
+                labels=labels,
             ),
-            data=data,
+            data={"openclaw.json": json.dumps(openclaw_config)},
+        )
+        try:
+            core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
+    def _create_litellm_configmap(self, core_v1, task_id, labels, litellm_yaml):
+        """Create per-task LiteLLM config ConfigMap from persona DB field."""
+        cm = client.V1ConfigMap(
+            api_version="v1",
+            kind="ConfigMap",
+            metadata=client.V1ObjectMeta(
+                name="talos-litellm-config-%s" % task_id,
+                namespace=NAMESPACE,
+                labels=labels,
+            ),
+            data={"config.yaml": litellm_yaml},
         )
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
@@ -259,16 +372,28 @@ class TalosSandboxK8s(models.AbstractModel):
         aws_bearer,
         aws_region,
         bedrock_arn,
+        gateway_token,
     ):
         task_id = task_record.id
         secret_name = "talos-sandbox-creds-%s" % task_id
         persona_cm = "talos-sandbox-persona-%s" % task_id
+        openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
+        litellm_config_cm = "talos-litellm-config-%s" % task_id
 
         db_url = "postgresql://llmproxy:%s@localhost:5432/litellm" % litellm_db_password
 
         openclaw_container = client.V1Container(
             name="openclaw",
             image=openclaw_image,
+            # Skip the buggy entrypoint — go straight to the gateway binary.
+            command=[
+                "node",
+                "openclaw.mjs",
+                "gateway",
+                "--allow-unconfigured",
+                "--token",
+                gateway_token,
+            ],
             ports=[client.V1ContainerPort(container_port=18789)],
             env=[
                 client.V1EnvVar(
@@ -321,6 +446,12 @@ class TalosSandboxK8s(models.AbstractModel):
                 client.V1VolumeMount(
                     name="openclaw-data",
                     mount_path="/home/node/.openclaw",
+                ),
+                client.V1VolumeMount(
+                    name="openclaw-config",
+                    mount_path="/home/node/.openclaw/openclaw.json",
+                    sub_path="openclaw.json",
+                    read_only=True,
                 ),
             ],
             resources=client.V1ResourceRequirements(
@@ -478,9 +609,15 @@ class TalosSandboxK8s(models.AbstractModel):
                 empty_dir=client.V1EmptyDirVolumeSource(),
             ),
             client.V1Volume(
+                name="openclaw-config",
+                config_map=client.V1ConfigMapVolumeSource(
+                    name=openclaw_config_cm,
+                ),
+            ),
+            client.V1Volume(
                 name="litellm-config",
                 config_map=client.V1ConfigMapVolumeSource(
-                    name="talos-litellm-config",
+                    name=litellm_config_cm,
                 ),
             ),
             client.V1Volume(
@@ -586,6 +723,16 @@ class TalosSandboxK8s(models.AbstractModel):
         self._delete_resource(
             core_v1.delete_namespaced_config_map,
             "talos-sandbox-persona-%s" % task_id,
+            NAMESPACE,
+        )
+        self._delete_resource(
+            core_v1.delete_namespaced_config_map,
+            "talos-sandbox-openclaw-config-%s" % task_id,
+            NAMESPACE,
+        )
+        self._delete_resource(
+            core_v1.delete_namespaced_config_map,
+            "talos-litellm-config-%s" % task_id,
             NAMESPACE,
         )
         self._delete_resource(
