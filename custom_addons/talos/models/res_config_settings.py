@@ -1,13 +1,8 @@
 # -*- coding: utf-8 -*-
 import logging
-<<<<<<< Updated upstream
-
-from odoo import fields, models
-=======
 import subprocess
 
 from odoo import api, fields, models
->>>>>>> Stashed changes
 
 _logger = logging.getLogger(__name__)
 
@@ -26,8 +21,6 @@ class TalosConfigSettings(models.TransientModel):
         default="ap-south-1",
         help="AWS region for the Bedrock endpoint (e.g. ap-south-1).",
     )
-<<<<<<< Updated upstream
-=======
     talos_docker_available = fields.Boolean(
         string="Docker Available",
         compute="_compute_talos_docker_available",
@@ -96,4 +89,3 @@ class TalosConfigSettings(models.TransientModel):
                 rec.talos_docker_available = result.returncode == 0
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 rec.talos_docker_available = False
->>>>>>> Stashed changes
