@@ -12,6 +12,18 @@ from urllib.parse import urljoin, urlparse
 
 _log = logging.getLogger(__name__)
 
+
+def _get_chromium_executable():
+    """Return the system Chromium path if set or discoverable, else None."""
+    path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    if path and os.path.isfile(path):
+        return path
+    for candidate in ("/usr/bin/chromium", "/usr/bin/chromium-browser"):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 _CSS = """\
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; margin: 0; padding: 20px 40px; }
 .page-section { page-break-before: always; padding-top: 10px; }
@@ -129,7 +141,12 @@ def _crawl_and_pdf_playwright(spec_url, repo_name, output_dir):
     seen_hashes = set()
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        _exe = _get_chromium_executable()
+        browser = pw.chromium.launch(
+            headless=True,
+            executable_path=_exe,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0 Safari/537.36",
             java_script_enabled=True,
@@ -272,7 +289,12 @@ def _readme_fallback_pdf(full_name, repo_name, output_dir, github_token=""):
     )
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        _exe = _get_chromium_executable()
+        browser = pw.chromium.launch(
+            headless=True,
+            executable_path=_exe,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         page = browser.new_page()
         page.set_content(full_html, wait_until="networkidle")
         pdf_bytes = page.pdf(

@@ -36,5 +36,29 @@
             <field name="comment">Full access: manage apps, builds, and configuration.</field>
         </record>
 
+        <!-- Record Rules: Users see only own builds, Admins see all -->
+
+        <record id="rule_kaiju_build_user" model="ir.rule">
+            <field name="name">Kaiju Build: own records only</field>
+            <field name="model_id" ref="model_kaiju_build"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_kaiju_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_kaiju_build_admin" model="ir.rule">
+            <field name="name">Kaiju Build: admin sees all</field>
+            <field name="model_id" ref="model_kaiju_build"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_kaiju_admin'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
     </data>
 </odoo>
