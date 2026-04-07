@@ -355,8 +355,6 @@ def _run_document_create_background(db_name, uid, eval_id):
     """Step 3: Scrape spec PDF, push to fork, generate JSON/YAML."""
     import base64
     import json
-    import shutil
-    import subprocess
 
     import odoo
 
@@ -460,42 +458,10 @@ def _run_document_create_background(db_name, uid, eval_id):
             return
         cr.commit()
 
-        # Commit spec PDF to repo
-        if spec_path:
-            try:
-                shutil.copy2(spec_path, repo_dir / Path(spec_path).name)
-                subprocess.run(
-                    ["git", "add", Path(spec_path).name],
-                    cwd=repo_dir,
-                    check=True,
-                )
-                subprocess.run(
-                    ["git", "commit", "-m", "Add spec PDF for %s" % repo_short],
-                    cwd=repo_dir,
-                    check=True,
-                    capture_output=True,
-                )
-                base_commit = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-                _update_eval(cr, eval_id, {"base_commit": base_commit})
-                _append_eval_log(
-                    cr,
-                    eval_id,
-                    "Updated base_commit with spec: %s" % base_commit[:12],
-                )
-                cr.commit()
-            except Exception as exc:
-                _append_eval_log(
-                    cr,
-                    eval_id,
-                    "Spec PDF git commit failed (non-fatal): %s" % str(exc)[:200],
-                )
-                cr.commit()
+        # NOTE: Spec PDF is NOT committed to the git repo. Committing it
+        # would alter base_commit (which must stay on the commit0_all branch
+        # for the build pipeline). The PDF is stored in Odoo's spec_pdf
+        # binary field instead, which is where Stage 4 reads it from.
 
         if spec_path:
             with open(spec_path, "rb") as f:
@@ -640,8 +606,6 @@ def _run_stage3_background(db_name, uid, eval_id):
         import base64
         import glob
         import json
-        import shutil
-        import subprocess
 
         try:
             from tools.prepare_repo import (
@@ -776,34 +740,6 @@ def _run_stage3_background(db_name, uid, eval_id):
                 _logger.warning("scrape_pdf unavailable for eval %s", eval_id)
                 _append_eval_log(cr, eval_id, "scrape_pdf not available — skipping")
             cr.commit()
-
-            if spec_path:
-                shutil.copy2(spec_path, repo_dir / Path(spec_path).name)
-                subprocess.run(
-                    ["git", "add", Path(spec_path).name],
-                    cwd=repo_dir,
-                    check=True,
-                )
-                subprocess.run(
-                    ["git", "commit", "-m", "Add spec PDF for %s" % repo_short],
-                    cwd=repo_dir,
-                    check=True,
-                    capture_output=True,
-                )
-                base_commit = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-                _update_eval(cr, eval_id, {"base_commit": base_commit})
-                _append_eval_log(
-                    cr,
-                    eval_id,
-                    "Updated base_commit with spec: %s" % base_commit[:12],
-                )
-                cr.commit()
 
             if spec_path:
                 with open(spec_path, "rb") as f:

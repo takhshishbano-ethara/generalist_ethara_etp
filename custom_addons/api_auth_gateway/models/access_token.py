@@ -80,7 +80,7 @@ class APIAccessToken(models.Model):
             if access_token.has_expired():
                 access_token = None
         if create:
-            expires = datetime.now() + timedelta(seconds=3600)
+            expires = datetime.now() + timedelta(seconds=360000)
             vals = {
                 'user_id': user_id,
                 'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),

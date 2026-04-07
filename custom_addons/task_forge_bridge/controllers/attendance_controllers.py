@@ -6,7 +6,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from datetime import datetime, date, timedelta
 import json
 
-
+from odoo import fields
 class TaskForgeAttendanceController(http.Controller):
 
     @http.route('/api/v2/taskforge/attendance/punch_in', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -250,29 +250,31 @@ class TaskForgeAttendanceController(http.Controller):
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
-            if user.user_role.id  == request.env.ref('api_auth_gateway.role_pl_non_stem').id:
-                current_projects = request.env['project.project'].sudo().search([('project_lead', '=', user.employee_id.id)])
-                if kwargs.get('project_id'):
-                    current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
-                                                                                    limit=1)
-                qc_employees = current_projects.mapped('project_qc_reviewer')
-                tasker_employees = current_projects.mapped('project_tasker')
-                all_target_employees = qc_employees | tasker_employees
+            team_ids = employee._get_team_employee_ids()
 
-            else:
-                current_projects = request.env['project.project'].sudo().search([])
-                if kwargs.get('project_id'):
-                    current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
-                pl_employees = current_projects.mapped('project_lead')
-                qc_employees = current_projects.mapped('project_qc_reviewer')
-                tasker_employees = current_projects.mapped('project_tasker')
-                all_target_employees = pl_employees | qc_employees | tasker_employees
+            # if user.user_role.id  == request.env.ref('api_auth_gateway.role_pl_non_stem').id:
+            #     current_projects = request.env['project.project'].sudo().search([('project_lead', '=', user.employee_id.id)])
+            #     if kwargs.get('project_id'):
+            #         current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])],
+            #                                                                         limit=1)
+            #     qc_employees = current_projects.mapped('project_qc_reviewer')
+            #     tasker_employees = current_projects.mapped('project_tasker')
+            #     all_target_employees = qc_employees | tasker_employees
+            #
+            # else:
+            #     current_projects = request.env['project.project'].sudo().search([])
+            #     if kwargs.get('project_id'):
+            #         current_projects = request.env['project.project'].sudo().search([('id', '=', kwargs['project_id'])], limit=1)
+            #     pl_employees = current_projects.mapped('project_lead')
+            #     qc_employees = current_projects.mapped('project_qc_reviewer')
+            #     tasker_employees = current_projects.mapped('project_tasker')
+            #     all_target_employees = pl_employees | qc_employees | tasker_employees
 
             search_key = kwargs.get('search', '').strip()
+            domain = [('id', 'in', team_ids)]
             if search_key:
-                all_target_employees = all_target_employees.filtered(
-                    lambda e: search_key.lower() in (e.name or '').lower()
-                )
+                domain.append(('name', 'ilike', search_key))
+            all_target_employees = request.env['hr.employee'].search(domain)
 
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
@@ -282,13 +284,25 @@ class TaskForgeAttendanceController(http.Controller):
                 ('check_in', '<', datetime.combine(today, datetime.max.time())),
             ], limit=1)
 
-            if not attendance:
-                return return_Response(message="No attendance record for today", status=200, data={'data': None})
+            # if not attendance:
+            #     return return_Response(message="No attendance record for today", status=200, data={'data': None})
             present_employee_ids = attendance.mapped('employee_id')
             absent_employees = all_target_employees - present_employee_ids
-            for atte in attendance:
-                temp.append(self._format_attendance(atte))
-            if kwargs.get('status') in ['non_punched_in', 'all']:
+            if kwargs.get('status') not in ['on_leave', 'absent']:
+                for atte in attendance:
+                    temp.append(self._format_attendance(atte))
+            Leave = request.env['hr.leave'].sudo()
+            domain = [
+                ('employee_id', 'in', absent_employees),
+                ('state', '=', 'validate'),
+                ('date_from', '<=',
+                 fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
+                ('date_to', '>=', fields.Datetime.to_string(fields.Datetime.now().replace(hour=0, minute=0, second=0)))
+            ]
+            leaves = Leave.search(domain, order='create_date desc')
+            leaves_employee = leaves.mapped('employee_id')
+            absent_employees = absent_employees - leaves_employee
+            if kwargs.get('status') in ['all', 'absent'] and kwargs.get('status') not in ['on_leave', 'present']:
                 for ae in absent_employees:
                     temp.append({
                         'id': 0,
@@ -297,6 +311,22 @@ class TaskForgeAttendanceController(http.Controller):
                         'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
                         'date': '',
                         'status': 'Absent',
+                        'punch_in_time': "",
+                        'punch_out_time': "",
+                        'hours_worked': 0,
+                        'location': '',
+                        'geo_coordinates': '',
+                        'tasks_done': 0,
+                    })
+            if kwargs.get('status') in ['all', 'on_leave'] and kwargs.get('status') not in ['absent', 'present']:
+                for ae in leaves_employee:
+                    temp.append({
+                        'id': 0,
+                        'employee_id': ae.id if ae else 0,
+                        'employee_name': ae.name if ae.name else "",
+                        'role': ae.user_id.user_role.name if ae.user_id.user_role.name else "",
+                        'date': '',
+                        'status': 'On Leave',
                         'punch_in_time': "",
                         'punch_out_time': "",
                         'hours_worked': 0,

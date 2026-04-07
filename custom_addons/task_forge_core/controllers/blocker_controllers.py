@@ -75,9 +75,9 @@ class TaskForgeBlockerController(http.Controller):
             user = request.env.user
             if not user.has_group('etp_user_roles.group_quality_reviewer') and not user.user_role.id in [
                 request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id,
-                request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id] and not user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
 
-                return return_Response(message="QR role required", status=403)
+                return return_Response(message="QR Or PL role required", status=403)
 
             Blocker = request.env['task.forge.blocker'].sudo()
             blocker = Blocker.browse(int(kwargs.get('blocker_id')))
