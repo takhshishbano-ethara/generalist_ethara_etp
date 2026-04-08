@@ -133,11 +133,23 @@ class ProjectController(http.Controller):
                     return my_list
                 return val if isinstance(val, list) else [val]
 
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+            project_category = "non_stem"
+            y_project_type = 'non-stem'
+            if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id]:
+                project_category = 'technical'
+                y_project_type = 'technical'
+            if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_stem').id]:
+                project_category = 'stem'
+                y_project_type = 'stem'
+
             vals = {
-                "name": kwargs.get("name"),
-                "internal_project_name": kwargs.get("internal_project_name"),
-                "client_name": kwargs.get("client_name"),
-                "project_category": kwargs.get("project_category"),
+                "name": kwargs.get("name") or kwargs.get("internal_project_name"),
+                "internal_project_name": kwargs.get("internal_project_name") or kwargs.get("name"),
+                "client_name": kwargs.get("client_name") or kwargs.get("internal_client_name"),
+                "project_category": kwargs.get("project_category") or project_category,
                 "project_type": kwargs.get('project_type'),
                 "sample_task_number": int(kwargs.get("sample_task_number", 0)),
                 "project_lead": [(6, 0, parse_ids("project_lead"))],
@@ -148,13 +160,13 @@ class ProjectController(http.Controller):
                 "kick_off_subject": kwargs.get('kick_off_subject'),
                 "kick_off_body": kwargs.get('kick_off_body'),
                 "ai_generated_description": kwargs.get("ai_generated_description"),
-                "internal_client_name": kwargs.get("internal_client_name"),
+                "internal_client_name": kwargs.get("internal_client_name") or kwargs.get("client_name"),
                 "date_start": kwargs.get("date_start"),
                 "date": kwargs.get("date_end"),
                 'description': kwargs.get("description"),
                 "whatsapp_group_name": kwargs.get('whatsapp_group_name'),
                 'slack_channel_name': kwargs.get('slack_channel_name'),
-                'y_project_type': kwargs.get('y_project_type'),
+                'y_project_type': kwargs.get('y_project_type') or y_project_type,
                 "slack_members": [(6, 0, parse_ids("slack_members"))],
             }
 
