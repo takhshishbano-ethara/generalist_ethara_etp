@@ -70,12 +70,14 @@
                     <field name="docker_port"/>
                     <field name="docker_litellm_port"/>
                     <field name="docker_gateway_token"/>
-                    <field name="docker_dashboard_url" widget="url"/>
                   </group>
                 </group>
                 <group invisible="not docker_error">
                   <field name="docker_error"/>
                 </group>
+                <div class="mt-3">
+                  <field name="docker_dashboard_url" widget="sandbox_iframe" nolabel="1"/>
+                </div>
               </page>
             </notebook>
           </sheet>

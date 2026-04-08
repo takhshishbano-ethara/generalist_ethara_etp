@@ -18,7 +18,7 @@ GATEWAY_PORT_BASE = 19000
 LITELLM_PORT_BASE = 14000
 DB_PORT_BASE = 15432
 
-_HEALTH_WAIT_TIMEOUT = 120
+_HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
 
 _env_cache = None
@@ -86,6 +86,42 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
+"""
+
+_NGINX_CONF = """\
+server {
+    listen 80;
+    server_name _;
+
+    # Disable buffering for streaming / SSE responses
+    proxy_buffering off;
+
+    location / {
+        proxy_pass http://openclaw:18789;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # Strip iframe-blocking headers set by OpenClaw
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Content-Security-Policy;
+
+        # Read / send timeouts (long-running AI requests)
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 """
 
 
@@ -300,6 +336,7 @@ class Talos(models.Model):
     def _prepare_workdir(
         self, persona, gateway_token, gateway_port, litellm_port, db_port
     ):
+        ICP = self.env["ir.config_parameter"].sudo()
         source_dir = _module_sandbox_dir()
         if not source_dir or not os.path.isdir(source_dir):
             raise UserError(
@@ -318,8 +355,6 @@ class Talos(models.Model):
             dst = os.path.join(workdir, filename)
             if os.path.isfile(src):
                 shutil.copy2(src, dst)
-                if filename.endswith(".sh"):
-                    os.chmod(dst, 0o755)
 
         if persona.docker_compose_yaml:
             with open(os.path.join(workdir, "docker-compose.yml"), "w") as f:
@@ -355,11 +390,10 @@ class Talos(models.Model):
                 with open(os.path.join(ws_dir, fname), "w") as f:
                     f.write(content)
 
-        env = _load_dotenv()
-        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
-        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
-        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
+        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
+        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
+        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
+        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
         if not litellm_key:
             litellm_key = "sk-talos-%s" % secrets.token_hex(8)
 
@@ -367,6 +401,8 @@ class Talos(models.Model):
             "http://localhost:18789",
             "http://127.0.0.1:18789",
             "http://0.0.0.0:18789",
+            "http://localhost:8069",
+            "http://127.0.0.1:8069",
         ]
         if gateway_port != 18789:
             origins.append("http://localhost:%d" % gateway_port)
@@ -415,44 +451,43 @@ class Talos(models.Model):
                     }
                 ],
             }
-
-        providers["litellm"] = {
-            "baseUrl": "http://litellm:4000/v1",
-            "apiKey": litellm_key,
-            "auth": "api-key",
-            "api": "openai-responses",
-            "models": [
-                {
-                    "id": "claude-opus-4.6",
-                    "name": "claude-opus-4.6",
-                    "reasoning": True,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 0,
-                        "output": 0,
-                        "cacheRead": 0,
-                        "cacheWrite": 0,
+            providers["litellm"] = {
+                "baseUrl": "http://litellm:4000/v1",
+                "apiKey": litellm_key,
+                "auth": "api-key",
+                "api": "openai-responses",
+                "models": [
+                    {
+                        "id": "claude-opus-4.6",
+                        "name": "claude-opus-4.6",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 200000,
+                        "maxTokens": 8192,
                     },
-                    "contextWindow": 200000,
-                    "maxTokens": 8192,
-                },
-                {
-                    "id": "kimi-k2.5",
-                    "name": "kimi-k2.5",
-                    "reasoning": True,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 0,
-                        "output": 0,
-                        "cacheRead": 0,
-                        "cacheWrite": 0,
+                    {
+                        "id": "kimi-k2.5",
+                        "name": "kimi-k2.5",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 131072,
+                        "maxTokens": 8192,
                     },
-                    "contextWindow": 131072,
-                    "maxTokens": 8192,
-                },
-            ],
-        }
-        config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+                ],
+            }
+            config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
 
         with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
             json.dump(config, f)
@@ -466,14 +501,26 @@ class Talos(models.Model):
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)
 
+        with open(os.path.join(workdir, "nginx.conf"), "w") as f:
+            f.write(_NGINX_CONF)
+
         override = (
             "services:\n"
             "  openclaw:\n"
             '    entrypoint: ["node", "openclaw.mjs", "gateway",'
             ' "--allow-unconfigured", "--token", "%s"]\n'
             "    command: []\n"
-            "    ports: !override\n"
-            '      - "%d:18789"\n'
+            "    ports: !override []\n"
+            "  nginx:\n"
+            "    image: nginx:alpine\n"
+            "    depends_on:\n"
+            "      - openclaw\n"
+            "    volumes:\n"
+            "      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro\n"
+            "    ports:\n"
+            '      - "%d:80"\n'
+            "    networks:\n"
+            "      - frontend\n"
             "  litellm:\n"
             "    ports:\n"
             '      - "%d:4000"\n'
@@ -488,14 +535,33 @@ class Talos(models.Model):
 
     def _build_compose_env(self, gateway_token):
         self.ensure_one()
+        ICP = self.env["ir.config_parameter"].sudo()
         persona = self.persona_id
 
-        env = _load_dotenv().copy()
+        env = os.environ.copy()
         env["PERSONA"] = persona.name
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
-        if not env.get("LITELLM_MASTER_KEY"):
+        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
+        if aws_bearer:
+            env["AWS_BEARER_TOKEN_BEDROCK"] = aws_bearer
+
+        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
+        env["AWS_REGION"] = aws_region
+
+        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
+        if bedrock_arn:
+            env["BEDROCK_MODEL_ARN"] = bedrock_arn
+
+        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
+        if litellm_key:
+            env["LITELLM_MASTER_KEY"] = litellm_key
+        else:
             env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
+
+        litellm_db_pw = ICP.get_param("talos.litellm_db_password", "").strip()
+        if litellm_db_pw:
+            env["LITELLM_DB_PASSWORD"] = litellm_db_pw
 
         return env
 
@@ -620,6 +686,7 @@ class Talos(models.Model):
             project_name,
             "up",
             "-d",
+            "--build",
         ]
 
         try:

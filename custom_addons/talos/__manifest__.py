@@ -24,4 +24,11 @@
     "installable": True,
     "application": True,
     "license": "LGPL-3",
+    "assets": {
+        "web.assets_backend": [
+            "talos/static/src/components/sandbox_iframe/sandbox_iframe.js",
+            "talos/static/src/components/sandbox_iframe/sandbox_iframe.xml",
+            "talos/static/src/components/sandbox_iframe/sandbox_iframe.scss",
+        ],
+    },
 }
