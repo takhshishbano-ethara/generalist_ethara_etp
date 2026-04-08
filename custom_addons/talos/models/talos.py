@@ -94,42 +94,6 @@ general_settings:
   store_model_in_db: true
 """
 
-_NGINX_CONF = """\
-server {
-    listen 80;
-    server_name _;
-
-    # Disable buffering for streaming / SSE responses
-    proxy_buffering off;
-
-    location / {
-        proxy_pass http://openclaw:18789;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket support
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-
-        # Strip iframe-blocking headers set by OpenClaw
-        proxy_hide_header X-Frame-Options;
-        proxy_hide_header Content-Security-Policy;
-
-        # Read / send timeouts (long-running AI requests)
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-}
-
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-"""
-
 
 def _docker_available():
     try:
@@ -205,6 +169,9 @@ class Talos(models.Model):
     docker_dashboard_url = fields.Char(
         string="Dashboard URL", compute="_compute_dashboard_url"
     )
+    docker_ws_url = fields.Char(
+        string="Gateway WS URL", compute="_compute_docker_ws_url"
+    )
     docker_error = fields.Text(string="Docker Error", readonly=True)
     docker_workdir = fields.Char(string="Working Directory", readonly=True, copy=False)
 
@@ -240,6 +207,39 @@ class Talos(models.Model):
                     )
                 else:
                     rec.docker_dashboard_url = False
+
+    @api.depends("docker_port", "docker_status")
+    def _compute_docker_ws_url(self):
+        for rec in self:
+            if rec.docker_status != "running" or not rec.docker_port:
+                rec.docker_ws_url = False
+                continue
+
+            mode = rec._deployment_mode()
+            if mode == "k8s":
+                ws_host = (
+                    self.env["ir.config_parameter"]
+                    .sudo()
+                    .get_param("talos.ws_router_host", "")
+                    .strip()
+                )
+                if ws_host:
+                    rec.docker_ws_url = "wss://%s/sandbox/%s/" % (ws_host, rec.id)
+                else:
+                    rec.docker_ws_url = False
+            else:
+                rec.docker_ws_url = "ws://localhost:%d" % rec.docker_port
+
+    def _get_gateway_ws_url(self):
+        self.ensure_one()
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            svc_name = "talos-sandbox-%s" % self.id
+            return "ws://%s.ethara.svc.cluster.local:18789" % svc_name
+        else:
+            if not self.docker_port:
+                return False
+            return "ws://localhost:%d" % self.docker_port
 
     def action_start_sandbox(self):
         self.ensure_one()
@@ -342,7 +342,7 @@ class Talos(models.Model):
     def _prepare_workdir(
         self, persona, gateway_token, gateway_port, litellm_port, db_port
     ):
-        ICP = self.env["ir.config_parameter"].sudo()
+        env = _load_dotenv()
         source_dir = _module_sandbox_dir()
         if not source_dir or not os.path.isdir(source_dir):
             raise UserError(
@@ -396,10 +396,10 @@ class Talos(models.Model):
                 with open(os.path.join(ws_dir, fname), "w") as f:
                     f.write(content)
 
-        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
-        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
-        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
-        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
+        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
+        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
         if not litellm_key:
             litellm_key = "sk-talos-%s" % secrets.token_hex(8)
 
@@ -418,6 +418,11 @@ class Talos(models.Model):
             "gateway": {
                 "bind": "lan",
                 "auth": {"mode": "token", "token": gateway_token},
+                "trustedProxies": [
+                    "172.16.0.0/12",
+                    "192.168.0.0/16",
+                    "10.0.0.0/8",
+                ],
                 "controlUi": {
                     "allowedOrigins": origins,
                     "dangerouslyDisableDeviceAuth": True,
@@ -511,8 +516,32 @@ class Talos(models.Model):
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)
 
+        nginx_conf = (
+            "map $http_upgrade $connection_upgrade {\n"
+            "    default upgrade;\n"
+            "    ''      close;\n"
+            "}\n"
+            "server {\n"
+            "    listen 80;\n"
+            "    server_name _;\n"
+            "    proxy_buffering off;\n"
+            "    location / {\n"
+            "        proxy_pass http://openclaw:18789;\n"
+            "        proxy_http_version 1.1;\n"
+            "        proxy_set_header Upgrade $http_upgrade;\n"
+            "        proxy_set_header Connection $connection_upgrade;\n"
+            "        proxy_set_header Host localhost;\n"
+            "        proxy_set_header Origin $http_origin;\n"
+            "        proxy_set_header User-Agent $http_user_agent;\n"
+            "        proxy_hide_header X-Frame-Options;\n"
+            "        proxy_hide_header Content-Security-Policy;\n"
+            "        proxy_read_timeout 600s;\n"
+            "        proxy_send_timeout 600s;\n"
+            "    }\n"
+            "}\n"
+        )
         with open(os.path.join(workdir, "nginx.conf"), "w") as f:
-            f.write(_NGINX_CONF)
+            f.write(nginx_conf)
 
         override = (
             "services:\n"
@@ -545,33 +574,14 @@ class Talos(models.Model):
 
     def _build_compose_env(self, gateway_token):
         self.ensure_one()
-        ICP = self.env["ir.config_parameter"].sudo()
         persona = self.persona_id
 
-        env = os.environ.copy()
+        env = _load_dotenv().copy()
         env["PERSONA"] = persona.name
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
-        aws_bearer = ICP.get_param("talos.aws_bearer_token", "").strip()
-        if aws_bearer:
-            env["AWS_BEARER_TOKEN_BEDROCK"] = aws_bearer
-
-        aws_region = ICP.get_param("talos.aws_region", "ap-south-1").strip()
-        env["AWS_REGION"] = aws_region
-
-        bedrock_arn = ICP.get_param("talos.bedrock_model_arn", "").strip()
-        if bedrock_arn:
-            env["BEDROCK_MODEL_ARN"] = bedrock_arn
-
-        litellm_key = ICP.get_param("talos.litellm_master_key", "").strip()
-        if litellm_key:
-            env["LITELLM_MASTER_KEY"] = litellm_key
-        else:
+        if not env.get("LITELLM_MASTER_KEY"):
             env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
-
-        litellm_db_pw = ICP.get_param("talos.litellm_db_password", "").strip()
-        if litellm_db_pw:
-            env["LITELLM_DB_PASSWORD"] = litellm_db_pw
 
         return env
 
@@ -841,8 +851,12 @@ class Talos(models.Model):
 class TalosTurn(models.Model):
     _name = "talos.turn"
     _description = "Talos Turn"
+    _order = "turn_number asc, id asc"
 
-    talos_id = fields.Many2one("talos.talos", string="Talos")
+    talos_id = fields.Many2one("talos.talos", string="Talos", ondelete="cascade")
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
     prompt = fields.Text(string="Prompt")
+    response = fields.Text(string="Response")
+    run_id = fields.Char(string="Run ID", index=True)
+    model_name = fields.Char(string="Model")

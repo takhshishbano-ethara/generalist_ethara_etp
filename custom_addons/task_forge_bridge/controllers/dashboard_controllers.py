@@ -313,7 +313,8 @@ class DashboardController(http.Controller):
                 'review_throughput_graph': {
                     'days': labels,
                     'total_completed': values,
-                }
+                },
+                'reporting_to': employee.task_forge_pl_id.name if employee.task_forge_pl_id and employee.task_forge_pl_id.name else ""
             }
             return return_Response(message="Success", status=200, data=vals)
 
@@ -352,9 +353,11 @@ class DashboardController(http.Controller):
                 today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
                 today_end = datetime.datetime.combine(datetime.date.today(), datetime.time.max)
                 today_task = total_task.filtered(lambda t: t.end_time and today_start <= t.end_time <= today_end)
-                avg_hours_time = 0.0
+                avg_mins = 0.0
                 if total_count > 0:
-                    avg_hours_time = sum(total_task.mapped('time_taken_mins')) / total_count
+                    avg_mins = sum(total_task.mapped('time_taken_mins')) / total_count
+                hours, mins = divmod(int(round(avg_mins)), 60)
+                duration_display = f"{hours:02d}:{mins:02d}"
                 completion_percent = 0.0
                 if total_count > 0:
                     completion_percent = (done_count / total_count) * 100
@@ -368,9 +371,9 @@ class DashboardController(http.Controller):
                     'total_task': total_count,
                     'done_task': done_count,
                     'today_task': len(today_task),
-                    'quality': completion_percent,
-                    'completion': completion_percent,
-                    'aht': avg_hours_time,
+                    'quality': round(completion_percent, 2),
+                    'completion': round(completion_percent, 2),
+                    'aht': duration_display,
                 })
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:

@@ -29,6 +29,9 @@
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.js",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.xml",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.scss",
+            "talos/static/src/chat_widget/chat_widget.js",
+            "talos/static/src/chat_widget/chat_widget.xml",
+            "talos/static/src/chat_widget/chat_widget.scss",
         ],
     },
 }

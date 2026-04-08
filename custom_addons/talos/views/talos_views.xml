@@ -47,12 +47,24 @@
               </group>
             </group>
             <notebook>
+              <page string="Chat">
+                <field name="docker_port" invisible="1"/>
+                <field name="docker_gateway_token" invisible="1"/>
+                <field name="docker_status" invisible="1"/>
+                <field name="docker_ws_url" invisible="1"/>
+                <widget name="talos_chat"/>
+              </page>
+              <page string="OpenClaw Dashboard">
+                <field name="docker_dashboard_url" widget="sandbox_iframe"/>
+              </page>
               <page string="Turns">
                 <field name="turn_ids">
                   <list editable="bottom">
                     <field name="turn_number"/>
                     <field name="turn_status"/>
                     <field name="prompt"/>
+                    <field name="response"/>
+                    <field name="model_name"/>
                   </list>
                 </field>
               </page>

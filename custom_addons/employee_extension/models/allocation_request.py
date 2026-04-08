@@ -31,8 +31,7 @@ class EmployeeAllocationRequest(models.Model):
     approval_date = fields.Datetime(string='Approval Date', readonly=True)
 
     approved_by = fields.Many2one('res.users', string='Approved By', readonly=True)
-    assign_employees = fields.Many2many('hr.employee', 'emp_allocation_request_hr_employee_rel',
-                                    string='Assign Employee')
+    assign_employees = fields.Many2many('hr.employee', 'emp_allocation_request_hr_employee_rel', string='Assign Employee')
 
     notes = fields.Text(string='Notes')
 
@@ -41,11 +40,6 @@ class EmployeeAllocationRequest(models.Model):
         for record in self:
             if record.quantity <= 0:
                 raise ValidationError('The quantity must be greater than 0.')
-
-    @api.onchange('requested_by')
-    def _onchange_requested_by(self):
-        if self.requested_by and self.requested_by.user_role_id:
-            self.role_id = self.requested_by.user_role_id
 
     def action_submit(self):
         self.ensure_one()
@@ -74,18 +68,3 @@ class EmployeeAllocationRequest(models.Model):
             ('active', '=', True),
         ])
         return employees.read(['name', 'job_title', 'department_id'])
-
-    @api.model
-    def create(self, vals):
-        if vals.get('requested_by'):
-            user = self.env['res.users'].browse(vals.get('requested_by'))
-            if user.user_role_id and not vals.get('role_id'):
-                vals['role_id'] = user.user_role_id.id
-        return super().create(vals)
-
-    def write(self, vals):
-        if vals.get('requested_by'):
-            user = self.env['res.users'].browse(vals.get('requested_by'))
-            if user.user_role_id and not vals.get('role_id'):
-                vals['role_id'] = user.user_role_id.id
-        return super().write(vals)

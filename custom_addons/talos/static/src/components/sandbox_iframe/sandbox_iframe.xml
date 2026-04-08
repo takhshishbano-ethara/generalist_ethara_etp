@@ -56,7 +56,6 @@
                     <iframe
                         t-att-src="dashboardUrl"
                         class="o_sandbox_iframe"
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                         allow="clipboard-read; clipboard-write"
                         t-on-load="onIframeLoad"
                         t-on-error="onIframeError"

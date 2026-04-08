@@ -4,6 +4,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
 import json
+from datetime import datetime, date, timedelta
 
 class EmployeeController(http.Controller):
 
@@ -203,21 +204,22 @@ class EmployeeController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees/<int:employee_id>/offboard', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/employees/offboard', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
+        'employee_id': {'type': 'int', 'required': True},
         'action': {'type': 'string', 'required': True},
     })
-    def offboard_employee(self, employee_id, jdata=None, **kwargs):
+    def offboard_employee(self, **kwargs):
         """Offboard employee - action: start, complete, reactivate"""
         try:
             Employee = request.env['hr.employee'].sudo()
-            employee = Employee.browse(employee_id)
+            employee = Employee.browse(int(kwargs.get('employee_id')))
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
 
-            action = jdata.get('action', '').lower()
+            action = kwargs.get('action', '').lower()
 
             if action == 'start':
                 if employee.offboarding_state != 'active':
@@ -285,13 +287,16 @@ class EmployeeController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees/<int:employee_id>', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    def get_employee(self, employee_id, **kwargs):
+    @validate_request({
+        'employee_id': {'type': 'int', 'required': True},
+    })
+    def get_employee(self, **kwargs):
         """Get employee details"""
         try:
             Employee = request.env['hr.employee'].sudo()
-            employee = Employee.browse(employee_id)
+            employee = Employee.browse(int(kwargs['employee_id']))
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
@@ -304,6 +309,7 @@ class EmployeeController(http.Controller):
                     'name': employee.name,
                     'email': employee.work_email,
                     'designation_id': employee.designation_id.id,
+                    'role': employee.user_id.user_role.name,
                     'job_title': employee.designation_id.name,
                     'department': employee.department_id.name if employee.department_id else '',
                     'work_location': employee.work_location_name,
@@ -336,23 +342,39 @@ class EmployeeController(http.Controller):
             if kwargs.get('offboarding_state'):
                 domain.append(('offboarding_state', '=', kwargs['offboarding_state']))
 
+            if kwargs.get('role'):
+                domain.append(('user_id.user_role', '=', int(kwargs['role'])))
+
             if kwargs.get('department_id'):
                 domain.append(('department_id', '=', int(kwargs['department_id'])))
 
             limit = int(kwargs.get('limit', 100))
             employees = Employee.search(domain, limit=limit)
-
-            data = [{
-                'id': emp.id,
-                'name': emp.name,
-                'email': emp.work_email,
-                'job_title': emp.job_title,
-                'department': emp.department_id.name if emp.department_id else '',
-                'offboarding_state': emp.offboarding_state,
-                'is_offboarded': emp.is_offboarded,
-                'active': emp.active,
-            } for emp in employees]
-
+            data = []
+            for emp in employees:
+                today_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', emp.id), ('state', '=', 'in_progress')], order='write_date desc')
+                data.append({
+                    'id': emp.id,
+                    'name': emp.name,
+                    'email': emp.work_email,
+                    'job_title': emp.job_title,
+                    'department': emp.department_id.name if emp.department_id else '',
+                    'offboarding_state': emp.offboarding_state,
+                    'is_offboarded': emp.is_offboarded,
+                    'designation_id': emp.designation_id.id,
+                    'role': emp.user_id.user_role.name,
+                    'current_status': self.get_employee_current_status(emp),
+                    'current_task': today_task[0].name if today_task else "",
+                    'task_today': len(today_task),
+                    'work_location': emp.work_location_name,
+                    'offboard_date': emp.offboard_date.isoformat() if emp.offboard_date else None,
+                    'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else None,
+                    'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id else None,
+                    'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else None,
+                    'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id else None,
+                    'active': emp.active,
+                    'last_active': str(today_task.write_date) if today_task else ""
+                })
             return return_Response(
                 message=f"{len(data)} employees found",
                 status=200,
@@ -361,7 +383,7 @@ class EmployeeController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees/<int:employee_id>', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/employees/<int:employee_id>', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def delete_employee(self, employee_id, **kwargs):
         """Soft delete (archive) an employee"""
@@ -380,3 +402,45 @@ class EmployeeController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/get_user_role', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_user_role(self, **kwargs):
+        temp = []
+        try:
+            domain = [('project_type', '=', 'non-stem')]
+            if kwargs.get('project_type'):
+                domain = [('project_type', '=', kwargs.get('project_type'))]
+            roles = request.env['api.role'].sudo().search(domain)
+            for role in roles:
+                temp.append({'id': role.id, 'name': role.name})
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    def get_employee_current_status(self, emp):
+        TaskLog = request.env['task.forge.log'].sudo()
+        tasks = TaskLog.search_count([
+            ('employee_id', '=', emp.id),
+            ('state', '=', 'in_progress'),
+        ])
+        today = date.today()
+        Attendance = request.env['hr.attendance'].sudo()
+        attendance = Attendance.search([
+            ('employee_id', '=', emp.id),
+            ('check_in', '>=', datetime.combine(today, datetime.min.time())),
+            ('check_in', '<', datetime.combine(today, datetime.max.time())),
+            ('attendance_status', '=', 'present')
+        ], limit=1)
+        current_status = ""
+        if not attendance:
+            current_status = "Offline"
+        elif tasks:
+            current_status = "Active"
+        else:
+            current_status = "Idle"
+        return current_status
+
