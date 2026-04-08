@@ -24,9 +24,9 @@ This module extends the hr.employee functionality with:
     ],
     "data": [
         "security/ir.model.access.csv",
-        # "views/hr_employee_views.xml",
-        # "views/allocation_request_views.xml",
-        # "views/menu_views.xml",
+        "views/hr_employee_views.xml",
+        "views/allocation_request_views.xml",
+        "views/menu_views.xml",
     ],
     "installable": True,
     "application": True,
