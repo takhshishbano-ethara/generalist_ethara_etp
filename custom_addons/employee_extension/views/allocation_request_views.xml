@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_allocation_request_form" model="ir.ui.view">
+        <field name="name">employee.allocation.request.form</field>
+        <field name="model">employee.allocation.request</field>
+        <field name="arch" type="xml">
+            <form string="Employee Allocation Request">
+                <header>
+<!--                    <button name="action_submit" string="Submit" type="object" class="oe_highlight"-->
+<!--                            invisible="state != 'draft'"/>-->
+<!--                    <button name="action_approve" string="Approve" type="object" class="oe_highlight"-->
+<!--                            invisible="state != 'submitted'"/>-->
+<!--                    <button name="action_reject" string="Reject" type="object"-->
+<!--                            invisible="state != 'submitted'"/>-->
+<!--                    <button name="action_reset_draft" string="Reset to Draft" type="object"-->
+<!--                            invisible="state in ('draft', 'submitted')"/>-->
+<!--                    <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,rejected"/>-->
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name" readonly="1"/>
+                            <field name="project_id"/>
+                            <field name="role_id"/>
+                            <field name="quantity"/>
+                        </group>
+                        <group>
+                            <field name="requested_by" readonly="1"/>
+                            <field name="approval_date" readonly="1"/>
+                            <field name="approved_by" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Details">
+                        <field name="justification"/>
+                    </group>
+                    <group string="Additional Notes">
+                        <field name="notes"/>
+                    </group>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_ids"/>
+                    <field name="activity_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_allocation_request_tree" model="ir.ui.view">
+        <field name="name">employee.allocation.request.tree</field>
+        <field name="model">employee.allocation.request</field>
+        <field name="arch" type="xml">
+            <list string="Employee Allocation Requests"
+                  decoration-success="state == 'approved'" 
+                  decoration-danger="state == 'rejected'"
+                  decoration-warning="state == 'submitted'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="role_id"/>
+                <field name="quantity"/>
+                <field name="requested_by"/>
+                <field name="state"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+<!--    <record id="view_allocation_request_search" model="ir.ui.view">-->
+<!--        <field name="name">employee.allocation.request.search</field>-->
+<!--        <field name="model">employee.allocation.request</field>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <search string="Search Allocation Requests">-->
+<!--                <field name="name"/>-->
+<!--                <field name="project_id"/>-->
+<!--                <field name="role_id"/>-->
+<!--                <field name="requested_by"/>-->
+<!--                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>-->
+<!--                <filter string="Submitted" name="submitted" domain="[('state', '=', 'submitted')]"/>-->
+<!--                <filter string="Approved" name="approved" domain="[('state', '=', 'approved')]"/>-->
+<!--                <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>-->
+<!--                <group expand="0" string="Group By">-->
+<!--                    <filter string="Project" name="group_project" context="{'group_by': 'project_id'}"/>-->
+<!--                    <filter string="Role" name="group_role" context="{'group_by': 'role_id'}"/>-->
+<!--                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>-->
+<!--                </group>-->
+<!--            </search>-->
+<!--        </field>-->
+<!--    </record>-->
+
+    <record id="action_allocation_request" model="ir.actions.act_window">
+        <field name="name">Allocation Requests</field>
+        <field name="res_model">employee.allocation.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Employee Allocation Request
+            </p>
+        </field>
+    </record>
+</odoo>
