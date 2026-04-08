@@ -283,13 +283,16 @@ class AllocationController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/allocation/request/<int:request_id>/reset', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/allocation/request/reset', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    def reset_allocation_request(self, request_id, **kwargs):
+    @validate_request({
+        'request_id': {'type': 'str', 'required': True}
+    })
+    def reset_allocation_request(self, **kwargs):
         """Reset allocation request to draft"""
         try:
             AllocationRequest = request.env['employee.allocation.request'].sudo()
-            allocation_request = AllocationRequest.browse(request_id)
+            allocation_request = AllocationRequest.browse(kwargs.get('request_id'))
 
             if not allocation_request.exists():
                 return return_Response(message="Allocation request not found", status=404)
