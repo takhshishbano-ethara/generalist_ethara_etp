@@ -19,9 +19,50 @@ except ImportError:
 
 NAMESPACE = "ethara"
 
+WS_ROUTER_NAME = "talos-ws-router"
+
 NODE_SELECTOR = {
     "kubernetes.io/arch": "amd64",
     "ethara.ai/node-pool": "general-purpose",
+}
+
+WS_ROUTER_NGINX_CONF = """\
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+server {
+    listen 80;
+    server_name _;
+    resolver kube-dns.kube-system.svc.cluster.local valid=10s;
+    location ~ ^/sandbox/(\\d+)/(.*) {
+        set $task_id $1;
+        set $path $2;
+        set $backend talos-sandbox-$task_id.%(namespace)s.svc.cluster.local:18789;
+        proxy_pass http://$backend/$path$is_args$args;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host localhost;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header User-Agent $http_user_agent;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Content-Security-Policy;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+    location /healthz {
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+}
+""" % {"namespace": NAMESPACE}
+
+WS_ROUTER_LABELS = {
+    "platform": "talos",
+    "component": "ws-router",
+    "app.kubernetes.io/name": "talos-ws-router",
+    "app.kubernetes.io/managed-by": "talos-odoo",
 }
 
 
@@ -222,6 +263,10 @@ class TalosSandboxK8s(models.AbstractModel):
         )
 
         self._create_service(core_v1, task_record, labels, name)
+
+        networking_v1 = client.NetworkingV1Api()
+        talos_ws_host = self._get_config_param("talos.ws_router_host", "")
+        self._ensure_ws_router(core_v1, apps_v1, networking_v1, talos_ws_host)
 
     def _create_secret(
         self,
@@ -704,6 +749,153 @@ class TalosSandboxK8s(models.AbstractModel):
         except ApiException as e:
             if e.status != 409:
                 raise
+
+    def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host):
+        try:
+            apps_v1.read_namespaced_deployment(name=WS_ROUTER_NAME, namespace=NAMESPACE)
+            return
+        except ApiException as e:
+            if e.status != 404:
+                raise
+
+        _logger.info("Creating WS router deployment in namespace %s", NAMESPACE)
+
+        cm = client.V1ConfigMap(
+            metadata=client.V1ObjectMeta(
+                name="talos-ws-router-conf",
+                namespace=NAMESPACE,
+                labels=WS_ROUTER_LABELS,
+            ),
+            data={"default.conf": WS_ROUTER_NGINX_CONF},
+        )
+        try:
+            core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
+        container = client.V1Container(
+            name="nginx",
+            image="nginx:alpine",
+            ports=[client.V1ContainerPort(container_port=80)],
+            volume_mounts=[
+                client.V1VolumeMount(
+                    name="conf",
+                    mount_path="/etc/nginx/conf.d/default.conf",
+                    sub_path="default.conf",
+                    read_only=True,
+                ),
+            ],
+            readiness_probe=client.V1Probe(
+                http_get=client.V1HTTPGetAction(path="/healthz", port=80),
+                period_seconds=5,
+                timeout_seconds=2,
+            ),
+            resources=client.V1ResourceRequirements(
+                requests={"cpu": "50m", "memory": "32Mi"},
+                limits={"cpu": "200m", "memory": "64Mi"},
+            ),
+        )
+
+        deployment = client.V1Deployment(
+            metadata=client.V1ObjectMeta(
+                name=WS_ROUTER_NAME,
+                namespace=NAMESPACE,
+                labels=WS_ROUTER_LABELS,
+            ),
+            spec=client.V1DeploymentSpec(
+                replicas=1,
+                selector=client.V1LabelSelector(
+                    match_labels={"component": "ws-router"},
+                ),
+                template=client.V1PodTemplateSpec(
+                    metadata=client.V1ObjectMeta(labels=WS_ROUTER_LABELS),
+                    spec=client.V1PodSpec(
+                        containers=[container],
+                        volumes=[
+                            client.V1Volume(
+                                name="conf",
+                                config_map=client.V1ConfigMapVolumeSource(
+                                    name="talos-ws-router-conf",
+                                ),
+                            ),
+                        ],
+                    ),
+                ),
+            ),
+        )
+        try:
+            apps_v1.create_namespaced_deployment(namespace=NAMESPACE, body=deployment)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
+        svc = client.V1Service(
+            metadata=client.V1ObjectMeta(
+                name=WS_ROUTER_NAME,
+                namespace=NAMESPACE,
+                labels=WS_ROUTER_LABELS,
+            ),
+            spec=client.V1ServiceSpec(
+                type="ClusterIP",
+                selector={"component": "ws-router"},
+                ports=[
+                    client.V1ServicePort(name="http", port=80, target_port=80),
+                ],
+            ),
+        )
+        try:
+            core_v1.create_namespaced_service(namespace=NAMESPACE, body=svc)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
+        if ws_host:
+            ingress = client.V1Ingress(
+                metadata=client.V1ObjectMeta(
+                    name=WS_ROUTER_NAME,
+                    namespace=NAMESPACE,
+                    labels=WS_ROUTER_LABELS,
+                    annotations={
+                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "600",
+                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
+                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                        "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
+                    },
+                ),
+                spec=client.V1IngressSpec(
+                    rules=[
+                        client.V1IngressRule(
+                            host=ws_host,
+                            http=client.V1HTTPIngressRuleValue(
+                                paths=[
+                                    client.V1HTTPIngressPath(
+                                        path="/sandbox/",
+                                        path_type="Prefix",
+                                        backend=client.V1IngressBackend(
+                                            service=client.V1IngressServiceBackend(
+                                                name=WS_ROUTER_NAME,
+                                                port=client.V1ServicePort(
+                                                    number=80,
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            )
+            try:
+                networking_v1.create_namespaced_ingress(
+                    namespace=NAMESPACE, body=ingress
+                )
+            except ApiException as e:
+                if e.status != 409:
+                    raise
+
+        _logger.info("WS router created (host=%s)", ws_host or "no-ingress")
 
     def destroy_sandbox(self, task_record):
         if not K8S_AVAILABLE:

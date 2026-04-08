@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="talos.ChatWidget">
+        <div class="o_talos_chat">
+            <div class="o_talos_chat_status small px-2 py-1">
+                <span t-if="state.connected" class="text-success">
+                    <i class="fa fa-circle"/> Connected
+                </span>
+                <span t-else="" class="text-muted">
+                    <i class="fa fa-circle-o"/> <t t-out="state.statusText"/>
+                </span>
+            </div>
+            <t t-if="!isRunning">
+                <div class="o_talos_chat_placeholder">
+                    <i class="fa fa-comments-o fa-2x mb-2 text-muted"/>
+                    <p class="text-muted">Start the sandbox to begin chatting.</p>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="o_talos_chat_messages">
+                    <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
+                        <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role}">
+                            <div class="o_talos_msg_meta">
+                                <span class="o_talos_msg_role">
+                                    <t t-if="msg.role === 'user'">You</t>
+                                    <t t-else="">Assistant</t>
+                                </span>
+                                <span t-if="msg.model" class="o_talos_msg_model">
+                                    <t t-out="msg.model"/>
+                                </span>
+                            </div>
+                            <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''}">
+                                <t t-out="msg.text"/>
+                                <span t-if="msg.pending" class="o_talos_cursor">|</span>
+                            </div>
+                        </div>
+                    </t>
+                    <div t-ref="messagesEnd"/>
+                </div>
+                <div class="o_talos_chat_input">
+                    <div class="o_talos_chat_input_row">
+                        <textarea
+                            t-model="state.inputText"
+                            t-on-keydown="onKeydown"
+                            placeholder="Type a message..."
+                            t-att-disabled="state.sending or state.streaming"
+                            rows="1"
+                            class="o_talos_chat_textarea"
+                        />
+                        <t t-if="state.streaming">
+                            <button class="btn btn-outline-danger btn-sm o_talos_btn"
+                                    t-on-click="onAbort">
+                                <i class="fa fa-stop"/> Stop
+                            </button>
+                        </t>
+                        <t t-else="">
+                            <button class="btn btn-primary btn-sm o_talos_btn"
+                                    t-on-click="onSend"
+                                    t-att-disabled="state.sending or !state.inputText.trim()">
+                                <i class="fa fa-paper-plane"/>
+                            </button>
+                        </t>
+                    </div>
+                    <div class="o_talos_chat_model_row">
+                        <label class="small text-muted me-1">Model:</label>
+                        <select t-model="state.selectedModel"
+                                class="o_talos_model_select"
+                                t-att-disabled="state.streaming">
+                            <t t-foreach="models" t-as="m" t-key="m.id">
+                                <option t-att-value="m.id" t-out="m.label"/>
+                            </t>
+                        </select>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>
