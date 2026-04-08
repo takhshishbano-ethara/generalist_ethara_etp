@@ -411,7 +411,7 @@ class DashboardController(http.Controller):
             return return_Response(
                 message="Success",
                 status=200,
-                data={"record": project_data, "total_record_count": len(project_data), "count": len(project_data)})
+                data={"record": project_data, "total_record_count": len(project_data), "count": len(project_data), "default-project": project_data[0] if project_data else {}})
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
