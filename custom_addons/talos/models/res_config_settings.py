@@ -47,6 +47,13 @@ class TalosConfigSettings(models.TransientModel):
         config_parameter="talos.litellm_image",
         default="ghcr.io/berriai/litellm:main-stable",
     )
+    talos_ws_router_host = fields.Char(
+        string="WS Router Host",
+        config_parameter="talos.ws_router_host",
+        help="Public hostname for the WebSocket router Ingress "
+        "(e.g. talos-ws.yourdomain.com). Browser connects to "
+        "wss://<host>/sandbox/<task_id>/. Leave empty to skip Ingress creation.",
+    )
     talos_aws_bearer_token = fields.Char(
         string="AWS Bearer Token (Bedrock)",
         config_parameter="talos.aws_bearer_token",

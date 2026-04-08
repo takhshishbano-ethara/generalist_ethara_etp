@@ -36,6 +36,9 @@
                         <setting string="LiteLLM Image" help="Container image for the LiteLLM proxy.">
                             <field name="talos_litellm_image"/>
                         </setting>
+                        <setting string="WS Router Host" help="Public hostname for the WebSocket router Ingress (e.g. talos-ws.yourdomain.com). Browser uses wss://host/sandbox/task_id/ to reach the gateway.">
+                            <field name="talos_ws_router_host"/>
+                        </setting>
                     </block>
                     <block title="AWS &amp; Provider Credentials">
                         <setting string="AWS Bearer Token (Bedrock)" help="AWS bearer token for Bedrock API access inside sandbox containers.">
