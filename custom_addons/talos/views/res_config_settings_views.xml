@@ -36,9 +36,6 @@
                         <setting string="LiteLLM Image" help="Container image for the LiteLLM proxy.">
                             <field name="talos_litellm_image"/>
                         </setting>
-                        <setting string="Storage Class" help="Kubernetes StorageClass for PersistentVolumeClaims.">
-                            <field name="talos_k8s_storage_class"/>
-                        </setting>
                     </block>
                     <block title="AWS &amp; Provider Credentials">
                         <setting string="AWS Bearer Token (Bedrock)" help="AWS bearer token for Bedrock API access inside sandbox containers.">

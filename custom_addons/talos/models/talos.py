@@ -75,6 +75,12 @@ model_list:
       aws_region_name: {aws_region}
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: bedrock/converse/{kimi_bedrock_arn}
+      aws_region_name: {kimi_aws_region}
+      input_cost_per_token: 0.000003
+      output_cost_per_token: 0.000015
 
 litellm_settings:
   drop_params: true
@@ -494,9 +500,13 @@ class Talos(models.Model):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
+            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
+                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
+                kimi_aws_region=kimi_region,
             )
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)

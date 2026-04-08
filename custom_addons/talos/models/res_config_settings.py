@@ -47,12 +47,6 @@ class TalosConfigSettings(models.TransientModel):
         config_parameter="talos.litellm_image",
         default="ghcr.io/berriai/litellm:main-stable",
     )
-    talos_k8s_storage_class = fields.Char(
-        string="K8s Storage Class",
-        config_parameter="talos.k8s_storage_class",
-        default="gp3",
-        help="StorageClassName for PersistentVolumeClaims in K8s mode.",
-    )
     talos_aws_bearer_token = fields.Char(
         string="AWS Bearer Token (Bedrock)",
         config_parameter="talos.aws_bearer_token",

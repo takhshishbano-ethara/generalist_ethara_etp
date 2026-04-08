@@ -162,7 +162,8 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_image = self._get_config_param(
             "talos.litellm_image", "ghcr.io/berriai/litellm:main-stable"
         )
-        storage_class = self._get_config_param("talos.k8s_storage_class", "gp3")
+
+        s3_bucket = env.get("TALOS_S3_BUCKET", "").strip()
 
         gateway_token = task_record.docker_gateway_token
 
@@ -193,31 +194,15 @@ class TalosSandboxK8s(models.AbstractModel):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
+            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
+                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
+                kimi_aws_region=kimi_region,
             )
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
-
-        self._create_pvc(
-            core_v1,
-            "talos-browser-%s" % persona_name,
-            {
-                "platform": "talos",
-                "component": "browser-profiles",
-                "persona": persona_name,
-            },
-            "5Gi",
-            storage_class,
-        )
-
-        self._create_pvc(
-            core_v1,
-            "talos-sandbox-db-%s" % task_id,
-            labels,
-            "2Gi",
-            storage_class,
-        )
 
         self._create_deployment(
             apps_v1,
@@ -233,6 +218,7 @@ class TalosSandboxK8s(models.AbstractModel):
             aws_region,
             bedrock_arn,
             gateway_token,
+            s3_bucket,
         )
 
         self._create_service(core_v1, task_record, labels, name)
@@ -332,32 +318,6 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_pvc(self, core_v1, name, labels, size, storage_class):
-        pvc = client.V1PersistentVolumeClaim(
-            api_version="v1",
-            kind="PersistentVolumeClaim",
-            metadata=client.V1ObjectMeta(
-                name=name,
-                namespace=NAMESPACE,
-                labels=labels,
-            ),
-            spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=["ReadWriteOnce"],
-                storage_class_name=storage_class,
-                resources=client.V1VolumeResourceRequirements(
-                    requests={"storage": size},
-                ),
-            ),
-        )
-        try:
-            core_v1.create_namespaced_persistent_volume_claim(
-                namespace=NAMESPACE,
-                body=pvc,
-            )
-        except ApiException as e:
-            if e.status != 409:
-                raise
-
     def _create_deployment(
         self,
         apps_v1,
@@ -373,6 +333,7 @@ class TalosSandboxK8s(models.AbstractModel):
         aws_region,
         bedrock_arn,
         gateway_token,
+        s3_bucket,
     ):
         task_id = task_record.id
         secret_name = "talos-sandbox-creds-%s" % task_id
@@ -380,12 +341,39 @@ class TalosSandboxK8s(models.AbstractModel):
         openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
         litellm_config_cm = "talos-litellm-config-%s" % task_id
 
+        s3_browser_path = "s3://%s/browser-profiles/%s/" % (s3_bucket, persona)
+
         db_url = "postgresql://llmproxy:%s@localhost:5432/litellm" % litellm_db_password
+
+        # -- Init container: download browser profiles from S3 --
+        init_containers = []
+        if s3_bucket:
+            init_containers.append(
+                client.V1Container(
+                    name="browser-sync-init",
+                    image="amazon/aws-cli:latest",
+                    command=[
+                        "sh",
+                        "-c",
+                        "aws s3 sync %s /data/browser-profiles/ "
+                        "--no-progress || true" % s3_browser_path,
+                    ],
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="browser-profiles",
+                            mount_path="/data/browser-profiles",
+                        ),
+                    ],
+                    resources=client.V1ResourceRequirements(
+                        requests={"cpu": "100m", "memory": "128Mi"},
+                        limits={"cpu": "500m", "memory": "256Mi"},
+                    ),
+                )
+            )
 
         openclaw_container = client.V1Container(
             name="openclaw",
             image=openclaw_image,
-            # Skip the buggy entrypoint — go straight to the gateway binary.
             command=[
                 "node",
                 "openclaw.mjs",
@@ -593,6 +581,36 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
         )
 
+        # -- Sidecar: periodically sync browser profiles to S3 --
+        containers = [openclaw_container, litellm_container, db_container]
+        if s3_bucket:
+            containers.append(
+                client.V1Container(
+                    name="browser-sync-sidecar",
+                    image="amazon/aws-cli:latest",
+                    command=[
+                        "sh",
+                        "-c",
+                        "while true; do "
+                        "sleep 60; "
+                        "aws s3 sync /data/browser-profiles/ %s "
+                        "--no-progress --quiet 2>/dev/null || true; "
+                        "done" % s3_browser_path,
+                    ],
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="browser-profiles",
+                            mount_path="/data/browser-profiles",
+                            read_only=True,
+                        ),
+                    ],
+                    resources=client.V1ResourceRequirements(
+                        requests={"cpu": "50m", "memory": "64Mi"},
+                        limits={"cpu": "200m", "memory": "128Mi"},
+                    ),
+                )
+            )
+
         volumes = [
             client.V1Volume(
                 name="persona-files",
@@ -600,9 +618,7 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
             client.V1Volume(
                 name="browser-profiles",
-                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                    claim_name="talos-browser-%s" % persona,
-                ),
+                empty_dir=client.V1EmptyDirVolumeSource(),
             ),
             client.V1Volume(
                 name="openclaw-data",
@@ -622,9 +638,7 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
             client.V1Volume(
                 name="db-data",
-                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                    claim_name="talos-sandbox-db-%s" % task_id,
-                ),
+                empty_dir=client.V1EmptyDirVolumeSource(),
             ),
         ]
 
@@ -648,11 +662,8 @@ class TalosSandboxK8s(models.AbstractModel):
                     metadata=client.V1ObjectMeta(labels=labels),
                     spec=client.V1PodSpec(
                         node_selector=NODE_SELECTOR,
-                        containers=[
-                            openclaw_container,
-                            litellm_container,
-                            db_container,
-                        ],
+                        init_containers=init_containers or None,
+                        containers=containers,
                         volumes=volumes,
                     ),
                 ),
@@ -733,11 +744,6 @@ class TalosSandboxK8s(models.AbstractModel):
         self._delete_resource(
             core_v1.delete_namespaced_config_map,
             "talos-litellm-config-%s" % task_id,
-            NAMESPACE,
-        )
-        self._delete_resource(
-            core_v1.delete_namespaced_persistent_volume_claim,
-            "talos-sandbox-db-%s" % task_id,
             NAMESPACE,
         )
 
