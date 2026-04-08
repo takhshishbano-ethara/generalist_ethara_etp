@@ -96,7 +96,7 @@ class TaskForgeLog(models.Model):
         """Start a task - called from API."""
         self.ensure_one()
         self._check_punch_in(self.employee_id.id)
-        self._check_no_active_task(self.employee_id.id)
+        # self._check_no_active_task(self.employee_id.id)
         self.write({
             'state': 'in_progress',
             'start_time': datetime.now(),

@@ -25,9 +25,6 @@
                         <setting string="Docker Status" help="Whether Docker daemon is accessible from this server.">
                             <field name="talos_docker_available" widget="boolean_toggle" readonly="True"/>
                         </setting>
-                        <setting string="Sandbox Directory" help="Absolute path to the Telos Sandbox directory.">
-                            <field name="talos_sandbox_dir"/>
-                        </setting>
                     </block>
                     <block title="Kubernetes Mode" invisible="talos_deployment_mode != 'k8s'">
                         <setting string="Sandbox Directory" help="Path to Sandbox directory (for reading persona files and litellm config).">
@@ -38,9 +35,6 @@
                         </setting>
                         <setting string="LiteLLM Image" help="Container image for the LiteLLM proxy.">
                             <field name="talos_litellm_image"/>
-                        </setting>
-                        <setting string="Storage Class" help="Kubernetes StorageClass for PersistentVolumeClaims.">
-                            <field name="talos_k8s_storage_class"/>
                         </setting>
                     </block>
                     <block title="AWS &amp; Provider Credentials">

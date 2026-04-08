@@ -86,15 +86,15 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             TaskLog = request.env['task.forge.log'].sudo()
-            task = TaskLog.search([
+            tasks = TaskLog.search([
                 ('employee_id', '=', employee.id),
                 ('state', '=', 'in_progress'),
-            ], limit=1)
+            ])
 
-            if not task:
+            if not tasks:
                 return return_Response(message="No active task", status=200, data={'data': None})
 
-            return return_Response(message="Active task", status=200, data={'data': self._format_task(task)})
+            return return_Response(message="Active task", status=200, data={'data': [self._format_task(task) for task in tasks]})
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
@@ -112,7 +112,7 @@ class TaskForgeTaskController(http.Controller):
             # Check punch-in
             TaskLog._check_punch_in(employee.id)
             # Check no active task
-            TaskLog._check_no_active_task(employee.id)
+            # TaskLog._check_no_active_task(employee.id)
 
             vals = {
                 'name': kwargs.get('task_name'),

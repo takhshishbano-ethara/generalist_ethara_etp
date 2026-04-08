@@ -7,7 +7,7 @@
         <list>
           <field name="task_id"/>
           <field name="parsona"/>
-          <field name="docker_persona"/>
+          <field name="persona_id"/>
           <field name="employee_id"/>
           <field name="task_status"/>
           <field name="docker_status" widget="badge"
@@ -38,6 +38,7 @@
               <group>
                 <field name="task_id"/>
                 <field name="parsona"/>
+                <field name="persona_id"/>
                 <field name="task_status"/>
               </group>
               <group>
@@ -58,7 +59,6 @@
               <page string="Sandbox">
                 <group>
                   <group string="Configuration">
-                    <field name="docker_persona"/>
                     <field name="docker_status" widget="badge"
                            decoration-success="docker_status == 'running'"
                            decoration-danger="docker_status == 'error'"
@@ -70,12 +70,14 @@
                     <field name="docker_port"/>
                     <field name="docker_litellm_port"/>
                     <field name="docker_gateway_token"/>
-                    <field name="docker_dashboard_url" widget="url"/>
                   </group>
                 </group>
                 <group invisible="not docker_error">
                   <field name="docker_error"/>
                 </group>
+                <div class="mt-3">
+                  <field name="docker_dashboard_url" widget="sandbox_iframe" nolabel="1"/>
+                </div>
               </page>
             </notebook>
           </sheet>

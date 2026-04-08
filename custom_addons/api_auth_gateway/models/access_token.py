@@ -62,7 +62,7 @@ class APIAccessToken(models.Model):
     collapse_sidebar = fields.Boolean(default=False)
 
     def update_access_token(self):
-        expires = datetime.now() + timedelta(seconds=3600)
+        expires = datetime.now() + timedelta(seconds=360000)
         vals = {
             'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),
             'access_token': nonce()
