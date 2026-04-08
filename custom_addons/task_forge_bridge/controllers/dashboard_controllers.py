@@ -77,19 +77,19 @@ class DashboardController(http.Controller):
             for line in data:
                 labels.append(line['end_time:day'])
                 values.append(line['end_time_count'])
-            pl_record = present_today.filtered(lambda a: a.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id])
-            qc_record = present_today.filtered(lambda a: a.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id])
-            tasker_record = present_today.filtered(lambda a: a.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id])
+            pl_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id])
+            qc_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id])
+            tasker_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id])
 
             vals = {
                 'total_member':{
                     'total_member_count': len(set(team_ids)),
-                    'total_pl_count': len(set(pl_record)),
-                    'total_qc_count': len(set(qc_record)),
-                    'total_tasker_count': len(set(tasker_record)),
-                    'total_present_pl_count': len(present_today.filtered(lambda x: x.employee_id in pl_record)),
-                    'total_present_qc_count': len(present_today.filtered(lambda x: x.employee_id in qc_record)),
-                    'total_present_tasker_count': len(present_today.filtered(lambda x: x.employee_id in tasker_record))
+                    'total_pl_count': request.env['hr.employee'].sudo().search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id])]),
+                    'total_qc_count': request.env['hr.employee'].sudo().search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id])]),
+                    'total_tasker_count': request.env['hr.employee'].sudo().search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id])]),
+                    'total_present_pl_count': len(present_today.filtered(lambda x: x.employee_id in pl_record.mapped('employee_id'))),
+                    'total_present_qc_count': len(present_today.filtered(lambda x: x.employee_id in qc_record.mapped('employee_id'))),
+                    'total_present_tasker_count': len(present_today.filtered(lambda x: x.employee_id in tasker_record.mapped('employee_id')))
                 },
                 'present_today': {
                     'present_employee_count': len(present_today),

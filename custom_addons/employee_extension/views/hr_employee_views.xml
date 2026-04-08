@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<!--    <record id="view_employee_extension_form" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.form</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id">hr.view_employee_form</field>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//field[@name='active']" position="after">-->
+<!--                <field name="offboarding_state"/>-->
+<!--                <field name="offboard_date"/>-->
+<!--                <field name="is_offboarded" invisible="1"/>-->
+<!--            </xpath>-->
+<!--            <xpath expr="//div[@name='button_box']" position="inside">-->
+<!--                <button name="action_make_offboard" string="Offboard" type="object" -->
+<!--                        class="oe_stat_button" icon="fa-sign-out"-->
+<!--                        invisible="offboarding_state == 'offboarded'"-->
+<!--                        confirm="Are you sure you want to start the offboarding process?">-->
+<!--                    <div class="o_field_widget o_stat_info">-->
+<!--                        <span class="o_stat_value">-->
+<!--                            <field name="offboarding_state"/>-->
+<!--                        </span>-->
+<!--                        <span class="o_stat_text">Offboarding</span>-->
+<!--                    </div>-->
+<!--                </button>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
+
+<!--    <record id="view_employee_extension_search" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.search</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id">hr.view_employee_search</field>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//field[@name='name']" position="after">-->
+<!--                <field name="offboarding_state"/>-->
+<!--            </xpath>-->
+<!--            <xpath expr="//filter[@name='inactive']" position="after">-->
+<!--                <filter string="Active Employees" name="active_employees" -->
+<!--                        domain="[('offboarding_state', '=', 'active')]"/>-->
+<!--                <filter string="Offboarding" name="offboarding" -->
+<!--                        domain="[('offboarding_state', '=', 'offboarding')]"/>-->
+<!--                <filter string="Offboarded" name="offboarded" -->
+<!--                        domain="[('offboarding_state', '=', 'offboarded')]"/>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
+
+<!--    <record id="view_employee_extension_tree" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.tree</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id">hr.view_employee_tree</field>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//field[@name='name']" position="after">-->
+<!--                <field name="offboarding_state" optional="show"/>-->
+<!--                <field name="offboard_date" optional="show"/>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
+</odoo>

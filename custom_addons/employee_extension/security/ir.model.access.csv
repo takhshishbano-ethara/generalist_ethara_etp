@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_employee_allocation_request_user,employee.allocation.request.user,model_employee_allocation_request,base.group_user,1,1,1,1
+access_employee_allocation_request_manager,employee.allocation.request.manager,model_employee_allocation_request,hr.group_hr_manager,1,1,1,1
+access_employee_allocation_request_admin,employee.allocation.request.admin,model_employee_allocation_request,base.group_system,1,1,1,1
