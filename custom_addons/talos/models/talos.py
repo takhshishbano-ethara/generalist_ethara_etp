@@ -73,12 +73,16 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
   - model_name: kimi-k2.5
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
       input_cost_per_token: 0.000003
       output_cost_per_token: 0.000015
 
@@ -194,11 +198,23 @@ class Talos(models.Model):
 
             mode = rec._deployment_mode()
             if mode == "k8s":
-                svc_name = "talos-sandbox-%s" % rec.id
-                rec.docker_dashboard_url = (
-                    "http://%s.ethara.svc.cluster.local:18789/#token=%s"
-                    % (svc_name, rec.docker_gateway_token)
+                ws_host = (
+                    rec.env["ir.config_parameter"]
+                    .sudo()
+                    .get_param("talos.ws_router_host", "")
+                    .strip()
                 )
+                if ws_host:
+                    rec.docker_dashboard_url = (
+                        "https://%s/sandbox/%s/#token=%s"
+                        % (ws_host, rec.id, rec.docker_gateway_token)
+                    )
+                else:
+                    svc_name = "talos-sandbox-%s" % rec.id
+                    rec.docker_dashboard_url = (
+                        "http://%s.talos.svc.cluster.local:18789/#token=%s"
+                        % (svc_name, rec.docker_gateway_token)
+                    )
             else:
                 if rec.docker_port:
                     rec.docker_dashboard_url = "http://localhost:%d/#token=%s" % (
@@ -235,7 +251,7 @@ class Talos(models.Model):
         mode = self._deployment_mode()
         if mode == "k8s":
             svc_name = "talos-sandbox-%s" % self.id
-            return "ws://%s.ethara.svc.cluster.local:18789" % svc_name
+            return "ws://%s.talos.svc.cluster.local:18789" % svc_name
         else:
             if not self.docker_port:
                 return False
