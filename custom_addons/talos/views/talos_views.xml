@@ -34,6 +34,15 @@
                     invisible="docker_status != 'running'"/>
           </header>
           <sheet>
+            <div class="oe_button_box" name="button_box">
+              <button class="oe_stat_button" name="action_view_turns"
+                      type="object" icon="fa-comments">
+                <field name="turn_count" widget="statinfo" string="Turns"/>
+              </button>
+              <button class="oe_stat_button" name="action_export_session"
+                      type="object" icon="fa-download"
+                      string="Export Session"/>
+            </div>
             <group>
               <group>
                 <field name="task_id"/>
@@ -59,21 +68,10 @@
                 <field name="docker_ws_url" invisible="1"/>
                 <widget name="talos_chat"/>
               </page>
-              <page string="OpenClaw Dashboard">
+              <page string="OpenClaw Dashboard" groups="talos.group_talos_admin">
                 <field name="docker_dashboard_url" widget="sandbox_iframe"/>
               </page>
-              <page string="Turns">
-                <field name="turn_ids">
-                  <list editable="bottom">
-                    <field name="turn_number"/>
-                    <field name="turn_status"/>
-                    <field name="prompt"/>
-                    <field name="response"/>
-                    <field name="model_name"/>
-                  </list>
-                </field>
-              </page>
-              <page string="Sandbox">
+              <page string="Sandbox" groups="talos.group_talos_admin">
                 <group>
                   <group string="Configuration">
                     <field name="docker_status" widget="badge"
@@ -146,5 +144,73 @@
             (0, 0, {'view_mode': 'form', 'view_id': ref('talos_taxonomy_form')})]"/>
 
     </record>
+
+    <!-- ============ Turn Views ============ -->
+
+    <record model="ir.ui.view" id="talos_turn_list">
+      <field name="name">talos.turn.list</field>
+      <field name="model">talos.turn</field>
+      <field name="arch" type="xml">
+        <list default_order="turn_number desc, id desc">
+          <field name="turn_number"/>
+          <field name="turn_status" widget="badge"
+                 decoration-success="turn_status == 'Completed'"
+                 decoration-warning="turn_status == 'Pending'"/>
+          <field name="prompt"/>
+          <field name="response"/>
+          <field name="model_name"/>
+          <field name="tool_names"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="talos_turn_form">
+      <field name="name">talos.turn.form</field>
+      <field name="model">talos.turn</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <group>
+              <group>
+                <field name="talos_id"/>
+                <field name="turn_number"/>
+                <field name="turn_status"/>
+                <field name="model_name"/>
+              </group>
+            </group>
+            <notebook>
+              <page string="Prompt">
+                <field name="prompt" nolabel="1"/>
+              </page>
+              <page string="Response">
+                <field name="response" nolabel="1"/>
+              </page>
+              <page string="Tool Calls">
+                <group>
+                  <field name="tool_names"/>
+                </group>
+                <field name="tool_calls" nolabel="1" widget="text"/>
+              </page>
+              <page string="Raw Events">
+                <field name="raw_events" nolabel="1" widget="text"/>
+              </page>
+              <page string="Trajectory">
+                <field name="trajectory_messages" nolabel="1" widget="text"/>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="talos_turn_action_window">
+      <field name="name">Turns</field>
+      <field name="res_model">talos.turn</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('talos_turn_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('talos_turn_form')})]"/>
+    </record>
+
   </data>
 </odoo>

@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -20,6 +21,17 @@ DB_PORT_BASE = 15432
 
 _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
+
+
+def _format_tool_result(result):
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result
+    try:
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(result)
 
 
 def _load_dotenv():
@@ -142,6 +154,7 @@ class Talos(models.Model):
     employee_id = fields.Many2one("hr.employee")
     user_id = fields.Many2one(related="employee_id.user_id")
     turn_ids = fields.One2many("talos.turn", "talos_id", string="Turns")
+    turn_count = fields.Integer(string="Turns", compute="_compute_turn_count")
 
     persona_id = fields.Many2one(
         "talos.persona", string="Persona", required=True, ondelete="restrict"
@@ -189,6 +202,315 @@ class Talos(models.Model):
     safety_critical = fields.Selection(
         [("high_stake_actions", "high_stake_actions"), ("borderline_requests", "borderline_requests"), ("private_data_usage", "private_data_usage")], string="Safety Critical"
     )
+
+    def _compute_turn_count(self):
+        for rec in self:
+            rec.turn_count = len(rec.turn_ids)
+
+    def action_view_turns(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Turns",
+            "res_model": "talos.turn",
+            "view_mode": "list,form",
+            "domain": [("talos_id", "=", self.id)],
+            "context": {"default_talos_id": self.id},
+        }
+
+    def action_export_session(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/talos/chat/export_session?task_id={self.id}",
+            "target": "self",
+        }
+
+    def build_trajectory_json(self):
+        self.ensure_one()
+        meta_info = {
+            "task_type": self.task_type or "",
+            "task_description": self.task_id or "",
+            "task_completion_status": self.task_status or "",
+            "platform": "macos",
+            "persona": self.parsona.name if self.parsona else "",
+            "persona_name": self.persona_id.name if self.persona_id else "",
+            "difficulty": self.difficulty or "",
+            "trajectory_modifier": self.trajectory_modifier or "",
+            "safety_critical": self.safety_critical or "",
+        }
+
+        messages = self._try_trajectory_from_ws()
+        if messages is None:
+            messages = self._build_trajectory_fallback()
+
+        return {"meta_info": meta_info, "messages": messages}
+
+    def _try_trajectory_from_ws(self):
+        self.ensure_one()
+        for t in self.turn_ids.sorted("turn_number", reverse=True):
+            if t.trajectory_messages:
+                try:
+                    ws_messages = json.loads(t.trajectory_messages)
+                    if isinstance(ws_messages, list) and len(ws_messages) > 0:
+                        return ws_messages
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return None
+
+    def _build_trajectory_fallback(self):
+        self.ensure_one()
+        messages = []
+        msg_counter = 0
+        task_id = self.id
+
+        for t in self.turn_ids.sorted("turn_number"):
+            parent_id = None
+
+            if t.prompt:
+                msg_counter += 1
+                user_id = f"{task_id:08x}-{msg_counter:04x}"
+                messages.append({
+                    "type": "message",
+                    "id": user_id,
+                    "parentId": parent_id,
+                    "timestamp": t.create_date.isoformat() if t.create_date else "",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": t.prompt}],
+                    },
+                })
+                parent_id = user_id
+
+            if t.raw_events:
+                try:
+                    events = json.loads(t.raw_events)
+                    if isinstance(events, list):
+                        messages, msg_counter, parent_id = (
+                            self._build_trajectory_from_events(
+                                events, messages, msg_counter,
+                                task_id, parent_id, t.model_name or "",
+                            )
+                        )
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            elif t.response or t.tool_calls:
+                if t.tool_calls:
+                    try:
+                        calls = json.loads(t.tool_calls)
+                        if isinstance(calls, list):
+                            for tc in calls:
+                                msg_counter += 1
+                                call_id = f"{task_id:08x}-{msg_counter:04x}"
+                                tool_call_id = tc.get("toolCallId", call_id)
+                                messages.append({
+                                    "type": "message",
+                                    "id": call_id,
+                                    "parentId": parent_id,
+                                    "timestamp": t.write_date.isoformat() if t.write_date else "",
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": [{
+                                            "type": "toolCall",
+                                            "id": tool_call_id,
+                                            "name": tc.get("name", "unknown"),
+                                            "arguments": tc.get("args", {}),
+                                        }],
+                                    },
+                                })
+                                parent_id = call_id
+
+                                msg_counter += 1
+                                result_id = f"{task_id:08x}-{msg_counter:04x}"
+                                messages.append({
+                                    "type": "message",
+                                    "id": result_id,
+                                    "parentId": parent_id,
+                                    "timestamp": t.write_date.isoformat() if t.write_date else "",
+                                    "message": {
+                                        "role": "toolResult",
+                                        "toolCallId": tool_call_id,
+                                        "toolName": tc.get("name", "unknown"),
+                                        "isError": tc.get("isError", False),
+                                        "content": [{
+                                            "type": "text",
+                                            "text": _format_tool_result(tc.get("result")),
+                                        }],
+                                    },
+                                })
+                                parent_id = result_id
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                if t.response:
+                    msg_counter += 1
+                    asst_id = f"{task_id:08x}-{msg_counter:04x}"
+                    messages.append({
+                        "type": "message",
+                        "id": asst_id,
+                        "parentId": parent_id,
+                        "timestamp": t.write_date.isoformat() if t.write_date else "",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": t.response}],
+                            "model": t.model_name or "",
+                        },
+                    })
+                    parent_id = asst_id
+
+        return messages
+
+    @staticmethod
+    def _build_trajectory_from_events(
+        events, messages, msg_counter, task_id, parent_id, model_name
+    ):
+        pending_tool_calls = {}
+        last_text = ""
+
+        for ev in events:
+            stream = ev.get("stream", "")
+            data = ev.get("data", {})
+            ts = ev.get("ts", "")
+
+            if stream == "assistant" and data.get("text"):
+                last_text = data["text"]
+
+            elif stream == "tool":
+                phase = data.get("phase", "")
+                tcid = data.get("toolCallId", "")
+
+                if phase == "start" and tcid:
+                    if last_text:
+                        msg_counter += 1
+                        mid = f"{task_id:08x}-{msg_counter:04x}"
+                        messages.append({
+                            "type": "message",
+                            "id": mid,
+                            "parentId": parent_id,
+                            "timestamp": ts,
+                            "message": {
+                                "role": "assistant",
+                                "content": [{"type": "text", "text": last_text}],
+                                "model": model_name,
+                            },
+                        })
+                        parent_id = mid
+                        last_text = ""
+
+                    msg_counter += 1
+                    call_msg_id = f"{task_id:08x}-{msg_counter:04x}"
+                    messages.append({
+                        "type": "message",
+                        "id": call_msg_id,
+                        "parentId": parent_id,
+                        "timestamp": ts,
+                        "message": {
+                            "role": "assistant",
+                            "content": [{
+                                "type": "toolCall",
+                                "id": tcid,
+                                "name": data.get("name", "unknown"),
+                                "arguments": data.get("args", {}),
+                            }],
+                        },
+                    })
+                    parent_id = call_msg_id
+                    pending_tool_calls[tcid] = {
+                        "name": data.get("name", "unknown"),
+                        "result": None,
+                        "isError": False,
+                    }
+
+                elif phase == "end" and tcid:
+                    tc_info = pending_tool_calls.get(tcid, {})
+                    msg_counter += 1
+                    result_msg_id = f"{task_id:08x}-{msg_counter:04x}"
+                    messages.append({
+                        "type": "message",
+                        "id": result_msg_id,
+                        "parentId": parent_id,
+                        "timestamp": ts,
+                        "message": {
+                            "role": "toolResult",
+                            "toolCallId": tcid,
+                            "toolName": tc_info.get("name", data.get("name", "unknown")),
+                            "isError": bool(data.get("isError")),
+                            "content": [{
+                                "type": "text",
+                                "text": _format_tool_result(
+                                    data.get("result", data.get("partialResult"))
+                                ),
+                            }],
+                        },
+                    })
+                    parent_id = result_msg_id
+                    pending_tool_calls.pop(tcid, None)
+
+            elif stream == "lifecycle" and data.get("phase") == "end":
+                if last_text:
+                    msg_counter += 1
+                    mid = f"{task_id:08x}-{msg_counter:04x}"
+                    messages.append({
+                        "type": "message",
+                        "id": mid,
+                        "parentId": parent_id,
+                        "timestamp": ts,
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": last_text}],
+                            "model": model_name,
+                        },
+                    })
+                    parent_id = mid
+                    last_text = ""
+
+        if last_text:
+            msg_counter += 1
+            mid = f"{task_id:08x}-{msg_counter:04x}"
+            messages.append({
+                "type": "message",
+                "id": mid,
+                "parentId": parent_id,
+                "timestamp": "",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": last_text}],
+                    "model": model_name,
+                },
+            })
+            parent_id = mid
+
+        return messages, msg_counter, parent_id
+
+    def _export_and_clear_turns(self):
+        """Export trajectory as ir.attachment, clear turns, return attachment."""
+        self.ensure_one()
+        if not self.turn_ids:
+            return self.env["ir.attachment"]
+
+        trajectory = self.build_trajectory_json()
+        content = json.dumps(trajectory, indent=2, ensure_ascii=False)
+        filename = "session-%s.json" % self.id
+
+        attachment = self.env["ir.attachment"].create({
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(content.encode("utf-8")),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "application/json",
+        })
+        _logger.info(
+            "Auto-exported trajectory (%d bytes, %d messages) for task %s",
+            len(content), len(trajectory.get("messages", [])), self.id,
+        )
+
+        turn_count = len(self.turn_ids)
+        self.turn_ids.unlink()
+        _logger.info("Cleared %d turns for task %s", turn_count, self.id)
+
+        return attachment
 
     def _deployment_mode(self):
         return (
@@ -279,11 +601,19 @@ class Talos(models.Model):
 
     def action_stop_sandbox(self):
         self.ensure_one()
+        attachment = self._export_and_clear_turns()
         mode = self._deployment_mode()
         if mode == "k8s":
             self._stop_k8s()
         else:
             self._stop_local()
+
+        if attachment:
+            return {
+                "type": "ir.actions.act_url",
+                "url": "/web/content/%d?download=true" % attachment.id,
+                "target": "self",
+            }
 
     @api.model
     def _cron_reconcile_sandboxes(self):
@@ -883,7 +1213,7 @@ class Talos(models.Model):
 class TalosTurn(models.Model):
     _name = "talos.turn"
     _description = "Talos Turn"
-    _order = "turn_number asc, id asc"
+    _order = "turn_number desc, id desc"
 
     talos_id = fields.Many2one("talos.talos", string="Talos", ondelete="cascade")
     turn_number = fields.Integer(string="Turn Number")
@@ -892,6 +1222,28 @@ class TalosTurn(models.Model):
     response = fields.Text(string="Response")
     run_id = fields.Char(string="Run ID", index=True)
     model_name = fields.Char(string="Model")
+    tool_calls = fields.Text(string="Tool Calls (JSON)")
+    raw_events = fields.Text(string="Raw WS Events (JSON)")
+    trajectory_messages = fields.Text(string="Trajectory Messages (JSON)")
+    tool_names = fields.Char(
+        string="Tools Used", compute="_compute_tool_names", store=True
+    )
+
+    @api.depends("tool_calls")
+    def _compute_tool_names(self):
+        for rec in self:
+            names = []
+            if rec.tool_calls:
+                try:
+                    calls = json.loads(rec.tool_calls)
+                    if isinstance(calls, list):
+                        for c in calls:
+                            n = c.get("name", "")
+                            if n and n not in names:
+                                names.append(n)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            rec.tool_names = ", ".join(names) if names else False
 
 
 class TalosTaxonomy(models.Model):

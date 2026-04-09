@@ -60,6 +60,9 @@ function _getSession(taskId) {
             historyLoaded: false,
             _streamBuf: "",
             _lastFlushedWordCount: 0,
+            _toolCalls: [],
+            _rawEvents: [],
+            _pendingRpc: new Map(),
         });
     }
     return _sessions.get(taskId);
@@ -247,6 +250,17 @@ export class TalosChatWidget extends Component {
 
             if (frame.type === "res" && frame.id && this._session.wsConnected) {
                 console.log(LOG_PREFIX, "RPC RESPONSE:", { id: frame.id, ok: frame.ok, error: frame.error });
+                // Resolve pending RPC promise if any
+                const pending = this._session._pendingRpc.get(frame.id);
+                if (pending) {
+                    this._session._pendingRpc.delete(frame.id);
+                    if (frame.ok) {
+                        pending.resolve(frame);
+                    } else {
+                        pending.reject(frame.error || { message: "RPC failed" });
+                    }
+                    return;
+                }
                 if (!frame.ok && this._session.streaming) {
                     const errText = frame.error?.message || JSON.stringify(frame.error || {});
                     const msg = this._session.messages.findLast(m => m.pending);
@@ -295,6 +309,13 @@ export class TalosChatWidget extends Component {
         const messages = this._session.messages;
         const session = this._session;
 
+        // Capture raw event for trajectory export
+        session._rawEvents.push({
+            ts: new Date().toISOString(),
+            stream,
+            data: JSON.parse(JSON.stringify(data)),
+        });
+
         if (stream === "assistant" && data.text) {
             if (widget) widget.state.activityText = "";
             let msg = messages.findLast(m => m.pending);
@@ -312,6 +333,33 @@ export class TalosChatWidget extends Component {
                 session._lastFlushedWordCount = wordCount;
                 if (widget) widget._scrollToBottom();
             }
+        } else if (stream === "tool") {
+            const phase = data.phase || "";
+            const toolCallId = data.toolCallId || "";
+            const toolName = data.name || "";
+            if (phase === "start" && toolCallId) {
+                session._toolCalls.push({
+                    toolCallId,
+                    name: toolName,
+                    args: data.args || null,
+                    result: null,
+                    isError: false,
+                });
+                if (widget) widget.state.activityText = `Running ${toolName}…`;
+                console.log(LOG_PREFIX, "Tool START:", toolName, toolCallId);
+            } else if (phase === "end" && toolCallId) {
+                const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
+                if (tc) {
+                    tc.result = data.result ?? data.partialResult ?? null;
+                    tc.isError = !!data.isError;
+                }
+                console.log(LOG_PREFIX, "Tool END:", toolName, toolCallId);
+            } else if (phase === "update" && toolCallId) {
+                const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
+                if (tc && data.partialResult !== undefined) {
+                    tc.result = data.partialResult;
+                }
+            }
         } else if (stream === "lifecycle" && data.phase === "start") {
             if (widget) widget.state.activityText = "Thinking…";
         } else if (stream === "lifecycle" && data.phase === "end") {
@@ -324,14 +372,20 @@ export class TalosChatWidget extends Component {
                 }
                 msg.pending = false;
             }
+            const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
+            const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
+            session._toolCalls = [];
+            session._rawEvents = [];
             session.streaming = false;
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
-            this._saveResponse(msg ? msg.text : "");
+            const savedTurnId = session.currentTurnId;
+            this._saveResponse(msg ? msg.text : "", toolCalls, rawEvents);
+            this._fetchTrajectory(savedTurnId);
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
@@ -346,6 +400,8 @@ export class TalosChatWidget extends Component {
             msg.isError = true;
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
+            session._toolCalls = [];
+            session._rawEvents = [];
             session.streaming = false;
             if (widget) {
                 widget.state.streaming = false;
@@ -375,17 +431,66 @@ export class TalosChatWidget extends Component {
         this._scrollToBottom();
     }
 
-    async _saveResponse(text) {
+    _wsRpc(method, params) {
+        const ws = this._session.ws;
+        if (!ws || !this._session.wsConnected) {
+            return Promise.reject(new Error("WS not connected"));
+        }
+        const id = nextId();
+        const msg = { type: "req", id, method, params };
+        return new Promise((resolve, reject) => {
+            this._session._pendingRpc.set(id, { resolve, reject });
+            ws.send(JSON.stringify(msg));
+            setTimeout(() => {
+                if (this._session._pendingRpc.has(id)) {
+                    this._session._pendingRpc.delete(id);
+                    reject(new Error("WS RPC timeout"));
+                }
+            }, 15000);
+        });
+    }
+
+    async _fetchTrajectory(turnId) {
+        if (!turnId || !this._session.wsConnected) return;
+        const sessionKey = "odoo:" + (this.taskId || "0");
+        console.log(LOG_PREFIX, "Fetching trajectory via chat.history for", sessionKey);
+        try {
+            const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
+            const messages = res?.result?.messages || res?.messages || [];
+            if (messages.length === 0) {
+                console.warn(LOG_PREFIX, "chat.history returned 0 messages");
+                return;
+            }
+            console.log(LOG_PREFIX, "Trajectory fetched:", messages.length, "messages");
+            await rpc("/talos/chat/save_trajectory", {
+                turn_id: turnId,
+                trajectory_messages: JSON.stringify(messages),
+            });
+        } catch (e) {
+            console.error(LOG_PREFIX, "Trajectory fetch failed:", e);
+        }
+    }
+
+    async _saveResponse(text, toolCalls = null, rawEvents = null) {
         if (!this._session.currentTurnId) {
             console.warn(LOG_PREFIX, "_saveResponse: no currentTurnId");
             return;
         }
-        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId);
+        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId,
+            toolCalls ? `with ${toolCalls.length} tool call(s)` : "",
+            rawEvents ? `with ${rawEvents.length} raw event(s)` : "");
         try {
-            await rpc("/talos/chat/save_response", {
+            const params = {
                 turn_id: this._session.currentTurnId,
                 response: text,
-            });
+            };
+            if (toolCalls && toolCalls.length > 0) {
+                params.tool_calls = JSON.stringify(toolCalls);
+            }
+            if (rawEvents && rawEvents.length > 0) {
+                params.raw_events = JSON.stringify(rawEvents);
+            }
+            await rpc("/talos/chat/save_response", params);
         } catch (e) {
             console.error(LOG_PREFIX, "Save response failed:", e);
         }
@@ -496,12 +601,16 @@ export class TalosChatWidget extends Component {
             messages.push(msg);
         }
 
+        const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
+        const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
         session._streamBuf = "";
         session._lastFlushedWordCount = 0;
+        session._toolCalls = [];
+        session._rawEvents = [];
         session.streaming = false;
         this.state.streaming = false;
         this.state.activityText = "";
-        this._saveResponse(msg.text);
+        this._saveResponse(msg.text, toolCalls, rawEvents);
         this._scrollToBottom();
     }
 
