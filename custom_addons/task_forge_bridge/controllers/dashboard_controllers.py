@@ -394,16 +394,21 @@ class DashboardController(http.Controller):
             for p in projects:
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
                 unique_team_count = len(set(team_ids))
+                total = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id)])
+                done = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
+
+                percentage = (done / total * 100) if total > 0 else 0.0
+
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
                     'project_name': safe_get_value(p, 'name', 'str'),
                     'project_id_code': safe_get_value(p, 'project_seq', 'str'),
                     'client': safe_get_value(p, 'client_name', 'str'),
                     'status': safe_get_value(p, 'stage_id.name', 'str'),
-                    'progress': 0,
+                    'progress': percentage,
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
-                    'blockers': 0,
+                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
@@ -424,31 +429,47 @@ class DashboardController(http.Controller):
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
+
             domain = []
+
             if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 domain = [('project_lead', '=', user_id.employee_id.id)]
+
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
                 domain = [('project_qc_reviewer', '=', user_id.employee_id.id)]
+
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
                 domain = [('project_tasker', '=', user_id.employee_id.id)]
+
             search = kwargs.get('search')
             if search:
                 domain += ['|', ('name', 'ilike', search), ('internal_project_name', 'ilike', search)]
+
+            if kwargs.get('status'):
+                non_stemp_project_status = kwargs.get('status').split(',')
+                if "all" not in non_stemp_project_status:
+                    domain.append(('non_stemp_project_status', 'in', non_stemp_project_status))
+
             projects = request.env['project.project'].sudo().search(domain)
             project_data = []
             for p in projects:
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
                 unique_team_count = len(set(team_ids))
+
+                total = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id)])
+                done = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
+                percentage = (done / total * 100) if total > 0 else 0.0
+
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
                     'project_name': safe_get_value(p, 'name', 'str'),
                     'project_id_code': safe_get_value(p, 'project_seq', 'str'),
                     'client': safe_get_value(p, 'client_name', 'str'),
-                    'status': safe_get_value(p, 'stage_id.name', 'str'),
-                    'progress': 0,
+                    'status': safe_get_value(p, 'non_stemp_project_status', 'str') if p.project_category == 'non_stem' else safe_get_value(p, 'stage_id.name', 'str'),
+                    'progress': percentage,
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
-                    'blockers': 0,
+                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),

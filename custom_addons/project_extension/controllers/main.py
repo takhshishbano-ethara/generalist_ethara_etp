@@ -168,6 +168,7 @@ class ProjectController(http.Controller):
                 'slack_channel_name': kwargs.get('slack_channel_name'),
                 'y_project_type': kwargs.get('y_project_type') or y_project_type,
                 "slack_members": [(6, 0, parse_ids("slack_members"))],
+                'non_stemp_project_status': 'not_started',
             }
 
             if kwargs.get('whatsapp_group_members'):
@@ -193,6 +194,7 @@ class ProjectController(http.Controller):
             stage_xml = 'project_extension.project_project_stage_ethara_14' if kwargs.get(
                 'save_as_draft') == '1' else 'project_extension.project_project_stage_ethara_4'
             vals['stage_id'] = request.env.ref(stage_xml).id
+            vals['non_stemp_project_status'] = "draft" if kwargs.get('save_as_draft') == '1' else "not_started"
 
             attachment_ids = []
             files = request.httprequest.files.getlist('files')
@@ -371,9 +373,9 @@ class ProjectController(http.Controller):
 
             if project.stage_id.id == request.env.ref('project_extension.project_project_stage_ethara_14').id and not kwargs.get('stage_id'):
                 vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_4').id
+                vals['non_stemp_project_status'] = 'not_started'
             elif kwargs.get('stage_id'):
                 vals['stage_id'] = int(kwargs.get('stage_id'))
-
             files = request.httprequest.files.getlist('files')
             if files:
                 attachment_ids = []
@@ -975,3 +977,65 @@ class ProjectController(http.Controller):
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
+    @validate_token
+    @http.route('/api/v1/action_pause_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        "project_id": {"type": "integer", "required": True}
+    })
+    def action_pause_project(self, **kwargs):
+        try:
+            project = request.env['project.project'].sudo().browse(int(kwargs['project_id']))
+            if not project.exists():
+                return return_Response(message="Project Not Found", status=404)
+            project.sudo().write({
+                'stage_id': request.env.ref('project_extension.project_project_stage_ethara_15').id,
+                'non_stemp_project_status': 'paused'
+            })
+            return return_Response(
+                message="Success",
+                status=200)
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/action_close_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        "project_id": {"type": "integer", "required": True}
+    })
+    def action_close_project(self, **kwargs):
+        try:
+            project = request.env['project.project'].sudo().browse(int(kwargs['project_id']))
+            if not project.exists():
+                return return_Response(message="Project Not Found", status=404)
+            project.sudo().write({
+                'stage_id': request.env.ref('project_extension.project_project_stage_ethara_13').id,
+                'non_stemp_project_status': 'closed'
+            })
+            return return_Response(
+                message="Success",
+                status=200)
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/action_cancel_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        "project_id": {"type": "integer", "required": True}
+    })
+    def action_cancel_project(self, **kwargs):
+        try:
+            project = request.env['project.project'].sudo().browse(int(kwargs['project_id']))
+            if not project.exists():
+                return return_Response(message="Project Not Found", status=404)
+            project.sudo().write({
+                'stage_id': request.env.ref('project_extension.project_project_stage_ethara_16').id,
+                'non_stemp_project_status': 'cancel'
+            })
+            return return_Response(
+                message="Success",
+                status=200)
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])

@@ -290,7 +290,7 @@ class EmployeeController(http.Controller):
     @http.route('/api/v1/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
-        'employee_id': {'type': 'int', 'required': True},
+        'employee_id': {'type': 'str', 'required': True},
     })
     def get_employee(self, **kwargs):
         """Get employee details"""
@@ -300,8 +300,50 @@ class EmployeeController(http.Controller):
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
-            today_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('state', '=', 'in_progress')], order='write_date desc')
+            today = date.today()
+            start_this_week = today - timedelta(days=today.weekday())
+            start_last_week = start_this_week - timedelta(days=7)
+            end_last_week = start_this_week - timedelta(days=1)
+            Log = request.env['task.forge.log'].sudo()
 
+            def get_prod_stats(target_emp_id, start_date, end_date):
+                domain = [
+                    ('employee_id', '=', target_emp_id),
+                    ('date', '>=', start_date),
+                    ('date', '<=', end_date)
+                ]
+                total = Log.search_count(domain)
+                done = Log.search_count(domain + [('state', '=', 'completed')])
+
+                percentage = (done / total * 100) if total > 0 else 0.0
+                return round(percentage, 2), total
+
+            last_7_days = [str(today - timedelta(days=i)) for i in range(6, -1, -1)]
+
+            productivity_report = {
+                "labels": last_7_days,
+                'values': []
+            }
+
+            for day in last_7_days:
+                domain = [
+                    ('employee_id', '=', employee.id),
+                    ('date', '=', day)
+                ]
+
+                total = Log.search_count(domain)
+                done = Log.search_count(domain + [('state', '=', 'completed')])
+
+                # Calculate percentage
+                percentage = (done / total * 100) if total > 0 else 0.0
+
+                productivity_report['values'].append(round(percentage, 2))
+            # Calculations
+            this_week_prod, _ = get_prod_stats(employee.id, start_this_week, today)
+            last_week_prod, _ = get_prod_stats(employee.id, start_last_week, end_last_week)
+            task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today)])
+            active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
+            punch_in_status, emp_session = self.get_employee_current_status(employee)
             return return_Response(
                 message="Employee details",
                 status=200,
@@ -309,6 +351,7 @@ class EmployeeController(http.Controller):
                     'id': employee.id if employee else 0,
                     'name': employee.name if employee and employee.name else "",
                     'email': employee.work_email if employee and employee.work_email else "",
+                    'mobile': employee.work_phone if employee and employee.work_phone else "",
                     'job_title_id': employee.designation_id.id if employee.designation_id else 0,
                     'job_title': employee.designation_id.name if employee.designation_id and employee.designation_id.name else "",
                     'department_id': employee.department_id.id if employee.department_id else 0,
@@ -317,9 +360,13 @@ class EmployeeController(http.Controller):
                     'is_offboarded': employee.is_offboarded,
                     'role_id': employee.user_id.user_role.id if employee.user_id.user_role else 0,
                     'role': employee.user_id.user_role.name if employee.user_id.user_role and employee.user_id.user_role.name else "",
-                    'current_status': self.get_employee_current_status(employee),
-                    'current_task': today_task[0].name if today_task else "",
-                    'task_today': len(today_task),
+                    'current_status': punch_in_status,
+                    'emp_session': emp_session,
+                    'this_week_productivity': this_week_prod,
+                    'last_week_productivity': last_week_prod,
+                    'current_task': active_task.name if active_task else "",
+                    'task_today': len(task_record),
+                    'today_task_record': [{'id': t.id, 'name': t.name, 'status': t.state or ""} for t in task_record],
                     'work_location': employee.work_location_name or "",
                     'offboard_date': employee.offboard_date.isoformat() if employee.offboard_date else "",
                     'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else 0,
@@ -327,7 +374,8 @@ class EmployeeController(http.Controller):
                     'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else 0,
                     'qr_name': employee.task_forge_qr_id.name if employee.task_forge_qr_id and employee.task_forge_qr_id.name else "",
                     'active': employee.active or False,
-                    'last_active': str(today_task[0].write_date) if today_task else ""
+                    'productivity_report': productivity_report,
+                    'last_active': str(active_task.write_date) if active_task else ""
                 }}
             )
         except Exception as e:
@@ -347,6 +395,10 @@ class EmployeeController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
+            search = kwargs.get('search')
+            if search:
+                domain += [('name', 'ilike', search)]
+
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
             elif kwargs.get('active') == 'false':
@@ -364,8 +416,26 @@ class EmployeeController(http.Controller):
             limit = int(kwargs.get('limit', 100))
             employees = Employee.search(domain, limit=limit)
             data = []
+            today = date.today()
+            start_this_week = today - timedelta(days=today.weekday())
             for emp in employees:
-                today_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', emp.id), ('state', '=', 'in_progress')], order='write_date desc')
+                Log = request.env['task.forge.log'].sudo()
+                def get_prod_stats(target_emp_id, start_date, end_date):
+                    domain = [
+                        ('employee_id', '=', target_emp_id),
+                        ('date', '>=', start_date),
+                        ('date', '<=', end_date)
+                    ]
+                    total = Log.search_count(domain)
+                    done = Log.search_count(domain + [('state', '=', 'completed')])
+
+                    percentage = (done / total * 100) if total > 0 else 0.0
+                    return round(percentage, 2), total
+
+                this_week_prod, _ = get_prod_stats(emp.id, start_this_week, today)
+                task_record = request.env['task.forge.log'].sudo().search_count([('employee_id', '=', employee.id), ('date', '=', today)])
+                active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
+                current_status, _ =  self.get_employee_current_status(emp)
                 data.append({
                     'id': emp.id if emp else 0,
                     'name': emp.name if emp and emp.name else "",
@@ -378,9 +448,10 @@ class EmployeeController(http.Controller):
                     'is_offboarded': emp.is_offboarded,
                     'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
                     'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else "",
-                    'current_status': self.get_employee_current_status(emp),
-                    'current_task': today_task[0].name if today_task else "",
-                    'task_today': len(today_task),
+                    'current_status': current_status,
+                    'current_task': active_task.name if active_task else "",
+                    'productivity': this_week_prod,
+                    'task_today': task_record,
                     'work_location': emp.work_location_name or "",
                     'offboard_date': emp.offboard_date.isoformat() if emp.offboard_date else "",
                     'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else 0,
@@ -388,7 +459,7 @@ class EmployeeController(http.Controller):
                     'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else 0,
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else "",
                     'active': emp.active or False,
-                    'last_active': str(today_task[0].write_date) if today_task else ""
+                    'last_active': str(active_task.write_date) if active_task else ""
                 })
             return return_Response(
                 message=f"{len(data)} employees found",
@@ -450,6 +521,22 @@ class EmployeeController(http.Controller):
             ('check_in', '<', datetime.combine(today, datetime.max.time())),
             ('attendance_status', '=', 'present')
         ], limit=1)
+
+        duration_display = "00:00"
+        if attendance and attendance.check_in and attendance.check_out:
+            diff = attendance.check_out - attendance.check_in
+            total_seconds = int(diff.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            duration_display = f"{hours:02d}:{minutes:02d}"
+
+        elif attendance and attendance.check_in and not attendance.check_out:
+            diff = datetime.now() - attendance.check_in
+            total_seconds = int(diff.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            duration_display = f"{hours:02d}:{minutes:02d}"
+
         current_status = ""
         if not attendance:
             current_status = "Offline"
@@ -457,5 +544,5 @@ class EmployeeController(http.Controller):
             current_status = "Active"
         else:
             current_status = "Idle"
-        return current_status
+        return current_status, duration_display
 
