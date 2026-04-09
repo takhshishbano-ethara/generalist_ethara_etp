@@ -263,16 +263,13 @@ export class TalosChatWidget extends Component {
             const msg = messages.findLast(m => m.pending);
             if (msg) msg.text += data.text || "";
             if (widget) widget._scrollToBottom();
-        } else if (stream === "assistant" && data.type === "thinking") {
-            this._session.currentThinking = (this._session.currentThinking || "") + (data.text || "");
         } else if (stream === "lifecycle" && data.phase === "end") {
             console.log(LOG_PREFIX, "Agent lifecycle END");
             const msg = messages.findLast(m => m.pending);
             if (msg) msg.pending = false;
             this._session.streaming = false;
             if (widget) widget.state.streaming = false;
-            this._saveResponse(msg ? msg.text : "", this._session.currentThinking || "");
-            this._session.currentThinking = "";
+            this._saveResponse(msg ? msg.text : "");
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
@@ -308,17 +305,16 @@ export class TalosChatWidget extends Component {
         this._scrollToBottom();
     }
 
-    async _saveResponse(text, thinking) {
+    async _saveResponse(text) {
         if (!this._session.currentTurnId) {
             console.warn(LOG_PREFIX, "_saveResponse: no currentTurnId");
             return;
         }
-        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId, "thinking:", thinking?.length || 0);
+        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId);
         try {
             await rpc("/talos/chat/save_response", {
                 turn_id: this._session.currentTurnId,
                 response: text,
-                thinking: thinking || "",
             });
         } catch (e) {
             console.error(LOG_PREFIX, "Save response failed:", e);
@@ -339,6 +335,34 @@ export class TalosChatWidget extends Component {
         this.state.inputText = "";
         this.state.sending = true;
         this._session.messages.push({ role: "user", text, model: this.state.selectedModel });
+        this._scrollToBottom();
+
+        console.log(LOG_PREFIX, "Running QC check...");
+        let qcPassed = true;
+        try {
+            const qcResult = await rpc("/talos/qc", { prompt: text });
+            console.log(LOG_PREFIX, "QC result:", qcResult);
+            if (qcResult.error) {
+                console.warn(LOG_PREFIX, "QC error, passing through:", qcResult.error);
+            } else if (qcResult.parsed_json) {
+                const qc = qcResult.parsed_json;
+                if (qc.pass === false || qc.approved === false || qc.allowed === false) {
+                    qcPassed = false;
+                    const reason = qc.reason || qc.message || qcResult.response || "Prompt rejected by QC";
+                    this._session.messages.push({
+                        role: "assistant",
+                        text: reason,
+                        isError: true,
+                        pending: false,
+                    });
+                    this.state.sending = false;
+                    this._scrollToBottom();
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
+        }
 
         let turnId = null;
         try {

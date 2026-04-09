@@ -88,16 +88,28 @@ def _resource_name(task_record):
 
 
 def _s3_session_path(task_record):
-    return "s3://%s/%s/tasks/%s/sessions/" % (S3_BUCKET, S3_TALOS_PREFIX, task_record.id)
+    return "s3://%s/%s/tasks/%s/sessions/" % (
+        S3_BUCKET,
+        S3_TALOS_PREFIX,
+        task_record.id,
+    )
 
 
 def _s3_browser_path(persona_name):
-    return "s3://%s/%s/tasks/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
+    return "s3://%s/%s/tasks/browser-profiles/%s/" % (
+        S3_BUCKET,
+        S3_TALOS_PREFIX,
+        persona_name,
+    )
 
 
 def _build_prestop_script(task_id, persona_name):
     session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, task_id)
-    browser_path = "s3://%s/%s/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
+    browser_path = "s3://%s/%s/browser-profiles/%s/" % (
+        S3_BUCKET,
+        S3_TALOS_PREFIX,
+        persona_name,
+    )
     return (
         "echo '[talos] preStop: backing up session data to S3...' && "
         "aws s3 sync /home/node/.openclaw/ %s "
@@ -178,8 +190,8 @@ def _build_openclaw_config(gateway_token, env):
                 "maxTokens": 8192,
             },
             {
-                "id": "kimi-k2.5",
-                "name": "kimi-k2.5",
+                "id": "glm-5",
+                "name": "glm-5",
                 "reasoning": False,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -234,18 +246,12 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_image = self._get_config_param(
             "talos.litellm_image", "ghcr.io/berriai/litellm:main-stable"
         )
-        postgres_image = self._get_config_param(
-            "talos.postgres_image", "postgres:16"
-        )
+        postgres_image = self._get_config_param("talos.postgres_image", "postgres:16")
         aws_cli_image = self._get_config_param(
             "talos.aws_cli_image", "amazon/aws-cli:latest"
         )
-        s3_bucket = self._get_config_param(
-            "talos.s3_bucket", S3_BUCKET
-        )
-        s3_prefix = self._get_config_param(
-            "talos.s3_prefix", S3_TALOS_PREFIX
-        )
+        s3_bucket = self._get_config_param("talos.s3_bucket", S3_BUCKET)
+        s3_prefix = self._get_config_param("talos.s3_prefix", S3_TALOS_PREFIX)
 
         gateway_token = task_record.docker_gateway_token
 
@@ -311,7 +317,9 @@ class TalosSandboxK8s(models.AbstractModel):
         networking_v1 = client.NetworkingV1Api()
         talos_ws_host = self._get_config_param("talos.ws_router_host", "")
         nginx_image = self._get_config_param("talos.nginx_image", "nginx:alpine")
-        self._ensure_ws_router(core_v1, apps_v1, networking_v1, talos_ws_host, nginx_image)
+        self._ensure_ws_router(
+            core_v1, apps_v1, networking_v1, talos_ws_host, nginx_image
+        )
 
     def _create_secret(
         self,
@@ -431,8 +439,16 @@ class TalosSandboxK8s(models.AbstractModel):
         openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
         litellm_config_cm = "talos-litellm-config-%s" % task_id
 
-        session_s3_path = "s3://%s/%s/tasks/%s/sessions/" % (s3_bucket, s3_prefix, task_id)
-        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (s3_bucket, s3_prefix, persona)
+        session_s3_path = "s3://%s/%s/tasks/%s/sessions/" % (
+            s3_bucket,
+            s3_prefix,
+            task_id,
+        )
+        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (
+            s3_bucket,
+            s3_prefix,
+            persona,
+        )
 
         db_url = ""
 
@@ -459,7 +475,12 @@ class TalosSandboxK8s(models.AbstractModel):
                     "aws s3 ls %s >/dev/null 2>&1 && "
                     "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
                     "chown -R 1000:1000 /data/session /data/browser-profiles"
-                    % (session_s3_path, session_s3_path, browser_s3_path, browser_s3_path),
+                    % (
+                        session_s3_path,
+                        session_s3_path,
+                        browser_s3_path,
+                        browser_s3_path,
+                    ),
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(

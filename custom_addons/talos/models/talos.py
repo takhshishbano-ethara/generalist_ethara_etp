@@ -205,9 +205,10 @@ class Talos(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = (
-                        "https://%s/sandbox/%s/#token=%s"
-                        % (ws_host, rec.id, rec.docker_gateway_token)
+                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
+                        ws_host,
+                        rec.id,
+                        rec.docker_gateway_token,
                     )
                 else:
                     svc_name = "talos-sandbox-%s" % rec.id
@@ -499,8 +500,8 @@ class Talos(models.Model):
                         "maxTokens": 8192,
                     },
                     {
-                        "id": "kimi-k2.5",
-                        "name": "kimi-k2.5",
+                        "id": "glm-5",
+                        "name": "glm-5",
                         "reasoning": True,
                         "input": ["text", "image"],
                         "cost": {
