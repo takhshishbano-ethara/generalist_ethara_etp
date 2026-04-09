@@ -21,22 +21,10 @@ DB_PORT_BASE = 15432
 _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
 
-_env_cache = None
-
 
 def _load_dotenv():
-    """Load KEY=VALUE pairs from the project-root .env file.
-
-    Merges on top of ``os.environ`` so that process-level env vars
-    still take precedence (set in shell > .env file).
-    """
-    global _env_cache
-    if _env_cache is not None:
-        return _env_cache
-
     env = os.environ.copy()
 
-    # Walk up from the odoo config file (or addons path) to find .env
     root = None
     conf_path = odoo_config.rcfile
     if conf_path:
@@ -56,14 +44,9 @@ def _load_dotenv():
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
-                # Don't override vars already set in the process environment
-                if key not in os.environ:
-                    env[key] = value
+                env[key] = value
         _logger.debug("Loaded .env from %s", dotenv_path)
-    else:
-        _logger.debug("No .env file found at %s", dotenv_path)
 
-    _env_cache = env
     return env
 
 
@@ -73,24 +56,36 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      extra_headers:
-        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
+
   - model_name: kimi-k2.5
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
-      extra_headers:
-        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
-      input_cost_per_token: 0.000003
-      output_cost_per_token: 0.000015
+      input_cost_per_token: 0.0000006
+      output_cost_per_token: 0.000003
+
+  - model_name: glm-5
+    litellm_params:
+      model: bedrock/converse/{glm_bedrock_arn}
+      aws_region_name: {glm_aws_region}
+      input_cost_per_token: 0.0000006
+      output_cost_per_token: 0.000003
+
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: bedrock/invoke/{kimi_bedrock_arn}
+      aws_region_name: {kimi_aws_region}
+      input_cost_per_token: 0.0000006
+      output_cost_per_token: 0.000003
 
 litellm_settings:
   drop_params: true
   telemetry: false
-  num_retries: 2
-  request_timeout: 600
+  num_retries: 1
+  request_timeout: 900
+  stream_timeout: 60
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -483,7 +478,7 @@ class Talos(models.Model):
                 "baseUrl": "http://litellm:4000/v1",
                 "apiKey": litellm_key,
                 "auth": "api-key",
-                "api": "openai-responses",
+                "api": "openai-completions",
                 "models": [
                     {
                         "id": "claude-opus-4.6",
@@ -524,11 +519,15 @@ class Talos(models.Model):
         if not litellm_yaml:
             kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
             kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
+            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
+            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
                 kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
                 kimi_aws_region=kimi_region,
+                glm_bedrock_arn=glm_arn or "PLACEHOLDER",
+                glm_aws_region=glm_region,
             )
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)
