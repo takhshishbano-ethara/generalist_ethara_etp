@@ -279,21 +279,28 @@ class TaskForgeAttendanceController(http.Controller):
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
+            team_ids = employee._get_team_employee_ids()
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
-            domain = [('check_in', '>=', datetime.combine(today, datetime.min.time())), ('check_in', '<', datetime.combine(today, datetime.max.time()))]
+            domain = [('check_in', '>=', datetime.combine(today, datetime.min.time())), ('check_in', '<', datetime.combine(today, datetime.max.time())), ('employee_id', 'in', team_ids)]
+            if kwargs.get('date'):
+                domain = [('check_in', '>=', datetime.combine(kwargs.get('date'), datetime.min.time())), ('check_in', '<', datetime.combine(kwargs.get('date'), datetime.max.time())), ('employee_id', 'in', team_ids)]
+
             if kwargs.get('search', ''):
                 search_key = kwargs.get('search', '').strip()
                 if search_key:
                     domain.append(('employee_id.name', 'ilike', search_key))
+
             if kwargs.get('status'):
                 status = kwargs.get('status').split(',')
                 status = ['present', 'on_leave', 'absent'] if "all" in status else status
                 if status:
                     domain.append(('attendance_status', 'in', status))
+
             attendance = Attendance.search(domain)
             for atte in attendance:
                 temp.append(self._format_attendance(atte))
+
             return return_Response(
                 message="Today's attendance",
                 status=200,
@@ -301,4 +308,5 @@ class TaskForgeAttendanceController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
 

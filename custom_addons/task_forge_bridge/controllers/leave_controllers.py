@@ -326,3 +326,24 @@ class TaskForgeLeaveController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
+    @http.route('/api/v2/taskforge/check_i_am_on_leave', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def check_i_am_on_leave(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            Leave = request.env['hr.leave'].sudo()
+            domain = [
+                ('employee_id', '=', employee.id),
+                ('state', '=', 'validate'),
+                ('date_from', '<=',
+                 fields.Datetime.to_string(fields.Datetime.now().replace(hour=23, minute=59, second=59))),
+                ('date_to', '>=', fields.Datetime.to_string(fields.Datetime.now().replace(hour=0, minute=0, second=0)))
+            ]
+            leaves = Leave.search(domain, order='create_date desc', limit=1)
+            return return_Response(message="Leaves list", status=200, data={'data': self._format_leave(leaves)})
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
