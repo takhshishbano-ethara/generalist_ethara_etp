@@ -17,7 +17,7 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
-NAMESPACE = "ethara"
+NAMESPACE = "talos"
 
 WS_ROUTER_NAME = "talos-ws-router"
 
@@ -25,6 +25,13 @@ NODE_SELECTOR = {
     "kubernetes.io/arch": "amd64",
     "ethara.ai/node-pool": "general-purpose",
 }
+
+SANDBOX_SERVICE_ACCOUNT = "talos-sandbox"
+
+S3_BUCKET = "production-grtlabs-tag"
+S3_TALOS_PREFIX = "talos"
+
+TERMINATION_GRACE_PERIOD = 300
 
 WS_ROUTER_NGINX_CONF = """\
 map $http_upgrade $connection_upgrade {
@@ -35,7 +42,7 @@ server {
     listen 80;
     server_name _;
     resolver kube-dns.kube-system.svc.cluster.local valid=10s;
-    location ~ ^/sandbox/(\\d+)/(.*) {
+    location ~ ^/sandbox/(\\d+)(?:/(.*))? {
         set $task_id $1;
         set $path $2;
         set $backend talos-sandbox-$task_id.%(namespace)s.svc.cluster.local:18789;
@@ -80,8 +87,29 @@ def _resource_name(task_record):
     return "talos-sandbox-%s" % task_record.id
 
 
+def _s3_session_path(task_record):
+    return "s3://%s/%s/tasks/%s/sessions/" % (S3_BUCKET, S3_TALOS_PREFIX, task_record.id)
+
+
+def _s3_browser_path(persona_name):
+    return "s3://%s/%s/tasks/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
+
+
+def _build_prestop_script(task_id, persona_name):
+    session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, task_id)
+    browser_path = "s3://%s/%s/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
+    return (
+        "echo '[talos] preStop: backing up session data to S3...' && "
+        "aws s3 sync /home/node/.openclaw/ %s "
+        "--no-progress --quiet 2>/dev/null || true && "
+        "aws s3 sync /home/node/.openclaw/browser-profiles/ %s "
+        "--no-progress --quiet 2>/dev/null || true && "
+        "echo '[talos] preStop: backup complete, waiting for connections to drain...' && "
+        "sleep 10"
+    ) % (session_path, browser_path)
+
+
 def _build_openclaw_config(gateway_token, env):
-    """Build the openclaw.json dict — same logic as local mode."""
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -93,8 +121,10 @@ def _build_openclaw_config(gateway_token, env):
         "gateway": {
             "bind": "lan",
             "auth": {"mode": "token", "token": gateway_token},
+            "trustedProxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
             "controlUi": {
                 "allowedOrigins": [
+                    "https://projects.ethara.ai",
                     "http://localhost:18789",
                     "http://127.0.0.1:18789",
                     "http://0.0.0.0:18789",
@@ -123,7 +153,7 @@ def _build_openclaw_config(gateway_token, env):
                 {
                     "id": bedrock_arn,
                     "name": "claude-inference",
-                    "reasoning": True,
+                    "reasoning": False,
                     "input": ["text", "image"],
                     "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                     "contextWindow": 200000,
@@ -141,7 +171,7 @@ def _build_openclaw_config(gateway_token, env):
             {
                 "id": "claude-opus-4.6",
                 "name": "claude-opus-4.6",
-                "reasoning": True,
+                "reasoning": False,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 200000,
@@ -150,7 +180,7 @@ def _build_openclaw_config(gateway_token, env):
             {
                 "id": "kimi-k2.5",
                 "name": "kimi-k2.5",
-                "reasoning": True,
+                "reasoning": False,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 131072,
@@ -198,13 +228,24 @@ class TalosSandboxK8s(models.AbstractModel):
             litellm_db_password = secrets.token_hex(16)
 
         openclaw_image = self._get_config_param(
-            "talos.openclaw_image", "ghcr.io/openclaw/openclaw:latest"
+            "talos.openclaw_image",
+            "426628337772.dkr.ecr.ap-south-1.amazonaws.com/talos-q1-coding:v1.0.0",
         )
         litellm_image = self._get_config_param(
             "talos.litellm_image", "ghcr.io/berriai/litellm:main-stable"
         )
-
-        s3_bucket = env.get("TALOS_S3_BUCKET", "").strip()
+        postgres_image = self._get_config_param(
+            "talos.postgres_image", "postgres:16"
+        )
+        aws_cli_image = self._get_config_param(
+            "talos.aws_cli_image", "amazon/aws-cli:latest"
+        )
+        s3_bucket = self._get_config_param(
+            "talos.s3_bucket", S3_BUCKET
+        )
+        s3_prefix = self._get_config_param(
+            "talos.s3_prefix", S3_TALOS_PREFIX
+        )
 
         gateway_token = task_record.docker_gateway_token
 
@@ -237,15 +278,11 @@ class TalosSandboxK8s(models.AbstractModel):
         if not litellm_yaml:
             kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
             kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
-            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
-            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
                 kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
                 kimi_aws_region=kimi_region,
-                glm_bedrock_arn=glm_arn or "PLACEHOLDER",
-                glm_aws_region=glm_region,
             )
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
@@ -257,20 +294,24 @@ class TalosSandboxK8s(models.AbstractModel):
             name,
             openclaw_image,
             litellm_image,
+            postgres_image,
+            aws_cli_image,
+            s3_bucket,
+            s3_prefix,
             litellm_master_key,
             litellm_db_password,
             aws_bearer,
             aws_region,
             bedrock_arn,
             gateway_token,
-            s3_bucket,
         )
 
         self._create_service(core_v1, task_record, labels, name)
 
         networking_v1 = client.NetworkingV1Api()
         talos_ws_host = self._get_config_param("talos.ws_router_host", "")
-        self._ensure_ws_router(core_v1, apps_v1, networking_v1, talos_ws_host)
+        nginx_image = self._get_config_param("talos.nginx_image", "nginx:alpine")
+        self._ensure_ws_router(core_v1, apps_v1, networking_v1, talos_ws_host, nginx_image)
 
     def _create_secret(
         self,
@@ -304,7 +345,6 @@ class TalosSandboxK8s(models.AbstractModel):
                 raise
 
     def _create_persona_configmap(self, core_v1, task_id, labels, persona):
-        """Create ConfigMap from talos.persona DB fields."""
         data = {}
         if persona.soul_md:
             data["SOUL.md"] = persona.soul_md
@@ -332,7 +372,6 @@ class TalosSandboxK8s(models.AbstractModel):
     def _create_openclaw_config_configmap(
         self, core_v1, task_id, labels, openclaw_config
     ):
-        """Create ConfigMap with pre-built openclaw.json so the entrypoint is bypassed."""
         cm = client.V1ConfigMap(
             api_version="v1",
             kind="ConfigMap",
@@ -350,7 +389,6 @@ class TalosSandboxK8s(models.AbstractModel):
                 raise
 
     def _create_litellm_configmap(self, core_v1, task_id, labels, litellm_yaml):
-        """Create per-task LiteLLM config ConfigMap from persona DB field."""
         cm = client.V1ConfigMap(
             api_version="v1",
             kind="ConfigMap",
@@ -376,13 +414,16 @@ class TalosSandboxK8s(models.AbstractModel):
         name,
         openclaw_image,
         litellm_image,
+        postgres_image,
+        aws_cli_image,
+        s3_bucket,
+        s3_prefix,
         litellm_master_key,
         litellm_db_password,
         aws_bearer,
         aws_region,
         bedrock_arn,
         gateway_token,
-        s3_bucket,
     ):
         task_id = task_record.id
         secret_name = "talos-sandbox-creds-%s" % task_id
@@ -390,47 +431,55 @@ class TalosSandboxK8s(models.AbstractModel):
         openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
         litellm_config_cm = "talos-litellm-config-%s" % task_id
 
-        s3_browser_path = "s3://%s/browser-profiles/%s/" % (s3_bucket, persona)
+        session_s3_path = "s3://%s/%s/tasks/%s/sessions/" % (s3_bucket, s3_prefix, task_id)
+        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (s3_bucket, s3_prefix, persona)
 
-        db_url = "postgresql://llmproxy:%s@localhost:5432/litellm" % litellm_db_password
+        db_url = ""
 
-        # -- Init container: download browser profiles from S3 --
-        init_containers = []
-        if s3_bucket:
-            init_containers.append(
-                client.V1Container(
-                    name="browser-sync-init",
-                    image="amazon/aws-cli:latest",
-                    command=[
-                        "sh",
-                        "-c",
-                        "aws s3 sync %s /data/browser-profiles/ "
-                        "--no-progress || true" % s3_browser_path,
-                    ],
-                    volume_mounts=[
-                        client.V1VolumeMount(
-                            name="browser-profiles",
-                            mount_path="/data/browser-profiles",
-                        ),
-                    ],
-                    resources=client.V1ResourceRequirements(
-                        requests={"cpu": "100m", "memory": "128Mi"},
-                        limits={"cpu": "500m", "memory": "256Mi"},
+        prestop_script = (
+            "echo '[talos] preStop: backing up session data to S3...' && "
+            "aws s3 sync /home/node/.openclaw/ %s "
+            "--no-progress --quiet 2>/dev/null || true && "
+            "aws s3 sync /home/node/.openclaw/browser-profiles/ %s "
+            "--no-progress --quiet 2>/dev/null || true && "
+            "echo '[talos] preStop: backup complete, waiting for connections to drain...' && "
+            "sleep 10"
+        ) % (session_s3_path, browser_s3_path)
+
+        init_containers = [
+            client.V1Container(
+                name="session-restore",
+                image=aws_cli_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "chown -R 1000:1000 /data/session /data/browser-profiles; "
+                    "aws s3 ls %s >/dev/null 2>&1 && "
+                    "aws s3 sync %s /data/session/ --no-progress --quiet || true; "
+                    "aws s3 ls %s >/dev/null 2>&1 && "
+                    "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
+                    "chown -R 1000:1000 /data/session /data/browser-profiles"
+                    % (session_s3_path, session_s3_path, browser_s3_path, browser_s3_path),
+                ],
+                volume_mounts=[
+                    client.V1VolumeMount(
+                        name="openclaw-data",
+                        mount_path="/data/session",
                     ),
-                )
+                    client.V1VolumeMount(
+                        name="browser-profiles",
+                        mount_path="/data/browser-profiles",
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
             )
+        ]
 
         openclaw_container = client.V1Container(
             name="openclaw",
             image=openclaw_image,
-            command=[
-                "node",
-                "openclaw.mjs",
-                "gateway",
-                "--allow-unconfigured",
-                "--token",
-                gateway_token,
-            ],
             ports=[client.V1ContainerPort(container_port=18789)],
             env=[
                 client.V1EnvVar(
@@ -492,32 +541,40 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "1", "memory": "2Gi"},
-                limits={"cpu": "2", "memory": "4Gi"},
+                requests={"cpu": "250m", "memory": "512Mi"},
+                limits={"memory": "8Gi"},
+            ),
+            lifecycle=client.V1Lifecycle(
+                pre_stop=client.V1LifecycleHandler(
+                    _exec=client.V1ExecAction(
+                        command=["sh", "-c", prestop_script],
+                    ),
+                ),
             ),
             startup_probe=client.V1Probe(
                 http_get=client.V1HTTPGetAction(
                     path="/healthz",
                     port=18789,
                 ),
-                initial_delay_seconds=10,
-                period_seconds=5,
-                failure_threshold=30,
+                initial_delay_seconds=5,
+                period_seconds=3,
+                failure_threshold=40,
+                timeout_seconds=3,
             ),
             readiness_probe=client.V1Probe(
                 http_get=client.V1HTTPGetAction(
                     path="/healthz",
                     port=18789,
                 ),
-                period_seconds=10,
-                timeout_seconds=5,
+                period_seconds=5,
+                timeout_seconds=3,
             ),
             liveness_probe=client.V1Probe(
                 http_get=client.V1HTTPGetAction(
                     path="/healthz",
                     port=18789,
                 ),
-                initial_delay_seconds=60,
+                initial_delay_seconds=30,
                 period_seconds=15,
                 timeout_seconds=5,
             ),
@@ -527,7 +584,7 @@ class TalosSandboxK8s(models.AbstractModel):
             name="litellm",
             image=litellm_image,
             ports=[client.V1ContainerPort(container_port=4000)],
-            command=["--config", "/app/config.yaml", "--port", "4000"],
+            command=["litellm", "--config", "/app/config.yaml", "--port", "4000"],
             env=[
                 client.V1EnvVar(
                     name="LITELLM_MASTER_KEY",
@@ -556,8 +613,9 @@ class TalosSandboxK8s(models.AbstractModel):
                         ),
                     ),
                 ),
-                client.V1EnvVar(name="DATABASE_URL", value=db_url),
-                client.V1EnvVar(name="STORE_MODEL_IN_DB", value="True"),
+                client.V1EnvVar(name="STORE_MODEL_IN_DB", value="False"),
+                client.V1EnvVar(name="DISABLE_SCHEMA_UPDATE", value="true"),
+                client.V1EnvVar(name="DISABLE_SPEND_LOGS", value="true"),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
             ],
             volume_mounts=[
@@ -568,97 +626,58 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "500m", "memory": "512Mi"},
-                limits={"cpu": "1", "memory": "2Gi"},
+                requests={"cpu": "100m", "memory": "512Mi"},
+            ),
+            startup_probe=client.V1Probe(
+                tcp_socket=client.V1TCPSocketAction(port=4000),
+                initial_delay_seconds=5,
+                period_seconds=2,
+                failure_threshold=30,
+                timeout_seconds=2,
             ),
             readiness_probe=client.V1Probe(
-                _exec=client.V1ExecAction(
-                    command=[
-                        "python3",
-                        "-c",
-                        "import urllib.request; "
-                        "urllib.request.urlopen('http://localhost:4000/health/liveliness')",
-                    ],
-                ),
-                period_seconds=15,
-                timeout_seconds=10,
-                failure_threshold=5,
+                tcp_socket=client.V1TCPSocketAction(port=4000),
+                period_seconds=5,
+                timeout_seconds=2,
             ),
         )
 
-        db_container = client.V1Container(
-            name="db",
-            image="postgres:16",
-            ports=[client.V1ContainerPort(container_port=5432)],
-            env=[
-                client.V1EnvVar(
-                    name="POSTGRES_PASSWORD",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name=secret_name,
-                            key="LITELLM_DB_PASSWORD",
-                        ),
-                    ),
-                ),
-                client.V1EnvVar(name="POSTGRES_DB", value="litellm"),
-                client.V1EnvVar(name="POSTGRES_USER", value="llmproxy"),
+        session_backup_container = client.V1Container(
+            name="session-backup",
+            image=aws_cli_image,
+            command=[
+                "sh",
+                "-c",
+                "while true; do "
+                "sleep 300; "
+                "aws s3 sync /data/session/ %s "
+                "--no-progress --quiet 2>/dev/null || true; "
+                "aws s3 sync /data/browser-profiles/ %s "
+                "--no-progress --quiet 2>/dev/null || true; "
+                "done" % (session_s3_path, browser_s3_path),
             ],
             volume_mounts=[
                 client.V1VolumeMount(
-                    name="db-data",
-                    mount_path="/var/lib/postgresql/data",
+                    name="openclaw-data",
+                    mount_path="/data/session",
+                    read_only=True,
+                ),
+                client.V1VolumeMount(
+                    name="browser-profiles",
+                    mount_path="/data/browser-profiles",
+                    read_only=True,
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "250m", "memory": "256Mi"},
-                limits={"cpu": "500m", "memory": "512Mi"},
-            ),
-            readiness_probe=client.V1Probe(
-                _exec=client.V1ExecAction(
-                    command=["pg_isready", "-d", "litellm", "-U", "llmproxy"],
-                ),
-                initial_delay_seconds=5,
-                period_seconds=5,
-                timeout_seconds=5,
-            ),
-            liveness_probe=client.V1Probe(
-                _exec=client.V1ExecAction(
-                    command=["pg_isready", "-d", "litellm", "-U", "llmproxy"],
-                ),
-                initial_delay_seconds=30,
-                period_seconds=10,
+                requests={"cpu": "50m", "memory": "64Mi"},
             ),
         )
 
-        # -- Sidecar: periodically sync browser profiles to S3 --
-        containers = [openclaw_container, litellm_container, db_container]
-        if s3_bucket:
-            containers.append(
-                client.V1Container(
-                    name="browser-sync-sidecar",
-                    image="amazon/aws-cli:latest",
-                    command=[
-                        "sh",
-                        "-c",
-                        "while true; do "
-                        "sleep 60; "
-                        "aws s3 sync /data/browser-profiles/ %s "
-                        "--no-progress --quiet 2>/dev/null || true; "
-                        "done" % s3_browser_path,
-                    ],
-                    volume_mounts=[
-                        client.V1VolumeMount(
-                            name="browser-profiles",
-                            mount_path="/data/browser-profiles",
-                            read_only=True,
-                        ),
-                    ],
-                    resources=client.V1ResourceRequirements(
-                        requests={"cpu": "50m", "memory": "64Mi"},
-                        limits={"cpu": "200m", "memory": "128Mi"},
-                    ),
-                )
-            )
+        containers = [
+            openclaw_container,
+            litellm_container,
+            session_backup_container,
+        ]
 
         volumes = [
             client.V1Volume(
@@ -685,10 +704,6 @@ class TalosSandboxK8s(models.AbstractModel):
                     name=litellm_config_cm,
                 ),
             ),
-            client.V1Volume(
-                name="db-data",
-                empty_dir=client.V1EmptyDirVolumeSource(),
-            ),
         ]
 
         deployment = client.V1Deployment(
@@ -710,8 +725,10 @@ class TalosSandboxK8s(models.AbstractModel):
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(labels=labels),
                     spec=client.V1PodSpec(
+                        service_account_name=SANDBOX_SERVICE_ACCOUNT,
+                        termination_grace_period_seconds=TERMINATION_GRACE_PERIOD,
                         node_selector=NODE_SELECTOR,
-                        init_containers=init_containers or None,
+                        init_containers=init_containers,
                         containers=containers,
                         volumes=volumes,
                     ),
@@ -754,7 +771,7 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host):
+    def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host, nginx_image):
         try:
             apps_v1.read_namespaced_deployment(name=WS_ROUTER_NAME, namespace=NAMESPACE)
             return
@@ -780,7 +797,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         container = client.V1Container(
             name="nginx",
-            image="nginx:alpine",
+            image=nginx_image,
             ports=[client.V1ContainerPort(container_port=80)],
             volume_mounts=[
                 client.V1VolumeMount(
@@ -797,7 +814,6 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
             resources=client.V1ResourceRequirements(
                 requests={"cpu": "50m", "memory": "32Mi"},
-                limits={"cpu": "200m", "memory": "64Mi"},
             ),
         )
 

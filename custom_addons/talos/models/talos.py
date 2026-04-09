@@ -73,36 +73,24 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
-
   - model_name: kimi-k2.5
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
-
-  - model_name: kimi-k2.5
-    litellm_params:
-      model: bedrock/invoke/{kimi_bedrock_arn}
-      aws_region_name: {kimi_aws_region}
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
-
-  - model_name: glm-5
-    litellm_params:
-      model: bedrock/converse/{glm_bedrock_arn}
-      aws_region_name: {glm_aws_region}
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
+      input_cost_per_token: 0.000003
+      output_cost_per_token: 0.000015
 
 litellm_settings:
   drop_params: true
   telemetry: false
-  num_retries: 1
-  request_timeout: 900
-  stream_timeout: 60
+  num_retries: 2
+  request_timeout: 600
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -210,11 +198,23 @@ class Talos(models.Model):
 
             mode = rec._deployment_mode()
             if mode == "k8s":
-                svc_name = "talos-sandbox-%s" % rec.id
-                rec.docker_dashboard_url = (
-                    "http://%s.ethara.svc.cluster.local:18789/#token=%s"
-                    % (svc_name, rec.docker_gateway_token)
+                ws_host = (
+                    rec.env["ir.config_parameter"]
+                    .sudo()
+                    .get_param("talos.ws_router_host", "")
+                    .strip()
                 )
+                if ws_host:
+                    rec.docker_dashboard_url = (
+                        "https://%s/sandbox/%s/#token=%s"
+                        % (ws_host, rec.id, rec.docker_gateway_token)
+                    )
+                else:
+                    svc_name = "talos-sandbox-%s" % rec.id
+                    rec.docker_dashboard_url = (
+                        "http://%s.talos.svc.cluster.local:18789/#token=%s"
+                        % (svc_name, rec.docker_gateway_token)
+                    )
             else:
                 if rec.docker_port:
                     rec.docker_dashboard_url = "http://localhost:%d/#token=%s" % (
@@ -251,7 +251,7 @@ class Talos(models.Model):
         mode = self._deployment_mode()
         if mode == "k8s":
             svc_name = "talos-sandbox-%s" % self.id
-            return "ws://%s.ethara.svc.cluster.local:18789" % svc_name
+            return "ws://%s.talos.svc.cluster.local:18789" % svc_name
         else:
             if not self.docker_port:
                 return False
@@ -523,15 +523,11 @@ class Talos(models.Model):
         if not litellm_yaml:
             kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
             kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
-            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
-            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
                 kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
                 kimi_aws_region=kimi_region,
-                glm_bedrock_arn=glm_arn or "PLACEHOLDER",
-                glm_aws_region=glm_region,
             )
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)

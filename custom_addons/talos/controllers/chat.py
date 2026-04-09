@@ -8,7 +8,6 @@ _logger = logging.getLogger(__name__)
 
 
 class TalosChatController(http.Controller):
-
     @http.route("/talos/chat/create_turn", type="json", auth="user")
     def create_turn(self, task_id=0, message="", model="claude-opus-4.6", **kw):
         task_id = int(task_id or 0)
@@ -22,18 +21,20 @@ class TalosChatController(http.Controller):
             return {"error": "Task not found"}
 
         next_num = len(task.turn_ids) + 1
-        turn = request.env["talos.turn"].create({
-            "talos_id": task.id,
-            "turn_number": next_num,
-            "prompt": message,
-            "model_name": model,
-            "turn_status": "Pending",
-        })
+        turn = request.env["talos.turn"].create(
+            {
+                "talos_id": task.id,
+                "turn_number": next_num,
+                "prompt": message,
+                "model_name": model,
+                "turn_status": "Pending",
+            }
+        )
 
         return {"turn_id": turn.id}
 
     @http.route("/talos/chat/save_response", type="json", auth="user")
-    def save_response(self, turn_id=0, response="", **kw):
+    def save_response(self, turn_id=0, response="", thinking="", **kw):
         turn_id = int(turn_id or 0)
 
         if not turn_id:
@@ -43,10 +44,13 @@ class TalosChatController(http.Controller):
         if not turn.exists():
             return {"error": "Turn not found"}
 
-        turn.write({
-            "response": response or "",
-            "turn_status": "Completed",
-        })
+        turn.write(
+            {
+                "response": response or "",
+                "thinking": thinking or "",
+                "turn_status": "Completed",
+            }
+        )
 
         return {"success": True}
 
@@ -63,14 +67,16 @@ class TalosChatController(http.Controller):
 
         turns = []
         for t in task.turn_ids:
-            turns.append({
-                "id": t.id,
-                "turn_number": t.turn_number,
-                "prompt": t.prompt or "",
-                "response": t.response or "",
-                "run_id": t.run_id or "",
-                "model": t.model_name or "",
-                "status": t.turn_status or "",
-            })
+            turns.append(
+                {
+                    "id": t.id,
+                    "turn_number": t.turn_number,
+                    "prompt": t.prompt or "",
+                    "response": t.response or "",
+                    "run_id": t.run_id or "",
+                    "model": t.model_name or "",
+                    "status": t.turn_status or "",
+                }
+            )
 
         return {"turns": turns}

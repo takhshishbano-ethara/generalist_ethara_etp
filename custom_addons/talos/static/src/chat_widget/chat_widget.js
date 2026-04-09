@@ -263,13 +263,16 @@ export class TalosChatWidget extends Component {
             const msg = messages.findLast(m => m.pending);
             if (msg) msg.text += data.text || "";
             if (widget) widget._scrollToBottom();
+        } else if (stream === "assistant" && data.type === "thinking") {
+            this._session.currentThinking = (this._session.currentThinking || "") + (data.text || "");
         } else if (stream === "lifecycle" && data.phase === "end") {
             console.log(LOG_PREFIX, "Agent lifecycle END");
             const msg = messages.findLast(m => m.pending);
             if (msg) msg.pending = false;
             this._session.streaming = false;
             if (widget) widget.state.streaming = false;
-            this._saveResponse(msg ? msg.text : "");
+            this._saveResponse(msg ? msg.text : "", this._session.currentThinking || "");
+            this._session.currentThinking = "";
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
@@ -305,14 +308,18 @@ export class TalosChatWidget extends Component {
         this._scrollToBottom();
     }
 
-    async _saveResponse(text) {
+    async _saveResponse(text, thinking) {
         if (!this._session.currentTurnId) {
             console.warn(LOG_PREFIX, "_saveResponse: no currentTurnId");
             return;
         }
-        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId);
+        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId, "thinking:", thinking?.length || 0);
         try {
-            await rpc("/talos/chat/save_response", { turn_id: this._session.currentTurnId, response: text });
+            await rpc("/talos/chat/save_response", {
+                turn_id: this._session.currentTurnId,
+                response: text,
+                thinking: thinking || "",
+            });
         } catch (e) {
             console.error(LOG_PREFIX, "Save response failed:", e);
         }
