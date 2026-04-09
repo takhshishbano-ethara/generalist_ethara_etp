@@ -34,7 +34,7 @@ class TalosChatController(http.Controller):
         return {"turn_id": turn.id}
 
     @http.route("/talos/chat/save_response", type="json", auth="user")
-    def save_response(self, turn_id=0, response="", thinking="", **kw):
+    def save_response(self, turn_id=0, response="", **kw):
         turn_id = int(turn_id or 0)
 
         if not turn_id:
@@ -47,7 +47,6 @@ class TalosChatController(http.Controller):
         turn.write(
             {
                 "response": response or "",
-                "thinking": thinking or "",
                 "turn_status": "Completed",
             }
         )

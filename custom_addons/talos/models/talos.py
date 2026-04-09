@@ -178,6 +178,22 @@ class Talos(models.Model):
     )
     docker_error = fields.Text(string="Docker Error", readonly=True)
     docker_workdir = fields.Char(string="Working Directory", readonly=True, copy=False)
+    heart_taxonomy = fields.Many2many("talos.taxonomy", string="HEART Taxonomy")
+    task_type = fields.Selection(
+        [("home_and_organization", "home_and_organization"), ("customer_service", "customer_service"), ("research_and_analysis", "research_and_analysis"), 
+        ("creative_writing", "creative_writing"), ("technical_support", "technical_support"), ("education_and_learning", "education_and_learning"), 
+        ("health_and_wellness", "health_and_wellness"), ("finance_and_budgeting", "finance_and_budgeting")], string="Task Type"
+    )
+    difficulty = fields.Selection(
+        [("Single App", "Single App"), ("Multi App Light", "Multi App Light"), ("Multi App Complex", "Multi App Complex")], string="Difficulty"
+    )
+    trajectory_modifier = fields.Selection(
+        [("Memory Usage", "Memory Usage"), ("Long Horizon Context", "Long Horizon Context"), ("Skill Discovery", "Skill Discovery"), 
+        ("Claw Native Tools", "Claw Native Tools"), ("Skill Gap / Self-Extension", "Skill Gap / Self-Extension")], string="Trajectory Modifier"
+    )
+    safety_critical = fields.Selection(
+        [("high_stake_actions", "high_stake_actions"), ("borderline_requests", "borderline_requests"), ("private_data_usage", "private_data_usage")], string="Safety Critical"
+    )
 
     def _deployment_mode(self):
         return (
@@ -205,9 +221,10 @@ class Talos(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = (
-                        "https://%s/sandbox/%s/#token=%s"
-                        % (ws_host, rec.id, rec.docker_gateway_token)
+                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
+                        ws_host,
+                        rec.id,
+                        rec.docker_gateway_token,
                     )
                 else:
                     svc_name = "talos-sandbox-%s" % rec.id
@@ -499,8 +516,8 @@ class Talos(models.Model):
                         "maxTokens": 8192,
                     },
                     {
-                        "id": "kimi-k2.5",
-                        "name": "kimi-k2.5",
+                        "id": "glm-5",
+                        "name": "glm-5",
                         "reasoning": True,
                         "input": ["text", "image"],
                         "cost": {
@@ -876,3 +893,10 @@ class TalosTurn(models.Model):
     response = fields.Text(string="Response")
     run_id = fields.Char(string="Run ID", index=True)
     model_name = fields.Char(string="Model")
+
+
+class TalosTaxonomy(models.Model):
+    _name = "talos.taxonomy"
+    _description = "Talos Taxonomy"
+
+    name = fields.Char(string="Name", required=True, unique=True)

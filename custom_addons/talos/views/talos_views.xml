@@ -38,6 +38,11 @@
               <group>
                 <field name="task_id"/>
                 <field name="parsona"/>
+                <field name="heart_taxonomy" widget="many2many_tags"/>
+                <field name="task_type"/>
+                <field name="difficulty"/>
+                <field name="trajectory_modifier"/>
+                <field name="safety_critical"/>
                 <field name="persona_id"/>
                 <field name="task_status"/>
               </group>
@@ -106,5 +111,40 @@
             (0, 0, {'view_mode': 'form', 'view_id': ref('talos_talos_form')})]"/>
     </record>
 
+    <record model="ir.ui.view" id="talos_taxonomy_list">
+      <field name="name">talos.taxonomy.list</field>
+      <field name="model">talos.taxonomy</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="name"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="talos_taxonomy_form">
+      <field name="name">talos.taxonomy.form</field>
+      <field name="model">talos.taxonomy</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+              <group>
+                  <group>
+                      <field name="name"/>
+                  </group>
+              </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="taxonomy_action_window">
+      <field name="name">Taxonomy</field>
+      <field name="res_model">talos.taxonomy</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('talos_taxonomy_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('talos_taxonomy_form')})]"/>
+
+    </record>
   </data>
 </odoo>

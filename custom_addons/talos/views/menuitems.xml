@@ -6,6 +6,8 @@
               action="talos_talos_action_window" sequence="10"/>
     <menuitem name="Personas" id="talos.menu_talos_personas" parent="talos.menu_talos_root"
               action="talos_persona_action_window" sequence="15"/>
-    <menuitem name="Domains" id="talos.menu_talos_domain" parent="talos.menu_talos_root"
-              action="domain_action_window" sequence="20"/>
+    <!-- <menuitem name="Domains" id="talos.menu_talos_domain" parent="talos.menu_talos_root"
+              action="domain_action_window" sequence="20"/> -->
+    <menuitem name="Taxonomy" id="talos.menu_talos_taxonomy" parent="talos.menu_talos_root"
+              action="taxonomy_action_window" sequence="30"/>
 </odoo>
