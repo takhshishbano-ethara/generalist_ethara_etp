@@ -450,7 +450,7 @@ class DashboardController(http.Controller):
                 if "all" not in non_stemp_project_status:
                     domain.append(('non_stemp_project_status', 'in', non_stemp_project_status))
 
-            projects = request.env['project.project'].sudo().search(domain)
+            projects = request.env['project.project'].sudo().search(domain, order='create_date desc')
             project_data = []
             for p in projects:
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
@@ -469,6 +469,8 @@ class DashboardController(http.Controller):
                     'progress': percentage,
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
+                    'pl_name': safe_get_value(user_id, 'employee_id.task_forge_pl_id.name', 'str'),
+                    'qr_name': safe_get_value(user_id, 'employee_id.task_forge_qr_id.name', 'str'),
                     'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),

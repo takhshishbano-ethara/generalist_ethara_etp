@@ -1039,3 +1039,21 @@ class ProjectController(http.Controller):
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v1/get_employee_designation', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_employee_designation(self, **kwargs):
+        temp = []
+        try:
+            designations = request.env['hr.employee.designation'].sudo().search([])
+            for i in designations:
+                temp.append({
+                    'id': i.id,
+                    'name': i.name
+                })
+            return return_Response(
+                message="Success",
+                status=200, data={"record": temp, "total_record_count": len(temp)})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
