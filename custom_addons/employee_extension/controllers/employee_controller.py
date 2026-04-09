@@ -300,40 +300,53 @@ class EmployeeController(http.Controller):
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
+            today_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('state', '=', 'in_progress')], order='write_date desc')
 
             return return_Response(
                 message="Employee details",
                 status=200,
                 data={'data': {
-                    'id': employee.id,
-                    'name': employee.name,
-                    'email': employee.work_email,
-                    'designation_id': employee.designation_id.id,
-                    'role': employee.user_id.user_role.name,
-                    'job_title': employee.designation_id.name,
-                    'department': employee.department_id.name if employee.department_id else '',
-                    'work_location': employee.work_location_name,
-                    'offboarding_state': employee.offboarding_state,
+                    'id': employee.id if employee else 0,
+                    'name': employee.name if employee and employee.name else "",
+                    'email': employee.work_email if employee and employee.work_email else "",
+                    'job_title_id': employee.designation_id.id if employee.designation_id else 0,
+                    'job_title': employee.designation_id.name if employee.designation_id and employee.designation_id.name else "",
+                    'department_id': employee.department_id.id if employee.department_id else 0,
+                    'department': employee.department_id.name if employee.department_id and employee.department_id.name else '',
+                    'offboarding_state': employee.offboarding_state or "",
                     'is_offboarded': employee.is_offboarded,
-                    'offboard_date': employee.offboard_date.isoformat() if employee.offboard_date else None,
-                    'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else None,
-                    'pl_name': employee.task_forge_pl_id.name if employee.task_forge_pl_id else None,
-                    'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else None,
-                    'qr_name': employee.task_forge_qr_id.name if employee.task_forge_qr_id else None,
-                    'active': employee.active,
+                    'role_id': employee.user_id.user_role.id if employee.user_id.user_role else 0,
+                    'role': employee.user_id.user_role.name if employee.user_id.user_role and employee.user_id.user_role.name else "",
+                    'current_status': self.get_employee_current_status(employee),
+                    'current_task': today_task[0].name if today_task else "",
+                    'task_today': len(today_task),
+                    'work_location': employee.work_location_name or "",
+                    'offboard_date': employee.offboard_date.isoformat() if employee.offboard_date else "",
+                    'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else 0,
+                    'pl_name': employee.task_forge_pl_id.name if employee.task_forge_pl_id and employee.task_forge_pl_id.name else "",
+                    'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else 0,
+                    'qr_name': employee.task_forge_qr_id.name if employee.task_forge_qr_id and employee.task_forge_qr_id.name else "",
+                    'active': employee.active or False,
+                    'last_active': str(today_task[0].write_date) if today_task else ""
                 }}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_employees(self, **kwargs):
         """List employees with filters"""
         try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            team_ids = employee._get_team_employee_ids()
+
             Employee = request.env['hr.employee'].sudo()
 
-            domain = []
+            domain = [('employee_id', 'in', team_ids)]
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
             elif kwargs.get('active') == 'false':
@@ -354,26 +367,28 @@ class EmployeeController(http.Controller):
             for emp in employees:
                 today_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', emp.id), ('state', '=', 'in_progress')], order='write_date desc')
                 data.append({
-                    'id': emp.id,
-                    'name': emp.name,
-                    'email': emp.work_email,
-                    'job_title': emp.job_title,
-                    'department': emp.department_id.name if emp.department_id else '',
-                    'offboarding_state': emp.offboarding_state,
+                    'id': emp.id if emp else 0,
+                    'name': emp.name if emp and emp.name else "",
+                    'email': emp.work_email if emp and emp.work_email else "",
+                    'job_title_id': emp.designation_id.id if emp.designation_id else 0,
+                    'job_title': emp.designation_id.name if emp.designation_id and emp.designation_id.name else "",
+                    'department_id': emp.department_id.id if emp.department_id else 0,
+                    'department': emp.department_id.name if emp.department_id and emp.department_id.name else '',
+                    'offboarding_state': emp.offboarding_state or "",
                     'is_offboarded': emp.is_offboarded,
-                    'designation_id': emp.designation_id.id,
-                    'role': emp.user_id.user_role.name,
+                    'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
+                    'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else "",
                     'current_status': self.get_employee_current_status(emp),
                     'current_task': today_task[0].name if today_task else "",
                     'task_today': len(today_task),
-                    'work_location': emp.work_location_name,
-                    'offboard_date': emp.offboard_date.isoformat() if emp.offboard_date else None,
-                    'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else None,
-                    'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id else None,
-                    'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else None,
-                    'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id else None,
-                    'active': emp.active,
-                    'last_active': str(today_task.write_date) if today_task else ""
+                    'work_location': emp.work_location_name or "",
+                    'offboard_date': emp.offboard_date.isoformat() if emp.offboard_date else "",
+                    'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else 0,
+                    'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id and emp.task_forge_pl_id.name else "",
+                    'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else 0,
+                    'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else "",
+                    'active': emp.active or False,
+                    'last_active': str(today_task[0].write_date) if today_task else ""
                 })
             return return_Response(
                 message=f"{len(data)} employees found",

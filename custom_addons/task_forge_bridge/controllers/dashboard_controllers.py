@@ -43,7 +43,7 @@ class DashboardController(http.Controller):
                             ('date_to', '>=', datetime.datetime.now().date())
                         ])
 
-            complete_task_count = request.env['task.forge.log'].sudo().search_count([('state', 'in', ['completed'])])
+            complete_task_count = request.env['task.forge.log'].sudo().search_count([('state', 'in', ['completed']), ('date', '=', datetime.datetime.now().date())])
 
             blockers = request.env['task.forge.blocker'].sudo().read_group(
                 domain=[('state', 'in', ['escalated'])],
@@ -126,6 +126,7 @@ class DashboardController(http.Controller):
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
+            team_ids = user_id.employee_id._get_team_employee_ids()
 
             domain = [('project_lead', '=', user_id.employee_id.id)]
             if kwargs.get('project_type'):
@@ -139,15 +140,12 @@ class DashboardController(http.Controller):
                     domain.append(('date', '<=', kwargs['end_date']))
 
             current_projects = request.env['project.project'].sudo().search(domain)
-            total_task = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids)])
-
-            total_members = []
-            for project in current_projects:
-                total_members.extend(project.project_tasker.ids)
-                total_members.extend(project.project_qc_reviewer.ids)
+            # total_task = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids)])
+            #
+            # total_members = request.env['hr.employee'].sudo().search([('id', 'in', team_ids)])
 
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
-                ('employee_id', 'in', total_members),
+                ('employee_id', 'in', team_ids),
                 ('state', '=', 'confirm'),
                 ('date_from', '<=', datetime.datetime.now().date()),
                 ('date_to', '>=', datetime.datetime.now().date())
@@ -167,7 +165,7 @@ class DashboardController(http.Controller):
                 values.append(line['end_time_count'])
             vals = {
                 'total_task':{
-                  'total_task_count': total_task,
+                  'total_task_count': len(team_ids),
                     'active_projects': len(current_projects),
                 },
                 'active_project':{
