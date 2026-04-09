@@ -6,16 +6,23 @@
       <field name="arch" type="xml">
         <list>
           <field name="task_id"/>
-          <field name="parsona"/>
           <field name="persona_id"/>
           <field name="employee_id"/>
           <field name="task_status"/>
-          <field name="docker_status" widget="badge"
-                 decoration-success="docker_status == 'running'"
-                 decoration-danger="docker_status == 'error'"
-                 decoration-info="docker_status == 'starting'"
-                 decoration-muted="docker_status == 'stopped'"/>
-          <field name="docker_port"/>
+          <field name="qc_status" widget="badge"
+                 decoration-success="qc_status == 'passed'"
+                 decoration-danger="qc_status == 'failed'"
+                 decoration-muted="qc_status == 'pending'"/>
+          <field name="claude_status" widget="badge" string="Claude"
+                 decoration-success="claude_status == 'running'"
+                 decoration-danger="claude_status == 'error'"
+                 decoration-info="claude_status == 'starting'"
+                 decoration-muted="claude_status == 'stopped'"/>
+          <field name="glm_status" widget="badge" string="GLM"
+                 decoration-success="glm_status == 'running'"
+                 decoration-danger="glm_status == 'error'"
+                 decoration-info="glm_status == 'starting'"
+                 decoration-muted="glm_status == 'stopped'"/>
         </list>
       </field>
     </record>
@@ -25,76 +32,43 @@
       <field name="model">talos.talos</field>
       <field name="arch" type="xml">
         <form>
-          <header>
-            <button name="action_start_sandbox" type="object"
-                    string="Start Sandbox" class="oe_highlight"
-                    invisible="docker_status == 'running'"/>
-            <button name="action_stop_sandbox" type="object"
-                    string="Stop Sandbox" class="btn-danger"
-                    invisible="docker_status != 'running'"/>
-          </header>
           <sheet>
             <div class="oe_button_box" name="button_box">
-              <button class="oe_stat_button" name="action_view_turns"
-                      type="object" icon="fa-comments">
-                <field name="turn_count" widget="statinfo" string="Turns"/>
-              </button>
               <button class="oe_stat_button" name="action_export_session"
                       type="object" icon="fa-download"
                       string="Export Session"/>
             </div>
             <group>
-              <group>
+              <group string="Task Details">
                 <field name="task_id"/>
-                <field name="parsona"/>
+                <field name="persona_id"/>
+                <field name="task_status"/>
+                <field name="qc_status" widget="badge"
+                       decoration-success="qc_status == 'passed'"
+                       decoration-danger="qc_status == 'failed'"
+                       decoration-muted="qc_status == 'pending'"/>
+              </group>
+              <group string="Classification">
                 <field name="heart_taxonomy" widget="many2many_tags"/>
                 <field name="task_type"/>
                 <field name="difficulty"/>
                 <field name="trajectory_modifier"/>
                 <field name="safety_critical"/>
-                <field name="persona_id"/>
-                <field name="task_status"/>
               </group>
-              <group>
+              <group string="Assignment">
                 <field name="employee_id"/>
                 <field name="user_id"/>
               </group>
             </group>
-            <notebook>
-              <page string="Chat">
-                <field name="docker_port" invisible="1"/>
-                <field name="docker_gateway_token" invisible="1"/>
-                <field name="docker_status" invisible="1"/>
-                <field name="docker_ws_url" invisible="1"/>
-                <widget name="talos_chat"/>
-              </page>
-              <page string="OpenClaw Dashboard" groups="talos.group_talos_admin">
-                <field name="docker_dashboard_url" widget="sandbox_iframe"/>
-              </page>
-              <page string="Sandbox" groups="talos.group_talos_admin">
-                <group>
-                  <group string="Configuration">
-                    <field name="docker_status" widget="badge"
-                           decoration-success="docker_status == 'running'"
-                           decoration-danger="docker_status == 'error'"
-                           decoration-info="docker_status == 'starting'"
-                           decoration-muted="docker_status == 'stopped'"/>
-                  </group>
-                  <group string="Runtime">
-                    <field name="docker_compose_project"/>
-                    <field name="docker_port"/>
-                    <field name="docker_litellm_port"/>
-                    <field name="docker_gateway_token"/>
-                  </group>
-                </group>
-                <group invisible="not docker_error">
-                  <field name="docker_error"/>
-                </group>
-                <div class="mt-3">
-                  <field name="docker_dashboard_url" widget="sandbox_iframe" nolabel="1"/>
-                </div>
-              </page>
-            </notebook>
+
+            <field name="sandbox_ids" invisible="1"/>
+            <field name="claude_session_status" invisible="1"/>
+            <field name="glm_session_status" invisible="1"/>
+            <field name="oneP_session_status" invisible="1"/>
+
+            <widget name="talos_task_progress"/>
+
+            <widget name="talos_task_dashboard"/>
           </sheet>
         </form>
       </field>
@@ -152,6 +126,8 @@
       <field name="model">talos.turn</field>
       <field name="arch" type="xml">
         <list default_order="turn_number desc, id desc">
+          <field name="sandbox_id"/>
+          <field name="talos_id"/>
           <field name="turn_number"/>
           <field name="turn_status" widget="badge"
                  decoration-success="turn_status == 'Completed'"
@@ -172,6 +148,7 @@
           <sheet>
             <group>
               <group>
+                <field name="sandbox_id"/>
                 <field name="talos_id"/>
                 <field name="turn_number"/>
                 <field name="turn_status"/>

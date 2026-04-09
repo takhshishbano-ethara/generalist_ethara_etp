@@ -161,6 +161,17 @@
     font-size: 12px;
 }
 
+.o_talos_msg_qc {
+    background: #fef9c3 !important;
+    color: #713f12 !important;
+    border: 1px solid #fde047;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
 .o_talos_cursor {
     animation: talos-blink 0.8s step-end infinite;
     font-weight: bold;

@@ -1,8 +1,5 @@
 /** @odoo-module */
 import { Component, useState, useRef, onMounted, onWillDestroy, onPatched, markup } from "@odoo/owl";
-import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
-import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 import { rpc } from "@web/core/network/rpc";
 
 const MARKED_CDN = "https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js";
@@ -34,11 +31,6 @@ function renderMarkdown(text) {
     return text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
 }
 
-const MODELS = [
-    { id: "claude-opus-4.6", label: "Claude Opus 4.6" },
-    { id: "kimi-k2.5", label: "Kimi K2.5" },
-];
-
 const LOG_PREFIX = "[talos-chat]";
 const STREAM_WORD_THRESHOLD = 5;
 
@@ -49,9 +41,9 @@ function nextId() {
 
 const _sessions = new Map();
 
-function _getSession(taskId) {
-    if (!_sessions.has(taskId)) {
-        _sessions.set(taskId, {
+function _getSession(sandboxId) {
+    if (!_sessions.has(sandboxId)) {
+        _sessions.set(sandboxId, {
             ws: null,
             wsConnected: false,
             messages: [],
@@ -65,82 +57,98 @@ function _getSession(taskId) {
             _pendingRpc: new Map(),
         });
     }
-    return _sessions.get(taskId);
+    return _sessions.get(sandboxId);
 }
 
 export class TalosChatWidget extends Component {
     static template = "talos.ChatWidget";
-    static props = { ...standardWidgetProps };
+    static props = {
+        sandboxId: Number,
+        dockerStatus: String,
+        dockerWsUrl: { type: [String, Boolean], optional: true },
+        gatewayToken: { type: [String, Boolean], optional: true },
+    };
 
     setup() {
-        this.notification = useService("notification");
         this.messagesEndRef = useRef("messagesEnd");
 
-        const taskId = this.props.record.resId;
-        this._session = _getSession(taskId);
+        this._currentSandboxId = this.props.sandboxId;
+        this._session = _getSession(this.props.sandboxId);
 
         this.state = useState({
-            messages: this._session.messages,
+            messages: [],
             inputText: "",
             sending: false,
-            streaming: this._session.streaming,
-            currentTurnId: this._session.currentTurnId,
-            selectedModel: MODELS[0].id,
-            connected: this._session.wsConnected,
-            statusText: this._session.wsConnected ? "Connected" : "Initializing...",
+            streaming: false,
+            currentTurnId: null,
+            connected: false,
+            statusText: "Initializing...",
             activityText: "",
         });
-
-        this.models = MODELS;
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
 
         onMounted(() => {
-            console.log(LOG_PREFIX, "Widget mounted. taskId:", taskId,
+            console.log(LOG_PREFIX, "Widget mounted. sandboxId:", this.props.sandboxId,
                 "sessionCached:", this._session.wsConnected,
                 "messages:", this._session.messages.length);
 
             _loadMarked().catch(e => console.warn(LOG_PREFIX, "marked load failed:", e));
-
-            if (!this._session.historyLoaded) {
-                this._loadHistory();
-            }
-
-            if (this._session.wsConnected && this._session.ws) {
-                this.state.connected = true;
-                this.state.statusText = "Connected";
-                this._session.ws._odooWidget = this;
-            } else {
-                this._tryConnect();
-            }
-
-            this._scrollToBottom();
+            this._syncFromSession();
         });
 
         onPatched(() => {
-            if (this.isRunning && !this._session.wsConnected && !this._session.ws) {
-                this._tryConnect();
+            if (this.props.sandboxId !== this._currentSandboxId) {
+                console.log(LOG_PREFIX, "SandboxId changed:", this._currentSandboxId, "->", this.props.sandboxId);
+                this._detachFromSession();
+                this._currentSandboxId = this.props.sandboxId;
+                this._session = _getSession(this.props.sandboxId);
+                this._syncFromSession();
             }
         });
 
         onWillDestroy(() => {
-            console.log(LOG_PREFIX, "Widget unmounting (tab switch). WS stays alive.");
-            if (this._session.ws) {
-                this._session.ws._odooWidget = null;
-            }
+            console.log(LOG_PREFIX, "Widget unmounting. WS stays alive.");
+            this._detachFromSession();
         });
     }
 
-    get taskId() { return this.props.record.resId; }
+    _syncFromSession() {
+        this.state.messages.length = 0;
+        for (const msg of this._session.messages) {
+            this.state.messages.push(msg);
+        }
+        this._session.messages = this.state.messages;
 
-    get isRunning() {
-        const s = this.props.record.data.docker_status;
-        return Array.isArray(s) ? s[0] === "running" : s === "running";
+        this.state.streaming = this._session.streaming;
+        this.state.connected = this._session.wsConnected;
+        this.state.statusText = this._session.wsConnected ? "Connected" : "Initializing...";
+
+        if (!this._session.historyLoaded) {
+            this._loadHistory();
+        }
+
+        if (this._session.wsConnected && this._session.ws) {
+            this.state.connected = true;
+            this.state.statusText = "Connected";
+            this._session.ws._odooWidget = this;
+        } else {
+            this._tryConnect();
+        }
+
+        this._scrollToBottom();
     }
 
-    get gatewayPort() { return this.props.record.data.docker_port; }
-    get gatewayToken() { return this.props.record.data.docker_gateway_token; }
-    get gatewayWsUrl() { return this.props.record.data.docker_ws_url; }
+    _detachFromSession() {
+        if (this._session.ws) {
+            this._session.ws._odooWidget = null;
+        }
+        this._session.messages = [...this.state.messages];
+    }
+
+    get isRunning() { return this.props.dockerStatus === "running"; }
+    get gatewayToken() { return this.props.gatewayToken; }
+    get gatewayWsUrl() { return this.props.dockerWsUrl; }
 
     _tryConnect() {
         if (!this.isRunning) {
@@ -237,14 +245,14 @@ export class TalosChatWidget extends Component {
                 return;
             }
 
-            if (frame.type === "event" && frame.event === "agent") {
-                console.log(LOG_PREFIX, "AGENT EVENT:", {
-                    stream: frame.payload?.stream,
-                    dataType: frame.payload?.data?.type,
-                    phase: frame.payload?.data?.phase,
-                    textLen: frame.payload?.data?.text?.length,
+            if (frame.type === "event" && frame.event === "chat") {
+                console.log(LOG_PREFIX, "CHAT EVENT:", {
+                    state: frame.payload?.state,
+                    sessionKey: frame.payload?.sessionKey,
+                    runId: frame.payload?.runId,
+                    hasMessage: !!frame.payload?.message,
                 });
-                this._handleAgentEvent(frame.payload, widget);
+                this._handleChatEvent(frame.payload, widget);
                 return;
             }
 
@@ -303,11 +311,13 @@ export class TalosChatWidget extends Component {
         this.state.connected = false;
     }
 
-    _handleAgentEvent(payload, widget) {
-        const stream = payload?.stream || "";
-        const data = payload?.data || {};
+    _handleChatEvent(payload, widget) {
+        if (!payload) return;
+        const state = payload.state;
         const messages = this._session.messages;
         const session = this._session;
+        const stream = payload.stream;
+        const data = payload.message || payload.data || payload;
 
         // Capture raw event for trajectory export
         session._rawEvents.push({
@@ -316,11 +326,21 @@ export class TalosChatWidget extends Component {
             data: JSON.parse(JSON.stringify(data)),
         });
 
+        console.log(LOG_PREFIX, "CHAT EVENT detail:", {
+            state,
+            stream,
+            messageType: typeof payload.message,
+            messageKeys: payload.message ? Object.keys(payload.message) : null,
+            rawMessage: JSON.stringify(payload.message)?.substring(0, 500),
+            sessionKey: payload.sessionKey,
+            runId: payload.runId,
+        });
+
         if (stream === "assistant" && data.text) {
             if (widget) widget.state.activityText = "";
             let msg = messages.findLast(m => m.pending);
             if (!msg) {
-                msg = { role: "assistant", text: "", html: markup(""), model: widget?.state.selectedModel || "", pending: true };
+                msg = { role: "assistant", text: "", html: markup(""), pending: true };
                 messages.push(msg);
                 session._lastFlushedWordCount = 0;
             }
@@ -391,7 +411,7 @@ export class TalosChatWidget extends Component {
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
             let msg = messages.findLast(m => m.pending);
             if (!msg) {
-                msg = { role: "assistant", text: "", html: markup(""), model: widget?.state.selectedModel || "", pending: false };
+                msg = { role: "assistant", text: "", html: markup(""), pending: false };
                 messages.push(msg);
             }
             msg.pending = false;
@@ -407,21 +427,79 @@ export class TalosChatWidget extends Component {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
+        } else if (state === "delta") {
+            const text = this._extractText(payload.message);
+            console.log(LOG_PREFIX, "DELTA extracted text:", JSON.stringify(text)?.substring(0, 200));
+            if (text) {
+                const msg = messages.findLast(m => m.pending);
+                if (msg) msg.text += text;
+                if (widget) widget._scrollToBottom();
+            }
+        } else if (state === "final") {
+            const finalText = this._extractText(payload.message);
+            console.log(LOG_PREFIX, "FINAL text length:", finalText?.length);
+            const msg = messages.findLast(m => m.pending);
+            if (msg) {
+                if (finalText) msg.text = finalText;
+                msg.pending = false;
+            }
+            this._session.streaming = false;
+            if (widget) {
+                widget.state.streaming = false;
+                widget._scrollToBottom();
+            }
+            this._saveResponse(msg ? msg.text : "");
+        } else if (state === "error") {
+            const errText = payload.errorMessage || "Chat error";
+            console.error(LOG_PREFIX, "Chat ERROR:", errText);
+            const msg = messages.findLast(m => m.pending);
+            if (msg) {
+                msg.pending = false;
+                msg.text = errText;
+                msg.isError = true;
+            }
+            this._session.streaming = false;
+            if (widget) widget.state.streaming = false;
+        } else if (state === "aborted") {
+            const msg = messages.findLast(m => m.pending);
+            if (msg) {
+                msg.pending = false;
+                if (!msg.text) msg.text = "[Aborted]";
+            }
+            this._session.streaming = false;
+            if (widget) widget.state.streaming = false;
         }
     }
 
+    _extractText(message) {
+        if (!message) return "";
+        if (typeof message === "string") return message;
+        if (typeof message.text === "string") return message.text;
+        if (Array.isArray(message.content)) {
+            return message.content
+                .filter(b => b && typeof b === "object" && b.text)
+                .map(b => b.text)
+                .join("");
+        }
+        if (typeof message.content === "string") return message.content;
+        if (message.role && message.content) {
+            return this._extractText(message.content);
+        }
+        return JSON.stringify(message);
+    }
+
     async _loadHistory() {
-        if (!this.taskId) return;
+        if (!this.props.sandboxId) return;
         if (this._session.historyLoaded) return;
-        console.log(LOG_PREFIX, "Loading history for task", this.taskId);
+        console.log(LOG_PREFIX, "Loading history for sandbox", this.props.sandboxId);
         try {
-            const result = await rpc("/talos/chat/history", { task_id: this.taskId });
+            const result = await rpc("/talos/chat/history", { sandbox_id: this.props.sandboxId });
             console.log(LOG_PREFIX, "History loaded:", result.turns?.length, "turns");
             if (result.turns) {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
-                    if (t.prompt) this._session.messages.push({ role: "user", text: t.prompt, model: t.model });
-                    if (t.response) this._session.messages.push({ role: "assistant", text: t.response, html: markup(renderMarkdown(t.response)), model: t.model, pending: false });
+                    if (t.prompt) this._session.messages.push({ role: "user", text: t.prompt });
+                    if (t.response) this._session.messages.push({ role: "assistant", text: t.response, pending: false });
                 }
             }
             this._session.historyLoaded = true;
@@ -452,7 +530,7 @@ export class TalosChatWidget extends Component {
 
     async _fetchTrajectory(turnId) {
         if (!turnId || !this._session.wsConnected) return;
-        const sessionKey = "odoo:" + (this.taskId || "0");
+        const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
         console.log(LOG_PREFIX, "Fetching trajectory via chat.history for", sessionKey);
         try {
             const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
@@ -501,52 +579,26 @@ export class TalosChatWidget extends Component {
         const text = this.state.inputText.trim();
         if (!text || this.state.sending || this._session.streaming) return;
         if (!this._session.wsConnected) {
-            this.notification.add(`Not connected. ${this.state.statusText}`, { type: "warning" });
+            this._session.messages.push({
+                role: "assistant",
+                text: `Not connected. ${this.state.statusText}`,
+                isError: true,
+                pending: false,
+            });
+            this._scrollToBottom();
             return;
         }
 
-        console.log(LOG_PREFIX, "onSend:", { text: text.substring(0, 100), model: this.state.selectedModel });
+        console.log(LOG_PREFIX, "onSend:", { text: text.substring(0, 100) });
 
         this.state.inputText = "";
         this.state.sending = true;
-        this._session.messages.push({ role: "user", text, model: this.state.selectedModel });
+        this._session.messages.push({ role: "user", text });
         this._scrollToBottom();
-
-        this.state.activityText = "Checking prompt…";
-        console.log(LOG_PREFIX, "Running QC check...");
-        let qcPassed = true;
-        try {
-            const qcResult = await rpc("/talos/qc", { prompt: text });
-            console.log(LOG_PREFIX, "QC result:", qcResult);
-            if (qcResult.error) {
-                console.warn(LOG_PREFIX, "QC error, passing through:", qcResult.error);
-            } else if (qcResult.parsed_json) {
-                const qc = qcResult.parsed_json;
-                if (qc.pass === false || qc.approved === false || qc.allowed === false) {
-                    qcPassed = false;
-                    const reason = qc.reason || qc.message || qcResult.response || "Prompt rejected by QC";
-                    this._session.messages.push({
-                        role: "assistant",
-                        text: reason,
-                        html: markup(renderMarkdown(reason)),
-                        isError: true,
-                        pending: false,
-                    });
-                    this.state.sending = false;
-                    this.state.activityText = "";
-                    this._scrollToBottom();
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
-        }
-
-        this.state.activityText = "Sending to model…";
 
         let turnId = null;
         try {
-            const r = await rpc("/talos/chat/create_turn", { task_id: this.taskId, message: text, model: this.state.selectedModel });
+            const r = await rpc("/talos/chat/create_turn", { sandbox_id: this.props.sandboxId, message: text });
             turnId = r.turn_id;
             console.log(LOG_PREFIX, "Turn created:", turnId);
         } catch (e) {
@@ -560,7 +612,7 @@ export class TalosChatWidget extends Component {
             method: "chat.send",
             params: {
                 message: text,
-                sessionKey: "odoo:" + (this.taskId || "0"),
+                sessionKey: "odoo:sandbox:" + this.props.sandboxId,
                 deliver: false,
                 idempotencyKey: crypto.randomUUID(),
             },
@@ -568,6 +620,7 @@ export class TalosChatWidget extends Component {
         console.log(LOG_PREFIX, "SEND chat.send:", JSON.stringify(chatSendMsg));
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
+        this._session.messages.push({ role: "assistant", text: "", pending: true });
         this.state.activityText = "Waiting for model…";
         this._session.streaming = true;
         this.state.streaming = true;
@@ -581,7 +634,7 @@ export class TalosChatWidget extends Component {
             type: "req",
             id: nextId(),
             method: "chat.abort",
-            params: { sessionKey: "odoo:" + (this.taskId || "0") },
+            params: { sessionKey: "odoo:sandbox:" + this.props.sandboxId },
         };
         console.log(LOG_PREFIX, "SEND chat.abort:", JSON.stringify(abortMsg));
         this._session.ws.send(JSON.stringify(abortMsg));
@@ -597,7 +650,7 @@ export class TalosChatWidget extends Component {
             msg.text = fullText;
             msg.html = markup(renderMarkdown(fullText));
         } else {
-            msg = { role: "assistant", text: fullText, html: markup(renderMarkdown(fullText)), model: this.state.selectedModel, pending: false };
+            msg = { role: "assistant", text: fullText, html: markup(renderMarkdown(fullText)), pending: false };
             messages.push(msg);
         }
 
@@ -625,6 +678,3 @@ export class TalosChatWidget extends Component {
         });
     }
 }
-
-export const talosChatWidgetDef = { component: TalosChatWidget };
-registry.category("view_widgets").add("talos_chat", talosChatWidgetDef);

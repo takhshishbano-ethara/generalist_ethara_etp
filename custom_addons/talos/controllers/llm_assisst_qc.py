@@ -59,6 +59,37 @@ def _parse_json_response(text):
     return None
 
 
+def _parse_qc_verdict(text):
+    verdict_match = re.search(
+        r"OVERALL\s+VERDICT:\s*(PASS|FAIL|WARN)", text, re.IGNORECASE
+    )
+    if not verdict_match:
+        return None
+
+    verdict = verdict_match.group(1).upper()
+
+    fails = 0
+    warns = 0
+    passes = 0
+    count_match = re.search(r"Total FAILs:\s*(\d+)", text)
+    if count_match:
+        fails = int(count_match.group(1))
+    count_match = re.search(r"Total WARNs:\s*(\d+)", text)
+    if count_match:
+        warns = int(count_match.group(1))
+    count_match = re.search(r"Total PASSes:\s*(\d+)", text)
+    if count_match:
+        passes = int(count_match.group(1))
+
+    return {
+        "pass": verdict == "PASS",
+        "verdict": verdict,
+        "fails": fails,
+        "warns": warns,
+        "passes": passes,
+    }
+
+
 def _call_bedrock_converse(
     api_key,
     inference_arn,
@@ -128,10 +159,10 @@ def _call_bedrock_converse(
 
 
 class LlmAssistQc(http.Controller):
-
     @http.route("/talos/qc", type="json", auth="user")
-    def qc_prompt(self, prompt="", system_prompt="", max_tokens=4096,
-                  temperature=0.7, **kw):
+    def qc_prompt(
+        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.7, **kw
+    ):
         prompt = (prompt or "").strip()
         if not prompt:
             return {"error": "prompt is required"}
@@ -166,6 +197,7 @@ class LlmAssistQc(http.Controller):
             return {"error": str(e)[:500]}
 
         parsed_json = _parse_json_response(response_text)
+        qc_verdict = _parse_qc_verdict(response_text)
 
         result = {
             "success": True,
@@ -174,11 +206,19 @@ class LlmAssistQc(http.Controller):
         }
         if parsed_json is not None:
             result["parsed_json"] = parsed_json
+        if qc_verdict is not None:
+            result["parsed_json"] = qc_verdict
 
         return result
 
-    @http.route("/api/talos/llm_assist_qc", type="http", auth="public",
-                methods=["POST"], csrf=False, cors="*")
+    @http.route(
+        "/api/talos/llm_assist_qc",
+        type="http",
+        auth="public",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+    )
     def llm_assist_qc_legacy(self, **params):
         try:
             try:
@@ -203,7 +243,10 @@ class LlmAssistQc(http.Controller):
             api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
             if not api_key:
                 return request.make_json_response(
-                    {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env", "status": 500},
+                    {
+                        "error": "AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "status": 500,
+                    },
                     status=500,
                 )
 

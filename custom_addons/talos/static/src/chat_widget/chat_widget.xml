@@ -26,11 +26,8 @@
                                         <t t-if="msg.role === 'user'">You</t>
                                         <t t-else="">Assistant</t>
                                     </span>
-                                    <span t-if="msg.model" class="o_talos_msg_model">
-                                        <t t-out="msg.model"/>
-                                    </span>
                                 </div>
-                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.role === 'assistant' ? 'o_talos_md' : ''}">
+                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : msg.isQc ? 'o_talos_msg_qc' : ''} #{msg.role === 'assistant' ? 'o_talos_md' : ''}">
                                     <t t-if="msg.role === 'assistant' and msg.html">
                                         <t t-out="msg.html"/>
                                     </t>
@@ -71,16 +68,6 @@
                                 <i class="fa fa-paper-plane"/>
                             </button>
                         </t>
-                    </div>
-                    <div class="o_talos_chat_model_row">
-                        <label class="small text-muted me-1">Model:</label>
-                        <select t-model="state.selectedModel"
-                                class="o_talos_model_select"
-                                t-att-disabled="state.streaming">
-                            <t t-foreach="models" t-as="m" t-key="m.id">
-                                <option t-att-value="m.id" t-out="m.label"/>
-                            </t>
-                        </select>
                     </div>
                 </div>
             </t>

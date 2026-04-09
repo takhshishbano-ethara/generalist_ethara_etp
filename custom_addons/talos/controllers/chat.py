@@ -5,26 +5,31 @@ import logging
 from odoo import http
 from odoo.http import request
 
+from ..models.talos_sandbox import MODEL_DEFAULTS
+
 _logger = logging.getLogger(__name__)
 
 
 class TalosChatController(http.Controller):
     @http.route("/talos/chat/create_turn", type="json", auth="user")
-    def create_turn(self, task_id=0, message="", model="claude-opus-4.6", **kw):
-        task_id = int(task_id or 0)
+    def create_turn(self, sandbox_id=0, message="", model=None, **kw):
+        sandbox_id = int(sandbox_id or 0)
         message = (message or "").strip()
 
-        if not task_id or not message:
-            return {"error": "task_id and message are required"}
+        if not sandbox_id or not message:
+            return {"error": "sandbox_id and message are required"}
 
-        task = request.env["talos.talos"].browse(task_id)
-        if not task.exists():
-            return {"error": "Task not found"}
+        sandbox = request.env["talos.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
 
-        next_num = len(task.turn_ids) + 1
+        if model is None:
+            model = MODEL_DEFAULTS.get(sandbox.model_type, "unknown")
+
+        next_num = len(sandbox.turn_ids) + 1
         turn = request.env["talos.turn"].create(
             {
-                "talos_id": task.id,
+                "sandbox_id": sandbox.id,
                 "turn_number": next_num,
                 "prompt": message,
                 "model_name": model,
@@ -74,18 +79,18 @@ class TalosChatController(http.Controller):
         return {"success": True}
 
     @http.route("/talos/chat/history", type="json", auth="user")
-    def chat_history(self, task_id=0, **kw):
-        task_id = int(task_id or 0)
+    def chat_history(self, sandbox_id=0, **kw):
+        sandbox_id = int(sandbox_id or 0)
 
-        if not task_id:
-            return {"error": "task_id is required"}
+        if not sandbox_id:
+            return {"error": "sandbox_id is required"}
 
-        task = request.env["talos.talos"].browse(task_id)
-        if not task.exists():
-            return {"error": "Task not found"}
+        sandbox = request.env["talos.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
 
         turns = []
-        for t in task.turn_ids.sorted("turn_number"):
+        for t in sandbox.turn_ids:
             turns.append(
                 {
                     "id": t.id,
@@ -102,23 +107,32 @@ class TalosChatController(http.Controller):
         return {"turns": turns}
 
     @http.route("/talos/chat/export_session", type="http", auth="user")
-    def export_session(self, task_id=0, **kw):
+    def export_session(self, sandbox_id=0, task_id=0, **kw):
+        sandbox_id = int(sandbox_id or 0)
         task_id = int(task_id or 0)
-        if not task_id:
+
+        if sandbox_id:
+            sandbox = request.env["talos.sandbox"].browse(sandbox_id)
+            if not sandbox.exists():
+                return request.not_found()
+            trajectory = sandbox.build_trajectory_json()
+            label = sandbox.model_type or "sandbox"
+            filename = "session-%s-%d.json" % (label, sandbox_id)
+        elif task_id:
+            task = request.env["talos.talos"].browse(task_id)
+            if not task.exists():
+                return request.not_found()
+            trajectory = task.build_trajectory_json()
+            filename = "session-%d.json" % task_id
+        else:
             return request.not_found()
 
-        task = request.env["talos.talos"].browse(task_id)
-        if not task.exists():
-            return request.not_found()
-
-        trajectory = task.build_trajectory_json()
         content = json.dumps(trajectory, indent=2, ensure_ascii=False)
-        filename = f"session-{task_id}.json"
 
         return request.make_response(
             content,
             headers=[
                 ("Content-Type", "application/json; charset=utf-8"),
-                ("Content-Disposition", f'attachment; filename="{filename}"'),
+                ("Content-Disposition", 'attachment; filename="%s"' % filename),
             ],
         )
