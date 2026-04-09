@@ -331,9 +331,15 @@ class EmployeeController(http.Controller):
     def list_employees(self, **kwargs):
         """List employees with filters"""
         try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            team_ids = employee._get_team_employee_ids()
+
             Employee = request.env['hr.employee'].sudo()
 
-            domain = []
+            domain = [('employee_id', 'in', team_ids)]
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
             elif kwargs.get('active') == 'false':
