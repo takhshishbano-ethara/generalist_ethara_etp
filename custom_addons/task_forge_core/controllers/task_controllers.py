@@ -23,10 +23,11 @@ class TaskForgeTaskController(http.Controller):
             TaskLog = request.env['task.forge.log'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
+
             if kwargs.get('employee_id'):
                 domain.append(('employee_id', '=', int(kwargs['employee_id'])))
-            if kwargs.get('project_id'):
-                domain.append(('project_id', '=', int(kwargs['project_id'])))
+            if kwargs.get('project'):
+                domain.append(('project_id', '=', int(kwargs['project'])))
             if kwargs.get('status'):
                 if kwargs.get('status') != 'all':
                     domain.append(('state', '=', kwargs['status']))
@@ -35,14 +36,18 @@ class TaskForgeTaskController(http.Controller):
                 domain.append(('date', '=', kwargs.get('date')))
 
             filter_type = kwargs.get('filter')
+
             if filter_type == 'today':
                 domain.append(('date', '=', today))
+
             elif filter_type == 'this_week':
                 start_date = today - timedelta(days=7)
                 domain.extend([('date', '>=', start_date), ('date', '<=', today)])
+
             elif filter_type == 'this_month':
                 start_date = today - timedelta(days=30)
                 domain.extend([('date', '>=', start_date), ('date', '<=', today)])
+
             if kwargs.get('start_date') and kwargs.get('end_date'):
                 if kwargs['start_date'] == kwargs['end_date']:
                     domain.append(('date', '=', kwargs['start_date']))
@@ -54,7 +59,7 @@ class TaskForgeTaskController(http.Controller):
             search_val = kwargs.get('search')
             if search_val:
                 # We add a '|' for the two following conditions
-                domain.extend(['|', ('employee_id.name', 'ilike', search_val), ('name', 'ilike', search_val)])
+                domain.extend(['|', '|', ('employee_id.name', 'ilike', search_val), ('name', 'ilike', search_val), ('project_id.name', 'ilike', search_val)])
 
             tasks = TaskLog.search(domain, order='create_date desc', limit=int(kwargs.get('limit', 200)))
             data = [self._format_task(t) for t in tasks]
@@ -139,6 +144,10 @@ class TaskForgeTaskController(http.Controller):
                 vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
 
             task = TaskLog.create(vals)
+            if task.project_id:
+                if task.project_id.non_stemp_project_status in ['not_started', 'draft']:
+                    task.project_id.non_stemp_project_status = 'production'
+
             return return_Response(message="Task started", status=200, data={'data': self._format_task(task)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
