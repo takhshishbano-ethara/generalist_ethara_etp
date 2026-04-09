@@ -326,7 +326,7 @@ class EmployeeController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_employees(self, **kwargs):
         """List employees with filters"""
