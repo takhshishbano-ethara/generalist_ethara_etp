@@ -165,7 +165,7 @@ class DashboardController(http.Controller):
                 values.append(line['end_time_count'])
             vals = {
                 'total_task':{
-                  'total_task_count': team_ids,
+                  'total_task_count': len(team_ids),
                     'active_projects': len(current_projects),
                 },
                 'active_project':{
