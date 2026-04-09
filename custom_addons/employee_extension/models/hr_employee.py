@@ -12,7 +12,8 @@ class HrEmployee(models.Model):
     ], string='Offboarding State', default='active', tracking=True)
 
     offboard_date = fields.Date(string='Offboard Date', readonly=True)
-
+    reason_id = fields.Many2one('hr.employee.offboarding.reasons', string='Offboarding Reasons')
+    offboard_notes = fields.Text(string='Offboard Notes')
     is_offboarded = fields.Boolean(string='Is Offboarded', compute='_compute_is_offboarded', store=True)
 
     @api.depends('offboarding_state')
@@ -42,3 +43,8 @@ class HrEmployee(models.Model):
             'offboard_date': False,
         })
         return True
+
+class OffboardingReasons(models.Model):
+    _name = 'hr.employee.offboarding.reasons'
+
+    reason = fields.Char(string='Reason')

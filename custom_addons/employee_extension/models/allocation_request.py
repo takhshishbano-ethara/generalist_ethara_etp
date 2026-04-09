@@ -8,15 +8,15 @@ class EmployeeAllocationRequest(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'create_date desc'
 
-    name = fields.Char(string='Reference', required=True, copy=False, readonly=True, default=lambda self: self.env['ir.sequence'].next_by_code('employee.allocation.request'))
+    name = fields.Char(string='Reference', copy=False, readonly=True, default=lambda self: self.env['ir.sequence'].next_by_code('employee.allocation.request'))
 
-    project_id = fields.Many2one('project.project', string='Project', required=True, tracking=True)
+    project_id = fields.Many2one('project.project', string='Project', tracking=True)
 
-    role_id = fields.Many2one('api.role', string='Requested Role', required=True, tracking=True)
+    role_id = fields.Many2one('api.role', string='Requested Role', tracking=True)
 
-    quantity = fields.Integer(string='Number of Employees Required', required=True, default=1)
+    quantity = fields.Integer(string='Number of Employees Required', default=1)
 
-    justification = fields.Text(string='Justification', required=True)
+    justification = fields.Text(string='Justification')
 
     state = fields.Selection([
         ('draft', 'Draft'),
@@ -25,12 +25,11 @@ class EmployeeAllocationRequest(models.Model):
         ('rejected', 'Rejected'),
     ], string='Status', default='draft', tracking=True)
 
-    requested_by = fields.Many2one('res.users', string='Requested By', 
-                                   default=lambda self: self.env.user, readonly=True)
+    requested_by = fields.Many2one('res.users', string='Requested By', default=lambda self: self.env.user)
 
-    approval_date = fields.Datetime(string='Approval Date', readonly=True)
+    approval_date = fields.Datetime(string='Approval Date')
 
-    approved_by = fields.Many2one('res.users', string='Approved By', readonly=True)
+    approved_by = fields.Many2one('res.users', string='Approved By')
     assign_employees = fields.Many2many('hr.employee', 'emp_allocation_request_hr_employee_rel', string='Assign Employee')
 
     notes = fields.Text(string='Notes')

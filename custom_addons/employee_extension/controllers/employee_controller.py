@@ -189,7 +189,7 @@ class EmployeeController(http.Controller):
                         update_vals[field] = jdata.get(field)
 
             if update_vals:
-                employee.write(update_vals)
+                employee.sudo().write(update_vals)
 
             return return_Response(
                 message="Employee updated successfully",
@@ -209,9 +209,10 @@ class EmployeeController(http.Controller):
     @validate_request({
         'employee_id': {'type': 'int', 'required': True},
         'action': {'type': 'string', 'required': True},
+        'reason_id': {'type': 'int', 'required': True},
+        'offboard_notes': {'type': 'string', 'required': True}
     })
     def offboard_employee(self, **kwargs):
-        """Offboard employee - action: start, complete, reactivate"""
         try:
             Employee = request.env['hr.employee'].sudo()
             employee = Employee.browse(int(kwargs.get('employee_id')))
@@ -221,35 +222,13 @@ class EmployeeController(http.Controller):
 
             action = kwargs.get('action', '').lower()
 
-            if action == 'start':
-                if employee.offboarding_state != 'active':
-                    return return_Response(
-                        message=f"Cannot start offboarding. Current state: {employee.offboarding_state}",
-                        status=400
-                    )
-                employee.write({
-                    'offboarding_state': 'offboarding',
-                    'offboard_date': fields.Date.today(),
-                })
-                return return_Response(
-                    message="Offboarding started",
-                    status=200,
-                    data={'data': {
-                        'id': employee.id,
-                        'offboarding_state': employee.offboarding_state,
-                        'offboard_date': employee.offboard_date,
-                    }}
-                )
-
-            elif action == 'complete':
-                if employee.offboarding_state != 'offboarding':
-                    return return_Response(
-                        message=f"Cannot complete offboarding. Current state: {employee.offboarding_state}",
-                        status=400
-                    )
-                employee.write({
+            if action == 'offboard':
+                employee.sudo().write({
                     'offboarding_state': 'offboarded',
                     'active': False,
+                    'offboard_date': fields.Date.today(),
+                    'reason_id': int(kwargs.get('reason_id')),
+                    'offboard_notes': kwargs.get('offboard_notes')
                 })
                 return return_Response(
                     message="Employee offboarded successfully",
@@ -280,7 +259,7 @@ class EmployeeController(http.Controller):
 
             else:
                 return return_Response(
-                    message="Invalid action. Use: start, complete, or reactivate",
+                    message="Invalid action. Use: offboard or reactivate",
                     status=400
                 )
 
@@ -401,6 +380,7 @@ class EmployeeController(http.Controller):
 
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
+
             elif kwargs.get('active') == 'false':
                 domain.append(('active', '=', False))
 
@@ -499,6 +479,21 @@ class EmployeeController(http.Controller):
             roles = request.env['api.role'].sudo().search(domain)
             for role in roles:
                 temp.append({'id': role.id, 'name': role.name})
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/get_offboarding_reasons', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_offboarding_reasons(self, **kwargs):
+        temp = []
+        try:
+            offboarding_reasons = request.env['hr.employee.offboarding.reasons'].sudo().search([])
+            for role in offboarding_reasons:
+                temp.append({'id': role.id, 'reason': role.reason})
             return return_Response(
                 message="success",
                 status=200,

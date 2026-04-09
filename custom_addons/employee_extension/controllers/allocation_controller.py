@@ -29,7 +29,7 @@ class AllocationController(http.Controller):
                 'quantity': jdata['quantity'],
                 'justification': jdata['justification'],
                 'requested_by': user.id,
-                'state': 'draft',
+                'state': 'submitted',
             }
             
             if jdata.get('role_id'):
@@ -42,7 +42,7 @@ class AllocationController(http.Controller):
                 status=200,
                 data={'data': {
                     'id': allocation_request.id,
-                    'name': allocation_request.name,
+                    # 'name': allocation_request.name,
                     'project_id': allocation_request.project_id.id,
                     'project_name': allocation_request.project_id.name,
                     'quantity': allocation_request.quantity,
@@ -207,7 +207,7 @@ class AllocationController(http.Controller):
     @http.route('/api/v1/allocation/request', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
-        'request_id': {'type': 'int', 'required': True}
+        'request_id': {'type': 'str', 'required': True}
     })
     def get_allocation_request(self, **kwargs):
         """Get allocation request details"""
@@ -218,7 +218,7 @@ class AllocationController(http.Controller):
                 return return_Response(message="Insufficient permissions to approve", status=403)
 
             AllocationRequest = request.env['employee.allocation.request'].sudo()
-            allocation_request = AllocationRequest.browse(jdata.get('request_id'))
+            allocation_request = AllocationRequest.browse(int(jdata.get('request_id')))
 
             if not allocation_request.exists():
                 return return_Response(message="Allocation request not found", status=404)
@@ -247,7 +247,7 @@ class AllocationController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/allocation/requests', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/allocation/requests_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_allocation_requests(self, **kwargs):
         """List allocation requests with filters"""
@@ -266,12 +266,12 @@ class AllocationController(http.Controller):
             data = [{
                 'id': req.id,
                 'name': req.name,
-                'project_name': req.project_id.name if req.project_id else None,
-                'role_name': req.role_id.name if req.role_id else None,
+                'project_name': req.project_id.name if req.project_id else "",
+                'role_name': req.role_id.name if req.role_id else "",
                 'quantity': req.quantity,
                 'state': req.state,
-                'requested_by': req.requested_by.name if req.requested_by else None,
-                'created_at': req.create_date.isoformat() if req.create_date else None,
+                'requested_by': req.requested_by.name if req.requested_by else "",
+                'created_at': req.create_date.isoformat() if req.create_date else "",
                 'assign_employees': [{'id': i.id, 'name': i.name} for i in req.assign_employees]
             } for req in requests]
 
