@@ -64,7 +64,7 @@ class Project(models.Model):
     lock_ttl= fields.Integer(string="Lock TTL (Minute)")
     daily_quota_per_tasker = fields.Integer(string="Daily Quota per Tasker")
     approval_target = fields.Integer(string="Approval Target")
-    non_stemp_project_status = fields.Selection([('draft', 'Draft'), ('not_started', 'Not Started'), ('closed', 'Closed'), ('paused', 'Paused'), ('production', 'Production'), ('cancel', 'Cancel')], default='draft')
+    non_stemp_project_status = fields.Selection([('draft', 'Draft'), ('not_started', 'Not Started'), ('closed', 'Closed'), ('paused', 'Paused'), ('production', 'Production'), ('cancel', 'Cancel')], default='not_started')
     base_project_task = fields.One2many('base.project.task', 'project_id', string='Base Project Task')
 
     def create_slack_channel(self):

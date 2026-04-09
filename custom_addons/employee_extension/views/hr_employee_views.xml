@@ -2,84 +2,84 @@
 <odoo>
 
     <!-- Employee Form View - Offboarding Fields & Buttons -->
-    <record id="view_employee_extension_form" model="ir.ui.view">
-        <field name="name">hr.employee.extension.form</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_form"/>
-        <field name="arch" type="xml">
-            <xpath expr="//div[@name='button_box']" position="inside">
-                <button name="action_make_offboard" string="Offboard" type="object"
-                        class="oe_stat_button" icon="fa-sign-out"
-                        invisible="offboarding_state == 'offboarded'"
-                        confirm="Are you sure you want to proceed with offboarding?">
-                    <div class="o_field_widget o_stat_info">
-                        <span class="o_stat_value">
-                            <field name="offboarding_state" readonly="1"/>
-                        </span>
-                        <span class="o_stat_text">Offboarding</span>
-                    </div>
-                </button>
-                <button name="action_reactivate_employee" string="Reactivate" type="object"
-                        class="oe_stat_button" icon="fa-refresh"
-                        invisible="offboarding_state == 'active'"
-                        confirm="Are you sure you want to reactivate this employee?">
-                    <div class="o_field_widget o_stat_info">
-                        <span class="o_stat_text">Reactivate</span>
-                    </div>
-                </button>
-            </xpath>
-            <xpath expr="//notebook" position="inside">
-                <page string="Offboarding" name="offboarding">
-                    <group>
-                        <group>
-                            <field name="offboarding_state" readonly="1"/>
-                            <field name="offboard_date"/>
-                        </group>
-                        <group>
-                            <field name="is_offboarded" invisible="1"/>
-                        </group>
-                    </group>
-                </page>
-            </xpath>
-        </field>
-    </record>
+<!--    <record id="view_employee_extension_form" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.form</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id" ref="hr.view_employee_form"/>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//div[@name='button_box']" position="inside">-->
+<!--                <button name="action_make_offboard" string="Offboard" type="object"-->
+<!--                        class="oe_stat_button" icon="fa-sign-out"-->
+<!--                        invisible="offboarding_state == 'offboarded'"-->
+<!--                        confirm="Are you sure you want to proceed with offboarding?">-->
+<!--                    <div class="o_field_widget o_stat_info">-->
+<!--                        <span class="o_stat_value">-->
+<!--                            <field name="offboarding_state" readonly="1"/>-->
+<!--                        </span>-->
+<!--                        <span class="o_stat_text">Offboarding</span>-->
+<!--                    </div>-->
+<!--                </button>-->
+<!--                <button name="action_reactivate_employee" string="Reactivate" type="object"-->
+<!--                        class="oe_stat_button" icon="fa-refresh"-->
+<!--                        invisible="offboarding_state == 'active'"-->
+<!--                        confirm="Are you sure you want to reactivate this employee?">-->
+<!--                    <div class="o_field_widget o_stat_info">-->
+<!--                        <span class="o_stat_text">Reactivate</span>-->
+<!--                    </div>-->
+<!--                </button>-->
+<!--            </xpath>-->
+<!--            <xpath expr="//notebook" position="inside">-->
+<!--                <page string="Offboarding" name="offboarding">-->
+<!--                    <group>-->
+<!--                        <group>-->
+<!--                            <field name="offboarding_state" readonly="1"/>-->
+<!--                            <field name="offboard_date"/>-->
+<!--                        </group>-->
+<!--                        <group>-->
+<!--                            <field name="is_offboarded" invisible="1"/>-->
+<!--                        </group>-->
+<!--                    </group>-->
+<!--                </page>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
 
     <!-- Employee Search View - Offboarding Filters -->
-    <record id="view_employee_extension_search" model="ir.ui.view">
-        <field name="name">hr.employee.extension.search</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_filter"/>
-        <field name="arch" type="xml">
-            <xpath expr="//filter[@name='inactive']" position="after">
-                <separator/>
-                <filter string="Active Employees" name="active_employees"
-                        domain="[('offboarding_state', '=', 'active')]"/>
-                <filter string="Offboarding" name="offboarding"
-                        domain="[('offboarding_state', '=', 'offboarding')]"/>
-                <filter string="Offboarded" name="offboarded"
-                        domain="[('offboarding_state', '=', 'offboarded')]"/>
-            </xpath>
-            <xpath expr="//search//group/filter[@name='group_department']" position="after">
-                <filter string="Offboarding State" name="group_offboarding_state"
-                        context="{'group_by': 'offboarding_state'}"/>
-            </xpath>
-        </field>
-    </record>
+<!--    <record id="view_employee_extension_search" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.search</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id" ref="hr.view_employee_filter"/>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//filter[@name='inactive']" position="after">-->
+<!--                <separator/>-->
+<!--                <filter string="Active Employees" name="active_employees"-->
+<!--                        domain="[('offboarding_state', '=', 'active')]"/>-->
+<!--                <filter string="Offboarding" name="offboarding"-->
+<!--                        domain="[('offboarding_state', '=', 'offboarding')]"/>-->
+<!--                <filter string="Offboarded" name="offboarded"-->
+<!--                        domain="[('offboarding_state', '=', 'offboarded')]"/>-->
+<!--            </xpath>-->
+<!--            <xpath expr="//search//group/filter[@name='group_department']" position="after">-->
+<!--                <filter string="Offboarding State" name="group_offboarding_state"-->
+<!--                        context="{'group_by': 'offboarding_state'}"/>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
 
     <!-- Employee Tree/List View - Offboarding Columns -->
-    <record id="view_employee_extension_tree" model="ir.ui.view">
-        <field name="name">hr.employee.extension.tree</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_tree"/>
-        <field name="arch" type="xml">
-            <xpath expr="//field[@name='name']" position="after">
-                <field name="offboarding_state" optional="show"
-                       decoration-success="offboarding_state == 'active'"
-                       decoration-warning="offboarding_state == 'offboarding'"
-                       decoration-danger="offboarding_state == 'offboarded'"/>
-                <field name="offboard_date" optional="hide"/>
-            </xpath>
-        </field>
-    </record>
+<!--    <record id="view_employee_extension_tree" model="ir.ui.view">-->
+<!--        <field name="name">hr.employee.extension.tree</field>-->
+<!--        <field name="model">hr.employee</field>-->
+<!--        <field name="inherit_id" ref="hr.view_employee_tree"/>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <xpath expr="//field[@name='name']" position="after">-->
+<!--                <field name="offboarding_state" optional="show"-->
+<!--                       decoration-success="offboarding_state == 'active'"-->
+<!--                       decoration-warning="offboarding_state == 'offboarding'"-->
+<!--                       decoration-danger="offboarding_state == 'offboarded'"/>-->
+<!--                <field name="offboard_date" optional="hide"/>-->
+<!--            </xpath>-->
+<!--        </field>-->
+<!--    </record>-->
 
 </odoo>

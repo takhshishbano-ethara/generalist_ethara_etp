@@ -255,6 +255,11 @@ class TaskForgeAttendanceController(http.Controller):
             'absent': 'Absent',
             'on_leave': 'Leave'
         }
+        task_logs = self.env['task.forge.log'].sudo().search_count([
+            ('employee_id', '=', rec.employee_id.id),
+            ('date', '=', rec.check_in.date()),
+            ('state', '=', 'completed')
+        ])
         return {
             'id': rec.id if rec.id else 0,
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
@@ -262,12 +267,12 @@ class TaskForgeAttendanceController(http.Controller):
             'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
             'date': str(rec.check_in.date()) if rec.check_in else '',
             'status': attendance_status.get(rec.attendance_status) if rec.attendance_status else "Absent",
-            'punch_in_time': rec.check_in.isoformat() if rec.check_in else "",
-            'punch_out_time': rec.check_out.isoformat() if rec.check_out else "",
-            'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours else 0,
+            'punch_in_time': rec.check_in.isoformat() if rec.check_in and rec.attendance_status == 'present' else "",
+            'punch_out_time': rec.check_out.isoformat() if rec.check_out and rec.attendance_status == 'present' else "",
+            'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0,
             'location': rec.geo_location or '',
             'geo_coordinates': rec.geo_coordinates or '',
-            'tasks_done': rec.tasks_done or 0,
+            'tasks_done': task_logs or 0,
         }
 
     @http.route('/api/v2/taskforge/all_employee_attendance/today', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -288,6 +293,21 @@ class TaskForgeAttendanceController(http.Controller):
             domain = [('check_in', '>=', datetime.combine(target_date, datetime.min.time())), ('check_in', '<', datetime.combine(target_date, datetime.max.time())), ('employee_id', 'in', team_ids)]
             # if kwargs.get('date'):
             #     domain = [('check_in', '>=', datetime.combine(kwargs.get('date'), datetime.min.time())), ('check_in', '<', datetime.combine(kwargs.get('date'), datetime.max.time())), ('employee_id', 'in', team_ids)]
+            date_param = kwargs.get('date')
+            start_date_param = kwargs.get('start_date')
+            end_date_param = kwargs.get('end_date')
+
+            if date_param:
+                filter_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+                domain.append(('check_in', '>=', datetime.combine(filter_date, datetime.min.time())))
+                domain.append(('check_in', '<', datetime.combine(filter_date + timedelta(days=1), datetime.min.time())))
+            elif start_date_param or end_date_param:
+                stats_start = datetime.strptime(start_date_param, '%Y-%m-%d').date() if start_date_param else None
+                stats_end = datetime.strptime(end_date_param, '%Y-%m-%d').date() if end_date_param else None
+                if stats_start:
+                    domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
+                if stats_end:
+                    domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
 
             if kwargs.get('search', ''):
                 search_key = kwargs.get('search', '').strip()

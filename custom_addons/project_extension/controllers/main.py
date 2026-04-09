@@ -551,29 +551,54 @@ class ProjectController(http.Controller):
             # page = int(kwargs.get('page')) if kwargs.get('page') else 1
             # limit = int(kwargs.get('limit')) if kwargs.get('limit') else 1
             # offset = (page - 1) * limit
-            total_count = request.env['project.project.stage'].sudo().search_count(domain)
-            if not kwargs.get('page'):
-                limit = total_count
-                offset = 0
-            projects = request.env['project.project.stage'].sudo().search(domain, limit=limit, offset=offset, order="create_date desc")
-            project_data = {}
-            for p in projects:
-                if p.lable_name not in project_data.keys():
-                    project_data[p.lable_name] = [{
-                        'id': safe_get_value(p, 'id', 'int'),
-                        'name': safe_get_value(p, 'name', 'str'),
-                    }]
-                else:
-                    project_data[p.lable_name].append({
-                        'id': safe_get_value(p, 'id', 'int'),
-                        'name': safe_get_value(p, 'name', 'str'),
-                    })
             stage_list = []
-            for stage in project_data.keys():
+            if kwargs.get('project_type') in ['technical', 'stem']:
+                total_count = request.env['project.project.stage'].sudo().search_count(domain)
+                if not kwargs.get('page'):
+                    limit = total_count
+                    offset = 0
+                projects = request.env['project.project.stage'].sudo().search(domain, limit=limit, offset=offset, order="create_date desc")
+                project_data = {}
+                for p in projects:
+                    if p.lable_name not in project_data.keys():
+                        project_data[p.lable_name] = [{
+                            'id': safe_get_value(p, 'id', 'int'),
+                            'name': safe_get_value(p, 'name', 'str'),
+                        }]
+                    else:
+                        project_data[p.lable_name].append({
+                            'id': safe_get_value(p, 'id', 'int'),
+                            'name': safe_get_value(p, 'name', 'str'),
+                        })
+                for stage in project_data.keys():
+                    stage_list.append({
+                        "phase": stage,
+                        "items": project_data[stage]
+                    })
+            else:
                 stage_list.append({
-                    "phase": stage,
-                    "items": project_data[stage]
+                    "phase": "non_stem",
+                    "items": [{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_10').id,
+                        "name": 'Production'
+                    },{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_15').id,
+                        "name": 'Paused'
+                    },{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_13').id,
+                        "name": 'Closed'
+                    },{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_16').id,
+                        "name": 'Cancel'
+                    },{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_14').id,
+                        "name": 'Draft'
+                    },{
+                        'id': request.env.ref('project_extension.project_project_stage_ethara_4').id,
+                        "name": 'Not Started'
+                    }]
                 })
+
             return return_Response(
                 message="Success",
                 status=200,

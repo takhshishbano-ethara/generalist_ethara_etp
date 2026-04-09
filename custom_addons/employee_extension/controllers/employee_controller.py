@@ -4,7 +4,10 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
 import json
-from datetime import datetime, date, timedelta
+import pandas as pd
+import io
+from datetime import datetime, date, timedelta, time
+import calendar
 
 class EmployeeController(http.Controller):
 
@@ -18,7 +21,7 @@ class EmployeeController(http.Controller):
     })
     def create_employee(self, **kwargs):
         try:
-            jdata = kwargs.get('jdata', {})
+            jdata = kwargs.get('jdata')
             user = request.env.user
             Employee = request.env['hr.employee'].sudo()
             ResUsers = request.env['res.users'].sudo()
@@ -39,77 +42,77 @@ class EmployeeController(http.Controller):
                 'password': 'Ethara@123',
             }
             new_user = ResUsers.create(user_vals)
-
-            employee_vals = {
-                'name': jdata['name'],
-                'work_email': email,
-                'user_id': new_user.id,
-                'designation_id': jdata.get('job_title'),
-                'work_location_name': jdata.get('work_location_name', ''),
-            }
-
+            employee_vals = {}
+            if jdata.get('work_location_name'):
+                employee_vals['work_location_name'] = jdata.get('work_location_name')
+            if jdata.get('job_title'):
+                employee_vals['designation_id'] = jdata.get('job_title')
             if jdata.get('department_id'):
                 employee_vals['department_id'] = jdata['department_id']
-            if jdata.get('project_id'):
-                employee_vals['project_id'] = jdata['project_id']
             if jdata.get('pl_id'):
                 employee_vals['task_forge_pl_id'] = jdata['pl_id']
             if jdata.get('qr_id'):
                 employee_vals['task_forge_qr_id'] = jdata['qr_id']
-
-            employee = Employee.create(employee_vals)
-
-            return return_Response(
-                message="Employee created successfully",
-                status=200,
-                data={'data': {
-                    'id': employee.id,
-                    'name': employee.name,
-                    'email': employee.work_email,
-                    'job_title': employee.job_title,
-                }}
-            )
+            if not new_user.employee_id:
+                employee_vals['name'] = jdata['name']
+                employee_vals['work_email'] = email
+                employee_vals['user_id'] = new_user.id
+                employee = Employee.create(employee_vals)
+            else:
+                new_user.employee_id.sudo().write(employee_vals)
+            return return_Response(message="Employee created successfully", status=200)
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v2/employees/bulk', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/employees/bulk_create', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    def bulk_create_employees(self, **kwargs):
-        """Bulk create employees from JSON array"""
+    def bulk_create_employees_file(self, **kwargs):
         try:
-            data = {}
+
+            file_obj = request.httprequest.files.get('file')
+            if not file_obj:
+                return return_Response(message="No file uploaded. Use key 'file'", status=400)
+            filename = file_obj.filename.lower()
+            file_content = file_obj.read()
             try:
-                data = json.loads(request.httprequest.stream.read())
-            except:
-                data = json.loads(request.httprequest.data)
-
-            employees_data = data.get('employees', [])
-            if not employees_data:
-                return return_Response(message="No employees data provided", status=400)
-
+                if filename.endswith('.csv'):
+                    df = pd.read_csv(io.BytesIO(file_content))
+                elif filename.endswith(('.xlsx', '.xls')):
+                    try:
+                        df = pd.read_excel(io.BytesIO(file_content))
+                    except ValueError as ve:
+                        if 'openpyxl' in str(ve).lower():
+                            df = pd.read_excel(io.BytesIO(file_content), engine='openpyxl')
+                        else:
+                            raise ve
+                else:
+                    return return_Response(message="Unsupported file format", status=400)
+            except Exception as e:
+                error_msg = str(e)
+                if "openpyxl" in error_msg:
+                    return return_Response(
+                        message="Server Library Error: Please upload as .CSV while we update the server engines.",
+                        status=400
+                    )
+                return return_Response(message=f"Error parsing file: {error_msg}", status=400)
+            df = df.fillna('').astype(str)
             Employee = request.env['hr.employee'].sudo()
             ResUsers = request.env['res.users'].sudo()
-
             created = []
             errors = []
-
-            for idx, emp_data in enumerate(employees_data, start=1):
+            for index, row in df.iterrows():
+                idx = index + 1
                 try:
-                    name = emp_data.get('name', '').strip()
-                    email = emp_data.get('email', '').strip().lower()
-
-                    if not name:
-                        errors.append(f"Row {idx}: name is required")
+                    name = row.get('name', '').strip()
+                    email = row.get('email', '').strip().lower()
+                    if not name or name == '':
+                        errors.append(f"Row {idx}: name is missing")
                         continue
-                    if not email:
-                        errors.append(f"Row {idx}: email is required")
-                        continue
-                    if not email.endswith('@ethara.ai'):
-                        errors.append(f"Row {idx}: email must be @ethara.ai")
+                    if not email or not email.endswith('@ethara.ai'):
+                        errors.append(f"Row {idx}: invalid ethara.ai email")
                         continue
 
-                    existing_user = ResUsers.search([('login', '=', email)], limit=1)
-                    if existing_user:
+                    if ResUsers.search_count([('login', '=', email)]):
                         errors.append(f"Row {idx}: {email} already exists")
                         continue
 
@@ -117,90 +120,85 @@ class EmployeeController(http.Controller):
                         'name': name,
                         'login': email,
                         'email': email,
-                        'password': emp_data.get('password', 'Ethara@123'),
+                        'password': row.get('password') if row.get('password') else 'Ethara@123',
                     }
+                    if row.get('user_role'):
+                        user_role_domain = [('project_type', '=', 'non-stem'), ('name', '=', row.get('user_role'))]
+                        if row.get('user_role') in ['CTO']:
+                            user_role_domain = [('name', '=', row.get('user_role'))]
+                        user_role = request.env['api.role'].sudo().search(user_role_domain, limit=1)
+                        if user_role:
+                            user_vals['user_role'] = user_role.id
+
                     new_user = ResUsers.create(user_vals)
+                    if not new_user.employee_id:
+                        employee_vals = {
+                            'name': name,
+                            'work_email': email,
+                            'user_id': new_user.id,
+                            'work_location_name': row.get('work_location_name', ''),
+                            'department_id': int(row['department_id']) if row.get('department_id') else False,
+                            'task_forge_pl_id': int(row['pl_id']) if row.get('pl_id') else False,
+                            'task_forge_qr_id': int(row['qr_id']) if row.get('qr_id') else False,
+                        }
+                        if row.get('job_title'):
+                            designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
+                            if designation_id:
+                                employee_vals['designation_id'] = designation_id.id
 
-                    employee_vals = {
-                        'name': name,
-                        'work_email': email,
-                        'user_id': new_user.id,
-                        'job_title': emp_data.get('job_title', ''),
-                        'work_location_name': emp_data.get('work_location_name', ''),
-                    }
+                        employee = Employee.create(employee_vals)
+                        created.append({'id': employee.id, 'name': employee.name, 'email': employee.work_email})
 
-                    if emp_data.get('department_id'):
-                        employee_vals['department_id'] = emp_data['department_id']
-                    if emp_data.get('pl_id'):
-                        employee_vals['task_forge_pl_id'] = emp_data['pl_id']
-                    if emp_data.get('qr_id'):
-                        employee_vals['task_forge_qr_id'] = emp_data['qr_id']
-
-                    employee = Employee.create(employee_vals)
-                    created.append({
-                        'id': employee.id,
-                        'name': employee.name,
-                        'email': employee.work_email,
-                    })
                 except Exception as e:
                     errors.append(f"Row {idx}: {str(e)}")
 
             return return_Response(
-                message=f"Bulk create complete: {len(created)} created, {len(errors)} errors",
+                message=f"File processed: {len(created)} created, {len(errors)} errors",
                 status=200,
                 data={'data': {'created': created, 'errors': errors}}
             )
+
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees/<int:employee_id>', methods=['PUT', 'PATCH'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v1/employees/update', methods=['PUT', 'PATCH'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
-        'name': {'type': 'string', 'required': False},
-        'job_title': {'type': 'string', 'required': False},
-        'department_id': {'type': 'int', 'required': False},
-        'project_id': {'type': 'int', 'required': False},
-        'work_location_name': {'type': 'string', 'required': False},
-        'pl_id': {'type': 'int', 'required': False},
-        'qr_id': {'type': 'int', 'required': False},
+        'employee_id': {'type': 'str', 'required': True},
     })
-    def update_employee(self, employee_id, jdata=None, **kwargs):
-        """Update employee details"""
+    def update_employee(self, **kwargs):
         try:
+            jdata = kwargs.get('jdata')
             Employee = request.env['hr.employee'].sudo()
-            employee = Employee.browse(employee_id)
+            employee = Employee.browse(int(jdata.get('employee_id')))
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
+            employee_vals = {}
 
-            allowed_fields = [
-                'name', 'job_title', 'department_id', 'project_id',
-                'work_location_name', 'task_forge_pl_id', 'task_forge_qr_id'
-            ]
+            if jdata.get('work_location_name'):
+                employee_vals['work_location_name'] = jdata['work_location_name']
 
-            update_vals = {}
-            for field in allowed_fields:
-                if jdata.get(field):
-                    if field == 'pl_id':
-                        update_vals['task_forge_pl_id'] = jdata.get(field)
-                    elif field == 'qr_id':
-                        update_vals['task_forge_qr_id'] = jdata.get(field)
-                    else:
-                        update_vals[field] = jdata.get(field)
+            if jdata.get('job_title'):
+                employee_vals['designation_id'] = jdata['job_title']
 
-            if update_vals:
-                employee.sudo().write(update_vals)
+            if jdata.get('department_id'):
+                employee_vals['department_id'] = jdata['department_id']
 
-            return return_Response(
-                message="Employee updated successfully",
-                status=200,
-                data={'data': {
-                    'id': employee.id,
-                    'name': employee.name,
-                    'job_title': employee.job_title,
-                    'work_location': employee.work_location_name,
-                }}
-            )
+            if jdata.get('pl_id'):
+                employee_vals['task_forge_pl_id'] = jdata['pl_id']
+
+            if jdata.get('qr_id'):
+                employee_vals['task_forge_qr_id'] = jdata['qr_id']
+
+            if employee_vals:
+                employee.sudo().write(employee_vals)
+
+            if jdata.get('role_id'):
+                if employee.user_id:
+                    employee.user_id.user_role = int(jdata.get('role_id'))
+
+            return return_Response(message="Employee updated successfully", status=200)
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
@@ -214,30 +212,25 @@ class EmployeeController(http.Controller):
     })
     def offboard_employee(self, **kwargs):
         try:
+            jdata = kwargs.get('jdata')
             Employee = request.env['hr.employee'].sudo()
-            employee = Employee.browse(int(kwargs.get('employee_id')))
+            employee = Employee.browse(int(jdata.get('employee_id')))
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
 
-            action = kwargs.get('action', '').lower()
+            action = jdata.get('action', '').lower()
 
             if action == 'offboard':
                 employee.sudo().write({
                     'offboarding_state': 'offboarded',
                     'active': False,
+                    'task_forge_active': False,
                     'offboard_date': fields.Date.today(),
-                    'reason_id': int(kwargs.get('reason_id')),
-                    'offboard_notes': kwargs.get('offboard_notes')
+                    'reason_id': int(jdata.get('reason_id')),
+                    'offboard_notes': jdata.get('offboard_notes')
                 })
-                return return_Response(
-                    message="Employee offboarded successfully",
-                    status=200,
-                    data={'data': {
-                        'id': employee.id,
-                        'offboarding_state': employee.offboarding_state,
-                    }}
-                )
+                return return_Response(message="Employee offboarded successfully", status=200)
 
             elif action == 'reactivate':
                 if employee.offboarding_state == 'active':
@@ -246,39 +239,28 @@ class EmployeeController(http.Controller):
                 employee.write({
                     'offboarding_state': 'active',
                     'active': True,
+                    'task_forge_active': True,
                     'offboard_date': False,
                 })
-                return return_Response(
-                    message="Employee reactivated successfully",
-                    status=200,
-                    data={'data': {
-                        'id': employee.id,
-                        'offboarding_state': employee.offboarding_state,
-                    }}
-                )
-
+                return return_Response(message="Employee reactivated successfully", status=200)
             else:
-                return return_Response(
-                    message="Invalid action. Use: offboard or reactivate",
-                    status=400
-                )
-
+                return return_Response(message="Invalid action. Use: offboard or reactivate", status=400)
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/employees/detail_view', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
         'employee_id': {'type': 'str', 'required': True},
     })
-    def get_employee(self, **kwargs):
-        """Get employee details"""
+    def get_employee_detail_view(self, **kwargs):
         try:
             Employee = request.env['hr.employee'].sudo()
             employee = Employee.browse(int(kwargs['employee_id']))
 
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
+
             today = date.today()
             start_this_week = today - timedelta(days=today.weekday())
             start_last_week = start_this_week - timedelta(days=7)
@@ -323,6 +305,42 @@ class EmployeeController(http.Controller):
             task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today)])
             active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
             punch_in_status, emp_session = self.get_employee_current_status(employee)
+            abs_diff = round(this_week_prod - last_week_prod, 2)
+
+            first_day_of_month = today.replace(day=1)
+            days_passed = today.day
+            attendances = request.env['hr.attendance'].sudo().search([
+                ('employee_id', '=', employee.id),
+                ('check_in', '>=', first_day_of_month),
+                ('check_in', '<=', datetime.combine(today, time.max))
+            ])
+            total_present = len(attendances.mapped(lambda a: a.check_in.date()))
+            punch_in_times = []
+            for att in attendances:
+                check_in_time = att.check_in.time()
+                punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
+
+            if punch_in_times:
+                avg_minutes = sum(punch_in_times) / len(punch_in_times)
+                avg_punch_in = f"{int(avg_minutes // 60):02d}:{int(avg_minutes % 60):02d}"
+            else:
+                avg_punch_in = "00:00"
+
+            # 3. Total Working Days (Excluding Weekends)
+            # Calculate how many Mon-Fri have passed this month
+            working_days_count = 0
+            for day in range(1, days_passed + 1):
+                if calendar.weekday(today.year, today.month, day) < 5:  # 0-4 are Mon-Fri
+                    working_days_count += 1
+
+            # 4. Leaves Taken
+            leaves = request.env['hr.leave'].sudo().search([
+                ('employee_id', '=', employee.id),
+                ('state', '=', 'validate'),
+                ('date_from', '>=', first_day_of_month),
+                ('date_to', '<=', datetime.combine(today, time.max))
+            ])
+            leave_taken = sum(leaves.mapped('number_of_days'))
             return return_Response(
                 message="Employee details",
                 status=200,
@@ -336,13 +354,14 @@ class EmployeeController(http.Controller):
                     'department_id': employee.department_id.id if employee.department_id else 0,
                     'department': employee.department_id.name if employee.department_id and employee.department_id.name else '',
                     'offboarding_state': employee.offboarding_state or "",
-                    'is_offboarded': employee.is_offboarded,
+                    # 'is_offboarded': employee.is_offboarded,
                     'role_id': employee.user_id.user_role.id if employee.user_id.user_role else 0,
                     'role': employee.user_id.user_role.name if employee.user_id.user_role and employee.user_id.user_role.name else "",
                     'current_status': punch_in_status,
                     'emp_session': emp_session,
-                    'this_week_productivity': this_week_prod,
-                    'last_week_productivity': last_week_prod,
+                    'abs_diff': abs_diff,
+                    'this_week_productivity': round(this_week_prod, 2),
+                    'last_week_productivity': round(last_week_prod, 2),
                     'current_task': active_task.name if active_task else "",
                     'task_today': len(task_record),
                     'today_task_record': [{'id': t.id, 'name': t.name, 'status': t.state or ""} for t in task_record],
@@ -354,16 +373,19 @@ class EmployeeController(http.Controller):
                     'qr_name': employee.task_forge_qr_id.name if employee.task_forge_qr_id and employee.task_forge_qr_id.name else "",
                     'active': employee.active or False,
                     'productivity_report': productivity_report,
-                    'last_active': str(active_task.write_date) if active_task else ""
+                    'last_active': str(active_task.write_date) if active_task else "",
+                    'this_month_total_present': total_present,
+                    'this_month_total_working_days': working_days_count,
+                    'leave_taken': leave_taken,
+                    'avg_punch_in_time': avg_punch_in
                 }}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v1/employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_employees(self, **kwargs):
-        """List employees with filters"""
         try:
             user = request.env.user
             employee = user.employee_id
@@ -398,6 +420,7 @@ class EmployeeController(http.Controller):
             data = []
             today = date.today()
             start_this_week = today - timedelta(days=today.weekday())
+
             for emp in employees:
                 Log = request.env['task.forge.log'].sudo()
                 def get_prod_stats(target_emp_id, start_date, end_date):
@@ -425,7 +448,7 @@ class EmployeeController(http.Controller):
                     'department_id': emp.department_id.id if emp.department_id else 0,
                     'department': emp.department_id.name if emp.department_id and emp.department_id.name else '',
                     'offboarding_state': emp.offboarding_state or "",
-                    'is_offboarded': emp.is_offboarded,
+                    # 'is_offboarded': emp.is_offboarded,
                     'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
                     'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else "",
                     'current_status': current_status,
@@ -441,18 +464,50 @@ class EmployeeController(http.Controller):
                     'active': emp.active or False,
                     'last_active': str(active_task.write_date) if active_task else ""
                 })
+
+            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
+            assigned_ids = set()
+            for ap in active_projects:
+                assigned_ids.update(ap.project_lead.ids)
+                assigned_ids.update(ap.project_qc_reviewer.ids)
+                assigned_ids.update(ap.project_tasker.ids)
+
+            role_pl = [request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                       request.env.ref('api_auth_gateway.role_pl_technical').id,
+                       request.env.ref('api_auth_gateway.role_pl_stem').id]
+
+            role_qr = [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                       request.env.ref('api_auth_gateway.role_qc_stem').id,
+                       request.env.ref('api_auth_gateway.role_qc_non_stem').id]
+
+            role_tk = [request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                       request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                       request.env.ref('api_auth_gateway.role_tasker_non_stem').id]
+
+            pl_count = Employee.search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', role_pl)])
+            qr_count = Employee.search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', role_qr)])
+            tk_count = Employee.search_count([('id', 'in', team_ids), ('user_id.user_role', 'in', role_tk)])
+
+            on_bench_count = len(set(team_ids) - assigned_ids)
             return return_Response(
                 message=f"{len(data)} employees found",
                 status=200,
-                data={'data': data}
-            )
+                data={
+                    'data': data,
+                    "total": len(data),
+                    "on_bench": on_bench_count,
+                    'pl_count': pl_count,
+                    'qr_count': qr_count,
+                    'tasker_count': tk_count,
+                    'offboarded_count': request.env['hr.employee'].sudo().search_count([('active', '=', False)]),
+                    'request_count': request.env['employee.allocation.request'].sudo().search_count([]),
+                })
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
     @http.route('/api/v2/employees/<int:employee_id>', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def delete_employee(self, employee_id, **kwargs):
-        """Soft delete (archive) an employee"""
         try:
             Employee = request.env['hr.employee'].sudo()
             employee = Employee.browse(employee_id)
@@ -540,4 +595,37 @@ class EmployeeController(http.Controller):
         else:
             current_status = "Idle"
         return current_status, duration_display
+
+
+    @http.route('/api/v2/get_on_bench_employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({"role_id": {"type": "string", "required": True}})
+    def get_on_bench_employees(self, **kwargs):
+        temp = []
+        try:
+            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
+            assign_employee = []
+            for ap in active_projects:
+                assign_employee.extend(ap.project_lead.ids)
+                assign_employee.extend(ap.project_qc_reviewer.ids)
+                assign_employee.extend(ap.project_tasker.ids)
+            employees = self.env['hr.employee'].sudo().search([('id', 'not in', assign_employee), ('user_id.user_role', '=', int(kwargs.get('role_id')))])
+            temp = [{
+                'id': emp.id or 0,
+                'name': emp.name or "",
+                'email': emp.work_email or '',
+                'role': emp._get_task_forge_role(),
+                'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else "",
+                'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id and emp.task_forge_pl_id.name else "",
+                'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else "",
+                'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else ""
+            } for emp in employees]
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
 

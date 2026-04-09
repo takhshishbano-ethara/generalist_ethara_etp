@@ -147,6 +147,10 @@ class TaskForgeTaskController(http.Controller):
             if task.project_id:
                 if task.project_id.non_stemp_project_status in ['not_started', 'draft']:
                     task.project_id.non_stemp_project_status = 'production'
+                    task.project_id.sudo().write({
+                        'stage_id': request.env.ref('project_extension.project_project_stage_ethara_10').id,
+                        'non_stemp_project_status': 'production'
+                    })
 
             return return_Response(message="Task started", status=200, data={'data': self._format_task(task)})
         except Exception as e:

@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Root Menu under HR -->
     <menuitem id="menu_employee_extension_root"
               name="Employee Extension"
               parent="hr.menu_hr_root"
               sequence="100"/>
 
-    <!-- Allocation Requests Submenu -->
+
     <menuitem id="menu_allocation_requests"
               name="Allocation Requests"
               parent="menu_employee_extension_root"
               action="action_allocation_request"
+              sequence="1"/>
+
+    <menuitem id="menu_offboarding_reasons"
+              name="Offboarding Reasons"
+              parent="menu_employee_extension_root"
+              action="action_offboarding_reasons"
               sequence="1"/>
 
 </odoo>

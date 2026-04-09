@@ -127,19 +127,19 @@ class AllocationController(http.Controller):
                                                      request.env.ref('api_auth_gateway.role_pl_stem').id,
                                                      request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                     total_emp = allocation_request.project_id.project_lead.ids
-                    total_emp.expend(jdata.get('assign_employees'))
+                    total_emp.extend(jdata.get('assign_employees'))
                     allocation_request.project_id.sudo().project_lead = [(6, 0, total_emp)]
                 if allocation_request.role_id.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
                                                      request.env.ref('api_auth_gateway.role_qc_stem').id,
                                                      request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
                     total_emp = allocation_request.project_id.project_qc_reviewer.ids
-                    total_emp.expend(jdata.get('assign_employees'))
+                    total_emp.extend(jdata.get('assign_employees'))
                     allocation_request.project_id.sudo().project_qc_reviewer = [(6, 0, total_emp)]
                 if allocation_request.role_id.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
                                                      request.env.ref('api_auth_gateway.role_tasker_stem').id,
                                                      request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
                     total_emp = allocation_request.project_id.project_tasker.ids
-                    total_emp.expend(jdata.get('assign_employees'))
+                    total_emp.extend(jdata.get('assign_employees'))
                     allocation_request.project_id.sudo().project_tasker = [(6, 0, total_emp)]
 
             return return_Response(
@@ -227,20 +227,21 @@ class AllocationController(http.Controller):
                 message="Allocation request details",
                 status=200,
                 data={'data': {
-                    'id': allocation_request.id,
-                    'name': allocation_request.name,
-                    'project_id': allocation_request.project_id.id,
-                    'project_name': allocation_request.project_id.name,
-                    'role_id': allocation_request.role_id.id if allocation_request.role_id else None,
-                    'role_name': allocation_request.role_id.name if allocation_request.role_id else None,
-                    'quantity': allocation_request.quantity,
-                    'justification': allocation_request.justification,
-                    'state': allocation_request.state,
-                    'requested_by': allocation_request.requested_by.name if allocation_request.requested_by else None,
-                    'approved_by': allocation_request.approved_by.name if allocation_request.approved_by else None,
-                    'approval_date': allocation_request.approval_date.isoformat() if allocation_request.approval_date else None,
-                    'notes': allocation_request.notes,
-                    'created_at': allocation_request.create_date.isoformat() if allocation_request.create_date else None,
+                    'id': allocation_request.id or 0,
+                    'name': allocation_request.name or "",
+                    'project_id': allocation_request.project_id.id or "",
+                    'project_name': allocation_request.project_id.name or "",
+                    'role_id': allocation_request.role_id.id if allocation_request.role_id else 0,
+                    'role_name': allocation_request.role_id.name if allocation_request.role_id else "",
+                    'quantity': allocation_request.quantity or 0.0,
+                    'justification': allocation_request.justification or "",
+                    'state': allocation_request.state or "",
+                    'requested_by': allocation_request.requested_by.name if allocation_request.requested_by else "",
+                    'requested_by_role': allocation_request.requested_by.user_role.name if allocation_request.requested_by else "",
+                    'approved_by': allocation_request.approved_by.name if allocation_request.approved_by else "",
+                    'approval_date': allocation_request.approval_date.isoformat() if allocation_request.approval_date else "",
+                    'notes': allocation_request.notes or "",
+                    'created_at': allocation_request.create_date.isoformat() if allocation_request.create_date else "",
                     'assign_employees': [{'id': i.id, 'name': i.name} for i in allocation_request.assign_employees]
                 }}
             )
@@ -265,12 +266,14 @@ class AllocationController(http.Controller):
 
             data = [{
                 'id': req.id,
-                'name': req.name,
+                'name': "",
                 'project_name': req.project_id.name if req.project_id else "",
                 'role_name': req.role_id.name if req.role_id else "",
                 'quantity': req.quantity,
+                'justification': req.justification,
                 'state': req.state,
                 'requested_by': req.requested_by.name if req.requested_by else "",
+                'requested_by_role': req.requested_by.user_role.name if req.requested_by else "",
                 'created_at': req.create_date.isoformat() if req.create_date else "",
                 'assign_employees': [{'id': i.id, 'name': i.name} for i in req.assign_employees]
             } for req in requests]

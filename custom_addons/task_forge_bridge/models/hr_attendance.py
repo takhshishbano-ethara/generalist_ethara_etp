@@ -27,6 +27,23 @@ class HrAttendance(models.Model):
         ('on_leave', 'Leave')
     ], string="Status", default='present')
 
+    @api.model_create_multi
+    def create(self, values):
+        for vals in values:
+            employee_id = vals.get('employee_id')
+            check_in = vals.get('check_in')
+            if employee_id and check_in:
+                check_in_date = fields.Datetime.to_datetime(check_in).date()
+                existing_attendance = self.search([
+                    ('employee_id', '=', employee_id),
+                    ('check_in', '>=', datetime.datetime.combine(check_in_date, datetime.datetime.min.time())),
+                    ('check_in', '<=', datetime.datetime.combine(check_in_date, datetime.datetime.max.time()))
+                ], limit=1)
+                if existing_attendance:
+                    existing_attendance.write(vals)
+                    return existing_attendance
+        return super(HrAttendance, self).create(values)
+
     # --- Compute Logic ---
     @api.depends('employee_id', 'check_in')
     def _compute_tasks_done(self):

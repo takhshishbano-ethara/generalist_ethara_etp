@@ -128,7 +128,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
             team_ids = user_id.employee_id._get_team_employee_ids()
 
-            domain = [('project_lead', '=', user_id.employee_id.id)]
+            domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
             if kwargs.get('project_type'):
                 domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -196,7 +196,7 @@ class DashboardController(http.Controller):
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
 
-            domain = [('project_lead', '=', user_id.employee_id.id)]
+            domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
             if kwargs.get('project_type'):
                 domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -232,7 +232,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             # 2. Build Project Domain
-            project_domain = [('project_qc_reviewer', '=', employee.id)]
+            project_domain = [('project_qc_reviewer', '=', employee.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
             if kwargs.get('project_type'):
                 project_domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -329,7 +329,7 @@ class DashboardController(http.Controller):
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
 
-            domain = [('project_qc_reviewer', '=', user_id.employee_id.id)]
+            domain = [('project_qc_reviewer', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
             if kwargs.get('project_type'):
                 domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -404,7 +404,7 @@ class DashboardController(http.Controller):
                     'project_name': safe_get_value(p, 'name', 'str'),
                     'project_id_code': safe_get_value(p, 'project_seq', 'str'),
                     'client': safe_get_value(p, 'client_name', 'str'),
-                    'status': safe_get_value(p, 'stage_id.name', 'str'),
+                    'status': safe_get_value(p, 'non_stemp_project_status', 'str') if p.project_category == 'non_stem' else safe_get_value(p, 'stage_id.name', 'str'),
                     'progress': percentage,
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
@@ -446,9 +446,12 @@ class DashboardController(http.Controller):
                 domain += ['|', ('name', 'ilike', search), ('internal_project_name', 'ilike', search)]
 
             if kwargs.get('status'):
-                non_stemp_project_status = kwargs.get('status').split(',')
-                if "all" not in non_stemp_project_status:
-                    domain.append(('non_stemp_project_status', 'in', non_stemp_project_status))
+                status_list = [int(x.strip()) for x in kwargs.get('status').split(',') if x.strip()]
+                domain += [('stage_id', 'in', status_list)]
+
+                # non_stemp_project_status = kwargs.get('status').split(',')
+                # if "all" not in non_stemp_project_status:
+                #     domain.append(('non_stemp_project_status', 'in', non_stemp_project_status))
 
             projects = request.env['project.project'].sudo().search(domain, order='create_date desc')
             project_data = []
@@ -467,7 +470,7 @@ class DashboardController(http.Controller):
                     'client': safe_get_value(p, 'client_name', 'str'),
                     'status': safe_get_value(p, 'non_stemp_project_status', 'str') if p.project_category == 'non_stem' else safe_get_value(p, 'stage_id.name', 'str'),
                     'progress': percentage,
-                    'tasks': safe_get_value(p, 'sample_task_number', 'int'),
+                    'tasks': total,
                     'team_count': unique_team_count,
                     'pl_name': safe_get_value(user_id, 'employee_id.task_forge_pl_id.name', 'str'),
                     'qr_name': safe_get_value(user_id, 'employee_id.task_forge_qr_id.name', 'str'),
@@ -484,6 +487,42 @@ class DashboardController(http.Controller):
 
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
+    @http.route('/api/v2/get_active_project_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_active_project_list(self, **kwargs):
+        try:
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+
+            if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain += [('project_lead', '=', user_id.employee_id.id)]
+
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                domain += [('project_qc_reviewer', '=', user_id.employee_id.id)]
+
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                domain += [('project_tasker', '=', user_id.employee_id.id)]
+            projects = request.env['project.project'].sudo().search(domain, order='create_date desc')
+            project_data = []
+            for p in projects:
+                project_data.append({
+                    'id': safe_get_value(p, 'id', 'int'),
+                    'project_name': safe_get_value(p, 'name', 'str'),
+                    'project_id_code': safe_get_value(p, 'project_seq', 'str'),
+                    'client': safe_get_value(p, 'client_name', 'str'),
+                    'status': safe_get_value(p, 'non_stemp_project_status','str')
+                })
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": project_data, "total_record_count": len(project_data), "count": len(project_data)})
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
 
     @validate_token
     @http.route('/api/v2/get_tasker_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
