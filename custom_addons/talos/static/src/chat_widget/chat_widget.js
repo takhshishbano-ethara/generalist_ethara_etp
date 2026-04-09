@@ -1,9 +1,38 @@
 /** @odoo-module */
-import { Component, useState, useRef, onMounted, onWillDestroy, onPatched } from "@odoo/owl";
+import { Component, useState, useRef, onMounted, onWillDestroy, onPatched, markup } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 import { rpc } from "@web/core/network/rpc";
+
+const MARKED_CDN = "https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js";
+let _markedReady = false;
+
+function _loadMarked() {
+    if (_markedReady || document.querySelector(`script[src="${MARKED_CDN}"]`)) {
+        _markedReady = true;
+        return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = MARKED_CDN;
+        s.onload = () => { _markedReady = true; resolve(); };
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+
+function renderMarkdown(text) {
+    if (!text) return "";
+    const lib = window.marked?.default ?? window.marked;
+    if (lib && typeof lib.parse === "function") {
+        try {
+            const html = lib.parse(text);
+            return typeof html === "string" ? html : String(html);
+        } catch (_) { /* fall through */ }
+    }
+    return text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+}
 
 const MODELS = [
     { id: "claude-opus-4.6", label: "Claude Opus 4.6" },
@@ -11,6 +40,7 @@ const MODELS = [
 ];
 
 const LOG_PREFIX = "[talos-chat]";
+const STREAM_WORD_THRESHOLD = 5;
 
 let _msgId = 0;
 function nextId() {
@@ -28,6 +58,8 @@ function _getSession(taskId) {
             streaming: false,
             currentTurnId: null,
             historyLoaded: false,
+            _streamBuf: "",
+            _lastFlushedWordCount: 0,
         });
     }
     return _sessions.get(taskId);
@@ -53,6 +85,7 @@ export class TalosChatWidget extends Component {
             selectedModel: MODELS[0].id,
             connected: this._session.wsConnected,
             statusText: this._session.wsConnected ? "Connected" : "Initializing...",
+            activityText: "",
         });
 
         this.models = MODELS;
@@ -63,6 +96,8 @@ export class TalosChatWidget extends Component {
             console.log(LOG_PREFIX, "Widget mounted. taskId:", taskId,
                 "sessionCached:", this._session.wsConnected,
                 "messages:", this._session.messages.length);
+
+            _loadMarked().catch(e => console.warn(LOG_PREFIX, "marked load failed:", e));
 
             if (!this._session.historyLoaded) {
                 this._loadHistory();
@@ -258,29 +293,64 @@ export class TalosChatWidget extends Component {
         const stream = payload?.stream || "";
         const data = payload?.data || {};
         const messages = this._session.messages;
+        const session = this._session;
 
-        if (stream === "assistant" && data.type === "text") {
-            const msg = messages.findLast(m => m.pending);
-            if (msg) msg.text += data.text || "";
-            if (widget) widget._scrollToBottom();
+        if (stream === "assistant" && data.text) {
+            if (widget) widget.state.activityText = "";
+            let msg = messages.findLast(m => m.pending);
+            if (!msg) {
+                msg = { role: "assistant", text: "", html: markup(""), model: widget?.state.selectedModel || "", pending: true };
+                messages.push(msg);
+                session._lastFlushedWordCount = 0;
+            }
+
+            session._streamBuf = data.text || "";
+            const wordCount = session._streamBuf.split(/\s+/).length;
+            if (wordCount - session._lastFlushedWordCount >= STREAM_WORD_THRESHOLD) {
+                msg.text = session._streamBuf;
+                msg.html = markup(renderMarkdown(session._streamBuf));
+                session._lastFlushedWordCount = wordCount;
+                if (widget) widget._scrollToBottom();
+            }
+        } else if (stream === "lifecycle" && data.phase === "start") {
+            if (widget) widget.state.activityText = "Thinking…";
         } else if (stream === "lifecycle" && data.phase === "end") {
             console.log(LOG_PREFIX, "Agent lifecycle END");
             const msg = messages.findLast(m => m.pending);
-            if (msg) msg.pending = false;
-            this._session.streaming = false;
-            if (widget) widget.state.streaming = false;
+            if (msg) {
+                if (session._streamBuf) {
+                    msg.text = session._streamBuf;
+                    msg.html = markup(renderMarkdown(session._streamBuf));
+                }
+                msg.pending = false;
+            }
+            session._streamBuf = "";
+            session._lastFlushedWordCount = 0;
+            session.streaming = false;
+            if (widget) {
+                widget.state.streaming = false;
+                widget.state.activityText = "";
+            }
             this._saveResponse(msg ? msg.text : "");
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
-            const msg = messages.findLast(m => m.pending);
-            if (msg) {
-                msg.pending = false;
-                msg.text = errText;
-                msg.isError = true;
+            let msg = messages.findLast(m => m.pending);
+            if (!msg) {
+                msg = { role: "assistant", text: "", html: markup(""), model: widget?.state.selectedModel || "", pending: false };
+                messages.push(msg);
             }
-            this._session.streaming = false;
-            if (widget) widget.state.streaming = false;
+            msg.pending = false;
+            msg.text = errText;
+            msg.html = markup(renderMarkdown(errText));
+            msg.isError = true;
+            session._streamBuf = "";
+            session._lastFlushedWordCount = 0;
+            session.streaming = false;
+            if (widget) {
+                widget.state.streaming = false;
+                widget.state.activityText = "";
+            }
         }
     }
 
@@ -295,7 +365,7 @@ export class TalosChatWidget extends Component {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
                     if (t.prompt) this._session.messages.push({ role: "user", text: t.prompt, model: t.model });
-                    if (t.response) this._session.messages.push({ role: "assistant", text: t.response, model: t.model, pending: false });
+                    if (t.response) this._session.messages.push({ role: "assistant", text: t.response, html: markup(renderMarkdown(t.response)), model: t.model, pending: false });
                 }
             }
             this._session.historyLoaded = true;
@@ -337,6 +407,7 @@ export class TalosChatWidget extends Component {
         this._session.messages.push({ role: "user", text, model: this.state.selectedModel });
         this._scrollToBottom();
 
+        this.state.activityText = "Checking prompt…";
         console.log(LOG_PREFIX, "Running QC check...");
         let qcPassed = true;
         try {
@@ -352,10 +423,12 @@ export class TalosChatWidget extends Component {
                     this._session.messages.push({
                         role: "assistant",
                         text: reason,
+                        html: markup(renderMarkdown(reason)),
                         isError: true,
                         pending: false,
                     });
                     this.state.sending = false;
+                    this.state.activityText = "";
                     this._scrollToBottom();
                     return;
                 }
@@ -363,6 +436,8 @@ export class TalosChatWidget extends Component {
         } catch (e) {
             console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
         }
+
+        this.state.activityText = "Sending to model…";
 
         let turnId = null;
         try {
@@ -388,7 +463,7 @@ export class TalosChatWidget extends Component {
         console.log(LOG_PREFIX, "SEND chat.send:", JSON.stringify(chatSendMsg));
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
-        this._session.messages.push({ role: "assistant", text: "", model: this.state.selectedModel, pending: true });
+        this.state.activityText = "Waiting for model…";
         this._session.streaming = true;
         this.state.streaming = true;
         this.state.sending = false;
@@ -397,9 +472,37 @@ export class TalosChatWidget extends Component {
 
     onAbort() {
         if (!this._session.ws || !this._session.wsConnected) return;
-        const abortMsg = { type: "req", id: nextId(), method: "chat.abort", params: {} };
+        const abortMsg = {
+            type: "req",
+            id: nextId(),
+            method: "chat.abort",
+            params: { sessionKey: "odoo:" + (this.taskId || "0") },
+        };
         console.log(LOG_PREFIX, "SEND chat.abort:", JSON.stringify(abortMsg));
         this._session.ws.send(JSON.stringify(abortMsg));
+
+        const messages = this._session.messages;
+        const session = this._session;
+        let msg = messages.findLast(m => m.pending);
+        const finalText = session._streamBuf || (msg ? msg.text : "");
+        const abortNote = "[Response stopped by user]";
+        const fullText = finalText ? finalText + "\n\n" + abortNote : abortNote;
+        if (msg) {
+            msg.pending = false;
+            msg.text = fullText;
+            msg.html = markup(renderMarkdown(fullText));
+        } else {
+            msg = { role: "assistant", text: fullText, html: markup(renderMarkdown(fullText)), model: this.state.selectedModel, pending: false };
+            messages.push(msg);
+        }
+
+        session._streamBuf = "";
+        session._lastFlushedWordCount = 0;
+        session.streaming = false;
+        this.state.streaming = false;
+        this.state.activityText = "";
+        this._saveResponse(msg.text);
+        this._scrollToBottom();
     }
 
     onKeydown(ev) {

@@ -19,22 +19,33 @@
             <t t-else="">
                 <div class="o_talos_chat_messages">
                     <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
-                        <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role}">
-                            <div class="o_talos_msg_meta">
-                                <span class="o_talos_msg_role">
-                                    <t t-if="msg.role === 'user'">You</t>
-                                    <t t-else="">Assistant</t>
-                                </span>
-                                <span t-if="msg.model" class="o_talos_msg_model">
-                                    <t t-out="msg.model"/>
-                                </span>
+                        <t t-if="!msg.pending or msg.text">
+                            <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role}">
+                                <div class="o_talos_msg_meta">
+                                    <span class="o_talos_msg_role">
+                                        <t t-if="msg.role === 'user'">You</t>
+                                        <t t-else="">Assistant</t>
+                                    </span>
+                                    <span t-if="msg.model" class="o_talos_msg_model">
+                                        <t t-out="msg.model"/>
+                                    </span>
+                                </div>
+                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.role === 'assistant' ? 'o_talos_md' : ''}">
+                                    <t t-if="msg.role === 'assistant' and msg.html">
+                                        <t t-out="msg.html"/>
+                                    </t>
+                                    <t t-else="">
+                                        <t t-out="msg.text"/>
+                                    </t>
+                                    <span t-if="msg.pending and msg.text" class="o_talos_cursor">|</span>
+                                </div>
                             </div>
-                            <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''}">
-                                <t t-out="msg.text"/>
-                                <span t-if="msg.pending" class="o_talos_cursor">|</span>
-                            </div>
-                        </div>
+                        </t>
                     </t>
+                    <div t-if="state.activityText" class="o_talos_activity">
+                        <span class="o_talos_activity_dots"><span/><span/><span/></span>
+                        <span class="o_talos_activity_text"><t t-out="state.activityText"/></span>
+                    </div>
                     <div t-ref="messagesEnd"/>
                 </div>
                 <div class="o_talos_chat_input">
