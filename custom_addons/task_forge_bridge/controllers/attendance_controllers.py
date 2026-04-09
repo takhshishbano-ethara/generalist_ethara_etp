@@ -282,9 +282,12 @@ class TaskForgeAttendanceController(http.Controller):
             team_ids = employee._get_team_employee_ids()
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
-            domain = [('check_in', '>=', datetime.combine(today, datetime.min.time())), ('check_in', '<', datetime.combine(today, datetime.max.time())), ('employee_id', 'in', team_ids)]
-            if kwargs.get('date'):
-                domain = [('check_in', '>=', datetime.combine(kwargs.get('date'), datetime.min.time())), ('check_in', '<', datetime.combine(kwargs.get('date'), datetime.max.time())), ('employee_id', 'in', team_ids)]
+            target_date = kwargs.get('date') or fields.Date.today()
+            if isinstance(target_date, str):
+                target_date = fields.Date.from_string(target_date)
+            domain = [('check_in', '>=', datetime.combine(target_date, datetime.min.time())), ('check_in', '<', datetime.combine(target_date, datetime.max.time())), ('employee_id', 'in', team_ids)]
+            # if kwargs.get('date'):
+            #     domain = [('check_in', '>=', datetime.combine(kwargs.get('date'), datetime.min.time())), ('check_in', '<', datetime.combine(kwargs.get('date'), datetime.max.time())), ('employee_id', 'in', team_ids)]
 
             if kwargs.get('search', ''):
                 search_key = kwargs.get('search', '').strip()

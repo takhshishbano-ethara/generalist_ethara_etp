@@ -285,8 +285,8 @@ class TaskForgeTaskController(http.Controller):
             return return_Response(message=str(e), status=400)
 
     def _format_task(self, task):
-        hours, mins = divmod(int(round(task.time_taken_mins)), 60)
-        duration_display = f"{hours:02d}:{mins:02d}"
+        # hours, mins = divmod(int(round(task.time_taken_mins)), 60)
+        # duration_display = f"{hours:02d}:{mins:02d}"
 
         return {
             'id': task.id if task.id else 0,
@@ -301,8 +301,8 @@ class TaskForgeTaskController(http.Controller):
             'start_time': task.start_time.isoformat() if task.start_time else "",
             'end_time': task.end_time.isoformat() if task.end_time else "",
             'pause_time': task.pause_time if task.pause_time else "",
-            # 'time_taken_mins': task.time_taken_mins or 0,
-            'time_taken_mins': duration_display,
+            'time_taken_mins': task.time_taken_mins or 0,
+            # 'time_taken_mins': duration_display,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',
             'blocker_reason': task.blocker_reason or '',
