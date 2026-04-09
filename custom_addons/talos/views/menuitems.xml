@@ -10,4 +10,6 @@
               action="domain_action_window" sequence="20"/> -->
     <menuitem name="Taxonomy" id="talos.menu_talos_taxonomy" parent="talos.menu_talos_root"
               action="taxonomy_action_window" sequence="30"/>
+    <menuitem name="Turns" id="talos.menu_talos_turns" parent="talos.menu_talos_root"
+              action="talos_turn_action_window" sequence="25"/>
 </odoo>

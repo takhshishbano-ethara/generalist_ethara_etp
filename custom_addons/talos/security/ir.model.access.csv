@@ -4,3 +4,4 @@ access_talos_domain,talos.domain,model_talos_domain,base.group_user,1,1,1,1
 access_talos_turn,talos.turn,model_talos_turn,base.group_user,1,1,1,1
 access_talos_persona,talos.persona,model_talos_persona,base.group_user,1,1,1,1
 access_talos_taxonomy,talos.taxonomy,model_talos_taxonomy,base.group_user,1,1,1,1
+access_talos_sandbox,talos.sandbox,model_talos_sandbox,base.group_user,1,1,1,1

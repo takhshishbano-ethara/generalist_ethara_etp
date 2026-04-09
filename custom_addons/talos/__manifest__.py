@@ -1,6 +1,6 @@
 {
     "name": "Talos",
-    "version": "19.0.5.0.0",
+    "version": "19.0.6.0.0",
     "category": "Tools",
     "summary": "Talos — LLM task management with sandbox environments",
     "description": """
@@ -29,9 +29,18 @@
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.js",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.xml",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.scss",
+            "talos/static/src/components/task_progress/task_progress.js",
+            "talos/static/src/components/task_progress/task_progress.xml",
+            "talos/static/src/components/task_progress/task_progress.scss",
             "talos/static/src/chat_widget/chat_widget.js",
             "talos/static/src/chat_widget/chat_widget.xml",
             "talos/static/src/chat_widget/chat_widget.scss",
+            "talos/static/src/components/sandbox_card/sandbox_card.js",
+            "talos/static/src/components/sandbox_card/sandbox_card.xml",
+            "talos/static/src/components/sandbox_card/sandbox_card.scss",
+            "talos/static/src/task_dashboard/task_dashboard.js",
+            "talos/static/src/task_dashboard/task_dashboard.xml",
+            "talos/static/src/task_dashboard/task_dashboard.scss",
         ],
     },
 }

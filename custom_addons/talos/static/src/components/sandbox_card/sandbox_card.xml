@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="talos.SandboxCard">
+        <div t-attf-class="o_talos_card #{props.disabled ? 'o_talos_card_disabled' : ''}">
+            <!-- Card Header -->
+            <div class="o_talos_card_header">
+                <div class="o_talos_card_title">
+                    <span class="o_talos_card_label" t-out="props.modelLabel"/>
+                    <span t-attf-class="badge rounded-pill text-bg-#{statusColor} ms-2">
+                        <t t-out="props.dockerStatus"/>
+                    </span>
+                </div>
+                <div class="o_talos_card_actions">
+                    <t t-if="!props.disabled and props.turnData.length > 0">
+                        <button class="btn btn-sm btn-outline-secondary me-1" t-on-click="onExportClick"
+                                title="Export session">
+                            <i class="fa fa-download"/>
+                        </button>
+                    </t>
+                    <t t-if="props.disabled">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                            Coming Soon
+                        </button>
+                    </t>
+                    <t t-elif="props.loading">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                            <i class="fa fa-spinner fa-spin me-1"/> Working...
+                        </button>
+                    </t>
+                    <t t-elif="isRunning or isStarting">
+                        <button class="btn btn-sm btn-outline-danger" t-on-click="onStopClick">
+                            <i class="fa fa-stop me-1"/> Stop
+                        </button>
+                    </t>
+                    <t t-else="">
+                        <button class="btn btn-sm btn-primary" t-on-click="onStartClick">
+                            <i class="fa fa-play me-1"/> Start Sandbox
+                        </button>
+                    </t>
+                </div>
+            </div>
+
+            <!-- Error Banner -->
+            <div t-if="props.dockerError" class="o_talos_card_error">
+                <i class="fa fa-exclamation-triangle me-1"/>
+                <t t-out="props.dockerError"/>
+            </div>
+
+            <!-- Disabled Overlay -->
+            <t t-if="props.disabled">
+                <div class="o_talos_card_body_disabled">
+                    <i class="fa fa-lock fa-2x mb-2 text-muted"/>
+                    <p class="text-muted mb-0">This model is not yet available.</p>
+                </div>
+            </t>
+            <t t-else="">
+                <!-- Tab Bar -->
+                <div class="o_talos_card_tabs">
+                    <t t-foreach="tabs" t-as="tab" t-key="tab.id">
+                        <button t-attf-class="o_talos_card_tab #{state.activeTab === tab.id ? 'active' : ''}"
+                                t-on-click="() => this.onTabClick(tab.id)">
+                            <i t-attf-class="fa #{tab.icon} me-1"/>
+                            <t t-out="tab.label"/>
+                        </button>
+                    </t>
+                </div>
+
+                <!-- Tab Content -->
+                <div class="o_talos_card_content">
+                    <!-- Chat Tab -->
+                    <div t-if="state.activeTab === 'chat'" class="o_talos_card_panel">
+                        <TalosChatWidget
+                            sandboxId="props.sandboxId"
+                            dockerStatus="props.dockerStatus"
+                            dockerWsUrl="props.dockerWsUrl"
+                            gatewayToken="props.gatewayToken"
+                        />
+                    </div>
+
+                    <!-- Dashboard Tab -->
+                    <div t-if="state.activeTab === 'dashboard'" class="o_talos_card_panel">
+                        <t t-if="props.dashboardUrl and isRunning">
+                            <iframe
+                                t-att-src="props.dashboardUrl"
+                                class="o_talos_card_iframe"
+                                allow="clipboard-read; clipboard-write"
+                            />
+                        </t>
+                        <t t-else="">
+                            <div class="o_talos_card_placeholder">
+                                <i class="fa fa-tachometer fa-2x mb-2 text-muted"/>
+                                <p class="text-muted">Start the sandbox to view the dashboard.</p>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- Turns Tab -->
+                    <div t-if="state.activeTab === 'turns'" class="o_talos_card_panel">
+                        <t t-if="props.turnData.length > 0">
+                            <table class="table table-sm table-striped o_talos_turns_table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Status</th>
+                                        <th>Prompt</th>
+                                        <th>Response</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="props.turnData" t-as="turn" t-key="turn.id">
+                                        <tr>
+                                            <td t-out="turn.turn_number"/>
+                                            <td>
+                                                <span t-attf-class="badge #{turn.status === 'Completed' ? 'text-bg-success' : 'text-bg-warning'}">
+                                                    <t t-out="turn.status"/>
+                                                </span>
+                                            </td>
+                                            <td class="o_talos_turn_cell" t-out="turn.prompt"/>
+                                            <td class="o_talos_turn_cell" t-out="turn.response"/>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </t>
+                        <t t-else="">
+                            <div class="o_talos_card_placeholder">
+                                <i class="fa fa-list-ol fa-2x mb-2 text-muted"/>
+                                <p class="text-muted">No conversation turns yet.</p>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>
