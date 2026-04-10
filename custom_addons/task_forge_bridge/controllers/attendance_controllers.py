@@ -322,8 +322,15 @@ class TaskForgeAttendanceController(http.Controller):
                 status = ['present', 'on_leave', 'absent'] if "all" in status else status
                 if status:
                     domain.append(('attendance_status', 'in', status))
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
+            offset = (page - 1) * limit
+            total_count = request.env['hr.attendance'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
 
-            attendance = Attendance.search(domain)
+            attendance = Attendance.search(domain, limit=limit, offset=offset)
             for atte in attendance:
                 temp.append(self._format_attendance(atte))
 

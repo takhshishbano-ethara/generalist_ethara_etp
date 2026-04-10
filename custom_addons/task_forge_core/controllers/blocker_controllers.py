@@ -65,8 +65,14 @@ class TaskForgeBlockerController(http.Controller):
                 domain = [('qr_id', '=', employee.id)]
             else:
                 domain = [('employee_id', '=', employee.id)]
-
-            blockers = Blocker.search(domain, order='create_date desc', limit=200)
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
+            offset = (page - 1) * limit
+            total_count = request.env['task.forge.blocker'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
+            blockers = Blocker.search(domain, order='create_date desc', limit=limit, offset=offset)
             data = [self._format_blocker(b) for b in blockers]
             return return_Response(message="Blockers list", status=200, data={'data': data})
         except Exception as e:

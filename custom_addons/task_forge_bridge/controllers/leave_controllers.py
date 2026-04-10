@@ -119,8 +119,14 @@ class TaskForgeLeaveController(http.Controller):
                 domain.append(('state', '=', 'validate'))
             elif status_param == 'Rejected':
                 domain.append(('state', '=', 'refuse'))
-
-            leaves = Leave.search(domain, order='create_date desc', limit=200)
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
+            offset = (page - 1) * limit
+            total_count = request.env['hr.leave'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
+            leaves = Leave.search(domain, order='create_date desc', limit=limit, offset=offset)
             data = [self._format_leave(l) for l in leaves]
 
             return return_Response(message="Leaves list", status=200, data={'data': data})

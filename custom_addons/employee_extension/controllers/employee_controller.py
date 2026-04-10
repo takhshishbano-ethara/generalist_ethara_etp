@@ -415,8 +415,15 @@ class EmployeeController(http.Controller):
             if kwargs.get('department_id'):
                 domain.append(('department_id', '=', int(kwargs['department_id'])))
 
-            limit = int(kwargs.get('limit', 100))
-            employees = Employee.search(domain, limit=limit)
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
+            offset = (page - 1) * limit
+            total_count = request.env['hr.employee'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
+
+            employees = Employee.search(domain, limit=limit, offset=offset)
             data = []
             today = date.today()
             start_this_week = today - timedelta(days=today.weekday())
