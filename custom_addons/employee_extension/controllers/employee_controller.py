@@ -317,13 +317,16 @@ class EmployeeController(http.Controller):
                 ('check_in', '<=', datetime.combine(today, time.max))
             ])
             # total_present = len(attendances.mapped(lambda a: a.check_in.date() if a.check_in else ""))
-            present_dates = attendances.filtered(lambda a: a.check_in).mapped(lambda a: a.check_in.date())
+            present_dates = []
+            for att in attendances:
+                if att.check_in and isinstance(att.check_in, datetime):
+                    present_dates.append(att.check_in.date())
             total_present = len(set(present_dates))
+            
             punch_in_times = []
             for att in attendances:
-                if att.check_in:
-                    check_in_time = att.check_in.time()
-                    punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
+                if att.check_in and isinstance(att.check_in, datetime):
+                    punch_in_times.append(att.check_in.hour * 60 + att.check_in.minute)
             # punch_in_times = []
             # for att in attendances:
             #     check_in_time = att.check_in.time()
