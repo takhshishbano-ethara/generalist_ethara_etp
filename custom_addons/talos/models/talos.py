@@ -159,44 +159,28 @@ class Talos(models.Model):
     )
     heart_taxonomy = fields.Many2many("talos.taxonomy", string="HEART Taxonomy")
     task_type = fields.Selection(
-        [
-            ("home_and_organization", "home_and_organization"),
-            ("customer_service", "customer_service"),
-            ("research_and_analysis", "research_and_analysis"),
-            ("creative_writing", "creative_writing"),
-            ("technical_support", "technical_support"),
-            ("education_and_learning", "education_and_learning"),
-            ("health_and_wellness", "health_and_wellness"),
-            ("finance_and_budgeting", "finance_and_budgeting"),
-        ],
-        string="Task Type",
+        [("home_and_organization", "home_and_organization"), ("customer_service", "customer_service"), ("research_and_analysis", "research_and_analysis"),
+        ("creative_writing", "creative_writing"), ("technical_support", "technical_support"), ("education_and_learning", "education_and_learning"),
+        ("health_and_wellness", "health_and_wellness"), ("finance_and_budgeting", "finance_and_budgeting"),
+        ("sustainable_planning", "sustainable_planning"), ("historical_archiving", "historical_archiving")], string="Task Type"
     )
     difficulty = fields.Selection(
-        [
-            ("Single App", "Single App"),
-            ("Multi App Light", "Multi App Light"),
-            ("Multi App Complex", "Multi App Complex"),
-        ],
-        string="Difficulty",
+        [("single_app", "Single App"), ("multi_app_light", "Multi App Light"), ("multi_app_complex", "Multi App Complex")], string="Difficulty"
     )
     trajectory_modifier = fields.Selection(
-        [
-            ("Memory Usage", "Memory Usage"),
-            ("Long Horizon Context", "Long Horizon Context"),
-            ("Skill Discovery", "Skill Discovery"),
-            ("Claw Native Tools", "Claw Native Tools"),
-            ("Skill Gap / Self-Extension", "Skill Gap / Self-Extension"),
-        ],
-        string="Trajectory Modifier",
+        [("memory_usage", "Memory Usage"), ("long_horizon_context", "Long Horizon Context"), ("skill_discovery", "Skill Discovery"),
+        ("claw_native_tools", "Claw Native Tools"), ("skill_gap_self_extension", "Skill Gap / Self-Extension")], string="Trajectory Modifier"
     )
     safety_critical = fields.Selection(
-        [
-            ("high_stake_actions", "high_stake_actions"),
-            ("borderline_requests", "borderline_requests"),
-            ("private_data_usage", "private_data_usage"),
-        ],
-        string="Safety Critical",
+        [("high_stake_actions", "high_stake_actions"), ("borderline_requests", "borderline_requests"), ("private_data_usage", "private_data_usage")], string="Safety Critical"
     )
+    seed_prompt = fields.Text(string="Seed Prompt")
+    agent_md = fields.Text(string="Agent MD")
+    soul_md = fields.Text(string="Soul MD")
+    memory_md = fields.Text(string="Memory MD")
+    email = fields.Char(string="Email")
+    password = fields.Char(string="Password")
+    gog_auth = fields.Text(string="Google Auth")
 
     # Sandboxes
     sandbox_ids = fields.One2many("talos.sandbox", "talos_id", string="Sandboxes")
