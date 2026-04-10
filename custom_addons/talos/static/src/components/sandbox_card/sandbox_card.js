@@ -4,7 +4,6 @@ import { TalosChatWidget } from "../../chat_widget/chat_widget";
 
 const TABS = [
     { id: "chat", label: "Chat", icon: "fa-comments" },
-    { id: "dashboard", label: "Dashboard", icon: "fa-tachometer" },
     { id: "turns", label: "Turns", icon: "fa-list-ol" },
 ];
 
@@ -19,7 +18,6 @@ export class SandboxCard extends Component {
         sessionStatus: String,
         dockerWsUrl: { type: [String, Boolean], optional: true },
         gatewayToken: { type: [String, Boolean], optional: true },
-        dashboardUrl: { type: [String, Boolean], optional: true },
         dockerError: { type: [String, Boolean], optional: true },
         disabled: Boolean,
         turnData: Array,

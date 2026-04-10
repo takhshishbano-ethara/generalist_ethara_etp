@@ -27,7 +27,6 @@
                     sessionStatus="activeSandboxProps.sessionStatus"
                     dockerWsUrl="activeSandboxProps.dockerWsUrl"
                     gatewayToken="activeSandboxProps.gatewayToken"
-                    dashboardUrl="activeSandboxProps.dashboardUrl"
                     dockerError="activeSandboxProps.dockerError"
                     disabled="activeSandboxProps.disabled"
                     turnData="activeSandboxProps.turnData"

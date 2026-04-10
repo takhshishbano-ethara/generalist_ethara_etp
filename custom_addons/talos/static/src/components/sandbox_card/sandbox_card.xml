@@ -77,23 +77,6 @@
                         />
                     </div>
 
-                    <!-- Dashboard Tab -->
-                    <div t-if="state.activeTab === 'dashboard'" class="o_talos_card_panel">
-                        <t t-if="props.dashboardUrl and isRunning">
-                            <iframe
-                                t-att-src="props.dashboardUrl"
-                                class="o_talos_card_iframe"
-                                allow="clipboard-read; clipboard-write"
-                            />
-                        </t>
-                        <t t-else="">
-                            <div class="o_talos_card_placeholder">
-                                <i class="fa fa-tachometer fa-2x mb-2 text-muted"/>
-                                <p class="text-muted">Start the sandbox to view the dashboard.</p>
-                            </div>
-                        </t>
-                    </div>
-
                     <!-- Turns Tab -->
                     <div t-if="state.activeTab === 'turns'" class="o_talos_card_panel">
                         <t t-if="props.turnData.length > 0">

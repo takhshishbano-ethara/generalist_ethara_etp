@@ -44,7 +44,7 @@ export class TaskDashboard extends Component {
             [["talos_id", "=", this.taskId]],
             [
                 "id", "model_type", "docker_status", "docker_port",
-                "docker_gateway_token", "docker_dashboard_url",
+                "docker_gateway_token",
                 "docker_ws_url", "docker_error", "docker_workdir",
                 "session_status", "docker_compose_project",
             ],
@@ -58,7 +58,7 @@ export class TaskDashboard extends Component {
                 [["talos_id", "=", this.taskId]],
                 [
                     "id", "model_type", "docker_status", "docker_port",
-                    "docker_gateway_token", "docker_dashboard_url",
+                    "docker_gateway_token",
                     "docker_ws_url", "docker_error", "docker_workdir",
                     "session_status", "docker_compose_project",
                 ],
@@ -100,7 +100,6 @@ export class TaskDashboard extends Component {
                 sessionStatus: "not_started",
                 dockerWsUrl: false,
                 gatewayToken: false,
-                dashboardUrl: false,
                 dockerError: false,
                 disabled: modelType === "1p",
                 turnData: [],
@@ -116,7 +115,6 @@ export class TaskDashboard extends Component {
             sessionStatus: sb.session_status || "not_started",
             dockerWsUrl: sb.docker_ws_url || false,
             gatewayToken: sb.docker_gateway_token || false,
-            dashboardUrl: sb.docker_dashboard_url || false,
             dockerError: sb.docker_error || false,
             disabled: modelType === "1p",
             turnData: this.state.turnCache[sb.id] || [],
