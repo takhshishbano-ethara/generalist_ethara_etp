@@ -6,7 +6,6 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from .talos import _load_dotenv, _DEFAULT_LITELLM_CONFIG
-from .talos_sandbox import MODEL_DEFAULTS
 
 _logger = logging.getLogger(__name__)
 
@@ -74,44 +73,31 @@ WS_ROUTER_LABELS = {
 }
 
 
-def _sandbox_labels(sandbox_record):
+def _sandbox_labels(task_record):
     return {
         "platform": "talos",
         "component": "sandbox",
-        "sandbox-id": str(sandbox_record.id),
-        "model-type": sandbox_record.model_type,
+        "task-id": str(task_record.id),
         "app.kubernetes.io/name": "talos-sandbox",
         "app.kubernetes.io/managed-by": "talos-odoo",
     }
 
 
-def _resource_name(sandbox_record):
-    return "talos-sandbox-%s" % sandbox_record.id
+def _resource_name(task_record):
+    return "talos-sandbox-%s" % task_record.id
 
 
-def _s3_session_path(sandbox_record):
-    return "s3://%s/%s/tasks/%s/sessions/" % (
-        S3_BUCKET,
-        S3_TALOS_PREFIX,
-        sandbox_record.id,
-    )
+def _s3_session_path(task_record):
+    return "s3://%s/%s/tasks/%s/sessions/" % (S3_BUCKET, S3_TALOS_PREFIX, task_record.id)
 
 
 def _s3_browser_path(persona_name):
-    return "s3://%s/%s/tasks/browser-profiles/%s/" % (
-        S3_BUCKET,
-        S3_TALOS_PREFIX,
-        persona_name,
-    )
+    return "s3://%s/%s/tasks/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
 
 
-def _build_prestop_script(sandbox_id, persona_name):
-    session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, sandbox_id)
-    browser_path = "s3://%s/%s/browser-profiles/%s/" % (
-        S3_BUCKET,
-        S3_TALOS_PREFIX,
-        persona_name,
-    )
+def _build_prestop_script(task_id, persona_name):
+    session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, task_id)
+    browser_path = "s3://%s/%s/browser-profiles/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, persona_name)
     return (
         "echo '[talos] preStop: backing up session data to S3...' && "
         "aws s3 sync /home/node/.openclaw/ %s "
@@ -123,7 +109,7 @@ def _build_prestop_script(sandbox_id, persona_name):
     ) % (session_path, browser_path)
 
 
-def _build_openclaw_config(gateway_token, env, default_model=None):
+def _build_openclaw_config(gateway_token, env):
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -134,7 +120,11 @@ def _build_openclaw_config(gateway_token, env, default_model=None):
     config_dict = {
         "gateway": {
             "bind": "lan",
-            "auth": {"mode": "token", "token": gateway_token},
+            "auth": {
+                "mode": "token",
+                "token": gateway_token,
+                "rateLimiting": False,
+            },
             "trustedProxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
             "controlUi": {
                 "allowedOrigins": [
@@ -180,7 +170,7 @@ def _build_openclaw_config(gateway_token, env, default_model=None):
         "baseUrl": "http://localhost:4000/v1",
         "apiKey": litellm_key,
         "auth": "api-key",
-        "api": "openai-completions",
+        "api": "openai-responses",
         "models": [
             {
                 "id": "claude-opus-4.6",
@@ -192,8 +182,8 @@ def _build_openclaw_config(gateway_token, env, default_model=None):
                 "maxTokens": 8192,
             },
             {
-                "id": "glm-5",
-                "name": "glm-5",
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
                 "reasoning": False,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -202,9 +192,7 @@ def _build_openclaw_config(gateway_token, env, default_model=None):
             },
         ],
     }
-    config_dict["agents"] = {
-        "defaults": {"model": default_model or "litellm/claude-opus-4.6"}
-    }
+    config_dict["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
 
     return config_dict
 
@@ -216,7 +204,7 @@ class TalosSandboxK8s(models.AbstractModel):
     def _get_config_param(self, key, default=""):
         return self.env["ir.config_parameter"].sudo().get_param(key, default).strip()
 
-    def deploy_sandbox(self, sandbox_record):
+    def deploy_sandbox(self, task_record):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes package is not installed on this server.")
 
@@ -224,18 +212,13 @@ class TalosSandboxK8s(models.AbstractModel):
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
-        sandbox_id = sandbox_record.id
-        if not sandbox_record.talos_id:
-            raise UserError("Sandbox %s is not linked to a task." % sandbox_id)
-        persona = sandbox_record.talos_id.persona_id
+        task_id = task_record.id
+        persona = task_record.persona_id
         if not persona:
-            raise UserError(
-                "No persona selected on task '%s'. Please select a persona and save before starting."
-                % (sandbox_record.talos_id.display_name or sandbox_record.talos_id.id)
-            )
+            raise UserError("No persona selected for task %s." % task_id)
         persona_name = persona.name
-        name = _resource_name(sandbox_record)
-        labels = _sandbox_labels(sandbox_record)
+        name = _resource_name(task_record)
+        labels = _sandbox_labels(task_record)
 
         env = _load_dotenv()
         aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
@@ -255,18 +238,24 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_image = self._get_config_param(
             "talos.litellm_image", "ghcr.io/berriai/litellm:main-stable"
         )
-        postgres_image = self._get_config_param("talos.postgres_image", "postgres:16")
+        postgres_image = self._get_config_param(
+            "talos.postgres_image", "postgres:16"
+        )
         aws_cli_image = self._get_config_param(
             "talos.aws_cli_image", "amazon/aws-cli:latest"
         )
-        s3_bucket = self._get_config_param("talos.s3_bucket", S3_BUCKET)
-        s3_prefix = self._get_config_param("talos.s3_prefix", S3_TALOS_PREFIX)
+        s3_bucket = self._get_config_param(
+            "talos.s3_bucket", S3_BUCKET
+        )
+        s3_prefix = self._get_config_param(
+            "talos.s3_prefix", S3_TALOS_PREFIX
+        )
 
-        gateway_token = sandbox_record.docker_gateway_token
+        gateway_token = task_record.docker_gateway_token
 
         self._create_secret(
             core_v1,
-            sandbox_id,
+            task_id,
             labels,
             gateway_token=gateway_token,
             litellm_master_key=litellm_master_key,
@@ -276,16 +265,15 @@ class TalosSandboxK8s(models.AbstractModel):
 
         self._create_persona_configmap(
             core_v1,
-            sandbox_id,
+            task_id,
             labels,
             persona,
         )
 
-        default_model = MODEL_DEFAULTS.get(sandbox_record.model_type)
-        openclaw_config = _build_openclaw_config(gateway_token, env, default_model)
+        openclaw_config = _build_openclaw_config(gateway_token, env)
         self._create_openclaw_config_configmap(
             core_v1,
-            sandbox_id,
+            task_id,
             labels,
             openclaw_config,
         )
@@ -294,21 +282,17 @@ class TalosSandboxK8s(models.AbstractModel):
         if not litellm_yaml:
             kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
             kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
-            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
-            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
                 kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
                 kimi_aws_region=kimi_region,
-                glm_bedrock_arn=glm_arn or "PLACEHOLDER",
-                glm_aws_region=glm_region,
             )
-        self._create_litellm_configmap(core_v1, sandbox_id, labels, litellm_yaml)
+        self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
         self._create_deployment(
             apps_v1,
-            sandbox_record,
+            task_record,
             labels,
             persona_name,
             name,
@@ -326,14 +310,12 @@ class TalosSandboxK8s(models.AbstractModel):
             gateway_token,
         )
 
-        self._create_service(core_v1, sandbox_record, labels, name)
+        self._create_service(core_v1, task_record, labels, name)
 
         networking_v1 = client.NetworkingV1Api()
         talos_ws_host = self._get_config_param("talos.ws_router_host", "")
         nginx_image = self._get_config_param("talos.nginx_image", "nginx:alpine")
-        self._ensure_ws_router(
-            core_v1, apps_v1, networking_v1, talos_ws_host, nginx_image
-        )
+        self._ensure_ws_router(core_v1, apps_v1, networking_v1, talos_ws_host, nginx_image)
 
     def _create_secret(
         self,
@@ -430,7 +412,7 @@ class TalosSandboxK8s(models.AbstractModel):
     def _create_deployment(
         self,
         apps_v1,
-        sandbox_record,
+        task_record,
         labels,
         persona,
         name,
@@ -447,22 +429,14 @@ class TalosSandboxK8s(models.AbstractModel):
         bedrock_arn,
         gateway_token,
     ):
-        sandbox_id = sandbox_record.id
-        secret_name = "talos-sandbox-creds-%s" % sandbox_id
-        persona_cm = "talos-sandbox-persona-%s" % sandbox_id
-        openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % sandbox_id
-        litellm_config_cm = "talos-litellm-config-%s" % sandbox_id
+        task_id = task_record.id
+        secret_name = "talos-sandbox-creds-%s" % task_id
+        persona_cm = "talos-sandbox-persona-%s" % task_id
+        openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
+        litellm_config_cm = "talos-litellm-config-%s" % task_id
 
-        session_s3_path = "s3://%s/%s/tasks/%s/sessions/" % (
-            s3_bucket,
-            s3_prefix,
-            sandbox_id,
-        )
-        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (
-            s3_bucket,
-            s3_prefix,
-            persona,
-        )
+        session_s3_path = "s3://%s/%s/tasks/%s/sessions/" % (s3_bucket, s3_prefix, task_id)
+        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (s3_bucket, s3_prefix, persona)
 
         db_url = ""
 
@@ -489,12 +463,7 @@ class TalosSandboxK8s(models.AbstractModel):
                     "aws s3 ls %s >/dev/null 2>&1 && "
                     "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
                     "chown -R 1000:1000 /data/session /data/browser-profiles"
-                    % (
-                        session_s3_path,
-                        session_s3_path,
-                        browser_s3_path,
-                        browser_s3_path,
-                    ),
+                    % (session_s3_path, session_s3_path, browser_s3_path, browser_s3_path),
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(
@@ -753,7 +722,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 replicas=1,
                 selector=client.V1LabelSelector(
                     match_labels={
-                        "sandbox-id": str(sandbox_id),
+                        "task-id": str(task_id),
                         "component": "sandbox",
                     },
                 ),
@@ -776,7 +745,7 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_service(self, core_v1, sandbox_record, labels, name):
+    def _create_service(self, core_v1, task_record, labels, name):
         svc = client.V1Service(
             api_version="v1",
             kind="Service",
@@ -788,7 +757,7 @@ class TalosSandboxK8s(models.AbstractModel):
             spec=client.V1ServiceSpec(
                 type="ClusterIP",
                 selector={
-                    "sandbox-id": str(sandbox_record.id),
+                    "task-id": str(task_record.id),
                     "component": "sandbox",
                 },
                 ports=[
@@ -952,7 +921,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         _logger.info("WS router created (host=%s)", ws_host or "no-ingress")
 
-    def destroy_sandbox(self, sandbox_record):
+    def destroy_sandbox(self, task_record):
         if not K8S_AVAILABLE:
             return
 
@@ -960,8 +929,8 @@ class TalosSandboxK8s(models.AbstractModel):
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
-        sandbox_id = sandbox_record.id
-        name = _resource_name(sandbox_record)
+        task_id = task_record.id
+        name = _resource_name(task_record)
 
         self._delete_resource(
             apps_v1.delete_namespaced_deployment,
@@ -975,22 +944,22 @@ class TalosSandboxK8s(models.AbstractModel):
         )
         self._delete_resource(
             core_v1.delete_namespaced_secret,
-            "talos-sandbox-creds-%s" % sandbox_id,
+            "talos-sandbox-creds-%s" % task_id,
             NAMESPACE,
         )
         self._delete_resource(
             core_v1.delete_namespaced_config_map,
-            "talos-sandbox-persona-%s" % sandbox_id,
+            "talos-sandbox-persona-%s" % task_id,
             NAMESPACE,
         )
         self._delete_resource(
             core_v1.delete_namespaced_config_map,
-            "talos-sandbox-openclaw-config-%s" % sandbox_id,
+            "talos-sandbox-openclaw-config-%s" % task_id,
             NAMESPACE,
         )
         self._delete_resource(
             core_v1.delete_namespaced_config_map,
-            "talos-litellm-config-%s" % sandbox_id,
+            "talos-litellm-config-%s" % task_id,
             NAMESPACE,
         )
 
@@ -1005,24 +974,21 @@ class TalosSandboxK8s(models.AbstractModel):
                     e,
                 )
 
-    def get_sandbox_status(self, sandbox_record):
+    def get_sandbox_status(self, task_record):
         if not K8S_AVAILABLE:
             return "stopped"
 
         config.load_incluster_config()
         apps_v1 = client.AppsV1Api()
-        name = _resource_name(sandbox_record)
+        name = _resource_name(task_record)
 
         try:
             dep = apps_v1.read_namespaced_deployment(name=name, namespace=NAMESPACE)
         except ApiException as e:
             if e.status == 404:
-                if (
-                    sandbox_record.docker_status == "starting"
-                    and sandbox_record.write_date
-                ):
+                if task_record.docker_status == "starting" and task_record.write_date:
                     elapsed = (
-                        fields.Datetime.now() - sandbox_record.write_date
+                        fields.Datetime.now() - task_record.write_date
                     ).total_seconds()
                     if elapsed > 300:
                         return "error"
@@ -1042,8 +1008,8 @@ class TalosSandboxK8s(models.AbstractModel):
             _logger.warning("kubernetes not available, skipping sandbox reconciliation")
             return
 
-        sandboxes = (
-            self.env["talos.sandbox"]
+        tasks = (
+            self.env["talos.talos"]
             .sudo()
             .search(
                 [
@@ -1051,23 +1017,23 @@ class TalosSandboxK8s(models.AbstractModel):
                 ]
             )
         )
-        if not sandboxes:
+        if not tasks:
             return
 
-        for sandbox in sandboxes:
+        for task in tasks:
             try:
-                status = self.get_sandbox_status(sandbox)
-                if status != sandbox.docker_status:
-                    sandbox.write({"docker_status": status})
+                status = self.get_sandbox_status(task)
+                if status != task.docker_status:
+                    task.write({"docker_status": status})
                     if status == "error":
-                        sandbox.write(
+                        task.write(
                             {
                                 "docker_error": "Sandbox deployment not found after timeout",
                             }
                         )
             except Exception as e:
                 _logger.error(
-                    "Reconciliation error for sandbox %s: %s",
-                    sandbox.id,
+                    "Reconciliation error for task %s: %s",
+                    task.id,
                     e,
                 )
