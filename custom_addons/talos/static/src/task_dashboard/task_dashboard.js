@@ -122,10 +122,6 @@ export class TaskDashboard extends Component {
         };
     }
 
-    get activeSandboxProps() {
-        return this._buildSandboxProps(this.state.activeTab);
-    }
-
     onTabClick(modelType) {
         this.state.activeTab = modelType;
     }

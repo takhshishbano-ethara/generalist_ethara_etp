@@ -17,24 +17,27 @@
                 </t>
             </div>
 
-            <!-- Active Sandbox Card -->
-            <div class="o_talos_dashboard_body">
-                <SandboxCard
-                    sandboxId="activeSandboxProps.sandboxId"
-                    modelType="activeSandboxProps.modelType"
-                    modelLabel="activeSandboxProps.modelLabel"
-                    dockerStatus="activeSandboxProps.dockerStatus"
-                    sessionStatus="activeSandboxProps.sessionStatus"
-                    dockerWsUrl="activeSandboxProps.dockerWsUrl"
-                    gatewayToken="activeSandboxProps.gatewayToken"
-                    dockerError="activeSandboxProps.dockerError"
-                    disabled="activeSandboxProps.disabled"
-                    turnData="activeSandboxProps.turnData"
-                    loading="activeSandboxProps.loading"
-                    onStart.bind="onStartSandbox"
-                    onStop.bind="onStopSandbox"
-                />
-            </div>
+            <!-- All Sandbox Cards rendered simultaneously, shown/hidden via CSS -->
+            <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
+                <t t-set="sbProps" t-value="this._buildSandboxProps(tab.type)"/>
+                <div t-attf-class="o_talos_dashboard_body #{state.activeTab !== tab.type ? 'o_talos_panel_hidden' : ''}">
+                    <SandboxCard
+                        sandboxId="sbProps.sandboxId"
+                        modelType="sbProps.modelType"
+                        modelLabel="sbProps.modelLabel"
+                        dockerStatus="sbProps.dockerStatus"
+                        sessionStatus="sbProps.sessionStatus"
+                        dockerWsUrl="sbProps.dockerWsUrl"
+                        gatewayToken="sbProps.gatewayToken"
+                        dockerError="sbProps.dockerError"
+                        disabled="sbProps.disabled"
+                        turnData="sbProps.turnData"
+                        loading="sbProps.loading"
+                        onStart.bind="onStartSandbox"
+                        onStop.bind="onStopSandbox"
+                    />
+                </div>
+            </t>
         </div>
     </t>
 </templates>

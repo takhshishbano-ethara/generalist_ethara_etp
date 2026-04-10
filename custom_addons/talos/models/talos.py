@@ -657,6 +657,17 @@ class TalosTurn(models.Model):
     tool_calls = fields.Text(string="Tool Calls (JSON)")
     raw_events = fields.Text(string="Raw WS Events (JSON)")
     trajectory_messages = fields.Text(string="Trajectory Messages (JSON)")
+    qc_severity = fields.Selection(
+        [
+            ("low", "Low"),
+            ("medium", "Medium"),
+            ("high", "High"),
+            ("critical", "Critical"),
+        ],
+        string="QC Severity",
+    )
+    qc_response = fields.Text(string="QC Response (JSON)")
+    qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
     tool_names = fields.Char(
         string="Tools Used", compute="_compute_tool_names", store=True
     )

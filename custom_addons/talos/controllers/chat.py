@@ -63,6 +63,32 @@ class TalosChatController(http.Controller):
 
         return {"success": True}
 
+    @http.route("/talos/chat/save_qc", type="json", auth="user")
+    def save_qc(self, turn_id=0, severity="", qc_response="", dismiss_reason="", **kw):
+        turn_id = int(turn_id or 0)
+        if not turn_id:
+            return {"error": "turn_id is required"}
+
+        turn = request.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        severity = (severity or "").strip().lower()
+        valid = ("low", "medium", "high", "critical")
+        if severity not in valid:
+            return {"error": "Invalid severity: %s" % severity}
+
+        vals = {
+            "qc_severity": severity,
+        }
+        if qc_response:
+            vals["qc_response"] = qc_response
+        if dismiss_reason:
+            vals["qc_dismiss_reason"] = dismiss_reason
+
+        turn.write(vals)
+        return {"success": True}
+
     @http.route("/talos/chat/save_trajectory", type="json", auth="user")
     def save_trajectory(self, turn_id=0, trajectory_messages="", **kw):
         turn_id = int(turn_id or 0)

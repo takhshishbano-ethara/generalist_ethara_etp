@@ -55,6 +55,10 @@ function _getSession(sandboxId) {
             _toolCalls: [],
             _rawEvents: [],
             _pendingRpc: new Map(),
+            qcPending: false,
+            qcResult: null,
+            qcDismissReason: "",
+            qcPromptText: "",
         });
     }
     return _sessions.get(sandboxId);
@@ -84,6 +88,11 @@ export class TalosChatWidget extends Component {
             connected: false,
             statusText: "Initializing...",
             activityText: "",
+            // QC state
+            qcPending: false,
+            qcResult: null,       // { severity, summary, checks, ... } or null
+            qcDismissReason: "",   // for "high" severity justification
+            qcPromptText: "",      // the original prompt text awaiting QC resolution
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
@@ -123,6 +132,10 @@ export class TalosChatWidget extends Component {
         this.state.streaming = this._session.streaming;
         this.state.connected = this._session.wsConnected;
         this.state.statusText = this._session.wsConnected ? "Connected" : "Initializing...";
+        this.state.qcPending = this._session.qcPending;
+        this.state.qcResult = this._session.qcResult;
+        this.state.qcDismissReason = this._session.qcDismissReason;
+        this.state.qcPromptText = this._session.qcPromptText;
 
         if (!this._session.historyLoaded) {
             this._loadHistory();
@@ -144,6 +157,10 @@ export class TalosChatWidget extends Component {
             this._session.ws._odooWidget = null;
         }
         this._session.messages = [...this.state.messages];
+        this._session.qcPending = this.state.qcPending;
+        this._session.qcResult = this.state.qcResult;
+        this._session.qcDismissReason = this.state.qcDismissReason;
+        this._session.qcPromptText = this.state.qcPromptText;
     }
 
     get isRunning() { return this.props.dockerStatus === "running"; }
@@ -596,6 +613,7 @@ export class TalosChatWidget extends Component {
         this._session.messages.push({ role: "user", text });
         this._scrollToBottom();
 
+        this.state.activityText = "Running QC check…";
         let turnId = null;
         try {
             const r = await rpc("/talos/chat/create_turn", { sandbox_id: this.props.sandboxId, message: text });
@@ -606,6 +624,103 @@ export class TalosChatWidget extends Component {
         }
         this._session.currentTurnId = turnId;
 
+        let qcResult = null;
+        try {
+            const qcResponse = await rpc("/talos/qc", { prompt: text });
+            console.log(LOG_PREFIX, "QC response:", qcResponse);
+            if (qcResponse.error) {
+                console.warn(LOG_PREFIX, "QC error, passing through:", qcResponse.error);
+            } else if (qcResponse.qc_result) {
+                qcResult = qcResponse.qc_result;
+                if (turnId) {
+                    rpc("/talos/chat/save_qc", {
+                        turn_id: turnId,
+                        severity: qcResult.severity || "",
+                        qc_response: JSON.stringify(qcResult),
+                    }).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
+                }
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
+        }
+
+        this.state.activityText = "";
+        this.state.sending = false;
+
+        if (qcResult && qcResult.severity) {
+            this._session.messages.push({
+                role: "assistant",
+                text: qcResult.summary || "QC check completed.",
+                isQc: true,
+                qcSeverity: qcResult.severity,
+                qcChecks: qcResult.checks || [],
+                pending: false,
+            });
+            this._scrollToBottom();
+
+            if (qcResult.severity === "critical") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                return;
+            }
+            if (qcResult.severity === "high") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                this.state.qcDismissReason = "";
+                return;
+            }
+            if (qcResult.severity === "medium" || qcResult.severity === "low") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                return;
+            }
+        }
+
+        this._sendToOpenClaw(text);
+    }
+
+    onQcDismiss() {
+        const severity = this.state.qcResult?.severity;
+        if (severity === "critical") return;
+        if (severity === "high" && !this.state.qcDismissReason.trim()) return;
+
+        const turnId = this._session.currentTurnId;
+        const reason = this.state.qcDismissReason.trim();
+
+        if (turnId && reason) {
+            rpc("/talos/chat/save_qc", {
+                turn_id: turnId,
+                severity: severity,
+                dismiss_reason: reason,
+            }).catch(e => console.warn(LOG_PREFIX, "save_qc dismiss failed:", e));
+        }
+
+        const promptText = this.state.qcPromptText;
+        this._clearQcState();
+        this._sendToOpenClaw(promptText);
+    }
+
+    onQcRewrite() {
+        const promptText = this.state.qcPromptText;
+        this._clearQcState();
+        this.state.inputText = promptText;
+    }
+
+    _clearQcState() {
+        this.state.qcResult = null;
+        this.state.qcPending = false;
+        this.state.qcDismissReason = "";
+        this.state.qcPromptText = "";
+        this._session.qcResult = null;
+        this._session.qcPending = false;
+        this._session.qcDismissReason = "";
+        this._session.qcPromptText = "";
+    }
+
+    _sendToOpenClaw(text) {
         const chatSendMsg = {
             type: "req",
             id: nextId(),
@@ -624,7 +739,6 @@ export class TalosChatWidget extends Component {
         this.state.activityText = "Waiting for model…";
         this._session.streaming = true;
         this.state.streaming = true;
-        this.state.sending = false;
         this._scrollToBottom();
     }
 

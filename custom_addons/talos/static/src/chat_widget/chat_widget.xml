@@ -27,8 +27,36 @@
                                         <t t-else="">Assistant</t>
                                     </span>
                                 </div>
-                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : msg.isQc ? 'o_talos_msg_qc' : ''} #{msg.role === 'assistant' ? 'o_talos_md' : ''}">
-                                    <t t-if="msg.role === 'assistant' and msg.html">
+                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.isQc ? 'o_talos_qc_bubble o_talos_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_talos_md' : ''}">
+                                    <t t-if="msg.isQc">
+                                        <div class="o_talos_qc_header">
+                                            <span t-attf-class="o_talos_qc_badge o_talos_qc_badge_#{msg.qcSeverity || 'low'}">
+                                                <t t-out="(msg.qcSeverity || 'low').charAt(0).toUpperCase() + (msg.qcSeverity || 'low').slice(1)"/>
+                                            </span>
+                                            <span class="o_talos_qc_title">QC Check</span>
+                                        </div>
+                                        <div class="o_talos_qc_summary"><t t-out="msg.text"/></div>
+                                        <t t-if="msg.qcChecks and msg.qcChecks.length">
+                                            <div class="o_talos_qc_checks">
+                                                <t t-foreach="msg.qcChecks" t-as="chk" t-key="chk.check">
+                                                    <t t-if="chk.verdict !== 'PASS'">
+                                                        <div class="o_talos_qc_check_item">
+                                                            <span t-attf-class="o_talos_qc_check_verdict o_talos_qc_check_#{chk.verdict === 'FAIL' ? 'fail' : 'warn'}">
+                                                                <t t-out="chk.verdict"/>
+                                                            </span>
+                                                            <span class="o_talos_qc_check_name">
+                                                                Check <t t-out="chk.check"/> — <t t-out="chk.name"/>
+                                                            </span>
+                                                            <t t-if="chk.reason">
+                                                                <div class="o_talos_qc_check_reason"><t t-out="chk.reason"/></div>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </t>
+                                            </div>
+                                        </t>
+                                    </t>
+                                    <t t-elif="msg.role === 'assistant' and msg.html">
                                         <t t-out="msg.html"/>
                                     </t>
                                     <t t-else="">
@@ -45,13 +73,61 @@
                     </div>
                     <div t-ref="messagesEnd"/>
                 </div>
+
+                <t t-if="state.qcPending">
+                    <div t-attf-class="o_talos_qc_action_bar o_talos_qc_action_#{state.qcResult.severity}">
+                        <t t-if="state.qcResult.severity === 'critical'">
+                            <div class="o_talos_qc_action_text">
+                                <i class="fa fa-ban"/> This prompt has been blocked by QC and cannot be sent.
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                <i class="fa fa-pencil me-1"/>Re-write
+                            </button>
+                        </t>
+                        <t t-elif="state.qcResult.severity === 'high'">
+                            <div class="o_talos_qc_action_text">
+                                <i class="fa fa-exclamation-triangle"/> QC flagged significant issues. Provide a reason to proceed.
+                            </div>
+                            <textarea
+                                class="o_talos_qc_reason_input"
+                                t-model="state.qcDismissReason"
+                                placeholder="Why are you dismissing this QC flag?"
+                                rows="2"
+                            />
+                            <div class="o_talos_qc_action_buttons">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                    <i class="fa fa-pencil me-1"/>Re-write
+                                </button>
+                                <button class="btn btn-warning btn-sm"
+                                        t-on-click="onQcDismiss"
+                                        t-att-disabled="!state.qcDismissReason.trim()">
+                                    Dismiss &amp; Send
+                                </button>
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <div class="o_talos_qc_action_text">
+                                <i class="fa fa-info-circle"/> QC flagged minor issues. You can dismiss and proceed.
+                            </div>
+                            <div class="o_talos_qc_action_buttons">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                    <i class="fa fa-pencil me-1"/>Re-write
+                                </button>
+                                <button class="btn btn-primary btn-sm" t-on-click="onQcDismiss">
+                                    Dismiss &amp; Send
+                                </button>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
                 <div class="o_talos_chat_input">
                     <div class="o_talos_chat_input_row">
                         <textarea
                             t-model="state.inputText"
                             t-on-keydown="onKeydown"
                             placeholder="Type a message..."
-                            t-att-disabled="state.sending or state.streaming"
+                            t-att-disabled="state.sending or state.streaming or state.qcPending"
                             rows="1"
                             class="o_talos_chat_textarea"
                         />
@@ -64,7 +140,7 @@
                         <t t-else="">
                             <button class="btn btn-primary btn-sm o_talos_btn"
                                     t-on-click="onSend"
-                                    t-att-disabled="state.sending or !state.inputText.trim()">
+                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending">
                                 <i class="fa fa-paper-plane"/>
                             </button>
                         </t>

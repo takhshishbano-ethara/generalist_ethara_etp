@@ -60,33 +60,49 @@ def _parse_json_response(text):
 
 
 def _parse_qc_verdict(text):
-    verdict_match = re.search(
-        r"OVERALL\s+VERDICT:\s*(PASS|FAIL|WARN)", text, re.IGNORECASE
-    )
-    if not verdict_match:
+    """Parse the machine-readable JSON block from the QC response.
+
+    The LLM outputs a JSON code block with severity, summary, and per-check
+    results.  We extract the JSON, validate the severity field, and return a
+    normalized dict the frontend can consume directly.
+    """
+    parsed = _parse_json_response(text)
+    if not parsed or not isinstance(parsed, dict):
         return None
 
-    verdict = verdict_match.group(1).upper()
+    severity = (parsed.get("severity") or "").strip().lower()
+    valid_severities = ("low", "medium", "high", "critical")
+    if severity not in valid_severities:
+        # Fallback: try to infer from old-style OVERALL VERDICT if present
+        verdict_match = re.search(
+            r"OVERALL\s+(?:VERDICT|SEVERITY):\s*(\S+)", text, re.IGNORECASE
+        )
+        if verdict_match:
+            raw = verdict_match.group(1).strip().lower()
+            if raw in valid_severities:
+                severity = raw
+            elif raw == "pass":
+                severity = "low"
+            elif raw == "warn":
+                severity = "medium"
+            elif raw == "fail":
+                severity = "critical"
+            else:
+                severity = "medium"
+        else:
+            severity = "medium"
 
-    fails = 0
-    warns = 0
-    passes = 0
-    count_match = re.search(r"Total FAILs:\s*(\d+)", text)
-    if count_match:
-        fails = int(count_match.group(1))
-    count_match = re.search(r"Total WARNs:\s*(\d+)", text)
-    if count_match:
-        warns = int(count_match.group(1))
-    count_match = re.search(r"Total PASSes:\s*(\d+)", text)
-    if count_match:
-        passes = int(count_match.group(1))
+    total_fails = int(parsed.get("total_fails", 0))
+    total_warns = int(parsed.get("total_warns", 0))
+    total_passes = int(parsed.get("total_passes", 0))
 
     return {
-        "pass": verdict == "PASS",
-        "verdict": verdict,
-        "fails": fails,
-        "warns": warns,
-        "passes": passes,
+        "severity": severity,
+        "summary": parsed.get("summary", ""),
+        "total_fails": total_fails,
+        "total_warns": total_warns,
+        "total_passes": total_passes,
+        "checks": parsed.get("checks", []),
     }
 
 
@@ -207,7 +223,7 @@ class LlmAssistQc(http.Controller):
         if parsed_json is not None:
             result["parsed_json"] = parsed_json
         if qc_verdict is not None:
-            result["parsed_json"] = qc_verdict
+            result["qc_result"] = qc_verdict
 
         return result
 
