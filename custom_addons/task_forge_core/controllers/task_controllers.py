@@ -61,7 +61,7 @@ class TaskForgeTaskController(http.Controller):
                 # We add a '|' for the two following conditions
                 domain.extend(['|', '|', ('employee_id.name', 'ilike', search_val), ('name', 'ilike', search_val), ('project_id.name', 'ilike', search_val)])
 
-            tasks = TaskLog.search(domain, order='create_date desc', limit=int(kwargs.get('limit', 200)))
+            tasks = TaskLog.search(domain, order='create_date desc')
             data = [self._format_task(t) for t in tasks]
             return return_Response(message="Tasks list", status=200, data={'data': data})
         except Exception as e:
