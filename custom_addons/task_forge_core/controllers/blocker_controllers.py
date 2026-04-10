@@ -54,6 +54,9 @@ class TaskForgeBlockerController(http.Controller):
             if role == 'admin':
                 # domain = [('state', '=', 'escalated')]
                 domain = []
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain = [('state', 'not in', ['no_issue'])]
+
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
                 domain = [
@@ -65,6 +68,7 @@ class TaskForgeBlockerController(http.Controller):
                 domain = [('qr_id', '=', employee.id)]
             else:
                 domain = [('employee_id', '=', employee.id)]
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
