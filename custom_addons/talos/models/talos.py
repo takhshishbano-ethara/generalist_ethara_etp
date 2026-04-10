@@ -146,6 +146,25 @@ class Talos(models.Model):
     _name = "talos.talos"
     _description = "Talos"
 
+    is_talos_admin = fields.Boolean(
+        compute="_compute_is_talos_admin",
+        search="_search_is_talos_admin",
+    )
+
+    @api.depends_context("uid")
+    def _compute_is_talos_admin(self):
+        is_admin = self.env.user.has_group("talos.group_talos_admin")
+        for rec in self:
+            rec.is_talos_admin = is_admin
+
+    def _search_is_talos_admin(self, operator, value):
+        if operator not in ("=", "!="):
+            raise ValueError("Unsupported operator")
+        is_admin = self.env.user.has_group("talos.group_talos_admin")
+        if (operator == "=" and value) or (operator == "!=" and not value):
+            return [] if is_admin else [("id", "=", False)]
+        return [("id", "=", False)] if is_admin else []
+
     task_id = fields.Char(string="Task ID", readonly=True, copy=False)
     parsona = fields.Many2one("talos.domain", string="Parsona")
     task_status = fields.Selection(

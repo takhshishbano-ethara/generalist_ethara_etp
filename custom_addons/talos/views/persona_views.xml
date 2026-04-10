@@ -21,25 +21,26 @@
           <sheet>
             <div class="oe_title">
               <label for="name"/>
-              <h1><field name="name" placeholder="e.g. marcus"/></h1>
+              <h1><field name="name" placeholder="e.g. marcus" readonly="not is_talos_admin"/></h1>
             </div>
+            <field name="is_talos_admin" invisible="1"/>
             <notebook>
               <page string="Soul">
-                <field name="soul_md" widget="text" placeholder="Paste SOUL.md content here..."/>
+                <field name="soul_md" widget="text" placeholder="Paste SOUL.md content here..." readonly="not is_talos_admin"/>
               </page>
               <page string="Memory">
-                <field name="memory_md" widget="text" placeholder="Paste MEMORY.md content here..."/>
+                <field name="memory_md" widget="text" placeholder="Paste MEMORY.md content here..." readonly="not is_talos_admin"/>
               </page>
               <page string="Agents">
-                <field name="agents_md" widget="text" placeholder="Paste AGENTS.md content here..."/>
+                <field name="agents_md" widget="text" placeholder="Paste AGENTS.md content here..." readonly="not is_talos_admin"/>
               </page>
               <page string="LiteLLM Config">
                 <field name="litellm_config_yaml" widget="text"
-                       placeholder="Optional per-persona litellm_config.yaml. Leave empty to use global default."/>
+                       placeholder="Optional per-persona litellm_config.yaml. Leave empty to use global default." readonly="not is_talos_admin"/>
               </page>
               <page string="Docker Compose">
                 <field name="docker_compose_yaml" widget="text"
-                       placeholder="Optional per-persona docker-compose.yml. Leave empty to use bundled default."/>
+                       placeholder="Optional per-persona docker-compose.yml. Leave empty to use bundled default." readonly="not is_talos_admin"/>
               </page>
             </notebook>
           </sheet>
