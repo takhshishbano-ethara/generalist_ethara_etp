@@ -647,6 +647,7 @@ class TalosTurn(models.Model):
         "talos.sandbox", string="Sandbox", ondelete="cascade", index=True
     )
     talos_id = fields.Many2one(related="sandbox_id.talos_id", store=True, readonly=True)
+    employee_id = fields.Many2one(related="talos_id.employee_id", store=True, readonly=True)
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
     prompt = fields.Text(string="Prompt")

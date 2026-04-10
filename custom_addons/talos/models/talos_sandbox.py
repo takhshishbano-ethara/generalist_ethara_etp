@@ -47,6 +47,7 @@ class TalosSandbox(models.Model):
     talos_id = fields.Many2one(
         "talos.talos", required=True, ondelete="cascade", index=True
     )
+    employee_id = fields.Many2one(related="talos_id.employee_id", store=True, readonly=True)
     model_type = fields.Selection(MODEL_TYPES, required=True, readonly=True)
 
     # Docker lifecycle fields (moved from talos.talos)
