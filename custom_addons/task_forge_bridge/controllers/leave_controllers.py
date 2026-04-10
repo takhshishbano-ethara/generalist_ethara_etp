@@ -48,7 +48,19 @@ class TaskForgeLeaveController(http.Controller):
 
             if not from_date or not to_date:
                 return return_Response(message="Start and End dates are required", status=400)
+            Attendance = request.env['hr.attendance'].sudo()
+            # Odoo stores attendance in UTC; check if any record exists between from_date and to_date
+            existing_attendance = Attendance.search([
+                ('employee_id', '=', employee.id),
+                ('check_in', '>=', f"{from_date} 00:00:00"),
+                ('check_in', '<=', f"{to_date} 23:59:59"),
+            ], limit=1)
 
+            if existing_attendance:
+                return return_Response(
+                    message=f"Action Denied: You have already marked attendance on {existing_attendance.check_in.date()}. You cannot apply for leave on a day you worked.",
+                    status=400
+                )
             # 2. Strict Manual Overlap Check
             # We check this FIRST to provide a friendly 400 error instead of a 422 crash
             Leave = request.env['hr.leave'].sudo()

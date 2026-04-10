@@ -20,6 +20,21 @@ class TaskForgeAttendanceController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             today = date.today()
+            # --- NEW LOGIC: RESTRICT PUNCH-IN IF ON LEAVE ---
+            Leave = request.env['hr.leave'].sudo()
+            approved_leave = Leave.search([
+                ('employee_id', '=', employee.id),
+                ('state', '=', 'validate'),
+                ('request_date_from', '<=', today),
+                ('request_date_to', '>=', today),
+            ], limit=1)
+
+            if approved_leave:
+                return return_Response(
+                    message=f"Punch-in restricted: You have an approved leave for today ({approved_leave.holiday_status_id.name}).",
+                    status=400
+                )
+            # -----------------------------------------------
             Attendance = request.env['hr.attendance'].sudo()
             existing = Attendance.search([
                 ('employee_id', '=', employee.id),
