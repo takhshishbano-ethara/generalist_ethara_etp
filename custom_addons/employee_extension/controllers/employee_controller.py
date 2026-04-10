@@ -316,11 +316,18 @@ class EmployeeController(http.Controller):
                 ('check_in', '>=', first_day_of_month),
                 ('check_in', '<=', datetime.combine(today, time.max))
             ])
-            total_present = len(attendances.mapped(lambda a: a.check_in.date()))
+            # total_present = len(attendances.mapped(lambda a: a.check_in.date() if a.check_in else ""))
+            present_dates = attendances.filtered(lambda a: a.check_in).mapped(lambda a: a.check_in.date())
+            total_present = len(set(present_dates))
             punch_in_times = []
             for att in attendances:
-                check_in_time = att.check_in.time()
-                punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
+                if att.check_in:
+                    check_in_time = att.check_in.time()
+                    punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
+            # punch_in_times = []
+            # for att in attendances:
+            #     check_in_time = att.check_in.time()
+            #     punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
 
             if punch_in_times:
                 avg_minutes = sum(punch_in_times) / len(punch_in_times)
@@ -398,15 +405,18 @@ class EmployeeController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
-            search = kwargs.get('search')
-            if search:
-                domain += [('name', 'ilike', search)]
 
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
 
             elif kwargs.get('active') == 'false':
+                in_team_ids = employee._get_inactive_team_employee_ids()
+                domain = [('employee_id', 'in', in_team_ids)]
                 domain.append(('task_forge_active', '=', False))
+
+            search = kwargs.get('search')
+            if search:
+                domain += [('name', 'ilike', search)]
 
             if kwargs.get('offboarding_state'):
                 domain.append(('offboarding_state', '=', kwargs['offboarding_state']))
