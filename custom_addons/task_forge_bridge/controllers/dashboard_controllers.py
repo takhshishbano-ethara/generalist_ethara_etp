@@ -282,8 +282,8 @@ class DashboardController(http.Controller):
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
                 ('employee_id', 'in', total_tasker.ids),
                 ('state', '=', 'confirm'),
-                ('date_from', '<=', date.today()),
-                ('date_to', '>=', date.today())
+                # ('date_from', '<=', date.today()),
+                # ('date_to', '>=', date.today())
             ])
 
             # 6. Throughput Graph Data

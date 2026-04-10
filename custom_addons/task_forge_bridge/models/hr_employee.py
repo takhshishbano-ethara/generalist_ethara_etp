@@ -80,3 +80,26 @@ class HrEmployee(models.Model):
             ]).ids
         else:
             return [self.id]
+
+    def _get_inactive_team_employee_ids(self):
+        self.ensure_one()
+        role = self._get_task_forge_role()
+        Employee = self.env['hr.employee'].sudo()
+        if role == 'admin':
+            return Employee.search([('active', '=', False)]).ids
+        elif role == 'pl':
+            return Employee.search([
+                '|',
+                ('task_forge_pl_id', '=', self.id),
+                ('id', '=', self.id),
+                ('active', '=', False),
+            ]).ids
+        elif role in ('qr', 'ql'):
+            return Employee.search([
+                '|',
+                ('task_forge_qr_id', '=', self.id),
+                ('id', '=', self.id),
+                ('active', '=', False),
+            ]).ids
+        else:
+            return [self.id]
