@@ -300,6 +300,21 @@ class TaskForgeTaskController(http.Controller):
     def _format_task(self, task):
         # hours, mins = divmod(int(round(task.time_taken_mins)), 60)
         # duration_display = f"{hours:02d}:{mins:02d}"
+        IST_OFFSET = timedelta(hours=5, minutes=30)
+        start_time = (task.start_time + IST_OFFSET) if task.start_time else ""
+        end_time = (task.end_time + IST_OFFSET) if task.end_time else ""
+        create_date = (task.create_date + IST_OFFSET) if task.create_date else ""
+        state = {
+            'in_progress': 'In Progress',
+            'completed': 'Completed',
+            'blocker': 'Blocker',
+            'returned': 'Returned',
+            'ack': 'Acknowledged',
+            'escalated': 'Escalated',
+            'overdue': 'Overdue'
+            }
+        TaskLog = request.env['task.forge.log'].sudo()
+        tasks = TaskLog.search_count([('employee_id', '=', task.employee_id.id), ('state', 'not in', ['no_issue'])], order='create_date desc')
 
         return {
             'id': task.id if task.id else 0,
@@ -310,18 +325,18 @@ class TaskForgeTaskController(http.Controller):
             'project_id': task.project_id.id if task.project_id else 0,
             'project_name': task.project_id.name if task.project_id.name else "",
             'date': str(task.date) if task.date else '',
-            'status': task.state or "",
-            'start_time': task.start_time.isoformat() if task.start_time else "",
-            'end_time': task.end_time.isoformat() if task.end_time else "",
+            'status': state.get(task.state) if task.state else "",
+            'start_time': str(start_time),
+            'end_time': str(end_time),
             'pause_time': task.pause_time if task.pause_time else "",
             'time_taken_mins': task.time_taken_mins or 0,
             # 'time_taken_mins': duration_display,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',
-            'blocker_reason': task.blocker_reason or '',
+            'blocker_reason': str(tasks) or '',
             'quality_score': task.quality_score or 0,
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',
-            'created_at': task.create_date.isoformat() if task.create_date else '',
+            'created_at': str(create_date),
             'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
         }

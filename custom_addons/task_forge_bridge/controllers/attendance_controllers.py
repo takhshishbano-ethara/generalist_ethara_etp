@@ -260,15 +260,18 @@ class TaskForgeAttendanceController(http.Controller):
             ('date', '=', rec.check_in.date()),
             ('state', '=', 'completed')
         ])
+        IST_OFFSET = timedelta(hours=5, minutes=30)
+        check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and rec.attendance_status == 'present' else ""
+        check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out and rec.attendance_status == 'present' else ""
         return {
             'id': rec.id if rec.id else 0,
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
             'employee_name': rec.employee_id.name if rec.employee_id.name else "",
             'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
-            'date': str(rec.check_in.date()) if rec.check_in else '',
+            'date': str(check_in_ist.date()) if check_in_ist else '',
             'status': attendance_status.get(rec.attendance_status) if rec.attendance_status else "Absent",
-            'punch_in_time': rec.check_in.isoformat() if rec.check_in and rec.attendance_status == 'present' else "",
-            'punch_out_time': rec.check_out.isoformat() if rec.check_out and rec.attendance_status == 'present' else "",
+            'punch_in_time': str(check_in_ist),
+            'punch_out_time': str(check_out_ist),
             'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0,
             'location': rec.geo_location or '',
             'geo_coordinates': rec.geo_coordinates or '',

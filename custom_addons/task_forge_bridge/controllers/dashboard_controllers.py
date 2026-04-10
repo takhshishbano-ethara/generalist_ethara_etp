@@ -39,18 +39,18 @@ class DashboardController(http.Controller):
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
                             ('employee_id', 'in', team_ids),
                             ('state', '=', 'confirm'),
-                            ('date_from', '<=', datetime.datetime.now().date()),
-                            ('date_to', '>=', datetime.datetime.now().date())
+                            # ('date_from', '<=', datetime.datetime.now().date()),
+                            # ('date_to', '>=', datetime.datetime.now().date())
                         ])
 
             complete_task_count = request.env['task.forge.log'].sudo().search_count([('state', 'in', ['completed']), ('date', '=', datetime.datetime.now().date())])
 
             blockers = request.env['task.forge.blocker'].sudo().read_group(
-                domain=[('state', 'in', ['escalated'])],
+                domain=[('state', 'not in', ['no_issue'])],
                 fields=['priority'],
                 groupby=['priority']
             )
-            blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'in', ['escalated'])])
+            blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'not in', ['no_issue'])])
             blockers_info = ", ".join([f"{block['priority_count']} {priority[block['priority']]}" for block in blockers])
             diff_percent = 0.0
 
@@ -147,10 +147,10 @@ class DashboardController(http.Controller):
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
                 ('employee_id', 'in', team_ids),
                 ('state', '=', 'confirm'),
-                ('date_from', '<=', datetime.datetime.now().date()),
-                ('date_to', '>=', datetime.datetime.now().date())
+                # ('date_from', '<=', datetime.datetime.now().date()),
+                # ('date_to', '>=', datetime.datetime.now().date())
             ])
-            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state', 'in', ['escalated'])])
+            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue'])])
 
             data = request.env['task.forge.log'].sudo().read_group(
                 domain=[('project_id', 'in', current_projects.ids), ('state', 'in', ['completed']), ('end_time', '!=', False)],
@@ -195,27 +195,30 @@ class DashboardController(http.Controller):
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
+            team_ids = user_id.employee_id._get_team_employee_ids()
 
-            domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
-            if kwargs.get('project_type'):
-                domain.append(('y_project_type', '=', kwargs.get('project_type')))
-
-            if kwargs.get('start_date') and kwargs.get('end_date'):
-                if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('date_start', '=', kwargs['start_date']))
-                else:
-                    domain.append(('date_start', '>=', kwargs['start_date']))
-                    domain.append(('date', '<=', kwargs['end_date']))
-
-            current_projects = request.env['project.project'].sudo().search(domain)
-            for project in current_projects:
-                for emp in project.project_tasker:
-                    temp.append({
-                        'name':emp.name if emp.name else "",
-                        'project_name':project.name if project.name else "",
-                        'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
-                        'status': 'Active' if request.env['task.forge.log'].sudo().search_count([('state', 'in', ['in_progress'])]) else "Idle"
-                    })
+            # domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            # if kwargs.get('project_type'):
+            #     domain.append(('y_project_type', '=', kwargs.get('project_type')))
+            #
+            # if kwargs.get('start_date') and kwargs.get('end_date'):
+            #     if kwargs['start_date'] == kwargs['end_date']:
+            #         domain.append(('date_start', '=', kwargs['start_date']))
+            #     else:
+            #         domain.append(('date_start', '>=', kwargs['start_date']))
+            #         domain.append(('date', '<=', kwargs['end_date']))
+            #
+            # current_projects = request.env['project.project'].sudo().search(domain)
+            # for project in current_projects:
+            employees = request.env['hr.employee'].sudo().search([('id', 'in', team_ids)])
+            for emp in employees:
+                project = request.env['project.project'].sudo().search([('project_lead', '=', emp.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])], limit=1)
+                temp.append({
+                    'name':emp.name if emp.name else "",
+                    'project_name':project.name if project and project.name else "",
+                    'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
+                    'status': 'Active' if request.env['task.forge.log'].sudo().search_count([('state', 'in', ['in_progress'])]) else "Idle"
+                })
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
@@ -273,7 +276,7 @@ class DashboardController(http.Controller):
             # 5. Pending Items
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
                 ('project_id', 'in', current_projects.ids),
-                ('state', '=', 'pending')
+                ('state','not in', ['no_issue'])
             ])
 
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
@@ -344,7 +347,7 @@ class DashboardController(http.Controller):
             attendance = request.env['hr.attendance'].sudo().search([('check_in', '>=', f"{datetime.datetime.now().date()} 00:00:00"), ('check_in', '<', f"{datetime.datetime.now().date()} 23:59:00")])
             present_employees = attendance.mapped('employee_id')
             for tasker in total_tasker:
-                total_task = request.env['task.forge.log'].sudo().search([('project_id', 'in', current_projects.ids)])
+                total_task = request.env['task.forge.log'].sudo().search([('project_id', 'in', current_projects.ids), ('employee_id', '=', tasker.id)])
                 total_count = len(total_task)
                 done_task = total_task.filtered(lambda t: t.state == 'completed')
                 done_count = len(done_task)
