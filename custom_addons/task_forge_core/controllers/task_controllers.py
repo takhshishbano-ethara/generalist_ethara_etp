@@ -314,7 +314,7 @@ class TaskForgeTaskController(http.Controller):
             'overdue': 'Overdue'
             }
         TaskLog = request.env['task.forge.log'].sudo()
-        tasks = TaskLog.search_count([('employee_id', '=', task.employee_id.id), ('state', 'not in', ['no_issue'])], order='create_date desc')
+        tasks = TaskLog.search_count([('employee_id', '=', task.employee_id.id), ('state', 'not in', ['no_issue'])])
 
         return {
             'id': task.id if task.id else 0,

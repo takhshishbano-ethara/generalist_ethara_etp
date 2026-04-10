@@ -52,12 +52,14 @@ class TaskForgeBlockerController(http.Controller):
             role = employee._get_task_forge_role()
 
             if role == 'admin':
-                domain = [('state', '=', 'escalated')]
+                # domain = [('state', '=', 'escalated')]
+                domain = []
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
                 domain = [
                     ('employee_id', 'in', team_ids),
-                    ('state', 'in', ['ack', 'escalated']),
+                    ('state', 'not in', ['no_issue']),
+                    # ('state', 'in', ['ack', 'escalated']),
                 ]
             elif role in ('qr', 'ql'):
                 domain = [('qr_id', '=', employee.id)]
