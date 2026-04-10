@@ -58,6 +58,11 @@
               <group string="Assignment">
                 <field name="employee_id" readonly="1"/>
                 <field name="user_id" readonly="1"/>
+		<field name="email" readonly="1"/>
+                <field name="seed_prompt" readonly="1"/>
+                <field name="agent_md" readonly="1"/>
+                <field name="soul_md" readonly="1"/>
+                <field name="memory_md" readonly="1"/>
               </group>
             </group>
 
