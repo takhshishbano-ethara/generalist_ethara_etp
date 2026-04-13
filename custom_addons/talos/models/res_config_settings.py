@@ -76,6 +76,16 @@ class TalosConfigSettings(models.TransientModel):
         string="LiteLLM DB Password",
         config_parameter="talos.litellm_db_password",
     )
+    talos_gog_client_secret = fields.Char(
+        string="Google OAuth Client Secret (JSON)",
+        config_parameter="talos.gog_client_secret",
+        help="Paste the full contents of client_secret.json from Google Cloud Console.",
+    )
+    talos_gog_keyring_password = fields.Char(
+        string="Gog Keyring Password",
+        config_parameter="talos.gog_keyring_password",
+        help="Password used to encrypt the gog file-based keyring.",
+    )
 
     @api.depends_context("uid")
     def _compute_talos_docker_available(self):

@@ -57,6 +57,14 @@
                             <field name="talos_litellm_db_password" password="True"/>
                         </setting>
                     </block>
+                    <block title="Google Auth (Gog)">
+                        <setting string="Google OAuth Client Secret (JSON)" help="Paste the full contents of client_secret.json from Google Cloud Console. Required for gog-based Google authentication.">
+                            <field name="talos_gog_client_secret" widget="text"/>
+                        </setting>
+                        <setting string="Gog Keyring Password" help="Password to encrypt the gog file-based keyring. Used for storing Google OAuth tokens securely.">
+                            <field name="talos_gog_keyring_password" password="True"/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

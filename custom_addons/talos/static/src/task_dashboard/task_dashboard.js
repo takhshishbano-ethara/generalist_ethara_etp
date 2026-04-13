@@ -37,6 +37,10 @@ export class TaskDashboard extends Component {
         return this.props.record.resId;
     }
 
+    get taskEmail() {
+        return this.props.record.data.email || "";
+    }
+
     async _loadSandboxes() {
         if (!this.taskId) return;
 
@@ -95,6 +99,8 @@ export class TaskDashboard extends Component {
         if (!sb) {
             return {
                 sandboxId: 0,
+                taskId: this.taskId,
+                taskEmail: this.taskEmail,
                 modelType,
                 modelLabel: MODEL_TABS.find((t) => t.type === modelType)?.label || modelType,
                 dockerStatus: "stopped",
@@ -110,6 +116,8 @@ export class TaskDashboard extends Component {
 
         return {
             sandboxId: sb.id,
+            taskId: this.taskId,
+            taskEmail: this.taskEmail,
             modelType: sb.model_type,
             modelLabel: MODEL_TABS.find((t) => t.type === modelType)?.label || modelType,
             dockerStatus: sb.docker_status || "stopped",

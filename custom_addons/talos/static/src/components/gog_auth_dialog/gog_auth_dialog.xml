@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="talos.GogAuthDialog">
+        <div class="o_gog_auth_overlay" t-on-click.stop="">
+            <div class="o_gog_auth_dialog">
+                <div class="o_gog_auth_header">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="fa fa-google text-danger"/>
+                        <span class="fw-bold">Google Authentication</span>
+                        <span t-if="state.email" class="badge text-bg-secondary">
+                            <t t-out="state.email"/>
+                        </span>
+                    </div>
+                    <button class="btn-close" t-on-click="props.onClose"/>
+                </div>
+
+                <div class="o_gog_auth_body">
+                    <!-- Step: Idle — Start -->
+                    <t t-if="state.step === 'idle'">
+                        <p class="text-muted mb-3">
+                            Authenticate this task's Google account to enable the agent to access Gmail, Calendar, Drive, Contacts, Sheets, and Docs.
+                        </p>
+                        <button class="btn btn-primary w-100" t-on-click="onStartAuth">
+                            <i class="fa fa-sign-in me-2"/>Start Google Auth
+                        </button>
+                    </t>
+
+                    <!-- Step: Loading -->
+                    <t t-if="state.step === 'loading' or state.step === 'exchanging'">
+                        <div class="d-flex align-items-center justify-content-center gap-2 py-4">
+                            <i class="fa fa-spinner fa-spin"/>
+                            <span t-if="state.step === 'loading'">Generating auth URL...</span>
+                            <span t-else="">Exchanging token...</span>
+                        </div>
+                    </t>
+
+                    <!-- Step: Auth URL ready — click to open -->
+                    <t t-if="state.step === 'waiting_click'">
+                        <div class="o_gog_auth_step">
+                            <div class="o_gog_auth_step_number">1</div>
+                            <div>
+                                <p class="mb-2 fw-bold">Open the Google sign-in page</p>
+                                <button class="btn btn-outline-primary btn-sm" t-on-click="onOpenAuthUrl">
+                                    <i class="fa fa-external-link me-1"/>Open Google Sign-In
+                                </button>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- Step: Waiting for redirect URL paste -->
+                    <t t-if="state.step === 'waiting_redirect'">
+                        <div class="o_gog_auth_step mb-3">
+                            <div class="o_gog_auth_step_number o_done">
+                                <i class="fa fa-check"/>
+                            </div>
+                            <div>
+                                <p class="mb-0 text-muted">Google sign-in page opened</p>
+                            </div>
+                        </div>
+                        <div class="o_gog_auth_step">
+                            <div class="o_gog_auth_step_number">2</div>
+                            <div class="flex-grow-1">
+                                <p class="mb-1 fw-bold">Complete sign-in, then paste the redirect URL</p>
+                                <p class="text-muted small mb-2">
+                                    After signing in, you'll be redirected to a page that may show an error — that's normal.
+                                    Copy the full URL from the address bar (starts with <code>http://localhost?code=...</code>).
+                                </p>
+                                <div class="d-flex gap-2">
+                                    <input
+                                        type="text"
+                                        class="form-control form-control-sm o_gog_auth_url_input"
+                                        placeholder="http://localhost?code=..."
+                                        t-att-value="state.redirectUrl"
+                                        t-on-input="onRedirectUrlInput"/>
+                                    <button class="btn btn-primary btn-sm text-nowrap"
+                                            t-on-click="onExchangeToken"
+                                            t-att-disabled="!state.redirectUrl.trim()">
+                                        <i class="fa fa-exchange me-1"/>Submit
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- Step: Done -->
+                    <t t-if="state.step === 'done'">
+                        <div class="d-flex flex-column align-items-center py-4 text-success">
+                            <i class="fa fa-check-circle fa-3x mb-2"/>
+                            <p class="fw-bold mb-0">Authentication Successful</p>
+                            <p class="text-muted small">Credentials saved. Closing...</p>
+                        </div>
+                    </t>
+
+                    <!-- Error -->
+                    <t t-if="state.step === 'error'">
+                        <div class="alert alert-danger mb-3" role="alert">
+                            <i class="fa fa-exclamation-triangle me-1"/>
+                            <t t-out="state.error"/>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" t-on-click="onRetry">
+                            <i class="fa fa-refresh me-1"/>Try Again
+                        </button>
+                    </t>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

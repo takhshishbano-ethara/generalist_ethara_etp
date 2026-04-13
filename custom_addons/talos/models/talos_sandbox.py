@@ -787,6 +787,7 @@ class TalosSandbox(models.Model):
                 "headless": True,
                 "noSandbox": True,
                 "defaultProfile": "openclaw",
+                "executablePath": "/usr/bin/chromium",
             },
             "models": {"providers": {}},
         }
@@ -877,6 +878,54 @@ class TalosSandbox(models.Model):
         with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
             f.write(litellm_yaml)
 
+        gog_config_dir = os.path.join(workdir, "gog-config")
+        os.makedirs(os.path.join(gog_config_dir, "gogcli", "keyring"), exist_ok=True)
+        gog_auth_raw = self.talos_id.gog_auth
+        _logger.info("[GogAuth→Docker] task=%s gog_auth present=%s length=%s",
+                     self.talos_id.id, bool(gog_auth_raw), len(gog_auth_raw) if gog_auth_raw else 0)
+        if gog_auth_raw:
+            try:
+                gog_data = json.loads(gog_auth_raw)
+                if isinstance(gog_data, dict):
+                    # --- Write client_secret.json so gog inside Docker has OAuth credentials ---
+                    client_secret_obj = None
+                    if "client_secret" in gog_data and isinstance(gog_data["client_secret"], dict):
+                        client_secret_obj = gog_data["client_secret"]
+                    elif "installed" in gog_data or "web" in gog_data:
+                        client_secret_obj = gog_data
+
+                    if client_secret_obj:
+                        cs_path = os.path.join(gog_config_dir, "gogcli", "client_secret.json")
+                        with open(cs_path, "w") as f:
+                            json.dump(client_secret_obj, f)
+                        _logger.info("[GogAuth→Docker] wrote client_secret.json to %s", cs_path)
+
+                    # --- Write token/config files from the "tokens" dict ---
+                    gog_files = gog_data.get("tokens", gog_data)
+                    if "tokens" not in gog_data and ("installed" in gog_data or "web" in gog_data):
+                        _logger.info("[GogAuth→Docker] gog_auth contains raw client_secret only, no tokens to mount")
+                        gog_files = {}
+                    written_files = []
+                    for rel_path, content in gog_files.items():
+                        if rel_path in ("client_secret", "tokens"):
+                            continue
+                        if not isinstance(content, str):
+                            continue
+                        abs_path = os.path.join(gog_config_dir, "gogcli", rel_path)
+                        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                        with open(abs_path, "w") as f:
+                            f.write(content)
+                        written_files.append(rel_path)
+                    _logger.info("[GogAuth→Docker] wrote %d token files to %s: %s",
+                                 len(written_files), gog_config_dir, written_files)
+            except (json.JSONDecodeError, TypeError):
+                _logger.warning("[GogAuth→Docker] Could not parse gog_auth JSON for task %s", self.talos_id.id)
+
+        gog_cfg = os.path.join(gog_config_dir, "gogcli", "config.json")
+        if not os.path.isfile(gog_cfg):
+            with open(gog_cfg, "w") as f:
+                json.dump({"keyring_backend": "file"}, f)
+
         nginx_conf = (
             "map $http_upgrade $connection_upgrade {\n"
             "    default upgrade;\n"
@@ -886,6 +935,14 @@ class TalosSandbox(models.Model):
             "    listen 80;\n"
             "    server_name _;\n"
             "    proxy_buffering off;\n"
+            "    location /browser-api/ {\n"
+            "        proxy_pass http://openclaw:18791/;\n"
+            "        proxy_http_version 1.1;\n"
+            '        proxy_set_header Authorization "Bearer %s";\n'
+            "        proxy_set_header Host localhost;\n"
+            "        proxy_read_timeout 30s;\n"
+            "        proxy_send_timeout 30s;\n"
+            "    }\n"
             "    location / {\n"
             "        proxy_pass http://openclaw:18789;\n"
             "        proxy_http_version 1.1;\n"
@@ -900,7 +957,7 @@ class TalosSandbox(models.Model):
             "        proxy_send_timeout 600s;\n"
             "    }\n"
             "}\n"
-        )
+        ) % gateway_token
         with open(os.path.join(workdir, "nginx.conf"), "w") as f:
             f.write(nginx_conf)
 
@@ -911,6 +968,13 @@ class TalosSandbox(models.Model):
             ' "--allow-unconfigured", "--token", "%s"]\n'
             "    command: []\n"
             "    ports: !override []\n"
+            "    volumes:\n"
+            "      - ./personas:/sandbox/personas:ro\n"
+            "      - ./data/${PERSONA:-marcus}:/home/node/.openclaw\n"
+            "      - ./gog-config:/home/node/.config:rw\n"
+            "    environment:\n"
+            "      - GOG_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD:-}\n"
+            "      - GOG_ACCOUNT=${GOG_ACCOUNT:-}\n"
             "  nginx:\n"
             "    image: nginx:alpine\n"
             "    depends_on:\n"
@@ -944,6 +1008,17 @@ class TalosSandbox(models.Model):
         if not env.get("LITELLM_MASTER_KEY"):
             env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
 
+        gog_kp = self.talos_id.password or ""
+        if gog_kp:
+            env["GOG_KEYRING_PASSWORD"] = gog_kp
+
+        task_email = self.talos_id.email
+        if task_email:
+            env["GOG_ACCOUNT"] = task_email
+
+        _logger.info("[GogAuth→Docker] _build_compose_env task=%s GOG_ACCOUNT=%s GOG_KEYRING_PASSWORD=%s",
+                     self.talos_id.id, task_email or "(none)",
+                     "***set***" if gog_kp else "(empty)")
         return env
 
     def _wait_for_health(self, compose_bin, project_name, workdir):
