@@ -75,13 +75,27 @@
                                                     <t t-foreach="msg.toolCalls" t-as="tc" t-key="tc.toolCallId || tc_index">
                                                         <div class="o_talos_tool_item">
                                                             <div class="o_talos_tool_header">
-                                                                <span t-attf-class="o_talos_tool_status #{tc.isError ? 'text-danger' : 'text-success'}">
-                                                                    <i t-attf-class="fa #{tc.isError ? 'fa-times-circle' : 'fa-check-circle'}"/>
-                                                                </span>
+                                                                <t t-if="tc.isError">
+                                                                    <span class="o_talos_tool_status text-danger">
+                                                                        <i class="fa fa-times-circle"/>
+                                                                    </span>
+                                                                </t>
+                                                                <t t-elif="tc.result !== null and tc.result !== undefined">
+                                                                    <span class="o_talos_tool_status text-success">
+                                                                        <i class="fa fa-check-circle"/>
+                                                                    </span>
+                                                                </t>
+                                                                <t t-else="">
+                                                                    <span class="o_talos_tool_status text-warning">
+                                                                        <i class="fa fa-spinner fa-spin"/>
+                                                                    </span>
+                                                                </t>
                                                                 <span class="o_talos_tool_name fw-bold"><t t-out="tc.name || 'unknown'"/></span>
+                                                                <span t-if="tc.isError" class="badge bg-danger ms-2">Error</span>
+                                                                <span t-elif="tc.result === null or tc.result === undefined" class="badge bg-warning ms-2">Running</span>
                                                             </div>
-                                                            <t t-if="tc.result">
-                                                                <pre class="o_talos_tool_output"><t t-out="typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)"/></pre>
+                                                            <t t-if="tc.result !== null and tc.result !== undefined">
+                                                                <pre t-attf-class="o_talos_tool_output #{tc.isError ? 'o_talos_tool_output_error' : ''}"><t t-out="this.formatToolResult(tc.result)"/></pre>
                                                             </t>
                                                         </div>
                                                     </t>
@@ -142,6 +156,89 @@
                                 <button class="btn btn-primary btn-sm" t-on-click="onQcDismiss">
                                     Dismiss &amp; Send
                                 </button>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <t t-if="state.browserAuthActive">
+                    <div class="o_talos_browser_auth_panel">
+                        <div class="o_talos_browser_auth_header">
+                            <i class="fa fa-lock me-1"/>
+                            <span class="fw-bold">Authentication Required</span>
+                            <t t-if="state.browserAuthDomain">
+                                <span class="text-muted ms-1">— <t t-out="state.browserAuthDomain"/></span>
+                            </t>
+                            <button class="btn btn-link btn-sm ms-auto p-0"
+                                    t-on-click="onDismissBrowserAuth"
+                                    title="Dismiss">
+                                <i class="fa fa-times"/>
+                            </button>
+                        </div>
+
+                        <t t-if="state.browserAuthScreenshot">
+                            <div class="o_talos_browser_auth_screenshot">
+                                <img t-att-src="state.browserAuthScreenshot"
+                                     alt="Browser screenshot"
+                                     class="img-fluid"/>
+                                <button class="btn btn-outline-secondary btn-sm mt-1"
+                                        t-on-click="onRefreshBrowserScreenshot">
+                                    <i class="fa fa-refresh me-1"/>Refresh
+                                </button>
+                            </div>
+                        </t>
+
+                        <div class="o_talos_browser_auth_instructions small text-muted mb-2">
+                            <ol class="mb-1 ps-3">
+                                <li>Open
+                                    <t t-if="state.browserAuthUrl">
+                                        <a t-att-href="state.browserAuthUrl"
+                                           target="_blank" rel="noopener">
+                                           <t t-out="state.browserAuthDomain || state.browserAuthUrl"/>
+                                        </a>
+                                    </t>
+                                    <t t-else="">the website</t>
+                                    in your browser and log in
+                                </li>
+                                <li>Open DevTools (F12) → Application → Cookies</li>
+                                <li>Copy all cookies as <code>name=value; name2=value2</code></li>
+                                <li>Paste below and click Inject</li>
+                            </ol>
+                        </div>
+
+                        <div class="o_talos_browser_auth_input_row">
+                            <textarea
+                                t-model="state.browserAuthCookieInput"
+                                placeholder="Paste cookies here: name=value; name2=value2"
+                                rows="2"
+                                class="o_talos_browser_auth_textarea"
+                                t-att-disabled="state.browserAuthStatus === 'injecting'"
+                            />
+                            <button class="btn btn-primary btn-sm"
+                                    t-on-click="onInjectCookies"
+                                    t-att-disabled="!state.browserAuthCookieInput.trim() or state.browserAuthStatus === 'injecting'">
+                                <t t-if="state.browserAuthStatus === 'injecting'">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Injecting…
+                                </t>
+                                <t t-elif="state.browserAuthStatus === 'done'">
+                                    <i class="fa fa-check me-1"/>Done
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-sign-in me-1"/>Inject Cookies
+                                </t>
+                            </button>
+                        </div>
+
+                        <t t-if="state.browserAuthError">
+                            <div class="text-danger small mt-1">
+                                <i class="fa fa-exclamation-circle me-1"/>
+                                <t t-out="state.browserAuthError"/>
+                            </div>
+                        </t>
+                        <t t-if="state.browserAuthStatus === 'done'">
+                            <div class="text-success small mt-1">
+                                <i class="fa fa-check-circle me-1"/>
+                                Cookies injected. The agent will refresh and continue.
                             </div>
                         </t>
                     </div>

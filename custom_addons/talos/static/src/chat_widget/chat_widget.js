@@ -33,6 +33,25 @@ function renderMarkdown(text) {
 
 const LOG_PREFIX = "[talos-chat]";
 const STREAM_WORD_THRESHOLD = 5;
+const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
+
+const LOGIN_URL_PATTERNS = [
+    /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
+    /\/auth\//i, /\/accounts\//i, /\/sso\//i,
+    /accounts\.google\.com/i, /login\.microsoftonline/i,
+    /github\.com\/login/i, /login\.yahoo\.com/i,
+];
+
+function _looksLikeLoginUrl(url) {
+    if (!url) return false;
+    return LOGIN_URL_PATTERNS.some(p => p.test(url));
+}
+
+function _extractUrlsFromText(text) {
+    if (!text) return [];
+    const re = /https?:\/\/[^\s"'<>]+/gi;
+    return text.match(re) || [];
+}
 
 let _msgId = 0;
 function nextId() {
@@ -63,8 +82,11 @@ function _getSession(sandboxId) {
             _streamBuf: "",
             _lastFlushedWordCount: 0,
             _toolCalls: [],
+            _toolCallMap: new Map(),
             _rawEvents: [],
             _pendingRpc: new Map(),
+            _incrementalSaveTimer: null,
+            _lastSavedText: "",
             qcPending: false,
             qcResult: null,
             qcDismissReason: "",
@@ -74,6 +96,71 @@ function _getSession(sandboxId) {
     return _sessions.get(sandboxId);
 }
 
+function _logToolCall(session, entry) {
+    const { toolCallId, name, args, result, isError, phase, source_event } = entry;
+    if (!toolCallId) return;
+    const model_name = session.modelType || "";
+
+    if (phase === "start") {
+        const record = {
+            toolCallId,
+            name: name || "",
+            args: args || null,
+            result: null,
+            isError: false,
+            model_name,
+            startedAt: new Date().toISOString(),
+            endedAt: null,
+            duration_ms: null,
+            source_event: source_event || "",
+        };
+        session._toolCallMap.set(toolCallId, record);
+        // Backward compat: push to array
+        session._toolCalls.push({
+            toolCallId,
+            name: name || "",
+            args: args || null,
+            result: null,
+            isError: false,
+            model_name,
+            startedAt: record.startedAt,
+            endedAt: null,
+            duration_ms: null,
+            source_event: source_event || "",
+        });
+        console.log(LOG_PREFIX, `🔧 [LOG] start ${name} (${toolCallId}) model=${model_name} source=${source_event}`);
+    } else if (phase === "end") {
+        const existing = session._toolCallMap.get(toolCallId);
+        if (existing) {
+            const endedAt = new Date().toISOString();
+            existing.result = result !== undefined ? result : null;
+            existing.isError = !!isError;
+            existing.endedAt = endedAt;
+            existing.duration_ms = new Date(endedAt) - new Date(existing.startedAt);
+            // Sync to array
+            const arrEntry = session._toolCalls.find(t => t.toolCallId === toolCallId);
+            if (arrEntry) {
+                arrEntry.result = existing.result;
+                arrEntry.isError = existing.isError;
+                arrEntry.endedAt = existing.endedAt;
+                arrEntry.duration_ms = existing.duration_ms;
+            }
+        }
+        console.log(LOG_PREFIX, `🔧 [LOG] end ${name} (${toolCallId}) model=${model_name} source=${source_event}`);
+    } else if (phase === "update") {
+        const existing = session._toolCallMap.get(toolCallId);
+        if (existing && result !== undefined) {
+            existing.result = result;
+            // Sync to array
+            const arrEntry = session._toolCalls.find(t => t.toolCallId === toolCallId);
+            if (arrEntry) {
+                arrEntry.result = result;
+            }
+        }
+        console.log(LOG_PREFIX, `🔧 [LOG] update ${name} (${toolCallId}) model=${model_name} source=${source_event}`);
+    }
+}
+
 export class TalosChatWidget extends Component {
     static template = "talos.ChatWidget";
     static props = {
@@ -81,6 +168,7 @@ export class TalosChatWidget extends Component {
         dockerStatus: String,
         dockerWsUrl: { type: [String, Boolean], optional: true },
         gatewayToken: { type: [String, Boolean], optional: true },
+        modelType: { type: String, optional: true },
     };
 
     setup() {
@@ -88,6 +176,7 @@ export class TalosChatWidget extends Component {
 
         this._currentSandboxId = this.props.sandboxId;
         this._session = _getSession(this.props.sandboxId);
+        this._session.modelType = this.props.modelType || "";
 
         this.state = useState({
             messages: [],
@@ -103,6 +192,14 @@ export class TalosChatWidget extends Component {
             qcResult: null,       // { severity, summary, checks, ... } or null
             qcDismissReason: "",   // for "high" severity justification
             qcPromptText: "",      // the original prompt text awaiting QC resolution
+            // Browser auth state
+            browserAuthActive: false,
+            browserAuthUrl: "",
+            browserAuthDomain: "",
+            browserAuthScreenshot: "",
+            browserAuthCookieInput: "",
+            browserAuthStatus: "",   // "waiting" | "injecting" | "done" | "error"
+            browserAuthError: "",
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
@@ -277,6 +374,8 @@ export class TalosChatWidget extends Component {
                         widget.state.connected = true;
                         widget.state.statusText = "Connected";
                     }
+                    // After reconnect, fetch the latest session state from OpenClaw
+                    this._restoreSessionFromGateway();
                 } else {
                     const msg = frame.error?.message || JSON.stringify(frame.error || {});
                     console.error(LOG_PREFIX, "❌ CONNECT FAILED:", frame.error);
@@ -358,8 +457,7 @@ export class TalosChatWidget extends Component {
                         console.log(LOG_PREFIX, `🤖 AGENT ITEM [${phase}] name=${agentData.name} status=${agentData.status} id=${agentData.toolCallId}`);
                         if (phase === "start") {
                             const session = this._session;
-                            const exists = session._toolCalls.some(t => t.toolCallId === agentData.toolCallId);
-                            if (!exists) {
+                            if (!session._toolCallMap.has(agentData.toolCallId)) {
                                 this._handleChatEvent({
                                     stream: "tool",
                                     message: { phase: "start", toolCallId: agentData.toolCallId, name: agentData.name || "", args: null, result: null, isError: false },
@@ -368,11 +466,14 @@ export class TalosChatWidget extends Component {
                             }
                         } else if (phase === "end") {
                             const session = this._session;
-                            const tc = session._toolCalls.find(t => t.toolCallId === agentData.toolCallId);
-                            if (tc && tc.result === null) {
-                                tc.result = agentData.meta || agentData.title || "(completed)";
-                                tc.isError = agentData.status === "error";
-                            }
+                            _logToolCall(session, {
+                                toolCallId: agentData.toolCallId,
+                                name: agentData.name || "",
+                                result: agentData.meta || agentData.title || "(completed)",
+                                isError: agentData.status === "error",
+                                phase: "end",
+                                source_event: "agent.item",
+                            });
                         }
                     }
                     return;
@@ -424,17 +525,26 @@ export class TalosChatWidget extends Component {
                 }
                 if (!frame.ok && this._session.streaming) {
                     const errText = frame.error?.message || JSON.stringify(frame.error || {});
-                    const msg = this._session.messages.findLast(m => m.pending);
-                    if (msg) {
-                        msg.pending = false;
-                        msg.text = errText;
-                        msg.html = markup(renderMarkdown(errText));
-                        msg.isError = true;
+                    let msg = this._session.messages.findLast(m => m.pending);
+                    if (!msg) {
+                        msg = { role: "assistant", text: "", html: markup(""), pending: false };
+                        this._session.messages.push(msg);
+                    }
+                    msg.pending = false;
+                    msg.text = errText;
+                    msg.html = markup(renderMarkdown(errText));
+                    msg.isError = true;
+                    const toolCalls = this._session._toolCallMap.size > 0 ? Array.from(this._session._toolCallMap.values()) : null;
+                    if (toolCalls && toolCalls.length > 0) {
+                        msg.toolCalls = toolCalls;
+                        msg.toolsExpanded = true;
                     }
                     this._session.streaming = false;
+                    this._stopIncrementalSave();
                     this._session._streamBuf = "";
                     this._session._lastFlushedWordCount = 0;
                     this._session._toolCalls = [];
+                    this._session._toolCallMap = new Map();
                     this._session._rawEvents = [];
                     if (widget) {
                         widget.state.streaming = false;
@@ -449,6 +559,32 @@ export class TalosChatWidget extends Component {
         ws.onclose = (ev) => {
             const was = this._session.wsConnected;
             console.log(LOG_PREFIX, `WS onclose: code=${ev.code} reason=${ev.reason || "n/a"} wasConnected=${was}`);
+            if (this._session.streaming && this._session.currentTurnId) {
+                this._stopIncrementalSave();
+                const currentText = this._session._streamBuf || "";
+                const toolCalls = this._session._toolCallMap.size > 0 ? Array.from(this._session._toolCallMap.values()) : null;
+                if (currentText) {
+                    console.log(LOG_PREFIX, "💾 WS closed during stream — saving partial response");
+                    const params = { turn_id: this._session.currentTurnId, response: currentText, partial: true };
+                    if (toolCalls && toolCalls.length > 0) params.tool_calls = JSON.stringify(toolCalls);
+                    rpc("/talos/chat/save_response", params).catch(e => console.warn(LOG_PREFIX, "Partial save on disconnect failed:", e));
+                }
+                let msg = this._session.messages.findLast(m => m.pending);
+                if (msg) {
+                    msg.pending = false;
+                    if (currentText) {
+                        msg.text = currentText;
+                        msg.html = markup(renderMarkdown(currentText));
+                    }
+                    if (toolCalls && toolCalls.length > 0) msg.toolCalls = toolCalls;
+                }
+                this._session.streaming = false;
+                this._session._streamBuf = "";
+                this._session._lastFlushedWordCount = 0;
+                this._session._toolCalls = [];
+                this._session._toolCallMap = new Map();
+                this._session._rawEvents = [];
+            }
             this._session.wsConnected = false;
             this._session.ws = null;
             const widget = ws._odooWidget;
@@ -456,7 +592,10 @@ export class TalosChatWidget extends Component {
                 widget.state.connected = false;
                 widget.state.activityText = "";
                 if (widget.state.streaming) { widget.state.streaming = false; widget.state.sending = false; }
-                widget.state.statusText = was ? "Disconnected" : `Closed (code=${ev.code} reason=${ev.reason || "n/a"})`;
+                widget.state.statusText = was ? "Disconnected — reconnecting…" : `Closed (code=${ev.code} reason=${ev.reason || "n/a"})`;
+                if (was && widget.isRunning) {
+                    setTimeout(() => widget._tryConnect(), 2000);
+                }
             }
         };
 
@@ -524,31 +663,22 @@ export class TalosChatWidget extends Component {
             const toolName = data.name || "";
             console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args).substring(0, 300)}`);
             if (phase === "start" && toolCallId) {
-                session._toolCalls.push({
-                    toolCallId,
-                    name: toolName,
-                    args: data.args || null,
-                    result: null,
-                    isError: false,
-                });
+                _logToolCall(session, { toolCallId, name: toolName, args: data.args, phase: "start", source_event: "chat.tool" });
                 if (widget) widget.state.activityText = `Running ${toolName}…`;
                 console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
             } else if (phase === "end" && toolCallId) {
-                const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
-                if (tc) {
-                    tc.result = data.result ?? data.partialResult ?? null;
-                    tc.isError = !!data.isError;
-                }
+                _logToolCall(session, { toolCallId, name: toolName, result: data.result ?? data.error ?? data.partialResult, isError: !!(data.isError || data.error), phase: "end", source_event: "chat.tool" });
                 console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result).substring(0, 300)}`);
-            } else if (phase === "update" && toolCallId) {
-                const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
-                if (tc && data.partialResult !== undefined) {
-                    tc.result = data.partialResult;
+                if (toolName === "browser" && widget) {
+                    this._checkBrowserToolForLogin(data, widget);
                 }
+            } else if (phase === "update" && toolCallId) {
+                _logToolCall(session, { toolCallId, name: toolName, result: data.partialResult, phase: "update", source_event: "chat.tool" });
                 console.log(LOG_PREFIX, `🔧 Tool UPDATE: ${toolName} (${toolCallId})`);
             } else {
                 console.warn(LOG_PREFIX, `🔧 Tool UNKNOWN phase: ${phase} toolCallId=${toolCallId} name=${toolName}`);
             }
+            this._syncLiveToolCalls(session, messages, widget);
         } else if (stream === "lifecycle" && data.phase === "start") {
             console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
             if (widget) widget.state.activityText = "Thinking…";
@@ -567,16 +697,19 @@ export class TalosChatWidget extends Component {
                 }
                 msg.pending = false;
             }
-            const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
+            const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
             const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
             if (msg && toolCalls && toolCalls.length > 0) {
                 msg.toolCalls = toolCalls;
+                msg.toolsExpanded = toolCalls.some(tc => tc.isError);
             }
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
             session._toolCalls = [];
+            session._toolCallMap = new Map();
             session._rawEvents = [];
             session.streaming = false;
+            this._stopIncrementalSave();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
@@ -596,28 +729,38 @@ export class TalosChatWidget extends Component {
             msg.text = errText;
             msg.html = markup(renderMarkdown(errText));
             msg.isError = true;
+            // Attach accumulated tool calls BEFORE clearing them
+            const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
+            if (toolCalls && toolCalls.length > 0) {
+                msg.toolCalls = toolCalls;
+                msg.toolsExpanded = true;
+            }
+            const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
             session._toolCalls = [];
+            session._toolCallMap = new Map();
             session._rawEvents = [];
             session.streaming = false;
+            this._stopIncrementalSave();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
+            this._saveResponse(errText, toolCalls, rawEvents);
         } else if (state === "delta") {
             const text = this._extractText(payload.message);
             const deltaTools = this._extractToolCallsFromMessage(payload.message);
             console.log(LOG_PREFIX, `📝 DELTA: text=${text ? text.substring(0, 100) : "null"} embeddedTools=${deltaTools.length} existingToolCalls=${session._toolCalls.length}`);
             if (deltaTools.length > 0) {
                 console.log(LOG_PREFIX, "📝 DELTA embedded tools:", deltaTools.map(t => t.name));
-                const existingIds = new Set(session._toolCalls.map(t => t.toolCallId));
                 for (const tc of deltaTools) {
-                    if (!existingIds.has(tc.toolCallId)) {
-                        session._toolCalls.push(tc);
+                    if (!session._toolCallMap.has(tc.toolCallId)) {
+                        _logToolCall(session, { toolCallId: tc.toolCallId, name: tc.name, args: tc.args, phase: "start", source_event: "delta.embedded" });
                         if (widget) widget.state.activityText = `Running ${tc.name}…`;
                     }
                 }
+                this._syncLiveToolCalls(session, messages, widget);
             }
             console.log(LOG_PREFIX, `📝 DELTA text applied:`, JSON.stringify(text)?.substring(0, 200));
             if (text) {
@@ -646,22 +789,24 @@ export class TalosChatWidget extends Component {
                 msg.html = markup(renderMarkdown(msg.text));
                 msg.pending = false;
             }
-            let toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : [];
+            let toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : [];
             if (embeddedTools.length > 0) {
-                const existingIds = new Set(toolCalls.map(t => t.toolCallId));
                 for (const tc of embeddedTools) {
-                    if (!existingIds.has(tc.toolCallId)) {
-                        toolCalls.push(tc);
+                    if (!session._toolCallMap.has(tc.toolCallId)) {
+                        _logToolCall(session, { toolCallId: tc.toolCallId, name: tc.name, args: tc.args, phase: "start", source_event: "final.embedded" });
                     }
                 }
+                toolCalls = Array.from(session._toolCallMap.values());
             }
             const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
             if (msg && toolCalls.length > 0) {
                 msg.toolCalls = toolCalls;
             }
             session._toolCalls = [];
+            session._toolCallMap = new Map();
             session._rawEvents = [];
             session.streaming = false;
+            this._stopIncrementalSave();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
@@ -673,31 +818,68 @@ export class TalosChatWidget extends Component {
         } else if (state === "error") {
             const errText = payload.errorMessage || "Chat error";
             console.error(LOG_PREFIX, "Chat ERROR:", errText);
-            const msg = messages.findLast(m => m.pending);
-            if (msg) {
-                msg.pending = false;
-                msg.text = errText;
-                msg.html = markup(renderMarkdown(errText));
-                msg.isError = true;
+            let msg = messages.findLast(m => m.pending);
+            if (!msg) {
+                msg = { role: "assistant", text: "", html: markup(""), pending: false };
+                messages.push(msg);
             }
+            msg.pending = false;
+            msg.text = errText;
+            msg.html = markup(renderMarkdown(errText));
+            msg.isError = true;
+            const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
+            if (toolCalls && toolCalls.length > 0) {
+                msg.toolCalls = toolCalls;
+                msg.toolsExpanded = true;
+            }
+            session._toolCalls = [];
+            session._toolCallMap = new Map();
+            session._rawEvents = [];
             this._session.streaming = false;
+            this._stopIncrementalSave();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
+            this._saveResponse(errText, toolCalls, null);
         } else if (state === "aborted") {
-            const msg = messages.findLast(m => m.pending);
-            if (msg) {
+            let msg = messages.findLast(m => m.pending);
+            if (!msg) {
+                msg = { role: "assistant", text: "[Aborted]", html: markup("[Aborted]"), pending: false };
+                messages.push(msg);
+            } else {
                 msg.pending = false;
                 if (!msg.text) msg.text = "[Aborted]";
                 msg.html = markup(renderMarkdown(msg.text));
             }
+            const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
+            if (toolCalls && toolCalls.length > 0) {
+                msg.toolCalls = toolCalls;
+                msg.toolsExpanded = true;
+            }
+            session._toolCalls = [];
+            session._toolCallMap = new Map();
+            session._rawEvents = [];
             this._session.streaming = false;
+            this._stopIncrementalSave();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
         }
+    }
+
+    _syncLiveToolCalls(session, messages, widget) {
+        if (session._toolCallMap.size === 0) return;
+        let msg = messages.findLast(m => m.pending);
+        if (!msg) {
+            msg = { role: "assistant", text: "", html: markup(""), pending: true };
+            messages.push(msg);
+            session._lastFlushedWordCount = 0;
+        }
+        msg.toolCalls = Array.from(session._toolCallMap.values());
+        msg.toolsExpanded = true;
+        if (widget) widget._scrollToBottom();
     }
 
     _extractText(message) {
@@ -796,10 +978,11 @@ export class TalosChatWidget extends Component {
                     }
 
                     if (t.response) {
+                        const isPartial = t.status === "Streaming";
                         const msg = {
                             role: "assistant",
                             text: t.response,
-                            html: markup(renderMarkdown(t.response)),
+                            html: markup(renderMarkdown(t.response + (isPartial ? "\n\n*(partial — response was interrupted)*" : ""))),
                             pending: false,
                         };
                         if (t.tool_calls) {
@@ -814,6 +997,8 @@ export class TalosChatWidget extends Component {
                             }
                         }
                         this._session.messages.push(msg);
+                    } else if (t.status === "Pending") {
+                        this._session.currentTurnId = t.id;
                     }
                 }
             }
@@ -822,6 +1007,86 @@ export class TalosChatWidget extends Component {
             console.error(LOG_PREFIX, "📖 History load failed:", e);
         }
         this._scrollToBottom();
+    }
+
+    async _restoreSessionFromGateway() {
+        const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
+        console.log(LOG_PREFIX, "🔄 _restoreSessionFromGateway: sessionKey=", sessionKey);
+        try {
+            const res = await this._wsRpc("chat.history", { sessionKey, limit: 200 });
+            const messages = res?.result?.messages || res?.messages || [];
+            console.log(LOG_PREFIX, `🔄 Gateway returned ${messages.length} messages`);
+            if (messages.length === 0) return;
+
+            let lastAssistantText = "";
+            const toolCalls = {};
+            for (const msg of messages) {
+                const inner = msg?.message || msg;
+                const role = inner?.role || "";
+                const content = inner?.content;
+                if (role === "assistant") {
+                    if (typeof content === "string") {
+                        lastAssistantText = content;
+                    } else if (Array.isArray(content)) {
+                        let text = "";
+                        for (const block of content) {
+                            if (!block || typeof block !== "object") continue;
+                            if (block.type === "text") text += block.text || "";
+                            if (block.type === "tool_use" || block.type === "toolCall") {
+                                const tcId = block.id || block.toolCallId || "";
+                                toolCalls[tcId] = {
+                                    toolCallId: tcId,
+                                    name: block.name || "unknown",
+                                    args: block.input || block.arguments || null,
+                                    result: null,
+                                    isError: false,
+                                };
+                            }
+                        }
+                        if (text) lastAssistantText = text;
+                    }
+                } else if (role === "tool" || role === "toolResult") {
+                    const tcId = inner.tool_use_id || inner.toolCallId || "";
+                    if (tcId && toolCalls[tcId] && Array.isArray(content)) {
+                        let resultText = "";
+                        for (const block of content) {
+                            if (typeof block === "string") resultText += block;
+                            else if (block?.type === "text") resultText += block.text || "";
+                        }
+                        toolCalls[tcId].result = resultText || null;
+                        toolCalls[tcId].isError = !!(inner.is_error || inner.isError);
+                    }
+                }
+            }
+
+            const existingAssistant = this._session.messages.findLast(
+                m => m.role === "assistant" && !m.isQc && !m.isError
+            );
+            const existingText = existingAssistant?.text || "";
+            if (lastAssistantText && lastAssistantText.length > existingText.length) {
+                console.log(LOG_PREFIX, `🔄 Gateway has newer text (${lastAssistantText.length} > ${existingText.length}), updating`);
+                if (existingAssistant) {
+                    existingAssistant.text = lastAssistantText;
+                    existingAssistant.html = markup(renderMarkdown(lastAssistantText));
+                    existingAssistant.pending = false;
+                    const tcArr = Object.values(toolCalls);
+                    if (tcArr.length > 0) existingAssistant.toolCalls = tcArr;
+                } else {
+                    const newMsg = {
+                        role: "assistant",
+                        text: lastAssistantText,
+                        html: markup(renderMarkdown(lastAssistantText)),
+                        pending: false,
+                    };
+                    const tcArr = Object.values(toolCalls);
+                    if (tcArr.length > 0) newMsg.toolCalls = tcArr;
+                    this._session.messages.push(newMsg);
+                }
+                this._scrollToBottom();
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "🔄 _restoreSessionFromGateway failed:", e);
+        }
     }
 
     _wsRpc(method, params) {
@@ -982,6 +1247,46 @@ export class TalosChatWidget extends Component {
         this._session.currentTurnId = null;
     }
 
+    _startIncrementalSave() {
+        this._stopIncrementalSave();
+        const session = this._session;
+        session._lastSavedText = "";
+        session._incrementalSaveTimer = setInterval(() => {
+            this._saveIncremental();
+        }, INCREMENTAL_SAVE_INTERVAL_MS);
+    }
+
+    _stopIncrementalSave() {
+        const session = this._session;
+        if (session._incrementalSaveTimer) {
+            clearInterval(session._incrementalSaveTimer);
+            session._incrementalSaveTimer = null;
+        }
+    }
+
+    async _saveIncremental() {
+        const session = this._session;
+        if (!session.currentTurnId || !session.streaming) return;
+        const currentText = session._streamBuf || "";
+        if (!currentText || currentText === session._lastSavedText) return;
+        session._lastSavedText = currentText;
+        const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
+        try {
+            const params = {
+                turn_id: session.currentTurnId,
+                response: currentText,
+                partial: true,
+            };
+            if (toolCalls && toolCalls.length > 0) {
+                params.tool_calls = JSON.stringify(toolCalls);
+            }
+            await rpc("/talos/chat/save_response", params);
+            console.log(LOG_PREFIX, `💾 Incremental save: turn=${session.currentTurnId} text=${currentText.length}chars tools=${toolCalls?.length || 0}`);
+        } catch (e) {
+            console.warn(LOG_PREFIX, "Incremental save failed:", e);
+        }
+    }
+
     async onSend() {
         const text = this.state.inputText.trim();
         if (!text || this.state.sending || this._session.streaming) return;
@@ -1004,7 +1309,7 @@ export class TalosChatWidget extends Component {
         this._session.messages.push({ role: "user", text });
         this._scrollToBottom();
 
-        this.state.activityText = "Running QC check…";
+        this.state.activityText = "Sending…";
         let turnId = null;
         try {
             const r = await rpc("/talos/chat/create_turn", { sandbox_id: this.props.sandboxId, message: text });
@@ -1015,80 +1320,8 @@ export class TalosChatWidget extends Component {
         }
         this._session.currentTurnId = turnId;
 
-        let qcResult = null;
-        try {
-            const qcResponse = await rpc("/talos/qc", { prompt: text });
-            console.log(LOG_PREFIX, "QC response:", JSON.stringify(qcResponse));
-            if (qcResponse.error) {
-                console.warn(LOG_PREFIX, "QC error, passing through:", qcResponse.error);
-                this._session.messages.push({
-                    role: "assistant",
-                    text: `⚠️ QC check failed: ${qcResponse.error}`,
-                    pending: false,
-                });
-                this._scrollToBottom();
-            } else if (qcResponse.qc_result) {
-                qcResult = qcResponse.qc_result;
-                if (turnId) {
-                    rpc("/talos/chat/save_qc", {
-                        turn_id: turnId,
-                        severity: qcResult.severity || "",
-                        qc_response: JSON.stringify(qcResult),
-                    }).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
-                }
-            } else {
-                console.warn(LOG_PREFIX, "QC response has no qc_result:", qcResponse);
-                this._session.messages.push({
-                    role: "assistant",
-                    text: "⚠️ QC check returned no result. The LLM response may not have been parseable.",
-                    pending: false,
-                });
-                this._scrollToBottom();
-            }
-        } catch (e) {
-            console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
-            this._session.messages.push({
-                role: "assistant",
-                text: `⚠️ QC call failed: ${e.message || e}`,
-                pending: false,
-            });
-            this._scrollToBottom();
-        }
-
         this.state.activityText = "";
         this.state.sending = false;
-
-        if (qcResult && qcResult.severity) {
-            this._session.messages.push({
-                role: "assistant",
-                text: qcResult.summary || "QC check completed.",
-                isQc: true,
-                qcSeverity: qcResult.severity,
-                qcChecks: qcResult.checks || [],
-                pending: false,
-            });
-            this._scrollToBottom();
-
-            if (qcResult.severity === "critical") {
-                this.state.qcResult = qcResult;
-                this.state.qcPending = true;
-                this.state.qcPromptText = text;
-                return;
-            }
-            if (qcResult.severity === "high") {
-                this.state.qcResult = qcResult;
-                this.state.qcPending = true;
-                this.state.qcPromptText = text;
-                this.state.qcDismissReason = "";
-                return;
-            }
-            if (qcResult.severity === "medium" || qcResult.severity === "low") {
-                this.state.qcResult = qcResult;
-                this.state.qcPending = true;
-                this.state.qcPromptText = text;
-                return;
-            }
-        }
 
         this._sendToOpenClaw(text);
     }
@@ -1152,6 +1385,7 @@ export class TalosChatWidget extends Component {
         this.state.activityText = "Waiting for model…";
         this._session.streaming = true;
         this.state.streaming = true;
+        this._startIncrementalSave();
         this._scrollToBottom();
     }
 
@@ -1181,7 +1415,7 @@ export class TalosChatWidget extends Component {
             messages.push(msg);
         }
 
-        const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
+        const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
         const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
         if (msg && toolCalls && toolCalls.length > 0) {
             msg.toolCalls = toolCalls;
@@ -1189,8 +1423,10 @@ export class TalosChatWidget extends Component {
         session._streamBuf = "";
         session._lastFlushedWordCount = 0;
         session._toolCalls = [];
+        session._toolCallMap = new Map();
         session._rawEvents = [];
         session.streaming = false;
+        this._stopIncrementalSave();
         this.state.streaming = false;
         this.state.activityText = "";
         this._saveResponse(msg.text, toolCalls, rawEvents);
@@ -1210,5 +1446,103 @@ export class TalosChatWidget extends Component {
 
     onToggleTools(msg) {
         msg.toolsExpanded = !msg.toolsExpanded;
+    }
+
+    formatToolResult(result) {
+        if (typeof result === "string") return result;
+        try { return JSON.stringify(result, null, 2); } catch { return String(result); }
+    }
+
+    _checkBrowserToolForLogin(data, widget) {
+        const resultStr = typeof data.result === "string"
+            ? data.result
+            : JSON.stringify(data.result || "");
+        const argsStr = typeof data.args === "string"
+            ? data.args
+            : JSON.stringify(data.args || "");
+
+        const allText = resultStr + " " + argsStr;
+        const urls = _extractUrlsFromText(allText);
+        const loginUrl = urls.find(u => _looksLikeLoginUrl(u));
+
+        const loginKeywords = /\b(login|sign.?in|authenticat|credential|password|username)\b/i;
+        const hasLoginContent = loginKeywords.test(allText);
+
+        if (!loginUrl && !hasLoginContent) return;
+
+        let domain = "";
+        try {
+            domain = loginUrl ? new URL(loginUrl).hostname : "";
+        } catch {}
+
+        console.log(LOG_PREFIX, "🔐 Login page detected:", loginUrl || "(keyword match)", "domain:", domain);
+
+        widget.state.browserAuthActive = true;
+        widget.state.browserAuthUrl = loginUrl || "";
+        widget.state.browserAuthDomain = domain;
+        widget.state.browserAuthStatus = "waiting";
+        widget.state.browserAuthError = "";
+        widget.state.browserAuthScreenshot = "";
+        widget.state.browserAuthCookieInput = "";
+
+        this._fetchBrowserScreenshot(widget);
+    }
+
+    async _fetchBrowserScreenshot(widget) {
+        try {
+            const result = await rpc("/talos/browser/screenshot", {
+                sandbox_id: this.props.sandboxId,
+            });
+            if (result.image) {
+                widget.state.browserAuthScreenshot = "data:image/png;base64," + result.image;
+            } else if (result.error) {
+                console.warn(LOG_PREFIX, "Screenshot error:", result.error);
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "Screenshot fetch failed:", e);
+        }
+    }
+
+    onRefreshBrowserScreenshot() {
+        this._fetchBrowserScreenshot(this);
+    }
+
+    async onInjectCookies() {
+        const raw = this.state.browserAuthCookieInput.trim();
+        if (!raw) return;
+
+        this.state.browserAuthStatus = "injecting";
+        this.state.browserAuthError = "";
+
+        try {
+            const result = await rpc("/talos/browser/inject_cookies", {
+                sandbox_id: this.props.sandboxId,
+                cookies: raw,
+                url: this.state.browserAuthUrl || undefined,
+            });
+            if (result.success) {
+                this.state.browserAuthStatus = "done";
+                this._sendToOpenClaw(
+                    "I've injected the authentication cookies. Please refresh the page and continue."
+                );
+                setTimeout(() => this.onDismissBrowserAuth(), 3000);
+            } else {
+                this.state.browserAuthStatus = "error";
+                this.state.browserAuthError = result.error || "Unknown error";
+            }
+        } catch (e) {
+            this.state.browserAuthStatus = "error";
+            this.state.browserAuthError = e.message || "RPC failed";
+        }
+    }
+
+    onDismissBrowserAuth() {
+        this.state.browserAuthActive = false;
+        this.state.browserAuthUrl = "";
+        this.state.browserAuthDomain = "";
+        this.state.browserAuthScreenshot = "";
+        this.state.browserAuthCookieInput = "";
+        this.state.browserAuthStatus = "";
+        this.state.browserAuthError = "";
     }
 }

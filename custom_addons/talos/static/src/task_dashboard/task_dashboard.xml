@@ -23,6 +23,8 @@
                 <div t-attf-class="o_talos_dashboard_body #{state.activeTab !== tab.type ? 'o_talos_panel_hidden' : ''}">
                     <SandboxCard
                         sandboxId="sbProps.sandboxId"
+                        taskId="sbProps.taskId"
+                        taskEmail="sbProps.taskEmail"
                         modelType="sbProps.modelType"
                         modelLabel="sbProps.modelLabel"
                         dockerStatus="sbProps.dockerStatus"

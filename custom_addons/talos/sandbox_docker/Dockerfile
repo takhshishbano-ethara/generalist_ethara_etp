@@ -23,6 +23,20 @@ USER node
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
 RUN node /app/node_modules/playwright-core/cli.js install chromium
 
+# Symlink Playwright-installed Chromium to a standard path so OpenClaw can find it.
+# OpenClaw scans /usr/bin/chromium, /usr/bin/chromium-browser, etc.
+USER root
+RUN CHROMIUM_BIN=$(find /home/node/.cache/ms-playwright -name "chrome" -type f 2>/dev/null | head -1) \
+    && if [ -n "$CHROMIUM_BIN" ]; then \
+         ln -sf "$CHROMIUM_BIN" /usr/bin/chromium; \
+       fi
+
+# Install gog CLI (Google OAuth helper)
+ARG GOG_VERSION=0.12.0
+RUN curl -fsSL "https://github.com/steipete/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_amd64.tar.gz" \
+    | tar -xz -C /usr/local/bin gog \
+    && chmod +x /usr/local/bin/gog
+
 USER node
 WORKDIR /app
 
