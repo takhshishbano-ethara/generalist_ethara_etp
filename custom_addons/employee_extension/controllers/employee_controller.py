@@ -84,9 +84,6 @@ class EmployeeController(http.Controller):
                     engines = ['openpyxl', 'xlrd', 'odf']
                     df = None
                     last_error = None
-            "Row 1: pl@ethara.ai already exists",
-            "Row 2: cto@ethara.ai already exists"
-        
                     for engine in engines:
                         try:
                             df = pd.read_excel(io.BytesIO(file_content), engine=engine)
