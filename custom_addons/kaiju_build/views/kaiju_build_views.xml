@@ -6,7 +6,7 @@
         <field name="model">kaiju.build</field>
         <field name="arch" type="xml">
             <list decoration-success="status == 'success'"
-                  decoration-danger="status in ('failed','error')"
+                  decoration-danger="status in ('failed','error','image_broken')"
                   decoration-info="status == 'building'"
                   decoration-muted="status == 'draft'">
                 <field name="build_id"/>
@@ -15,7 +15,7 @@
                 <field name="user_id" widget="many2one_avatar_user" optional="show"/>
                 <field name="status" widget="badge"
                        decoration-success="status == 'success'"
-                       decoration-danger="status in ('failed','error')"
+                       decoration-danger="status in ('failed','error','image_broken')"
                        decoration-info="status == 'building'"
                        decoration-warning="status == 'queued'"/>
                 <field name="tag"/>
@@ -35,6 +35,9 @@
                     <button name="action_build" type="object"
                             string="Build" class="oe_highlight"
                             invisible="status != 'draft'"/>
+                    <button name="action_rebuild" type="object"
+                            string="Rebuild" class="oe_highlight"
+                            invisible="status != 'image_broken'"/>
                     <field name="status" widget="statusbar"
                            statusbar_visible="draft,queued,building,success"/>
                 </header>
@@ -59,7 +62,8 @@
                     </group>
                     <notebook>
                         <page string="Dataset JSON">
-                            <field name="dataset_json" readonly="True"/>
+                            <field name="dataset_json"
+                                   readonly="status not in ('draft', 'image_broken')"/>
                         </page>
                         <page string="Build Logs">
                             <field name="progress" readonly="True"/>

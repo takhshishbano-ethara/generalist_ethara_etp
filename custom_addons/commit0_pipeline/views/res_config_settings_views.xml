@@ -30,6 +30,18 @@
                         <setting string="Task Allocation" help="Maximum number of active (non-terminal) tasks per user.">
                             <field name="max_active_tasks"/>
                         </setting>
+                        <setting string="Lambda Function Name" help="AWS Lambda function name or ARN for PDF scraping.">
+                            <field name="lambda_pdf_function_name" placeholder="ethara-pdf-scraper"/>
+                        </setting>
+                        <setting string="Lambda Region" help="AWS region where the PDF Lambda is deployed.">
+                            <field name="lambda_pdf_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting string="AWS Access Key" help="AWS access key for Lambda authentication.">
+                            <field name="lambda_pdf_access_key"/>
+                        </setting>
+                        <setting string="AWS Secret Key" help="AWS secret key for Lambda authentication.">
+                            <field name="lambda_pdf_secret_key" password="True"/>
+                        </setting>
                     </block>
                 </app>
             </xpath>

@@ -65,7 +65,16 @@ class TestKaijuBuild(TransactionCase):
     def test_status_field_values(self):
         build = self._create_build()
         self.assertIn(
-            build.status, ["draft", "queued", "building", "success", "failed", "error"]
+            build.status,
+            [
+                "draft",
+                "queued",
+                "building",
+                "success",
+                "failed",
+                "image_broken",
+                "error",
+            ],
         )
 
     def test_action_build_raises_without_k8s(self):

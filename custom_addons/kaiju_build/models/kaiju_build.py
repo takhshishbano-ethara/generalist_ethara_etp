@@ -52,6 +52,7 @@ class KaijuBuild(models.Model):
             ("building", "Building"),
             ("success", "Success"),
             ("failed", "Failed"),
+            ("image_broken", "Image Broken"),
             ("error", "Error"),
         ],
         string="Status",
@@ -108,6 +109,25 @@ class KaijuBuild(models.Model):
                 }
             )
             self.env.cr.commit()
+
+    def action_rebuild(self):
+        self.ensure_one()
+        if self.status != "image_broken":
+            raise UserError(
+                "Rebuild is only available for builds with status 'Image Broken'."
+            )
+        self.write(
+            {
+                "status": "draft",
+                "error_message": False,
+                "progress": False,
+                "image_uri": False,
+                "completed_at": False,
+                "build_id": False,
+                "tag": False,
+            }
+        )
+        self.action_build()
 
     def _create_build_job(self, build_id, tag):
         config.load_incluster_config()

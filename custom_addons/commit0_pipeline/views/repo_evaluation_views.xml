@@ -48,6 +48,10 @@
                     <field name="reference_commit_status" invisible="1"/>
                     <field name="document_create_status" invisible="1"/>
                     <field name="docker_status" invisible="1"/>
+                    <field name="test_ids_status" invisible="1"/>
+                    <field name="spec_json_editing" invisible="1"/>
+                    <field name="show_spec_json_history" invisible="1"/>
+                    <field name="spec_json_history" invisible="1"/>
 
                     <!-- Stat buttons -->
                     <div class="oe_button_box" name="button_box">
@@ -71,7 +75,7 @@
                             <field name="docker_status" string="Docker" widget="badge"
                                    decoration-success="docker_status == 'done'"
                                    decoration-info="docker_status in ('generating','llm_qc','multiarch','testing')"
-                                   decoration-danger="docker_status == 'failed'"/>
+                                   decoration-danger="docker_status in ('failed', 'image_broken')"/>
                         </button>
                     </div>
 
@@ -92,8 +96,10 @@
 
                     <group>
                         <group>
-                            <field name="repo_url" widget="url" string="GitHub URL"/>
-                            <field name="repo_name"/>
+                            <field name="is_admin" invisible="1"/>
+                            <field name="repo_url" widget="url" string="GitHub URL"
+                                   readonly="not is_admin"/>
+                            <field name="repo_name" readonly="not is_admin"/>
                         </group>
                         <group>
                             <field name="user_id" widget="many2one_avatar_user" readonly="1"/>
@@ -185,25 +191,25 @@
                                     <field name="check_language" widget="boolean_toggle" nolabel="1"/>
                                     <label for="check_language"
                                            string="1. Python-Only Implementation Without Native Extensions"
-                                           help="The repository must be 95%+ Python and should not rely on any compiled extensions or foreign language bindings."/>
+                                           help="The repository must be 80%+ Python and should not rely on any compiled extensions or foreign language bindings."/>
                                 </div>
                                 <div class="kj-check-item">
                                     <field name="check_tests" widget="boolean_toggle" nolabel="1"/>
                                     <label for="check_tests"
-                                           string="2. Comprehensive, Fast, and CPU-Only Test Suite Using Pytest"
-                                           help="Must use pytest, run in under 30 minutes on CPU only, no GPU requirements."/>
+                                           string="2. Comprehensive, CPU-Only Test Suite Using Pytest"
+                                           help="Must use pytest, no GPU requirements. Test timing (&lt;30m) is optional and does not fail the check."/>
                                 </div>
                                 <div class="kj-check-item">
                                     <field name="check_documentation" widget="boolean_toggle" nolabel="1"/>
                                     <label for="check_documentation"
-                                           string="3. Complete and Structured Documentation with API and Type Specifications"
-                                           help="Must have API reference, user guide, and type annotations."/>
+                                           string="3. Has Documentation Website"
+                                           help="Must have a docs website (ReadTheDocs, GitHub Pages, Sphinx, MkDocs). User guide, API reference, and type specs are recommended (SHOULD) but not required."/>
                                 </div>
                                 <div class="kj-check-item">
                                     <field name="check_github_metrics" widget="boolean_toggle" nolabel="1"/>
                                     <label for="check_github_metrics"
-                                           string="4. Strong Repository Maturity and Community Quality Signals"
-                                           help="5K+ stars, not a fork or archived, active maintenance."/>
+                                           string="4. Repository Maturity and Community Quality Signals"
+                                           help="2K+ stars, not a fork, not ML/CLI/native wrapper. Archived status is optional and does not fail the check."/>
                                 </div>
                                 <div class="kj-check-item">
                                     <field name="check_project_structure" widget="boolean_toggle" nolabel="1"/>
@@ -439,6 +445,81 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Test IDs card: visible once stage 4+ is reached -->
+                    <div class="kj-card" invisible="current_stage in ('stage1', 'stage2', 'stage3')">
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="test_ids_status != 'done'">Test IDs</div>
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="test_ids_status == 'done'">Test IDs</div>
+                        <div class="kj-card-body">
+                            <div class="d-flex align-items-center gap-3 mb-2">
+                                <field name="test_ids_status" widget="badge"
+                                       decoration-success="test_ids_status == 'done'"
+                                       decoration-info="test_ids_status == 'running'"
+                                       decoration-danger="test_ids_status == 'failed'"
+                                       decoration-muted="test_ids_status == 'pending'" nolabel="1"/>
+                            </div>
+                            <!-- Generate Test IDs button: shown when document is done and test IDs not yet generated -->
+                            <button name="action_generate_test_ids"
+                                    string="Generate Test IDs"
+                                    type="object"
+                                    class="btn btn-primary mb-3"
+                                    invisible="test_ids_status not in ('pending',) or document_create_status != 'done'"/>
+                            <span class="badge text-bg-warning ms-2 mb-3"
+                                  invisible="test_ids_status != 'running'">Generating test IDs…</span>
+                            <!-- Success state: show count and download -->
+                            <group invisible="test_ids_status != 'done'">
+                                <field name="test_ids_count" readonly="1"/>
+                                <field name="test_ids_bz2" filename="test_ids_filename"
+                                       readonly="1" invisible="not test_ids_bz2"/>
+                                <field name="test_ids_filename" invisible="1"/>
+                            </group>
+                            <!-- Failed state: 0 test IDs — show Edit JSON and Retry -->
+                            <div invisible="test_ids_status != 'failed'">
+                                <div class="alert alert-warning mb-3">
+                                    <i class="fa fa-exclamation-triangle me-2"/>
+                                    No test IDs were collected. You can edit the JSON and retry.
+                                </div>
+                                <!-- Edit JSON section -->
+                                <div invisible="spec_json_editing" class="mb-3">
+                                    <button name="action_enable_edit_spec_json"
+                                            string="Edit JSON"
+                                            type="object"
+                                            class="btn btn-secondary me-2"/>
+                                    <button name="action_retry_generate_test_ids"
+                                            string="Retry"
+                                            type="object"
+                                            class="btn btn-warning"/>
+                                </div>
+                                <div invisible="not spec_json_editing" class="mb-3">
+                                    <field name="spec_json" widget="code" nolabel="1"/>
+                                    <button name="action_save_spec_json"
+                                            string="Save"
+                                            type="object"
+                                            class="btn btn-success mt-2"/>
+                                </div>
+                            </div>
+                            <!-- Review Changes: visible when history exists -->
+                            <div invisible="not spec_json_history" class="mt-3">
+                                <button name="action_toggle_spec_json_history"
+                                        type="object"
+                                        class="btn btn-outline-info btn-sm mb-2"
+                                        invisible="show_spec_json_history"
+                                        string="▶ Review Changes"/>
+                                <button name="action_toggle_spec_json_history"
+                                        type="object"
+                                        class="btn btn-outline-info btn-sm mb-2"
+                                        invisible="not show_spec_json_history"
+                                        string="▼ Review Changes"/>
+                                <div invisible="not show_spec_json_history"
+                                     class="border rounded p-3 bg-light"
+                                     style="max-height: 400px; overflow-y: auto;">
+                                    <field name="spec_json_history" widget="code"
+                                           readonly="1" nolabel="1"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <!-- Spec Validation card: only when stage4 is active -->
                     <div class="kj-card" invisible="current_stage != 'stage4'">
                         <div class="kj-card-header kj-card-header-active">Spec Validation</div>
@@ -498,7 +579,7 @@
                                 <div class="kj-card-header">After Stubbing</div>
                                 <div class="kj-card-body">
                                     <field name="clone_path_stubbed" widget="repo_browser"
-                                           nolabel="1" invisible="not clone_path_stubbed"/>
+                                           nolabel="1" invisible="not base_commit"/>
                                 </div>
                             </div>
                         </div>
@@ -560,7 +641,7 @@
                                     <field name="docker_status" widget="badge"
                                            decoration-success="docker_status == 'done'"
                                            decoration-info="docker_status in ('generating','llm_qc','multiarch','testing')"
-                                           decoration-danger="docker_status == 'failed'"/>
+                                           decoration-danger="docker_status in ('failed', 'image_broken')"/>
                                     <field name="docker_progress" widget="progressbar"/>
                                 </group>
                                 <group>
@@ -569,6 +650,24 @@
                                     <field name="ecr_url" widget="url" invisible="not ecr_url"/>
                                 </group>
                             </group>
+                            <div invisible="docker_status != 'image_broken'" class="mt-3">
+                                <div class="alert alert-warning mb-3">
+                                    <i class="fa fa-exclamation-triangle me-2"/>
+                                    Image is broken — test gate failed. Edit the spec JSON below and rebuild.
+                                </div>
+                                <field name="spec_json" widget="code" nolabel="1"/>
+                                <button name="action_rebuild_docker"
+                                        string="Rebuild Docker"
+                                        type="object"
+                                        class="btn btn-primary mt-2"/>
+                            </div>
+                            <div invisible="docker_status != 'failed'" class="mt-3">
+                                <button name="action_reject_docker"
+                                        string="Reject — Repository Not Suitable"
+                                        type="object"
+                                        class="btn btn-danger"
+                                        confirm="Reject this task as not suitable? This cannot be undone."/>
+                            </div>
                         </div>
                     </div>
 

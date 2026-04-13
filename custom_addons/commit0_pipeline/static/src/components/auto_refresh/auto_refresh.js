@@ -5,6 +5,7 @@ import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { Component, onMounted, onWillUnmount, onWillUpdateProps, useState } from "@odoo/owl";
 
 const POLL_STAGES = new Set(["stage3", "stage5", "stage6"]);
+const POLL_STATUSES = new Set(["running", "pending"]);
 const POLL_INTERVAL = 3000;
 
 export class AutoRefresh extends Component {
@@ -21,9 +22,17 @@ export class AutoRefresh extends Component {
         onWillUnmount(() => this._stop());
     }
 
+    _shouldPoll() {
+        const data = this.props.record.data;
+        const stage = data[this.props.name];
+        if (POLL_STAGES.has(stage)) return true;
+        const testIdsStatus = data.test_ids_status;
+        if (testIdsStatus && POLL_STATUSES.has(testIdsStatus)) return true;
+        return false;
+    }
+
     _checkAndPoll() {
-        const stage = this.props.record.data[this.props.name];
-        if (POLL_STAGES.has(stage)) {
+        if (this._shouldPoll()) {
             this._start();
         } else {
             this._stop();

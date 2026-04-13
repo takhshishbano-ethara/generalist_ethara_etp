@@ -34,10 +34,10 @@ _logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 
-PRIMARY_STAR_THRESHOLD = 5000
-FALLBACK_STAR_THRESHOLD = 3000
+PRIMARY_STAR_THRESHOLD = 2000
+FALLBACK_STAR_THRESHOLD = 2000
 
-MIN_PYTHON_RATIO = 0.95
+MIN_PYTHON_RATIO = 0.80
 MAX_REPO_SIZE_KB = 500_000
 
 ML_FRAMEWORK_KEYWORDS = [
@@ -324,7 +324,7 @@ def _check_not_native_wrapper(repo: dict) -> tuple[bool, str]:
 
 
 def _check_python_ratio(full_name: str) -> tuple[bool, str]:
-    """Check >=95% Python by bytes."""
+    """Check >=80% Python by bytes."""
     try:
         langs = _get_languages(full_name)
     except Exception as exc:
@@ -629,7 +629,6 @@ def run_filter1(repo: dict, full_name: str) -> tuple[bool, list[tuple[str, bool,
     # Quick checks from repo dict (no extra API calls)
     for label, check_fn in [
         ("Not a fork", _check_not_fork),
-        ("Not archived", _check_not_archived),
         ("Not ML framework", _check_not_ml_framework),
         ("Not CLI tool", _check_not_cli_tool),
         ("Not native wrapper", _check_not_native_wrapper),
@@ -644,7 +643,7 @@ def run_filter1(repo: dict, full_name: str) -> tuple[bool, list[tuple[str, bool,
 
     # API-based checks
     ok, reason = _check_python_ratio(full_name)
-    checks.append(("Python >= 95%%", ok, reason))
+    checks.append(("Python >= 80%%", ok, reason))
 
     root_contents = _get_repo_contents(full_name)
 
@@ -660,7 +659,13 @@ def run_filter1(repo: dict, full_name: str) -> tuple[bool, list[tuple[str, bool,
     ok, reason = _check_code_quality_basic(full_name)
     checks.append(("Code quality (basic)", ok, reason))
 
-    all_passed = all(passed for _, passed, _ in checks)
+    # "Not archived" is informational only — does not block pass/fail
+    ok, reason = _check_not_archived(repo)
+    checks.append(("[INFO] Not archived", ok, reason))
+
+    all_passed = all(
+        passed for label, passed, _ in checks if not label.startswith("[INFO]")
+    )
     return all_passed, checks
 
 
@@ -781,7 +786,11 @@ def validate_repo(full_name: str, github_token: str = "") -> dict:
         result["filter2_score"] = f2_score
         result["checks"].extend(f2_checks)
 
-        failed = [name for name, ok, _ in f1_checks if not ok]
+        failed = [
+            name
+            for name, ok, _ in f1_checks
+            if not ok and not name.startswith("[INFO]")
+        ]
         result["summary"] = "FAILED Filter 1: %s" % ", ".join(failed)
         return result
 
@@ -836,9 +845,13 @@ def format_validation_report(result: dict) -> str:
 
     # Filter 1 section
     lines.append("=== Filter 1: Initial Quality ===")
-    f1_checks = [c for c in result["checks"] if not c[0].startswith("[")]
+    f1_checks = [
+        c
+        for c in result["checks"]
+        if not c[0].startswith("[MUST]") and not c[0].startswith("[SHOULD]")
+    ]
     for name, passed, reason in f1_checks:
-        icon = "PASS" if passed else "FAIL"
+        icon = "PASS" if passed else ("INFO" if name.startswith("[INFO]") else "FAIL")
         line = "[%s] %s" % (icon, name)
         if reason:
             line += " — %s" % reason
@@ -848,9 +861,16 @@ def format_validation_report(result: dict) -> str:
 
     # Filter 2 section
     lines.append("=== Filter 2: Benchmark Suitability ===")
-    f2_checks = [c for c in result["checks"] if c[0].startswith("[")]
-    for name, passed, reason in f2_checks:
-        icon = "PASS" if passed else "FAIL"
+    f2_checks = [
+        c
+        for c in result["checks"]
+        if c[0].startswith("[MUST]") or c[0].startswith("[SHOULD]")
+    ]
+    f2_info = [
+        c for c in result["checks"] if c[0].startswith("[INFO]") and c not in f1_checks
+    ]
+    for name, passed, reason in f2_checks + f2_info:
+        icon = "PASS" if passed else ("INFO" if name.startswith("[INFO]") else "FAIL")
         line = "[%s] %s" % (icon, name)
         if reason:
             line += " — %s" % reason

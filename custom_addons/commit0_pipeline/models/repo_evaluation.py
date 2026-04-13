@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+import difflib
+import json
 import logging
 import os
 import subprocess
 import tempfile
+from datetime import datetime
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
@@ -43,6 +46,7 @@ DOCKER_STATUS_SELECTION = [
     ("testing", "Testing"),
     ("done", "Done"),
     ("failed", "Failed"),
+    ("image_broken", "Image Broken"),
 ]
 
 
@@ -78,6 +82,9 @@ class Commit0RepoEvaluation(models.Model):
     repo_url = fields.Char(
         string="GitHub URL",
         tracking=True,
+    )
+    is_admin = fields.Boolean(
+        compute="_compute_is_admin",
     )
     fork_url = fields.Char(
         string="Fork URL",
@@ -135,21 +142,21 @@ class Commit0RepoEvaluation(models.Model):
     # Critical Gates (MUST)
     check_language = fields.Boolean(
         string="Language",
-        help="95%% Python, No C/Rust/Extensions",
+        help="80%% Python, No C/Rust/Extensions",
     )
     check_tests = fields.Boolean(
         string="Tests",
-        help="Pytest, <30m, No GPU",
+        help="Pytest, No GPU (timing optional)",
     )
     check_documentation = fields.Boolean(
         string="Documentation",
-        help="API Ref, Guide, Type Specs",
+        help="Docs website (guide/API/types are SHOULD)",
     )
 
     # Quality Indicators (SHOULD)
     check_github_metrics = fields.Boolean(
         string="Good GitHub Metrics",
-        help="5k+ Stars, Not Fork/Archived",
+        help="2k+ Stars, Not Fork (archived optional)",
     )
     check_project_structure = fields.Boolean(
         string="Proper Structure",
@@ -266,6 +273,36 @@ class Commit0RepoEvaluation(models.Model):
     spec_yaml = fields.Text(
         string="Spec YAML",
     )
+    test_ids_bz2 = fields.Binary(
+        string="Test IDs (.bz2)",
+        attachment=True,
+    )
+    test_ids_filename = fields.Char(
+        string="Test IDs Filename",
+    )
+    test_ids_count = fields.Integer(
+        string="Test IDs Count",
+        default=0,
+    )
+    test_ids_status = fields.Selection(
+        selection=AUTOMATION_STATUS_SELECTION,
+        string="Test IDs Status",
+        default="pending",
+    )
+    spec_json_editing = fields.Boolean(
+        string="Editing Spec JSON",
+        default=False,
+    )
+    spec_json_original = fields.Text(
+        string="Spec JSON (Before Edit)",
+    )
+    spec_json_history = fields.Text(
+        string="Spec JSON Change History",
+    )
+    show_spec_json_history = fields.Boolean(
+        string="Show Change History",
+        default=False,
+    )
     document_file = fields.Binary(
         string="Upload PDF",
     )
@@ -334,6 +371,11 @@ class Commit0RepoEvaluation(models.Model):
     )
     ecr_url = fields.Char(
         string="ECR URL",
+    )
+    kaiju_build_id = fields.Many2one(
+        "kaiju.build",
+        string="Build",
+        ondelete="set null",
     )
 
     # =========================================================================
@@ -409,6 +451,14 @@ class Commit0RepoEvaluation(models.Model):
     # -------------------------------------------------------------------------
     # Computed Fields
     # -------------------------------------------------------------------------
+    def _compute_is_admin(self):
+        admin_group = self.env.ref(
+            "commit0_pipeline.group_commit0_admin", raise_if_not_found=False
+        )
+        is_admin = admin_group and admin_group in self.env.user.group_ids
+        for rec in self:
+            rec.is_admin = is_admin
+
     @api.depends("repo_url")
     def _compute_repo_name(self):
         for rec in self:
@@ -560,7 +610,7 @@ class Commit0RepoEvaluation(models.Model):
                 "validation_status": "done",
                 "validation_details": format_validation_report(result),
                 "check_language": (
-                    checks_by_name.get("Python >= 95%%", False)
+                    checks_by_name.get("Python >= 80%%", False)
                     and checks_by_name.get("No native extensions", False)
                     and checks_by_name.get("Not native wrapper", False)
                 ),
@@ -570,9 +620,8 @@ class Commit0RepoEvaluation(models.Model):
                 ),
                 "check_documentation": checks_by_name.get("Has documentation", False),
                 "check_github_metrics": (
-                    checks_by_name.get("Stars >= 3000", False)
+                    checks_by_name.get("Stars >= 2000", False)
                     and checks_by_name.get("Not a fork", False)
-                    and checks_by_name.get("Not archived", False)
                     and checks_by_name.get("Not ML framework", False)
                 ),
                 "check_project_structure": (
@@ -693,6 +742,137 @@ class Commit0RepoEvaluation(models.Model):
     # -------------------------------------------------------------------------
     # Stage 4 Actions
     # -------------------------------------------------------------------------
+    def action_generate_test_ids(self):
+        """Trigger test-ID collection + bz2 generation as a background task."""
+        self.ensure_one()
+        if not self.clone_path:
+            raise UserError(
+                "Clone path is missing — Stage 3 must complete before generating test IDs."
+            )
+        self.write(
+            {
+                "test_ids_status": "pending",
+                "error_message": False,
+            }
+        )
+        from . import pipeline_executor
+
+        rec_id = self.id
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        self.env.cr.postcommit.add(
+            lambda: pipeline_executor.submit_test_ids_async(dbname, uid, rec_id)
+        )
+
+    def action_enable_edit_spec_json(self):
+        """Enable editing mode for the spec JSON."""
+        self.ensure_one()
+        vals = {
+            "spec_json_editing": True,
+            "spec_json_original": self.spec_json_original or self.spec_json or "",
+        }
+        self.write(vals)
+
+    def action_save_spec_json(self):
+        """Save the edited spec JSON and disable editing mode."""
+        self.ensure_one()
+        old_json = self.spec_json_original or ""
+        new_json = self.spec_json or ""
+        history_entry = ""
+        if old_json != new_json:
+            diff_lines = list(
+                difflib.unified_diff(
+                    old_json.splitlines(keepends=True),
+                    new_json.splitlines(keepends=True),
+                    fromfile="before",
+                    tofile="after",
+                    lineterm="",
+                )
+            )
+            diff_text = "\n".join(diff_lines) if diff_lines else "(no textual diff)"
+
+            changed_keys = self._get_changed_json_keys(old_json, new_json)
+            key_summary = ", ".join(changed_keys) if changed_keys else "unknown keys"
+
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            user_name = self.env.user.name or "Unknown"
+            separator = "═" * 60
+            subseparator = "─" * 40
+            entry = (
+                "{sep}\n"
+                "[{ts}] Edited by {user}\n"
+                "Changed keys: {keys}\n"
+                "{subsep}\n"
+                "{diff}\n"
+            ).format(
+                sep=separator,
+                ts=timestamp,
+                user=user_name,
+                keys=key_summary,
+                subsep=subseparator,
+                diff=diff_text,
+            )
+
+            existing = self.spec_json_history or ""
+            history_entry = entry + "\n" + existing if existing else entry
+
+        vals = {
+            "spec_json_editing": False,
+            "spec_json_original": new_json,
+            "spec_json_history": history_entry or self.spec_json_history,
+        }
+        vals.update(self._sync_fields_from_spec_json(new_json))
+        self.write(vals)
+
+    def _sync_fields_from_spec_json(self, json_str):
+        try:
+            data = json.loads(json_str) if json_str and json_str.strip() else {}
+        except (json.JSONDecodeError, AttributeError):
+            return {}
+        synced = {}
+        setup = data.get("setup") or {}
+        test = data.get("test") or {}
+        if test.get("test_dir"):
+            synced["test_dir"] = test["test_dir"]
+        if setup.get("install"):
+            synced["install_cmd"] = setup["install"]
+        if data.get("src_dir"):
+            synced["src_dir"] = data["src_dir"]
+        if setup.get("python"):
+            synced["python_version"] = setup["python"]
+        return synced
+
+    def action_toggle_spec_json_history(self):
+        self.ensure_one()
+        self.write({"show_spec_json_history": not self.show_spec_json_history})
+
+    @staticmethod
+    def _get_changed_json_keys(old_str, new_str):
+        try:
+            old_dict = json.loads(old_str) if old_str.strip() else {}
+            new_dict = json.loads(new_str) if new_str.strip() else {}
+        except (json.JSONDecodeError, AttributeError):
+            return []
+        changed = []
+        all_keys = set(list(old_dict.keys()) + list(new_dict.keys()))
+        for key in sorted(all_keys):
+            if old_dict.get(key) != new_dict.get(key):
+                changed.append(key)
+        return changed
+
+    def action_retry_generate_test_ids(self):
+        """Retry test-ID generation (resets count and re-runs)."""
+        self.ensure_one()
+        self.write(
+            {
+                "test_ids_count": 0,
+                "test_ids_bz2": False,
+                "test_ids_filename": False,
+                "test_ids_status": "pending",
+            }
+        )
+        self.action_generate_test_ids()
+
     def action_reject_spec(self):
         """Reject the spec document — evaluation fails."""
         self.ensure_one()
@@ -704,12 +884,16 @@ class Commit0RepoEvaluation(models.Model):
         )
 
     def action_trigger_stubbing(self):
-        """Trigger stub generation once the document is validated."""
         self.ensure_one()
         if not self.doc_valid:
             raise UserError(
                 "The spec document must be fully validated "
                 "(related, not blank, meaningful) before triggering stubbing."
+            )
+        if not self.base_commit:
+            raise UserError(
+                "Base commit (stubbed code) is missing — "
+                "Stage 3 must complete before reviewing stubs."
             )
         self.write(
             {
@@ -774,4 +958,54 @@ class Commit0RepoEvaluation(models.Model):
         uid = self.env.uid
         self.env.cr.postcommit.add(
             lambda: pipeline_executor.submit_docker_async(dbname, uid, rec_id)
+        )
+
+    def action_rebuild_docker(self):
+        self.ensure_one()
+        if self.docker_status != "image_broken":
+            raise UserError(
+                "Rebuild is only available when Docker status is 'Image Broken'."
+            )
+        if not self.kaiju_build_id:
+            raise UserError("No linked build found.")
+        self.kaiju_build_id.write({"dataset_json": self.spec_json})
+        self.kaiju_build_id.action_rebuild()
+        self.invalidate_recordset()
+        self.kaiju_build_id.invalidate_recordset()
+
+        if self.kaiju_build_id.status == "error":
+            self.write(
+                {
+                    "docker_status": "failed",
+                    "error_message": self.kaiju_build_id.error_message
+                    or "Build job creation failed",
+                }
+            )
+            return
+
+        self.write(
+            {
+                "docker_status": "generating",
+                "docker_progress": 5.0,
+                "error_message": False,
+            }
+        )
+        from . import pipeline_executor
+
+        rec_id = self.id
+        dbname = self.env.cr.dbname
+        uid = self.env.uid
+        self.env.cr.postcommit.add(
+            lambda: pipeline_executor.submit_docker_poll(dbname, uid, rec_id)
+        )
+
+    def action_reject_docker(self):
+        self.ensure_one()
+        if self.docker_status != "failed":
+            raise UserError("Reject is only available when Docker status is 'Failed'.")
+        self.write(
+            {
+                "current_stage": "failed",
+                "terminal_state": "repo_not_suitable",
+            }
         )
