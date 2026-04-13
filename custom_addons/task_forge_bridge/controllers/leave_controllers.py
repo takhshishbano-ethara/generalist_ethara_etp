@@ -95,6 +95,7 @@ class TaskForgeLeaveController(http.Controller):
                     'request_date_from': from_date,
                     'request_date_to': to_date,
                     'name': reason,
+                    'x_reason': reason,
                 })
 
                 # Optional: If your workflow requires immediate confirmation/approval
@@ -309,7 +310,7 @@ class TaskForgeLeaveController(http.Controller):
             'qc_name': leave.employee_id.task_forge_qr_id.name if leave.employee_id.task_forge_qr_id else 0,
             'pl_id': leave.employee_id.task_forge_pl_id.id if leave.employee_id.task_forge_pl_id else 0,
             'pl_name': leave.employee_id.task_forge_pl_id.name if leave.employee_id.task_forge_pl_id and leave.employee_id.task_forge_pl_id.name else "",
-            'reason': leave.name or '',
+            'reason': leave.x_reason or leave.name or '',
             'status': state_map.get(leave.state, leave.state),
             'is_paid': leave.is_paid,
             'approved_by_name': leave.first_approver_id.name if leave.first_approver_id else '',

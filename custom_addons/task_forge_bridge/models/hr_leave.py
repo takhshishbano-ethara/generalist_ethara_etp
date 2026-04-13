@@ -9,6 +9,9 @@ class HrLeave(models.Model):
         default=False,
         help='Set to True when leave is approved, False when rejected',
     )
+    x_reason = fields.Char(
+        string='Reason',
+    )
 
     def action_approve(self):
         res = super().action_approve()
