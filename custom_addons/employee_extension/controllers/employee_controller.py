@@ -80,22 +80,29 @@ class EmployeeController(http.Controller):
                 if filename.endswith('.csv'):
                     df = pd.read_csv(io.BytesIO(file_content))
                 elif filename.endswith(('.xlsx', '.xls')):
-                    try:
-                        df = pd.read_excel(io.BytesIO(file_content))
-                    except ValueError as ve:
-                        if 'openpyxl' in str(ve).lower():
-                            df = pd.read_excel(io.BytesIO(file_content), engine='openpyxl')
-                        else:
-                            raise ve
+                    # Try different engines for Excel
+                    engines = ['openpyxl', 'xlrd', 'odf']
+                    df = None
+                    last_error = None
+            "Row 1: pl@ethara.ai already exists",
+            "Row 2: cto@ethara.ai already exists"
+        
+                    for engine in engines:
+                        try:
+                            df = pd.read_excel(io.BytesIO(file_content), engine=engine)
+                            break
+                        except Exception as engine_error:
+                            last_error = str(engine_error)
+                            continue
+                    if df is None:
+                        return return_Response(
+                            message=f"Excel parsing failed. Please convert your file to CSV format. Error: {last_error}",
+                            status=400
+                        )
                 else:
-                    return return_Response(message="Unsupported file format", status=400)
+                    return return_Response(message="Unsupported file format. Use .csv, .xlsx, or .xls", status=400)
             except Exception as e:
                 error_msg = str(e)
-                if "openpyxl" in error_msg:
-                    return return_Response(
-                        message="Server Library Error: Please upload as .CSV while we update the server engines.",
-                        status=400
-                    )
                 return return_Response(message=f"Error parsing file: {error_msg}", status=400)
             df = df.fillna('').astype(str)
             Employee = request.env['hr.employee'].sudo()

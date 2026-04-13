@@ -131,6 +131,10 @@ class TaskForgeLeaveController(http.Controller):
                 domain.append(('state', '=', 'validate'))
             elif status_param == 'Rejected':
                 domain.append(('state', '=', 'refuse'))
+
+            if kwargs.get('role_id'):
+                domain.append(('employee_id.user_id.user_role', '=', int(kwargs.get('role_id'))))
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
