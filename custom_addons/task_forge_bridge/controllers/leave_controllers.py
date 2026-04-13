@@ -237,7 +237,7 @@ class TaskForgeLeaveController(http.Controller):
     def leave_hierarchy(self, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id != self.env.ref('api_auth_gateway.role_cto_technical').id:
+            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
                 return return_Response(message="Admin access required", status=403)
 
             Employee = request.env['hr.employee'].sudo()
