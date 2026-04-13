@@ -66,11 +66,10 @@ class EmployeeController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v2/employees/bulk_create', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/employees/check_bulk_create_file', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    def bulk_create_employees_file(self, **kwargs):
+    def check_bulk_create_file(self, **kwargs):
         try:
-
             file_obj = request.httprequest.files.get('file')
             if not file_obj:
                 return return_Response(message="No file uploaded. Use key 'file'", status=400)
@@ -115,6 +114,135 @@ class EmployeeController(http.Controller):
                                 last_error = str(engine_error)
                                 continue
                     
+                    if df is None:
+                        return return_Response(
+                            message="Unable to parse the Excel file. Please save it as a newer .xlsx format or convert to CSV.",
+                            status=400
+                        )
+                else:
+                    return return_Response(message="Unsupported file format. Use .csv, .xlsx, or .xls", status=400)
+            except Exception as e:
+                error_msg = str(e)
+                # Check for common corruption patterns
+                if 'META-INF' in error_msg or 'manifest.xml' in error_msg:
+                    return return_Response(
+                        message="The file appears to be corrupted or in an older format. Please save it as a new .xlsx file or use CSV format.",
+                        status=400
+                    )
+                return return_Response(message=f"Error parsing file: {error_msg}", status=400)
+            df = df.fillna('').astype(str)
+            ResUsers = request.env['res.users'].sudo()
+            created = []
+            errors = []
+            for index, row in df.iterrows():
+                idx = index + 1
+                try:
+                    name = row.get('name', '').strip()
+                    email = row.get('email', '').strip().lower()
+                    if not name or name == '':
+                        errors.append(f"Row {idx}: name is missing")
+                        continue
+                    if not email or not email.endswith('@ethara.ai'):
+                        errors.append(f"Row {idx}: invalid ethara.ai email")
+                        continue
+
+                    if ResUsers.search_count([('login', '=', email)]):
+                        errors.append(f"Row {idx}: {email} already exists")
+                        continue
+
+                    # user_vals = {
+                    #     'name': name,
+                    #     'login': email,
+                    #     'email': email,
+                    #     'password': row.get('password') if row.get('password') else 'Ethara@123',
+                    # }
+                    # if row.get('user_role'):
+                    #     user_role_domain = [('project_type', '=', 'non-stem'), ('name', '=', row.get('user_role'))]
+                    #     if row.get('user_role') in ['CTO']:
+                    #         user_role_domain = [('name', '=', row.get('user_role'))]
+                    #     user_role = request.env['api.role'].sudo().search(user_role_domain, limit=1)
+                    #     if user_role:
+                    #         user_vals['user_role'] = user_role.id
+                    #
+                    # new_user = ResUsers.create(user_vals)
+                    # if not new_user.employee_id:
+                    #     employee_vals = {
+                    #         'name': name,
+                    #         'work_email': email,
+                    #         'user_id': new_user.id,
+                    #         'work_location_name': row.get('work_location_name', ''),
+                    #         'department_id': int(row['department_id']) if row.get('department_id') else False,
+                    #         'task_forge_pl_id': int(row['pl_id']) if row.get('pl_id') else False,
+                    #         'task_forge_qr_id': int(row['qr_id']) if row.get('qr_id') else False,
+                    #     }
+                    #     if row.get('job_title'):
+                    #         designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
+                    #         if designation_id:
+                    #             employee_vals['designation_id'] = designation_id.id
+                    #
+                    #     employee = Employee.create(employee_vals)
+                    #     created.append({'id': employee.id, 'name': employee.name, 'email': employee.work_email})
+
+                except Exception as e:
+                    errors.append(f"Row {idx}: {str(e)}")
+
+            return return_Response(
+                message=f"File processed: {len(created)} created, {len(errors)} errors",
+                status=200,
+                data={'data': {'created': created, 'errors': errors}}
+            )
+
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/employees/bulk_create', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def bulk_create_employees_file(self, **kwargs):
+        try:
+            file_obj = request.httprequest.files.get('file')
+            if not file_obj:
+                return return_Response(message="No file uploaded. Use key 'file'", status=400)
+            filename = file_obj.filename.lower()
+            file_content = file_obj.read()
+            try:
+                if filename.endswith('.csv'):
+                    df = pd.read_csv(io.BytesIO(file_content))
+                elif filename.endswith(('.xlsx', '.xls')):
+                    df = None
+                    last_error = None
+
+                    # Try openpyxl first for .xlsx files
+                    if filename.endswith('.xlsx'):
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True, read_only=True)
+                            sheet = wb.active
+                            data = []
+                            for row in sheet.iter_rows(values_only=True):
+                                data.append(row)
+                            wb.close()
+                            if data:
+                                df = pd.DataFrame(data[1:], columns=data[0])
+                        except Exception as oxl_error:
+                            last_error = str(oxl_error)
+
+                    # Try xlrd for .xls files
+                    if df is None and filename.endswith('.xls'):
+                        try:
+                            df = pd.read_excel(io.BytesIO(file_content), engine='xlrd')
+                        except Exception as xlrd_error:
+                            last_error = str(xlrd_error)
+
+                    # Try with different engines as fallback
+                    if df is None:
+                        for engine in ['openpyxl', 'xlrd', 'odf']:
+                            try:
+                                df = pd.read_excel(io.BytesIO(file_content), engine=engine)
+                                break
+                            except Exception as engine_error:
+                                last_error = str(engine_error)
+                                continue
+
                     if df is None:
                         return return_Response(
                             message="Unable to parse the Excel file. Please save it as a newer .xlsx format or convert to CSV.",
