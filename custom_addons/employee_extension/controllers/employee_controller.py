@@ -68,6 +68,19 @@ class EmployeeController(http.Controller):
                 employee = Employee.create(employee_vals)
             else:
                 new_user.employee_id.sudo().write(employee_vals)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'New Employee Created',
+                    'message': f'Employee "{jdata["name"]}" has been created.',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'hr.employee',
+                    'res_id': new_user.employee_id.id if new_user.employee_id else 0,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Employee created successfully", status=200)
         except Exception as e:
             return return_Response(message=str(e), status=400)
@@ -397,6 +410,18 @@ class EmployeeController(http.Controller):
                 if employee.user_id:
                     employee.user_id.user_role = int(jdata.get('role_id'))
 
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Employee Updated',
+                    'message': f'Employee "{employee.name}" has been updated.',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'hr.employee',
+                    'res_id': employee.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Employee updated successfully", status=200)
         except Exception as e:
             return return_Response(message=str(e), status=400)
@@ -429,6 +454,19 @@ class EmployeeController(http.Controller):
                     'reason_id': int(jdata.get('reason_id')),
                     'offboard_notes': jdata.get('offboard_notes')
                 })
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Employee Offboarded',
+                        'message': f'Employee "{employee.name}" has been offboarded.',
+                        'user_id': request.env.user.id,
+                        'priority': '2',
+                        'res_model': 'hr.employee',
+                        'res_id': employee.id,
+                    })
+                except Exception:
+                    pass
+
                 return return_Response(message="Employee offboarded successfully", status=200)
 
             elif action == 'reactivate':
@@ -441,6 +479,19 @@ class EmployeeController(http.Controller):
                     'task_forge_active': True,
                     'offboard_date': False,
                 })
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Employee Reactivated',
+                        'message': f'Employee "{employee.name}" has been reactivated.',
+                        'user_id': request.env.user.id,
+                        'priority': '1',
+                        'res_model': 'hr.employee',
+                        'res_id': employee.id,
+                    })
+                except Exception:
+                    pass
+
                 return return_Response(message="Employee reactivated successfully", status=200)
             else:
                 return return_Response(message="Invalid action. Use: offboard or reactivate", status=400)

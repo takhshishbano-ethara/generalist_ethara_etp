@@ -35,6 +35,19 @@ class TaskForgeBlockerController(http.Controller):
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False
             })
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'New Blocker Created',
+                    'message': f'{employee.name} raised a blocker: "{blocker.name}".',
+                    'user_id': request.env.user.id,
+                    'priority': '2',
+                    'res_model': 'task.forge.blocker',
+                    'res_id': blocker.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Blockers list", status=200, data={'data': self._format_blocker(blocker)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
@@ -112,6 +125,19 @@ class TaskForgeBlockerController(http.Controller):
 
             if action == 'no_issue':
                 blocker.action_qr_no_issue(notes=notes)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Blocker Marked No Issue',
+                        'message': f'Blocker "{blocker.name}" marked as No Issue.',
+                        'user_id': request.env.user.id,
+                        'priority': '1',
+                        'res_model': 'task.forge.blocker',
+                        'res_id': blocker.id,
+                    })
+                except Exception:
+                    pass
+
                 return return_Response(message="Blocker marked as No Issue", status=200, data={'data': self._format_blocker(blocker)})
             elif action == 'escalate':
                 video_url = None
@@ -130,6 +156,19 @@ class TaskForgeBlockerController(http.Controller):
                     image_url = generate_s3_link(img_data, prefix='taskforge/blocker_images', uid=user.employee_id.id)
 
                 blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Blocker Escalated',
+                        'message': f'Blocker "{blocker.name}" has been escalated to PL.',
+                        'user_id': request.env.user.id,
+                        'priority': '2',
+                        'res_model': 'task.forge.blocker',
+                        'res_id': blocker.id,
+                    })
+                except Exception:
+                    pass
+
                 return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
             else:
                 return return_Response(message="Invalid action. Use 'no_issue' or 'escalate'.", status=400)
@@ -159,6 +198,18 @@ class TaskForgeBlockerController(http.Controller):
                 return return_Response(message="Blocker not found", status=404)
 
             bug = blocker.action_pl_validate(jdata)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Bug Validated',
+                    'message': f'Blocker "{blocker.name}" validated as bug "{bug.name}" by PL.',
+                    'user_id': request.env.user.id,
+                    'priority': '2',
+                    'res_model': 'task.forge.validated.bug',
+                    'res_id': bug.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Bug validated",
