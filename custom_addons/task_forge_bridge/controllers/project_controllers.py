@@ -60,6 +60,19 @@ class TaskForgeProjectController(http.Controller):
                 vals['task_forge_platform'] = jdata['platform']
 
             project = Project.create(vals)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'New Project Created',
+                    'message': f'Project "{project.name}" has been created.',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Project created",
                 status=200,
@@ -97,6 +110,19 @@ class TaskForgeProjectController(http.Controller):
 
             if vals:
                 project.write(vals)
+
+            try:
+                changed = ', '.join(vals.keys()) if vals else 'no fields'
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Updated',
+                    'message': f'Project "{project.name}" has been updated ({changed}).',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Project updated",
@@ -477,3 +503,132 @@ class TaskForgeProjectController(http.Controller):
             'is_visible_on_multimango': alloc.is_visible_on_multimango,
             'created_at': alloc.create_date.isoformat() if alloc.create_date else '',
         }
+
+    @http.route('/api/v2/project_team_member_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'str', 'required': True},
+    })
+    def project_team_member_list(self, **kwargs):
+        try:
+            # 1. Get project
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            # 2. Get team members
+            team_ids = project.project_lead | project.project_qc_reviewer | project.project_tasker
+
+            # 3. Build domain (IMPORTANT FIX)
+            domain = [('id', 'in', team_ids.ids)]
+
+            # Active filter
+            if kwargs.get('active') == 'false':
+                domain.append(('task_forge_active', '=', False))
+            else:
+                domain.append(('task_forge_active', '=', True))
+
+            # Search filter
+            if kwargs.get('search'):
+                domain.append(('name', 'ilike', kwargs.get('search')))
+
+            # Role filter
+            if kwargs.get('role'):
+                domain.append(('user_id.user_role.id', '=', int(kwargs.get('role'))))
+
+            # 4. Apply domain (IMPORTANT FIX)
+            employees = request.env['hr.employee'].sudo().search(domain)
+            # 6. Build response
+            data = []
+            for emp in employees:
+                task_record = request.env['task.forge.log'].sudo().search([('project_id', '=', project.id), ('state', '=', 'completed')])
+                avg_time = 0
+                for t in task_record:
+                    avg_time += int(t.pause_time) if t.pause_time else 0
+                total_done = len(task_record)
+                avg_time = (avg_time // total_done) if total_done > 0 else 0
+
+                data.append({
+                    'id': emp.id,
+                    'name': emp.name or "",
+                    'email': emp.work_email or "",
+                    'job_title_id': emp.designation_id.id if emp.designation_id else 0,
+                    'job_title': emp.designation_id.name if emp.designation_id else "",
+                    'department_id': emp.department_id.id if emp.department_id else 0,
+                    'department': emp.department_id.name if emp.department_id else "",
+                    'offboarding_state': emp.offboarding_state or "",
+                    'role_id': emp.user_id.user_role.id if emp.user_id and emp.user_id.user_role else 0,
+                    'role': emp.user_id.user_role.name if emp.user_id and emp.user_id.user_role else "",
+                    'total_done_task': total_done,
+                    'pl_id': emp.task_forge_pl_id.id if emp.task_forge_pl_id else 0,
+                    'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id else "",
+                    'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else 0,
+                    'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id else "",
+                    'active': emp.active,
+                    'avg_time': avg_time,
+                    'since': str(emp.joining_date) if emp.joining_date else ""
+                })
+
+            # 7. Final response
+            return return_Response(
+                message=f"{len(data)} employees found",
+                status=200,
+                data={
+                    'data': data,
+                    'total': len(employees)
+                }
+            )
+
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/task_summary', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'str', 'required': True},
+    })
+    def project_task_summary(self, **kwargs):
+        try:
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            Blocker = request.env['task.forge.blocker'].sudo()
+
+            task_domain = [('project_id', '=', project_id)]
+            total_task_count = TaskLog.search_count(task_domain)
+            done_task_count = TaskLog.search_count(task_domain + [('state', '=', 'completed')])
+            in_progress_count = TaskLog.search_count(task_domain + [('state', '=', 'in_progress')])
+
+            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue'])]
+            total_blocker_count = Blocker.search_count(blocker_domain)
+
+            blocker_grouped = Blocker.read_group(
+                domain=blocker_domain,
+                fields=['state'],
+                groupby=['state'],
+            )
+            blocker_message = ""
+            for item in blocker_grouped:
+                if item['state_count']:
+                    blocker_message += f"{item['state_count']} {item['state']} "
+
+            return return_Response(
+                message="Project task summary",
+                status=200,
+                data={
+                    'project_id': project_id,
+                    'project_name': project.name or "",
+                    'total_task_count': total_task_count,
+                    'done_task_count': done_task_count,
+                    'in_progress_count': in_progress_count,
+                    'total_blocker_count': total_blocker_count,
+                    'blocker_message': blocker_message,
+                },
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)

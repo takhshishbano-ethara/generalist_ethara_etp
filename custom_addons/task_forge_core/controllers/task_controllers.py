@@ -26,8 +26,10 @@ class TaskForgeTaskController(http.Controller):
 
             if kwargs.get('employee_id'):
                 domain.append(('employee_id', '=', int(kwargs['employee_id'])))
+
             if kwargs.get('project'):
                 domain.append(('project_id', '=', int(kwargs['project'])))
+
             if kwargs.get('status'):
                 if kwargs.get('status') != 'all':
                     domain.append(('state', '=', kwargs['status']))
@@ -152,6 +154,18 @@ class TaskForgeTaskController(http.Controller):
                         'non_stemp_project_status': 'production'
                     })
 
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Task Started',
+                    'message': f'{employee.name} started task "{task.name}".',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'task.forge.log',
+                    'res_id': task.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Task started", status=200, data={'data': self._format_task(task)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
@@ -190,6 +204,20 @@ class TaskForgeTaskController(http.Controller):
             )
 
             task.invalidate_recordset()
+
+            try:
+                msg = f'Task "{task.name}" has been completed.' if task.state == 'completed' else f'Blocker raised on task "{task.name}".'
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Task Completed' if task.state == 'completed' else 'Blocker Raised',
+                    'message': msg,
+                    'user_id': request.env.user.id,
+                    'priority': '2' if task.state == 'blocker' else '1',
+                    'res_model': 'task.forge.log',
+                    'res_id': task.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Task ended" if task.state == 'completed' else "Blocker raised",
                 status=200,
@@ -252,6 +280,18 @@ class TaskForgeTaskController(http.Controller):
             if kwargs.get('comment'):
                 task.comment = kwargs.get('comment')
 
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Task Rated',
+                    'message': f'Task "{task.name}" has been rated.',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'task.forge.log',
+                    'res_id': task.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Task Rated",
                 status=200,
@@ -293,6 +333,19 @@ class TaskForgeTaskController(http.Controller):
                 vals['project_id'] = jdata['project_id']
 
             task = TaskLog.create(vals)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Task Created',
+                    'message': f'Task "{task.name}" has been created.',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'task.forge.log',
+                    'res_id': task.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Task created", status=200, data={'data': self._format_task(task)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
