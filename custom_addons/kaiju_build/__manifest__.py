@@ -14,6 +14,16 @@
         "views/kaiju_build_views.xml",
         "views/kaiju_menus.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            "kaiju_build/static/src/scss/kaiju_build_form.scss",
+            "kaiju_build/static/src/components/log_viewer/log_viewer.js",
+            "kaiju_build/static/src/components/log_viewer/log_viewer.xml",
+            "kaiju_build/static/src/components/log_viewer/log_viewer.scss",
+            "kaiju_build/static/src/components/auto_refresh/auto_refresh.js",
+            "kaiju_build/static/src/components/auto_refresh/auto_refresh.xml",
+        ],
+    },
     "installable": True,
     "application": False,
     "auto_install": False,

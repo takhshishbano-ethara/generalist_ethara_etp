@@ -3,6 +3,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
+import datetime
 import json
 
 
@@ -201,6 +202,251 @@ class TaskForgeProjectController(http.Controller):
                 message=f"{len(created)} allocations created",
                 status=200,
                 data={'data': created}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/dashboard', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'str', 'required': True},
+    })
+    def get_project_dashboard(self, **kwargs):
+        try:
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            today = datetime.datetime.now().date()
+            start_of_week = today - datetime.timedelta(days=today.weekday())
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            Blocker = request.env['task.forge.blocker'].sudo()
+            Employee = request.env['hr.employee'].sudo()
+
+            done_task_count = TaskLog.search_count([
+                ('project_id', '=', project_id),
+                ('state', '=', 'completed')
+            ])
+
+            this_week_new_task_count = TaskLog.search_count([
+                ('project_id', '=', project_id),
+                ('create_date', '>=', start_of_week)
+            ])
+
+            total_task_count = TaskLog.search_count([
+                ('project_id', '=', project_id)
+            ])
+            completion_rate = 0.0
+            if total_task_count > 0:
+                completion_rate = round((done_task_count / total_task_count) * 100, 2)
+
+            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue'])]
+            open_blocker_count = Blocker.search_count(blocker_domain)
+            blocker_grouped = Blocker.read_group(
+                domain=blocker_domain,
+                fields=['state'],
+                groupby=['state']
+            )
+            blocker_by_state = [f"{item['state_count']}, {item['state']}"
+                for item in blocker_grouped if item['state_count']
+            ]
+            blocker_message = ", ".join(blocker_by_state)
+
+            all_roles = [
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+            ]
+
+            team_role_message = ""
+            team_member_ids = []
+            if project.project_lead:
+                team_member_ids.extend(project.project_lead.ids)
+                team_role_message += f"{len(project.project_lead)}, PL"
+
+            if project.project_qc_reviewer:
+                team_role_message += f"{len(project.project_qc_reviewer)}, QR"
+                team_member_ids.extend(project.project_qc_reviewer.ids)
+
+            if project.project_tasker:
+                team_role_message += f"{len(project.project_tasker)}, Tasker"
+                team_member_ids.extend(project.project_tasker.ids)
+
+            if project.project_aire:
+                team_role_message += f"{len(project.project_aire)}, AIRE"
+                team_member_ids.extend(project.project_aire.ids)
+
+            if project.project_swe:
+                team_role_message += f"{len(project.project_swe)}, SWE"
+                team_member_ids.extend(project.project_swe.ids)
+
+            state_list = ['in_progress', 'completed', 'blocker', 'returned', 'ack', 'escalated', 'overdue']
+            task_progress_grouped = TaskLog.read_group(
+                domain=[('project_id', '=', project_id)],
+                fields=['state'],
+                groupby=['state']
+            )
+            state_totals = {item['state']: item['state_count'] for item in task_progress_grouped}
+            task_progress = [
+                {'state': state, 'total_count': state_totals.get(state, 0)}
+                for state in state_list
+            ]
+
+            days = int(kwargs.get('days', 7))
+            end_date = datetime.datetime.now().date()
+            start_date = end_date - datetime.timedelta(days=days - 1)
+
+            throughput_domain = [
+                ('project_id', '=', project_id),
+                ('state', '=', 'completed'),
+                ('end_time', '>=', start_date),
+                ('end_time', '<=', end_date + datetime.timedelta(days=1))
+            ]
+            throughput_grouped = TaskLog.read_group(
+                domain=throughput_domain,
+                fields=['end_time'],
+                groupby=['end_time:day']
+            )
+            daily_throughput = [
+                {'date': item['end_time:day'], 'completed_count': item['end_time_count']}
+                for item in throughput_grouped if item['end_time_count']
+            ]
+
+            return return_Response(
+                message="Project dashboard",
+                status=200,
+                data={
+                    'done_task_count': done_task_count,
+                    'this_week_new_task_count': this_week_new_task_count,
+                    'total_task_count': total_task_count,
+                    'completion_rate': f"{completion_rate}%",
+                    'open_blocker_count': open_blocker_count,
+                    'blocker_by_state': blocker_message,
+                    'total_team_size': len(set(team_member_ids)),
+                    'team_role_message': team_role_message,
+                    'task_progress': task_progress,
+                    'daily_throughput': daily_throughput
+                }
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/team_analytics', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'str', 'required': True},
+    })
+    def get_team_analytics(self, **kwargs):
+        try:
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            Employee = request.env['hr.employee'].sudo()
+            Attendance = request.env['hr.attendance'].sudo()
+            team_member_ids = []
+            if project.project_lead:
+                team_member_ids.extend(project.project_lead.ids)
+
+            if project.project_qc_reviewer:
+                team_member_ids.extend(project.project_qc_reviewer.ids)
+
+            if project.project_tasker:
+                team_member_ids.extend(project.project_tasker.ids)
+
+            if project.project_aire:
+                team_member_ids.extend(project.project_aire.ids)
+
+            if project.project_swe:
+                team_member_ids.extend(project.project_swe.ids)
+
+            if not team_member_ids:
+                return return_Response(
+                    message="Team analytics",
+                    status=200,
+                    data={
+                        'project_lead_count': 0,
+                        'qc_reviewer_count': 0,
+                        'qc_lead_count': 0,
+                        'tasker_trainee_count': 0,
+                        'tasker_permanent_count': 0,
+                        'active_member_count': 0,
+                    }
+                )
+
+            role_pl = [
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+            ]
+            role_qr = [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            role_ql = [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            role_tasker = [
+                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+            ]
+
+            project_lead_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_pl)
+            ])
+
+            qc_employees = Employee.search([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_ql)
+            ])
+
+            qc_reviewer_count = qc_employees.filtered(lambda e: e.user_id.user_role.id in role_qr and e._get_task_forge_role() == 'qr')
+            qc_lead_count = qc_employees.filtered(lambda e: e.user_id.user_role.id in role_ql and e._get_task_forge_role() == 'ql')
+
+            tasker_trainee_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_tasker),
+                ('tasker_status', '=', 'trainee')
+            ])
+            tasker_permanent_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_tasker),
+                ('tasker_status', '=', 'permanent')
+            ])
+
+            today = datetime.datetime.now().date()
+            active_member_ids = Attendance.search([
+                ('check_in', '>=', f"{today} 00:00:00"),
+                ('employee_id', 'in', team_member_ids),
+                ('attendance_status', '=', 'present')
+            ]).mapped('employee_id').ids
+            active_member_count = len(set(active_member_ids))
+
+            return return_Response(
+                message="Team analytics",
+                status=200,
+                data={
+                    'project_lead_count': project_lead_count,
+                    'qc_reviewer_count': len(qc_reviewer_count),
+                    'qc_lead_count': len(qc_lead_count),
+                    'tasker_trainee_count': tasker_trainee_count,
+                    'tasker_permanent_count': tasker_permanent_count,
+                    'active_member_count': active_member_count,
+                }
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)

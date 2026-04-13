@@ -7,7 +7,14 @@ import { SelectMenu } from "@web/core/select_menu/select_menu";
 import { rpc } from "@web/core/network/rpc";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
-import { Component, useState, onWillStart, onWillUpdateProps, onMounted } from "@odoo/owl";
+import { Component, EventBus, useRef, useState, onWillStart, onWillUpdateProps, onMounted, onWillUnmount } from "@odoo/owl";
+
+/**
+ * Shared bus for syncing file selection and scroll position between paired
+ * RepoBrowser panels at Stage 5 (clone_path_original ↔ clone_path_stubbed).
+ */
+const SYNC_FIELDS = new Set(["clone_path_original", "clone_path_stubbed"]);
+const repoBrowserBus = new EventBus();
 
 export class RepoBrowser extends Component {
     static template = "commit0_pipeline.RepoBrowser";
@@ -18,6 +25,11 @@ export class RepoBrowser extends Component {
 
     setup() {
         this._copyTimeout = null;
+        this._syncInProgress = false;
+        this._scrollSyncInProgress = false;
+        this._aceEditor = null;
+        this._scrollHandler = null;
+        this.rootRef = useRef("rootRef");
         this.state = useState({
             tree: [],
             flatFiles: [],
@@ -36,12 +48,28 @@ export class RepoBrowser extends Component {
             hasDiffChanges: false,
         });
 
+        this._onSyncFileSelect = this._onSyncFileSelect.bind(this);
+        this._onSyncScroll = this._onSyncScroll.bind(this);
+
         onWillStart(() => {});
-        onMounted(() => {});
+        onMounted(() => {
+            if (SYNC_FIELDS.has(this.props.name)) {
+                repoBrowserBus.addEventListener("file-selected", this._onSyncFileSelect);
+                repoBrowserBus.addEventListener("scroll-sync", this._onSyncScroll);
+            }
+        });
+        onWillUnmount(() => {
+            this._detachScrollListener();
+            if (SYNC_FIELDS.has(this.props.name)) {
+                repoBrowserBus.removeEventListener("file-selected", this._onSyncFileSelect);
+                repoBrowserBus.removeEventListener("scroll-sync", this._onSyncScroll);
+            }
+        });
         onWillUpdateProps((nextProps) => {
             const currentPath = this.props.record.data[this.props.name];
             const nextPath = nextProps.record.data[nextProps.name];
             if (nextPath !== currentPath && nextPath) {
+                this._detachScrollListener();
                 this.state.treeLoaded = false;
                 this.state.tree = [];
                 this.state.flatFiles = [];
@@ -49,6 +77,68 @@ export class RepoBrowser extends Component {
                 this.state.fileContent = "";
             }
         });
+    }
+
+    _onSyncFileSelect({ detail }) {
+        if (detail.sourceField === this.props.name) {
+            return;
+        }
+        if (!this.state.treeLoaded) {
+            return;
+        }
+        const hasFile = this.state.flatFiles.some((f) => f.path === detail.path);
+        if (!hasFile) {
+            return;
+        }
+        this._syncInProgress = true;
+        this.onFileSelect(detail.path).finally(() => {
+            this._syncInProgress = false;
+        });
+    }
+
+    _onSyncScroll({ detail }) {
+        if (detail.sourceField === this.props.name) {
+            return;
+        }
+        if (!this._aceEditor || this._scrollSyncInProgress) {
+            return;
+        }
+        this._scrollSyncInProgress = true;
+        this._aceEditor.getSession().setScrollTop(detail.scrollTop);
+        requestAnimationFrame(() => {
+            this._scrollSyncInProgress = false;
+        });
+    }
+
+    _attachScrollListener() {
+        this._detachScrollListener();
+        if (!SYNC_FIELDS.has(this.props.name) || !this.rootRef.el) {
+            return;
+        }
+        const aceEl = this.rootRef.el.querySelector(".ace_editor");
+        if (!aceEl || !window.ace) {
+            return;
+        }
+        this._aceEditor = window.ace.edit(aceEl);
+        this._scrollHandler = () => {
+            if (this._scrollSyncInProgress) {
+                return;
+            }
+            const scrollTop = this._aceEditor.getSession().getScrollTop();
+            repoBrowserBus.trigger("scroll-sync", {
+                scrollTop,
+                sourceField: this.props.name,
+            });
+        };
+        this._aceEditor.getSession().on("changeScrollTop", this._scrollHandler);
+    }
+
+    _detachScrollListener() {
+        if (this._aceEditor && this._scrollHandler) {
+            this._aceEditor.getSession().off("changeScrollTop", this._scrollHandler);
+        }
+        this._scrollHandler = null;
+        this._aceEditor = null;
     }
 
     get clonePath() {
@@ -121,6 +211,7 @@ export class RepoBrowser extends Component {
             return;
         }
 
+        this._detachScrollListener();
         this.state.loading = true;
         this.state.error = "";
 
@@ -144,6 +235,15 @@ export class RepoBrowser extends Component {
             if (this.state.diffMode && this.canShowDiff) {
                 await this._loadDiff();
             }
+
+            if (!this._syncInProgress && SYNC_FIELDS.has(this.props.name)) {
+                repoBrowserBus.trigger("file-selected", {
+                    path,
+                    sourceField: this.props.name,
+                });
+            }
+
+            requestAnimationFrame(() => this._attachScrollListener());
         } catch (e) {
             this.state.error = e.message || "Failed to load file";
         } finally {

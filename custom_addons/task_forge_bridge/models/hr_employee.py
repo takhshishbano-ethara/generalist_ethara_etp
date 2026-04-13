@@ -25,6 +25,16 @@ class HrEmployee(models.Model):
         default=True,
         help='Soft-delete flag for Task Forge offboarding',
     )
+    is_ql_type = fields.Boolean(
+        string='Is QL Type',
+        default=False,
+        help='Check if employee is QL type (QR/QL)',
+    )
+    tasker_status = fields.Selection(
+        [('trainee', 'Trainee'), ('permanent', 'Permanent')],
+        string='Tasker Status',
+        default='permanent',
+    )
 
     @api.constrains('work_email')
     def _check_ethara_email(self):
@@ -53,7 +63,7 @@ class HrEmployee(models.Model):
             return 'pl'
         if user.has_group('etp_user_roles.group_quality_reviewer') or user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id]:
             return 'qr'
-        if user.has_group('etp_user_roles.group_quality_lead') or user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+        if user.has_group('etp_user_roles.group_quality_lead') or (user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id] and self.is_ql_type):
             return 'ql'
         return 'tasker'
 

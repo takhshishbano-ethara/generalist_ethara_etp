@@ -99,25 +99,17 @@ def _extract_call_names(node: ast.AST) -> set[str]:
     return names
 
 
-def collect_import_time_names(source_dir: Path) -> set[str]:
-    """Scan all Python files to find function names called at import time.
+def _scan_dir_for_import_time_names(
+    scan_dir: Path, names: set[str], all_trees: list[ast.Module]
+) -> None:
+    """Scan a directory for import-time call names, collecting AST trees.
 
-    Analyzes module-level code, class bodies, and decorators to identify
-    functions that MUST remain implemented for imports to succeed.
-
-    Patterns detected:
-    1. Module-level assignments: `foo = some_func()` -> "some_func"
-    2. Module-level bare calls: `register()` -> "register"
-    3. Decorator factories: `@decorator_factory(args)` -> "decorator_factory"
-    4. Class body assignments: `class C: x = func()` -> "func"
-    5. Metaclass keyword calls: `class C(metaclass=Meta())` -> "Meta"
-    6. Module-level conditionals with calls: `if cond(): ...` -> "cond"
+    Applies the same 6-pattern logic and SKIP_DIRS filter used by
+    ``collect_import_time_names``.  Results are accumulated into *names*
+    and parsed trees are appended to *all_trees*.
     """
-    names: set[str] = set()
-
-    for py_file in sorted(source_dir.rglob("*.py")):
-        # Skip directories we don't want
-        rel_parts = py_file.relative_to(source_dir).parts
+    for py_file in sorted(scan_dir.rglob("*.py")):
+        rel_parts = py_file.relative_to(scan_dir).parts
         if any(part in SKIP_DIRS for part in rel_parts):
             continue
 
@@ -126,6 +118,8 @@ def collect_import_time_names(source_dir: Path) -> set[str]:
             tree = ast.parse(source, str(py_file))
         except (SyntaxError, UnicodeDecodeError):
             continue
+
+        all_trees.append(tree)
 
         for node in tree.body:
             # 1. Module-level expressions (bare calls, assignments with calls)
@@ -169,6 +163,10 @@ def collect_import_time_names(source_dir: Path) -> set[str]:
                         for dec in item.decorator_list:
                             if isinstance(dec, ast.Call):
                                 names.update(_extract_call_names(dec))
+                        # __init_subclass__ runs at class definition time
+                        # for every subclass — preserve functions it calls
+                        if item.name == "__init_subclass__":
+                            names.update(_extract_call_names(item))
 
                     elif isinstance(item, ast.Expr):
                         names.update(_extract_call_names(item))
@@ -204,6 +202,54 @@ def collect_import_time_names(source_dir: Path) -> set[str]:
                             names.update(_extract_call_names(value))
                     elif isinstance(sub, ast.Expr):
                         names.update(_extract_call_names(sub))
+
+
+def collect_import_time_names(
+    source_dir: Path, *, extra_scan_dirs: list[Path] | None = None
+) -> set[str]:
+    """Scan all Python files to find function names called at import time.
+
+    Analyzes module-level code, class bodies, and decorators to identify
+    functions that MUST remain implemented for imports to succeed.
+
+    Patterns detected:
+    1. Module-level assignments: `foo = some_func()` -> "some_func"
+    2. Module-level bare calls: `register()` -> "register"
+    3. Decorator factories: `@decorator_factory(args)` -> "decorator_factory"
+    4. Class body assignments: `class C: x = func()` -> "func"
+    5. Metaclass keyword calls: `class C(metaclass=Meta())` -> "Meta"
+    6. Module-level conditionals with calls: `if cond(): ...` -> "cond"
+
+    If *extra_scan_dirs* is given (e.g. sibling packages or test dirs),
+    those directories are scanned with the same patterns.  A fixed-point
+    iteration then resolves **transitive** calls — functions called inside
+    import-time functions are also preserved when they are defined in any
+    of the scanned directories.
+    """
+    names: set[str] = set()
+    all_trees: list[ast.Module] = []
+
+    # --- Scan primary source dir ---
+    _scan_dir_for_import_time_names(source_dir, names, all_trees)
+
+    # --- Scan extra dirs (sibling packages, test dirs) ---
+    if extra_scan_dirs:
+        for extra_dir in extra_scan_dirs:
+            _scan_dir_for_import_time_names(extra_dir, names, all_trees)
+
+    # --- Build maps for transitive resolution ---
+    body_calls_map: dict[str, set[str]] = {}
+    defined_funcs: set[str] = set()
+
+    for tree in all_trees:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined_funcs.add(node.name)
+                calls = _extract_call_names(node)
+                if node.name in body_calls_map:
+                    body_calls_map[node.name] |= calls
+                else:
+                    body_calls_map[node.name] = calls
 
     # Filter out common builtins/stdlib that are never user-defined stubs
     builtins_to_ignore = {
@@ -254,15 +300,34 @@ def collect_import_time_names(source_dir: Path) -> set[str]:
     }
     names -= builtins_to_ignore
 
+    # --- Fixed-point iteration: resolve transitive calls ---
+    for iteration in range(10):  # safety limit
+        before = len(names)
+        new_names: set[str] = set()
+        for name in list(names):
+            if name in body_calls_map:
+                for called in body_calls_map[name]:
+                    if called in defined_funcs and called not in names:
+                        new_names.add(called)
+        names |= new_names
+        names -= builtins_to_ignore
+        if new_names:
+            logger.debug(
+                "Transitive iteration %d: added %d names: %s",
+                iteration,
+                len(new_names),
+                sorted(new_names)[:10],
+            )
+        if len(names) == before:
+            break
+
     return names
 
 
 def is_docstring(node: ast.stmt) -> bool:
     """Check if an AST statement is a docstring (string expression)."""
-    return (
-        isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
+    return isinstance(node, ast.Expr) and isinstance(
+        node.value, (ast.Constant, ast.Str)
     )
 
 
@@ -474,11 +539,7 @@ class StubTransformer:
             if not body:
                 continue
 
-            first_node = body[0]
-            if hasattr(first_node, "decorator_list") and first_node.decorator_list:
-                body_start_1 = first_node.decorator_list[0].lineno
-            else:
-                body_start_1 = first_node.lineno
+            body_start_1 = body[0].lineno
             body_end_1 = self._get_end_lineno(body[-1], lines)
 
             body_start_0 = body_start_1 - 1

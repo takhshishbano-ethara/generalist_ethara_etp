@@ -533,7 +533,6 @@ class DashboardController(http.Controller):
         except Exception as e:
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
-
     @validate_token
     @http.route('/api/v2/get_tasker_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     def get_tasker_dashboard_list(self, **kwargs):

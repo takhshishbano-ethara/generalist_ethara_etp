@@ -1,0 +1,98 @@
+:root {
+    --kj-bg: #f8f9fb;
+    --kj-surface: #ffffff;
+    --kj-border: #e2e6ea;
+    --kj-border-light: #eef0f3;
+    --kj-text: #1a1d21;
+    --kj-text-secondary: #636b75;
+    --kj-text-muted: #9ba3ad;
+    --kj-primary: #2563eb;
+    --kj-success: #16a34a;
+    --kj-success-bg: #f0fdf4;
+    --kj-warning: #d97706;
+    --kj-warning-bg: #fffbeb;
+    --kj-danger: #dc2626;
+    --kj-danger-bg: #fef2f2;
+    --kj-info: #0891b2;
+    --kj-info-bg: #ecfeff;
+    --kj-radius: 6px;
+    --kj-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.kj-build-form {
+    .o_form_sheet_bg {
+        max-width: 100%;
+        margin-right: 0;
+    }
+
+    .o_form_sheet {
+        max-width: 100%;
+    }
+}
+
+.kj-card {
+    background: var(--kj-surface);
+    border: 1px solid var(--kj-border);
+    border-radius: var(--kj-radius);
+    box-shadow: var(--kj-shadow);
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.kj-card-header {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    background: #f9fafb;
+    border-bottom: 1px solid var(--kj-border-light);
+    color: var(--kj-text-secondary);
+}
+
+.kj-card-header-active {
+    background: #eff6ff;
+    color: var(--kj-primary);
+    border-bottom-color: #bfdbfe;
+}
+
+.kj-card-header-done {
+    background: var(--kj-success-bg);
+    color: var(--kj-success);
+    border-bottom-color: #bbf7d0;
+}
+
+.kj-card-header-failed {
+    background: var(--kj-danger-bg);
+    color: var(--kj-danger);
+    border-bottom-color: #fecaca;
+}
+
+.kj-card-body {
+    padding: 14px;
+}
+
+.kj-section-divider {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--kj-text-muted);
+    padding: 16px 0 6px;
+    margin-top: 8px;
+    border-bottom: 2px solid var(--kj-border);
+    margin-bottom: 12px;
+}
+
+.kj-polling-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--kj-info);
+    background: var(--kj-info-bg);
+    border: 1px solid #a5f3fc;
+    border-radius: 12px;
+}

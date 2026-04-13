@@ -95,6 +95,7 @@ class TaskForgeLeaveController(http.Controller):
                     'request_date_from': from_date,
                     'request_date_to': to_date,
                     'name': reason,
+                    'x_reason': reason,
                 })
 
                 # Optional: If your workflow requires immediate confirmation/approval
@@ -131,6 +132,10 @@ class TaskForgeLeaveController(http.Controller):
                 domain.append(('state', '=', 'validate'))
             elif status_param == 'Rejected':
                 domain.append(('state', '=', 'refuse'))
+
+            if kwargs.get('role_id'):
+                domain.append(('employee_id.user_id.user_role', '=', int(kwargs.get('role_id'))))
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
@@ -232,7 +237,7 @@ class TaskForgeLeaveController(http.Controller):
     def leave_hierarchy(self, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id != self.env.ref('api_auth_gateway.role_cto_technical').id:
+            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
                 return return_Response(message="Admin access required", status=403)
 
             Employee = request.env['hr.employee'].sudo()
@@ -305,7 +310,7 @@ class TaskForgeLeaveController(http.Controller):
             'qc_name': leave.employee_id.task_forge_qr_id.name if leave.employee_id.task_forge_qr_id else 0,
             'pl_id': leave.employee_id.task_forge_pl_id.id if leave.employee_id.task_forge_pl_id else 0,
             'pl_name': leave.employee_id.task_forge_pl_id.name if leave.employee_id.task_forge_pl_id and leave.employee_id.task_forge_pl_id.name else "",
-            'reason': leave.name or '',
+            'reason': leave.x_reason or leave.name or '',
             'status': state_map.get(leave.state, leave.state),
             'is_paid': leave.is_paid,
             'approved_by_name': leave.first_approver_id.name if leave.first_approver_id else '',

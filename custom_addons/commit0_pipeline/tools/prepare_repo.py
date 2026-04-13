@@ -38,6 +38,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -345,11 +346,34 @@ def create_stubbed_branch(
 # ─── Setup/Test Dict Generation ──────────────────────────────────────────────
 
 
+def _parse_pyproject(pyproject: Path) -> dict | None:
+    """Parse pyproject.toml with tomllib.  Returns None on failure."""
+    try:
+        with open(pyproject, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return None
+
+
+def _extract_dep_group_packages(group_value: list) -> list[str]:
+    """Extract plain package strings from a PEP 735 dependency-group value.
+
+    Items may be plain strings (``"pytest"``) or include-group dicts
+    (``{"include-group": "dev"}``).  Only plain strings are returned.
+    """
+    pkgs: list[str] = []
+    for item in group_value:
+        if isinstance(item, str):
+            pkgs.append(item)
+    return pkgs
+
+
 def generate_setup_dict(repo_dir: Path, full_name: str) -> dict:
     """
     Generate the 'setup' dict for a RepoInstance.
 
     Inspects pyproject.toml/setup.py/setup.cfg for install instructions.
+
     """
     setup: dict = {
         "install": "",
@@ -372,23 +396,50 @@ def generate_setup_dict(repo_dir: Path, full_name: str) -> dict:
     setup_py = repo_dir / "setup.py"
 
     if pyproject.exists():
-        content = pyproject.read_text(errors="replace")
+        toml_data = _parse_pyproject(pyproject)
+        optional_deps: dict = {}
+        dep_groups: dict = {}
 
-        # Detect extras
-        extras = []
-        for name in ["test", "testing", "tests", "dev", "develop", "all"]:
-            if re.search(rf"\b{name}\b\s*=\s*\[", content):
-                extras.append(name)
+        if toml_data:
+            optional_deps = toml_data.get("project", {}).get(
+                "optional-dependencies", {}
+            )
+            dep_groups = toml_data.get("dependency-groups", {})
 
-        if extras:
-            # Prefer test extras over dev (less bloat)
-            test_extras = [e for e in extras if e in ("test", "testing", "tests")]
+        CANDIDATE_EXTRAS = ["test", "testing", "tests", "dev", "develop", "all"]
+        pip_extras = [name for name in CANDIDATE_EXTRAS if name in optional_deps]
+
+        if pip_extras:
+            test_extras = [e for e in pip_extras if e in ("test", "testing", "tests")]
             if test_extras:
-                setup["install"] = f'pip install -e ".[{",".join(test_extras)}]"'
+                setup["install"] = 'pip install -e ".[%s]"' % ",".join(test_extras)
             else:
-                setup["install"] = f'pip install -e ".[{extras[0]}]"'
+                setup["install"] = 'pip install -e ".[%s]"' % pip_extras[0]
         else:
             setup["install"] = 'pip install -e "."'
+
+        # PEP 735 dependency-groups are not pip-installable via extras, so
+        # extract their packages into an explicit pip install command.
+        if not pip_extras and dep_groups:
+            CANDIDATE_GROUPS = ["dev", "test", "testing", "tests"]
+            extra_pip: list[str] = []
+            for gname in CANDIDATE_GROUPS:
+                if gname in dep_groups:
+                    pkgs = _extract_dep_group_packages(dep_groups[gname])
+                    if any("pytest" in p for p in pkgs):
+                        extra_pip = pkgs
+                        logger.info(
+                            "  Using dependency-group '%s' for test deps (%d packages)",
+                            gname,
+                            len(pkgs),
+                        )
+                        break
+
+            if extra_pip:
+                quoted = " ".join(
+                    "'%s'" % p if any(c in p for c in "[];><") else p for p in extra_pip
+                )
+                setup["install"] += " && pip install %s" % quoted
 
         setup["pip_packages"] = ["pytest", "pytest-json-report"]
 

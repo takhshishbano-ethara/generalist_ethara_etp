@@ -57,6 +57,24 @@ class Commit0PipelineConfig(models.TransientModel):
         default=1,
         help="Maximum number of concurrent active tasks a user can have.",
     )
+    lambda_pdf_function_name = fields.Char(
+        string="Lambda Function Name",
+        config_parameter="commit0_pipeline.lambda_pdf_function_name",
+        help="AWS Lambda function name or ARN for PDF scraping.",
+    )
+    lambda_pdf_region = fields.Char(
+        string="Lambda Region",
+        config_parameter="commit0_pipeline.lambda_pdf_region",
+        default="ap-south-1",
+    )
+    lambda_pdf_access_key = fields.Char(
+        string="AWS Access Key",
+        config_parameter="commit0_pipeline.lambda_pdf_access_key",
+    )
+    lambda_pdf_secret_key = fields.Char(
+        string="AWS Secret Key",
+        config_parameter="commit0_pipeline.lambda_pdf_secret_key",
+    )
     docker_available = fields.Boolean(
         string="Docker Available",
         compute="_compute_docker_available",

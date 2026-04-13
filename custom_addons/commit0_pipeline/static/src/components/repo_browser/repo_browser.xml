@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="commit0_pipeline.RepoBrowser">
-        <div class="o_repo_browser d-flex flex-column">
+        <div class="o_repo_browser d-flex flex-column" t-ref="rootRef">
 
             <div class="o_repo_browser_toolbar d-flex align-items-center gap-2 px-2 py-1 border-bottom bg-100">
                 <i class="fa fa-code-fork text-primary"/>
