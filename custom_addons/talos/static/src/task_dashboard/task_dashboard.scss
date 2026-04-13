@@ -94,3 +94,13 @@
         display: none;
     }
 }
+
+// Full-width form sheet for Talos task form (Odoo caps .o_form_sheet_bg at ~1400px by default).
+.o_form_sheet_bg:has(.o_talos_dashboard) {
+    max-width: none;
+    width: 100%;
+}
+
+.o_form_sheet_bg:has(.o_talos_dashboard) > .o_form_sheet {
+    max-width: 100%;
+}
