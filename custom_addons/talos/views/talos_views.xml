@@ -137,6 +137,8 @@
           <field name="turn_status" widget="badge"
                  decoration-success="turn_status == 'Completed'"
                  decoration-warning="turn_status == 'Pending'"/>
+          <field name="prompt_timestamp"/>
+          <field name="response_timestamp"/>
           <field name="prompt"/>
           <field name="response"/>
           <field name="model_name"/>
@@ -165,6 +167,8 @@
                 <field name="turn_number"/>
                 <field name="turn_status"/>
                 <field name="model_name"/>
+                <field name="prompt_timestamp"/>
+                <field name="response_timestamp"/>
               </group>
             </group>
             <notebook>
