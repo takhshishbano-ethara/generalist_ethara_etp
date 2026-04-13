@@ -30,7 +30,7 @@
         <field name="name">kaiju.build.form</field>
         <field name="model">kaiju.build</field>
         <field name="arch" type="xml">
-            <form>
+            <form class="kj-build-form">
                 <header>
                     <button name="action_build" type="object"
                             string="Build" class="oe_highlight"
@@ -41,34 +41,109 @@
                     <field name="status" widget="statusbar"
                            statusbar_visible="draft,queued,building,success"/>
                 </header>
+
+                <div class="alert alert-danger text-center fs-5" role="alert"
+                     invisible="status not in ('failed', 'error')">
+                    <i class="fa fa-exclamation-triangle me-2"/>Build Failed
+                </div>
+                <div class="alert alert-warning text-center fs-5" role="alert"
+                     invisible="status != 'image_broken'">
+                    <i class="fa fa-exclamation-circle me-2"/>Image Broken — Edit dataset JSON and rebuild
+                </div>
+                <div class="alert alert-success text-center fs-5" role="alert"
+                     invisible="status != 'success'">
+                    <i class="fa fa-check-circle me-2"/>Build Successful
+                </div>
+
                 <sheet>
-                    <group>
-                        <group>
-                            <field name="build_id"/>
-                            <field name="app_id"/>
-                            <field name="app_name" invisible="True"/>
-                            <field name="repo_name"/>
-                            <field name="user_id" widget="many2one_avatar_user"/>
-                        </group>
-                        <group>
-                            <field name="tag"/>
-                            <field name="image_uri"/>
-                            <field name="started_at"/>
-                            <field name="completed_at"/>
-                        </group>
-                    </group>
-                    <group invisible="not error_message">
-                        <field name="error_message"/>
-                    </group>
-                    <notebook>
-                        <page string="Dataset JSON">
-                            <field name="dataset_json"
+                    <field name="app_name" invisible="1"/>
+
+                    <widget name="web_ribbon" title="Failed" bg_color="text-bg-danger"
+                            invisible="status != 'failed'"/>
+                    <widget name="web_ribbon" title="Error" bg_color="text-bg-danger"
+                            invisible="status != 'error'"/>
+                    <widget name="web_ribbon" title="Image Broken" bg_color="text-bg-warning"
+                            invisible="status != 'image_broken'"/>
+                    <widget name="web_ribbon" title="Success" bg_color="text-bg-success"
+                            invisible="status != 'success'"/>
+
+                    <div class="oe_title">
+                        <h1>
+                            <field name="build_id" placeholder="Draft Build" readonly="1"/>
+                        </h1>
+                    </div>
+
+                    <field name="status" widget="kaiju_auto_refresh" nolabel="1"/>
+
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <!-- Build Details                                     -->
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-info-circle me-1"/>
+                        Build Details
+                    </div>
+                    <div class="kj-card">
+                        <div class="kj-card-header kj-card-header-active"
+                             invisible="status not in ('draft', 'queued', 'building')">Build Configuration</div>
+                        <div class="kj-card-header kj-card-header-done"
+                             invisible="status != 'success'">Build Configuration</div>
+                        <div class="kj-card-header kj-card-header-failed"
+                             invisible="status not in ('failed', 'error', 'image_broken')">Build Configuration</div>
+                        <div class="kj-card-header"
+                             invisible="status in ('draft', 'queued', 'building', 'success', 'failed', 'error', 'image_broken')">Build Configuration</div>
+                        <div class="kj-card-body">
+                            <group>
+                                <group>
+                                    <field name="app_id"/>
+                                    <field name="repo_name"/>
+                                    <field name="user_id" widget="many2one_avatar_user" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="tag"/>
+                                    <field name="image_uri" widget="url"
+                                           invisible="not image_uri"/>
+                                    <field name="started_at"/>
+                                    <field name="completed_at"/>
+                                </group>
+                            </group>
+                        </div>
+                    </div>
+
+                    <!-- Error card -->
+                    <div class="kj-card" invisible="not error_message">
+                        <div class="kj-card-header kj-card-header-failed">Error Details</div>
+                        <div class="kj-card-body">
+                            <field name="error_message" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <!-- Dataset JSON                                      -->
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-database me-1"/>
+                        Dataset
+                    </div>
+                    <div class="kj-card">
+                        <div class="kj-card-header">Dataset JSON</div>
+                        <div class="kj-card-body">
+                            <field name="dataset_json" nolabel="1"
                                    readonly="status not in ('draft', 'image_broken')"/>
-                        </page>
-                        <page string="Build Logs">
-                            <field name="progress" readonly="True"/>
-                        </page>
-                    </notebook>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <!-- Build Logs (terminal viewer)                      -->
+                    <!-- ══════════════════════════════════════════════════ -->
+                    <div class="kj-section-divider">
+                        <i class="fa fa-terminal me-1"/>
+                        Build Logs
+                    </div>
+                    <div class="kj-card">
+                        <div class="kj-card-body p-0">
+                            <field name="progress" widget="kaiju_log_viewer" nolabel="1"/>
+                        </div>
+                    </div>
                 </sheet>
             </form>
         </field>
