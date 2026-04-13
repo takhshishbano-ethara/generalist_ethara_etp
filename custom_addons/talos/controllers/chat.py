@@ -37,6 +37,9 @@ class TalosChatController(http.Controller):
             }
         )
 
+        if sandbox.session_status == "not_started":
+            sandbox.sudo().write({"session_status": "in_progress"})
+
         return {"turn_id": turn.id}
 
     @http.route("/talos/chat/save_response", type="json", auth="user")
