@@ -80,26 +80,56 @@ class EmployeeController(http.Controller):
                 if filename.endswith('.csv'):
                     df = pd.read_csv(io.BytesIO(file_content))
                 elif filename.endswith(('.xlsx', '.xls')):
-                    # Try different engines for Excel
-                    engines = ['openpyxl', 'xlrd', 'odf']
                     df = None
                     last_error = None
-                    for engine in engines:
+                    
+                    # Try openpyxl first for .xlsx files
+                    if filename.endswith('.xlsx'):
                         try:
-                            df = pd.read_excel(io.BytesIO(file_content), engine=engine)
-                            break
-                        except Exception as engine_error:
-                            last_error = str(engine_error)
-                            continue
+                            import openpyxl
+                            wb = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True, read_only=True)
+                            sheet = wb.active
+                            data = []
+                            for row in sheet.iter_rows(values_only=True):
+                                data.append(row)
+                            wb.close()
+                            if data:
+                                df = pd.DataFrame(data[1:], columns=data[0])
+                        except Exception as oxl_error:
+                            last_error = str(oxl_error)
+                    
+                    # Try xlrd for .xls files
+                    if df is None and filename.endswith('.xls'):
+                        try:
+                            df = pd.read_excel(io.BytesIO(file_content), engine='xlrd')
+                        except Exception as xlrd_error:
+                            last_error = str(xlrd_error)
+                    
+                    # Try with different engines as fallback
+                    if df is None:
+                        for engine in ['openpyxl', 'xlrd', 'odf']:
+                            try:
+                                df = pd.read_excel(io.BytesIO(file_content), engine=engine)
+                                break
+                            except Exception as engine_error:
+                                last_error = str(engine_error)
+                                continue
+                    
                     if df is None:
                         return return_Response(
-                            message=f"Excel parsing failed. Please convert your file to CSV format. Error: {last_error}",
+                            message="Unable to parse the Excel file. Please save it as a newer .xlsx format or convert to CSV.",
                             status=400
                         )
                 else:
                     return return_Response(message="Unsupported file format. Use .csv, .xlsx, or .xls", status=400)
             except Exception as e:
                 error_msg = str(e)
+                # Check for common corruption patterns
+                if 'META-INF' in error_msg or 'manifest.xml' in error_msg:
+                    return return_Response(
+                        message="The file appears to be corrupted or in an older format. Please save it as a new .xlsx file or use CSV format.",
+                        status=400
+                    )
                 return return_Response(message=f"Error parsing file: {error_msg}", status=400)
             df = df.fillna('').astype(str)
             Employee = request.env['hr.employee'].sudo()
