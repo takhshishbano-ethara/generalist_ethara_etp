@@ -272,11 +272,18 @@ class Commit0Controller(http.Controller):
     # ------------------------------------------------------------------
 
     def _get_git_context(self, evaluation, path_field):
-        if path_field != "clone_path_original":
-            return None
-        ref = evaluation.reference_commit
         repo = evaluation.clone_path_original or evaluation.clone_path
-        if not ref or not repo or not os.path.isdir(repo):
+        if not repo or not os.path.isdir(repo):
+            return None
+
+        if path_field == "clone_path_original":
+            ref = evaluation.reference_commit
+        elif path_field == "clone_path_stubbed":
+            ref = evaluation.base_commit
+        else:
+            return None
+
+        if not ref:
             return None
         return {"repo": repo, "ref": ref, "src_dir": evaluation.src_dir or ""}
 
@@ -344,6 +351,9 @@ class Commit0Controller(http.Controller):
             tree = self._git_tree(git_ctx["repo"], git_ctx["ref"], git_ctx["src_dir"])
             return {"tree": tree, "repo_name": evaluation.repo_name or ""}
 
+        if path_field == "clone_path_stubbed":
+            return {"error": "Stubbed code not available — complete Stage 3 first"}
+
         clone_path = evaluation[path_field]
         if clone_path and os.path.isdir(clone_path):
             real_root = _validate_clone_path(clone_path)
@@ -393,6 +403,9 @@ class Commit0Controller(http.Controller):
                 "mode": _detect_ace_mode(file_path),
                 "size": len(content.encode("utf-8")),
             }
+
+        if path_field == "clone_path_stubbed":
+            return {"error": "Stubbed code not available — complete Stage 3 first"}
 
         clone_path = evaluation[path_field]
         if clone_path and os.path.isdir(clone_path):
@@ -450,17 +463,18 @@ class Commit0Controller(http.Controller):
 
         clone_path = evaluation.clone_path_original or evaluation.clone_path
         ref_commit = evaluation.reference_commit
-        stubbed_root = evaluation.clone_path_stubbed
+        base_commit = evaluation.base_commit
         src_dir = evaluation.src_dir or ""
 
-        if not stubbed_root or not os.path.isdir(stubbed_root):
-            return {"error": "Stubbed clone path not available"}
         if not clone_path or not os.path.isdir(clone_path):
             return {"error": "Clone path not available"}
         if not ref_commit:
             return {"error": "Reference commit not available"}
+        if not base_commit:
+            return {"error": "Base commit (stubbed) not available"}
 
         git_path = os.path.join(src_dir, file_path) if src_dir else file_path
+
         try:
             result = subprocess.run(
                 ["git", "show", "%s:%s" % (ref_commit, git_path)],
@@ -476,15 +490,20 @@ class Commit0Controller(http.Controller):
         except Exception:
             orig_lines = []
 
-        stubbed_root = os.path.realpath(stubbed_root)
-        stub_file = _check_path_traversal(stubbed_root, file_path)
-        stub_lines = []
-        if os.path.isfile(stub_file):
-            try:
-                with open(stub_file, "r", errors="replace") as f:
-                    stub_lines = f.readlines()
-            except Exception:
-                pass
+        try:
+            result = subprocess.run(
+                ["git", "show", "%s:%s" % (base_commit, git_path)],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                stub_lines = []
+            else:
+                stub_lines = result.stdout.splitlines(keepends=True)
+        except Exception:
+            stub_lines = []
 
         if not orig_lines and not stub_lines:
             return {"error": "File not found in either version"}

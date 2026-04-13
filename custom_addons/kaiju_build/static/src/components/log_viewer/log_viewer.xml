@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kaiju_build.KaijuLogViewer">
+        <div t-att-class="'kj-log-viewer ' + themeClass">
+            <!-- Toolbar -->
+            <div class="kj-log-toolbar">
+                <div class="kj-log-toolbar-left">
+                    <span class="kj-log-title">
+                        <i class="fa fa-terminal me-1"/>Build Logs
+                    </span>
+                    <span t-if="state.lineCount > 0" class="kj-log-badge">
+                        <t t-esc="state.lineCount"/> lines
+                    </span>
+                    <span t-if="state.refreshing" class="kj-log-badge kj-log-badge-live">
+                        <i class="fa fa-circle me-1"/>LIVE
+                    </span>
+                </div>
+                <div class="kj-log-toolbar-right">
+                    <button t-on-click="scrollToTop" class="kj-log-btn" title="Scroll to top"
+                            t-att-disabled="isEmpty">
+                        <i class="fa fa-arrow-up"/>
+                    </button>
+                    <button t-on-click="scrollToBottomClick" class="kj-log-btn" title="Scroll to bottom"
+                            t-att-disabled="isEmpty">
+                        <i class="fa fa-arrow-down"/>
+                    </button>
+                    <button t-on-click="onCopy" class="kj-log-btn" title="Copy logs"
+                            t-att-disabled="isEmpty">
+                        <i t-att-class="state.copied ? 'fa fa-check' : 'fa fa-clipboard'"/>
+                        <span t-if="state.copied" class="ms-1">Copied!</span>
+                    </button>
+                    <button t-on-click="toggleTheme" class="kj-log-btn" title="Toggle theme">
+                        <i t-att-class="state.darkTheme ? 'fa fa-sun-o' : 'fa fa-moon-o'"/>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Log output -->
+            <div class="kj-log-body" t-ref="logContainer">
+                <t t-if="isEmpty">
+                    <div class="kj-log-empty">
+                        <i class="fa fa-file-text-o fa-2x mb-2"/>
+                        <div>No build logs yet.</div>
+                        <div class="kj-log-empty-hint">
+                            Logs will appear here once the build starts.
+                        </div>
+                    </div>
+                </t>
+                <t t-else="">
+                    <table class="kj-log-table">
+                        <tbody>
+                            <t t-foreach="lines" t-as="line" t-key="line_index">
+                                <tr t-att-class="'kj-log-row ' + lineClass(line)">
+                                    <td class="kj-log-gutter">
+                                        <t t-esc="line_index + 1"/>
+                                    </td>
+                                    <td class="kj-log-content">
+                                        <pre><t t-esc="line"/></pre>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </t>
+            </div>
+
+            <!-- Status bar -->
+            <div class="kj-log-statusbar">
+                <span t-if="state.refreshing" class="kj-log-status-item">
+                    <i class="fa fa-refresh fa-spin me-1"/>Auto-refreshing…
+                </span>
+                <span t-if="!state.autoScroll and !isEmpty" class="kj-log-status-item kj-log-status-scroll"
+                      t-on-click="scrollToBottomClick">
+                    <i class="fa fa-angle-double-down me-1"/>Scroll locked — click to follow
+                </span>
+                <span class="kj-log-status-right">
+                    <t t-esc="buildStatus"/>
+                </span>
+            </div>
+        </div>
+    </t>
+</templates>

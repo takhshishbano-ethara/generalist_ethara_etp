@@ -187,6 +187,19 @@ class TestRepoEvaluation(TransactionCase):
         with self.assertRaises(UserError):
             self.eval_record.action_trigger_stubbing()
 
+    def test_trigger_stubbing_requires_base_commit(self):
+        self.eval_record.write(
+            {
+                "current_stage": "stage4",
+                "doc_check_related": True,
+                "doc_check_not_blank": True,
+                "doc_check_meaningful": True,
+                "base_commit": False,
+            }
+        )
+        with self.assertRaises(UserError):
+            self.eval_record.action_trigger_stubbing()
+
     def test_stub_approve_requires_yes(self):
         self.eval_record.write(
             {

@@ -5,7 +5,7 @@ Searches GitHub for large, popular Python repos with good test suites.
 Filters out repos already in commit0's existing 54.
 
 Usage:
-    python -m tools.discover [--min-stars 5000] [--max-results 200] [--output candidates.json]
+    python -m tools.discover [--min-stars 2000] [--max-results 200] [--output candidates.json]
 
     # With GitHub token for higher rate limits (5000/hr vs 60/hr):
     GITHUB_TOKEN=ghp_... python -m tools.discover
@@ -186,7 +186,7 @@ def github_api(
 
 
 def search_python_repos(
-    min_stars: int = 5000,
+    min_stars: int = 2000,
     max_results: int = 300,
     token: str | None = None,
 ) -> list[dict]:
@@ -477,8 +477,8 @@ def main() -> None:
     parser.add_argument(
         "--min-stars",
         type=int,
-        default=5000,
-        help="Minimum GitHub stars (default: 5000)",
+        default=2000,
+        help="Minimum GitHub stars (default: 2000)",
     )
     parser.add_argument(
         "--max-results",

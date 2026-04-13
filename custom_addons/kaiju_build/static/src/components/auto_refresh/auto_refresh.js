@@ -4,12 +4,11 @@ import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { Component, onMounted, onWillUnmount, onWillUpdateProps, useState } from "@odoo/owl";
 
-const POLL_STAGES = new Set(["stage3", "stage5", "stage6"]);
-const POLL_STATUSES = new Set(["running", "pending"]);
+const POLL_STATUSES = new Set(["queued", "building"]);
 const POLL_INTERVAL = 3000;
 
-export class AutoRefresh extends Component {
-    static template = "commit0_pipeline.AutoRefresh";
+export class KaijuAutoRefresh extends Component {
+    static template = "kaiju_build.KaijuAutoRefresh";
     static props = { ...standardFieldProps };
 
     setup() {
@@ -23,12 +22,8 @@ export class AutoRefresh extends Component {
     }
 
     _shouldPoll() {
-        const data = this.props.record.data;
-        const stage = data[this.props.name];
-        if (POLL_STAGES.has(stage)) return true;
-        const testIdsStatus = data.test_ids_status;
-        if (testIdsStatus && POLL_STATUSES.has(testIdsStatus)) return true;
-        return false;
+        const status = this.props.record.data[this.props.name];
+        return POLL_STATUSES.has(status);
     }
 
     _checkAndPoll() {
@@ -70,11 +65,11 @@ export class AutoRefresh extends Component {
     }
 }
 
-export const autoRefreshField = {
-    component: AutoRefresh,
+export const kaijuAutoRefreshField = {
+    component: KaijuAutoRefresh,
     displayName: "Auto Refresh",
     supportedTypes: ["selection", "char"],
     extractProps: () => ({}),
 };
 
-registry.category("fields").add("auto_refresh", autoRefreshField);
+registry.category("fields").add("kaiju_auto_refresh", kaijuAutoRefreshField);
