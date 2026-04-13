@@ -22,8 +22,8 @@ class EmployeeController(http.Controller):
     def create_employee(self, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_cto_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
-                return return_Response(message="User are not allowed to use these feature.", status=400)
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id, request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_cto_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                return return_Response(message="Permission denied: You are not authorized to use this feature.", status=400)
 
             jdata = kwargs.get('jdata')
             Employee = request.env['hr.employee'].sudo()
@@ -48,6 +48,9 @@ class EmployeeController(http.Controller):
             employee_vals = {}
             if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 employee_vals['task_forge_pl_id'] = user.employee_id.id
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                employee_vals['task_forge_qr_id'] = user.employee_id.id
+                employee_vals['task_forge_pl_id'] = user.employee_id.task_forge_pl_id.id if user.employee_id else False
             if jdata.get('work_location_name'):
                 employee_vals['work_location_name'] = jdata.get('work_location_name')
             if jdata.get('job_title'):
@@ -73,6 +76,16 @@ class EmployeeController(http.Controller):
     @validate_token
     def check_bulk_create_file(self, **kwargs):
         try:
+            user = request.env.user
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                         request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                         request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                         request.env.ref('api_auth_gateway.role_cto_technical').id,
+                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                return return_Response(message="Permission denied: You are not authorized to use this feature.", status=400)
+
             file_obj = request.httprequest.files.get('file')
             if not file_obj:
                 return return_Response(message="No file uploaded. Use key 'file'", status=400)
@@ -141,24 +154,25 @@ class EmployeeController(http.Controller):
                 try:
                     name = row.get('name', '').strip()
                     email = row.get('email', '').strip().lower()
-                    error_msg = ""
-                    if not name or name == '':
-                        error_msg = f"Row {idx}: name is missing"
+                    if name and email:
+                        error_msg = ""
+                        if not name or name == '':
+                            error_msg = f"Row {idx}: name is missing"
 
-                    if not email or not email.endswith('@ethara.ai'):
-                        error_msg = f"Row {idx}: invalid ethara.ai email"
+                        if not email or not email.endswith('@ethara.ai'):
+                            error_msg = f"Row {idx}: invalid ethara.ai email"
 
-                    if ResUsers.search_count([('login', '=', email)]):
-                        error_msg = f"Row {idx}: {email} already exists"
+                        if ResUsers.search_count([('login', '=', email)]):
+                            error_msg = f"Row {idx}: {email} already exists"
 
-                    record_temp.append({
-                        'index': index,
-                        'name': name,
-                        'email': email,
-                        'user_role': row.get('user_role'),
-                        'job_title': row.get('job_title'),
-                        'error_msg': error_msg,
-                    })
+                        record_temp.append({
+                            'index': index,
+                            'name': name,
+                            'email': email,
+                            'user_role': row.get('user_role'),
+                            'job_title': row.get('job_title'),
+                            'error_msg': error_msg,
+                        })
                 except Exception as e:
                     print(f"Row {idx}: {str(e)}")
 
@@ -175,6 +189,16 @@ class EmployeeController(http.Controller):
     @validate_token
     def bulk_create_employees_file(self, **kwargs):
         try:
+            user = request.env.user
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                         request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                         request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                         request.env.ref('api_auth_gateway.role_cto_technical').id,
+                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                return return_Response(message="Permission denied: You are not authorized to use this feature.", status=400)
+
             file_obj = request.httprequest.files.get('file')
             if not file_obj:
                 return return_Response(message="No file uploaded. Use key 'file'", status=400)
@@ -271,24 +295,59 @@ class EmployeeController(http.Controller):
                             user_vals['user_role'] = user_role.id
 
                     new_user = ResUsers.create(user_vals)
+                    employee_vals = {}
+                    if row.get('job_title'):
+                        designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
+                        if designation_id:
+                            employee_vals['designation_id'] = designation_id.id
+
+                    if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                             request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                             request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                        employee_vals['task_forge_pl_id'] = user.employee_id.id
+                    if user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                             request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                             request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                        employee_vals['task_forge_qr_id'] = user.employee_id.id
+                        employee_vals['task_forge_pl_id'] = user.employee_id.task_forge_pl_id.id
+
+                    if row.get('department_id'):
+                        employee_vals['department_id'] = int(row.get('department_id'))
+
+                    if row.get('pl_id'):
+                        employee_vals['task_forge_pl_id'] = int(row.get('pl_id'))
+
+                    if row.get('qr_id'):
+                        employee_vals['task_forge_qr_id'] = int(row.get('qr_id'))
+
                     if not new_user.employee_id:
-                        employee_vals = {
-                            'name': name,
-                            'work_email': email,
-                            'user_id': new_user.id,
-                            'work_location_name': row.get('work_location_name', ''),
-                            'department_id': int(row['department_id']) if row.get('department_id') else False,
-                            'task_forge_pl_id': int(row['pl_id']) if row.get('pl_id') else False,
-                            'task_forge_qr_id': int(row['qr_id']) if row.get('qr_id') else False,
-                        }
-                        if row.get('job_title'):
-                            designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
-                            if designation_id:
-                                employee_vals['designation_id'] = designation_id.id
+                        employee_vals['name'] = name
+                        employee_vals['work_email'] = email
+                        employee_vals['user_id'] = new_user.id
+                        employee_vals['work_location_name'] = row.get('work_location_name', '')
 
                         employee = Employee.create(employee_vals)
+                    else:
+                        employee = new_user.employee_id
+                        new_user.employee_id.sudo().write(employee_vals)
+                    #
+                    # if not new_user.employee_id:
+                    #     employee_vals = {
+                    #         'name': name,
+                    #         'work_email': email,
+                    #         'user_id': new_user.id,
+                    #         'work_location_name': row.get('work_location_name', ''),
+                    #         'department_id': int(row['department_id']) if row.get('department_id') else False,
+                    #         'task_forge_pl_id': int(row['pl_id']) if row.get('pl_id') else False,
+                    #         'task_forge_qr_id': int(row['qr_id']) if row.get('qr_id') else False,
+                    #     }
+                    #     if row.get('job_title'):
+                    #         designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
+                    #         if designation_id:
+                    #             employee_vals['designation_id'] = designation_id.id
+                    #
+                    #     employee = Employee.create(employee_vals)
                         created.append({'id': employee.id, 'name': employee.name, 'email': employee.work_email})
-
                 except Exception as e:
                     errors.append(f"Row {idx}: {str(e)}")
 
@@ -564,6 +623,12 @@ class EmployeeController(http.Controller):
 
             if kwargs.get('role'):
                 domain.append(('user_id.user_role', '=', int(kwargs['role'])))
+
+            if kwargs.get('pl_record') in [1, '1']:
+                domain.append(('user_id.user_role', '=', request.env.ref('api_auth_gateway.role_pl_non_stem').id))
+                
+            if kwargs.get('qr_record') in [1, '1']:
+                domain.append(('user_id.user_role', '=', request.env.ref('api_auth_gateway.role_qc_non_stem').id))
 
             if kwargs.get('department_id'):
                 domain.append(('department_id', '=', int(kwargs['department_id'])))
