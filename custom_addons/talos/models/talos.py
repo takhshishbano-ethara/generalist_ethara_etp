@@ -297,16 +297,21 @@ class Talos(models.Model):
 
     def build_trajectory_json(self):
         self.ensure_one()
+        model_name = ""
+        for t in self._get_all_turns().sorted("turn_number", reverse=True):
+            if t.model_name:
+                model_name = t.model_name
+                break
+
         meta_info = {
             "task_type": self.task_type or "",
             "task_description": self.task_id or "",
             "task_completion_status": self.task_status or "",
-            "platform": "macos",
-            "persona": self.parsona.name if self.parsona else "",
-            "persona_name": self.persona_id.name if self.persona_id else "",
+            "system_prompt": self.seed_prompt or "",
+            "platform": "macOS",
+            "persona": self.persona_id.name if self.persona_id else "",
+            "model": model_name,
             "difficulty": self.difficulty or "",
-            "trajectory_modifier": self.trajectory_modifier or "",
-            "safety_critical": self.safety_critical or "",
         }
 
         messages = self._try_trajectory_from_ws()
@@ -644,7 +649,7 @@ class Talos(models.Model):
 class TalosTurn(models.Model):
     _name = "talos.turn"
     _description = "Talos Turn"
-    _order = "turn_number desc, id desc"
+    _order = "turn_number asc, id asc"
 
     sandbox_id = fields.Many2one(
         "talos.sandbox", string="Sandbox", ondelete="cascade", index=True

@@ -99,10 +99,86 @@ class TalosChatController(http.Controller):
         if not turn.exists():
             return {"error": "Turn not found"}
 
+        vals = {}
         if trajectory_messages:
-            turn.write({"trajectory_messages": trajectory_messages})
+            vals["trajectory_messages"] = trajectory_messages
+            extracted = self._extract_tool_calls_from_trajectory(trajectory_messages)
+            if extracted:
+                existing_count = 0
+                existing_has_results = False
+                if turn.tool_calls:
+                    try:
+                        existing_list = json.loads(turn.tool_calls)
+                        existing_count = len(existing_list)
+                        existing_has_results = any(
+                            tc.get("result") for tc in existing_list if isinstance(tc, dict)
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                extracted_has_results = any(
+                    tc.get("result") for tc in extracted if isinstance(tc, dict)
+                )
+                if (len(extracted) > existing_count
+                    or (extracted_has_results and not existing_has_results)):
+                    vals["tool_calls"] = json.dumps(extracted)
+
+        if vals:
+            turn.write(vals)
 
         return {"success": True}
+
+    @staticmethod
+    def _extract_tool_calls_from_trajectory(trajectory_json):
+        try:
+            messages = json.loads(trajectory_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if not isinstance(messages, list):
+            return []
+
+        tool_calls = {}
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            inner = msg.get("message", msg)
+            role = inner.get("role", "")
+            content = inner.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            if role == "assistant":
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tc_id = block.get("id", "")
+                        tool_calls[tc_id] = {
+                            "toolCallId": tc_id,
+                            "name": block.get("name", "unknown"),
+                            "args": block.get("input", block.get("arguments", {})),
+                            "result": None,
+                            "isError": False,
+                        }
+                    elif isinstance(block, dict) and block.get("type") == "toolCall":
+                        tc_id = block.get("id", "")
+                        tool_calls[tc_id] = {
+                            "toolCallId": tc_id,
+                            "name": block.get("name", "unknown"),
+                            "args": block.get("arguments", block.get("input", {})),
+                            "result": None,
+                            "isError": False,
+                        }
+            elif role in ("tool", "toolResult"):
+                tc_id = inner.get("tool_use_id", inner.get("toolCallId", ""))
+                if tc_id and tc_id in tool_calls:
+                    result_text = ""
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            result_text += block.get("text", "")
+                        elif isinstance(block, str):
+                            result_text += block
+                    tool_calls[tc_id]["result"] = result_text or None
+                    tool_calls[tc_id]["isError"] = bool(inner.get("is_error", inner.get("isError", False)))
+
+        return list(tool_calls.values())
 
     @http.route("/talos/chat/history", type="json", auth="user")
     def chat_history(self, sandbox_id=0, **kw):
@@ -117,6 +193,12 @@ class TalosChatController(http.Controller):
 
         turns = []
         for t in sandbox.turn_ids:
+            tool_calls_str = t.tool_calls or ""
+            if not tool_calls_str and t.trajectory_messages:
+                extracted = self._extract_tool_calls_from_trajectory(t.trajectory_messages)
+                if extracted:
+                    tool_calls_str = json.dumps(extracted)
+                    t.sudo().write({"tool_calls": tool_calls_str})
             turns.append(
                 {
                     "id": t.id,
@@ -126,7 +208,10 @@ class TalosChatController(http.Controller):
                     "run_id": t.run_id or "",
                     "model": t.model_name or "",
                     "status": t.turn_status or "",
-                    "tool_calls": t.tool_calls or "",
+                    "tool_calls": tool_calls_str,
+                    "qc_severity": t.qc_severity or "",
+                    "qc_response": t.qc_response or "",
+                    "qc_dismiss_reason": t.qc_dismiss_reason or "",
                 }
             )
 

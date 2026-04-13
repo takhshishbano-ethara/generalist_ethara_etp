@@ -41,6 +41,16 @@ function nextId() {
 
 const _sessions = new Map();
 
+export function clearChatSession(sandboxId) {
+    if (_sessions.has(sandboxId)) {
+        const session = _sessions.get(sandboxId);
+        if (session.ws) {
+            try { session.ws.close(); } catch {}
+        }
+        _sessions.delete(sandboxId);
+    }
+}
+
 function _getSession(sandboxId) {
     if (!_sessions.has(sandboxId)) {
         _sessions.set(sandboxId, {
@@ -163,7 +173,9 @@ export class TalosChatWidget extends Component {
         this._session.qcPromptText = this.state.qcPromptText;
     }
 
-    get isRunning() { return this.props.dockerStatus === "running"; }
+    get isRunning() {
+        return this.props.dockerStatus === "running";
+    }
     get gatewayToken() { return this.props.gatewayToken; }
     get gatewayWsUrl() { return this.props.dockerWsUrl; }
 
@@ -213,7 +225,12 @@ export class TalosChatWidget extends Component {
                     locale: navigator.language,
                 },
             };
-            console.log(LOG_PREFIX, "SEND connect:", JSON.stringify(msg).substring(0, 300));
+            console.group(`${LOG_PREFIX} ➡️ SEND connect`);
+            console.log("Full connect message:", JSON.stringify(msg));
+            console.log("caps:", msg.params.caps);
+            console.log("role:", msg.params.role);
+            console.log("scopes:", msg.params.scopes);
+            console.groupEnd();
             return JSON.stringify(msg);
         };
 
@@ -225,22 +242,28 @@ export class TalosChatWidget extends Component {
         ws.onmessage = (event) => {
             let frame;
             try { frame = JSON.parse(event.data); } catch {
-                console.warn(LOG_PREFIX, "RECV unparseable:", event.data.substring(0, 200));
+                console.warn(LOG_PREFIX, "⬅️ RECV RAW (unparseable):", event.data.substring(0, 500));
                 return;
             }
 
             const widget = ws._odooWidget;
+            const rawStr = JSON.stringify(frame);
 
-            console.log(LOG_PREFIX, "RECV:", {
-                type: frame.type,
-                event: frame.event,
-                id: frame.id,
-                ok: frame.ok,
-                raw: JSON.stringify(frame).substring(0, 500),
-            });
+            console.group(`${LOG_PREFIX} ⬅️ RECV [${frame.type}${frame.event ? '/' + frame.event : ''}${frame.id ? ' id=' + frame.id : ''}]`);
+            console.log("Full frame:", rawStr.length > 2000 ? rawStr.substring(0, 2000) + "..." : rawStr);
+            if (frame.payload) {
+                console.log("Payload keys:", Object.keys(frame.payload));
+                console.log("Payload.state:", frame.payload.state);
+                console.log("Payload.stream:", frame.payload.stream);
+                if (frame.payload.message) {
+                    const msgStr = JSON.stringify(frame.payload.message);
+                    console.log("Payload.message:", msgStr.length > 1000 ? msgStr.substring(0, 1000) + "..." : msgStr);
+                }
+            }
+            console.groupEnd();
 
             if (frame.type === "event" && frame.event === "connect.challenge") {
-                console.log(LOG_PREFIX, "Challenge received, sending auth");
+                console.log(LOG_PREFIX, "🔐 Challenge received, sending auth");
                 if (widget) widget.state.statusText = "Authenticating...";
                 ws.send(connectMsg());
                 return;
@@ -248,7 +271,7 @@ export class TalosChatWidget extends Component {
 
             if (frame.type === "res" && !this._session.wsConnected) {
                 if (frame.ok) {
-                    console.log(LOG_PREFIX, "CONNECTED OK");
+                    console.log(LOG_PREFIX, "✅ CONNECTED OK — caps:", JSON.stringify(frame.result?.caps || frame.caps || "n/a"));
                     this._session.wsConnected = true;
                     if (widget) {
                         widget.state.connected = true;
@@ -256,26 +279,139 @@ export class TalosChatWidget extends Component {
                     }
                 } else {
                     const msg = frame.error?.message || JSON.stringify(frame.error || {});
-                    console.error(LOG_PREFIX, "CONNECT FAILED:", frame.error);
+                    console.error(LOG_PREFIX, "❌ CONNECT FAILED:", frame.error);
                     if (widget) widget.state.statusText = `Auth failed: ${msg}`;
                 }
                 return;
             }
 
             if (frame.type === "event" && frame.event === "chat") {
-                console.log(LOG_PREFIX, "CHAT EVENT:", {
-                    state: frame.payload?.state,
-                    sessionKey: frame.payload?.sessionKey,
-                    runId: frame.payload?.runId,
-                    hasMessage: !!frame.payload?.message,
-                });
-                this._handleChatEvent(frame.payload, widget);
+                const p = frame.payload || {};
+                console.group(`${LOG_PREFIX} 💬 CHAT EVENT [state=${p.state || "none"} stream=${p.stream || "none"}]`);
+                console.log("sessionKey:", p.sessionKey);
+                console.log("runId:", p.runId);
+                if (p.message) {
+                    const msgStr = JSON.stringify(p.message);
+                    console.log("message:", msgStr.length > 1500 ? msgStr.substring(0, 1500) + "..." : msgStr);
+                    if (p.message.content && Array.isArray(p.message.content)) {
+                        console.log("message.content types:", p.message.content.map(b => b?.type || typeof b));
+                    }
+                }
+                if (p.data) {
+                    const dataStr = JSON.stringify(p.data);
+                    console.log("data:", dataStr.length > 1500 ? dataStr.substring(0, 1500) + "..." : dataStr);
+                }
+                console.groupEnd();
+                this._handleChatEvent(p, widget);
                 return;
             }
 
+            if (frame.type === "event" && (frame.event === "session.tool" || frame.event === "tool")) {
+                console.group(`${LOG_PREFIX} 🔧 TOOL EVENT [${frame.event}]`);
+                console.log("Full payload:", JSON.stringify(frame.payload).substring(0, 2000));
+                console.groupEnd();
+                const toolPayload = frame.payload || {};
+                this._handleChatEvent({
+                    stream: "tool",
+                    message: toolPayload,
+                    data: toolPayload,
+                    ...toolPayload,
+                }, widget);
+                return;
+            }
+
+            if (frame.type === "event" && frame.event === "agent") {
+                const p = frame.payload || {};
+                const agentStream = p.stream;
+                const agentData = p.data || {};
+
+                if (agentStream === "tool") {
+                    // Agent sends phase "result" where our handler expects "end"
+                    const phase = agentData.phase === "result" ? "end" : agentData.phase;
+                    console.log(LOG_PREFIX, `🤖 AGENT TOOL [${agentData.phase}→${phase}] name=${agentData.name} id=${agentData.toolCallId}`);
+                    this._handleChatEvent({
+                        stream: "tool",
+                        message: {
+                            phase: phase,
+                            toolCallId: agentData.toolCallId || "",
+                            name: agentData.name || "",
+                            args: agentData.args || null,
+                            result: agentData.result ?? agentData.meta ?? null,
+                            isError: !!agentData.isError,
+                        },
+                        data: {
+                            phase: phase,
+                            toolCallId: agentData.toolCallId || "",
+                            name: agentData.name || "",
+                            args: agentData.args || null,
+                            result: agentData.result ?? agentData.meta ?? null,
+                            isError: !!agentData.isError,
+                        },
+                    }, widget);
+                    return;
+                }
+
+                if (agentStream === "item") {
+                    const phase = agentData.phase;
+                    const kind = agentData.kind;
+                    if (kind === "tool" && agentData.toolCallId) {
+                        console.log(LOG_PREFIX, `🤖 AGENT ITEM [${phase}] name=${agentData.name} status=${agentData.status} id=${agentData.toolCallId}`);
+                        if (phase === "start") {
+                            const session = this._session;
+                            const exists = session._toolCalls.some(t => t.toolCallId === agentData.toolCallId);
+                            if (!exists) {
+                                this._handleChatEvent({
+                                    stream: "tool",
+                                    message: { phase: "start", toolCallId: agentData.toolCallId, name: agentData.name || "", args: null, result: null, isError: false },
+                                    data: { phase: "start", toolCallId: agentData.toolCallId, name: agentData.name || "", args: null, result: null, isError: false },
+                                }, widget);
+                            }
+                        } else if (phase === "end") {
+                            const session = this._session;
+                            const tc = session._toolCalls.find(t => t.toolCallId === agentData.toolCallId);
+                            if (tc && tc.result === null) {
+                                tc.result = agentData.meta || agentData.title || "(completed)";
+                                tc.isError = agentData.status === "error";
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                if (agentStream === "assistant") {
+                    console.log(LOG_PREFIX, `🤖 AGENT ASSISTANT:`, JSON.stringify(agentData).substring(0, 500));
+                    this._handleChatEvent({
+                        stream: "assistant",
+                        message: agentData,
+                        data: agentData,
+                    }, widget);
+                    return;
+                }
+
+                if (agentStream === "lifecycle") {
+                    console.log(LOG_PREFIX, `🤖 AGENT LIFECYCLE: phase=${agentData.phase}`);
+                    this._handleChatEvent({
+                        stream: "lifecycle",
+                        message: agentData,
+                        data: agentData,
+                    }, widget);
+                    return;
+                }
+
+                console.log(LOG_PREFIX, `🤖 AGENT [${agentStream}]:`, JSON.stringify(agentData).substring(0, 500));
+                return;
+            }
+
+            if (frame.type === "event" && (frame.event === "tick" || frame.event === "health" || frame.event === "presence")) {
+                return;
+            }
+
+            if (frame.type === "event") {
+                console.log(LOG_PREFIX, "📨 UNHANDLED EVENT:", frame.event, "payload:", JSON.stringify(frame.payload).substring(0, 1000));
+            }
+
             if (frame.type === "res" && frame.id && this._session.wsConnected) {
-                console.log(LOG_PREFIX, "RPC RESPONSE:", { id: frame.id, ok: frame.ok, error: frame.error });
-                // Resolve pending RPC promise if any
+                console.log(LOG_PREFIX, "📥 RPC RESPONSE:", { id: frame.id, ok: frame.ok, error: frame.error, resultKeys: frame.result ? Object.keys(frame.result) : null });
                 const pending = this._session._pendingRpc.get(frame.id);
                 if (pending) {
                     this._session._pendingRpc.delete(frame.id);
@@ -292,10 +428,20 @@ export class TalosChatWidget extends Component {
                     if (msg) {
                         msg.pending = false;
                         msg.text = errText;
+                        msg.html = markup(renderMarkdown(errText));
                         msg.isError = true;
                     }
                     this._session.streaming = false;
-                    if (widget) widget.state.streaming = false;
+                    this._session._streamBuf = "";
+                    this._session._lastFlushedWordCount = 0;
+                    this._session._toolCalls = [];
+                    this._session._rawEvents = [];
+                    if (widget) {
+                        widget.state.streaming = false;
+                        widget.state.sending = false;
+                        widget.state.activityText = "";
+                        widget._scrollToBottom();
+                    }
                 }
             }
         };
@@ -308,6 +454,7 @@ export class TalosChatWidget extends Component {
             const widget = ws._odooWidget;
             if (widget) {
                 widget.state.connected = false;
+                widget.state.activityText = "";
                 if (widget.state.streaming) { widget.state.streaming = false; widget.state.sending = false; }
                 widget.state.statusText = was ? "Disconnected" : `Closed (code=${ev.code} reason=${ev.reason || "n/a"})`;
             }
@@ -336,22 +483,23 @@ export class TalosChatWidget extends Component {
         const stream = payload.stream;
         const data = payload.message || payload.data || payload;
 
-        // Capture raw event for trajectory export
         session._rawEvents.push({
             ts: new Date().toISOString(),
             stream,
+            state,
             data: JSON.parse(JSON.stringify(data)),
         });
 
-        console.log(LOG_PREFIX, "CHAT EVENT detail:", {
-            state,
-            stream,
-            messageType: typeof payload.message,
-            messageKeys: payload.message ? Object.keys(payload.message) : null,
-            rawMessage: JSON.stringify(payload.message)?.substring(0, 500),
-            sessionKey: payload.sessionKey,
-            runId: payload.runId,
-        });
+        console.group(`${LOG_PREFIX} 🔄 _handleChatEvent [stream=${stream || "none"} state=${state || "none"}]`);
+        console.log("payload keys:", Object.keys(payload));
+        console.log("data keys:", data ? Object.keys(data) : null);
+        console.log("data.phase:", data?.phase);
+        console.log("data.text:", data?.text ? data.text.substring(0, 200) : null);
+        console.log("data.toolCallId:", data?.toolCallId);
+        console.log("data.name:", data?.name);
+        console.log("session._toolCalls count:", session._toolCalls.length);
+        console.log("full data:", JSON.stringify(data).substring(0, 1000));
+        console.groupEnd();
 
         if (stream === "assistant" && data.text) {
             if (widget) widget.state.activityText = "";
@@ -374,6 +522,7 @@ export class TalosChatWidget extends Component {
             const phase = data.phase || "";
             const toolCallId = data.toolCallId || "";
             const toolName = data.name || "";
+            console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args).substring(0, 300)}`);
             if (phase === "start" && toolCallId) {
                 session._toolCalls.push({
                     toolCallId,
@@ -383,24 +532,33 @@ export class TalosChatWidget extends Component {
                     isError: false,
                 });
                 if (widget) widget.state.activityText = `Running ${toolName}…`;
-                console.log(LOG_PREFIX, "Tool START:", toolName, toolCallId);
+                console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
             } else if (phase === "end" && toolCallId) {
                 const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
                 if (tc) {
                     tc.result = data.result ?? data.partialResult ?? null;
                     tc.isError = !!data.isError;
                 }
-                console.log(LOG_PREFIX, "Tool END:", toolName, toolCallId);
+                console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result).substring(0, 300)}`);
             } else if (phase === "update" && toolCallId) {
                 const tc = session._toolCalls.find(t => t.toolCallId === toolCallId);
                 if (tc && data.partialResult !== undefined) {
                     tc.result = data.partialResult;
                 }
+                console.log(LOG_PREFIX, `🔧 Tool UPDATE: ${toolName} (${toolCallId})`);
+            } else {
+                console.warn(LOG_PREFIX, `🔧 Tool UNKNOWN phase: ${phase} toolCallId=${toolCallId} name=${toolName}`);
             }
         } else if (stream === "lifecycle" && data.phase === "start") {
+            console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
             if (widget) widget.state.activityText = "Thinking…";
         } else if (stream === "lifecycle" && data.phase === "end") {
-            console.log(LOG_PREFIX, "Agent lifecycle END");
+            console.group(`${LOG_PREFIX} 🏁 Lifecycle END`);
+            console.log("Tool calls collected:", session._toolCalls.length, session._toolCalls.map(t => t.name));
+            console.log("Raw events collected:", session._rawEvents.length);
+            console.log("Stream buffer length:", session._streamBuf?.length);
+            console.log("Current turn ID:", session.currentTurnId);
+            console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
                 if (session._streamBuf) {
@@ -411,6 +569,9 @@ export class TalosChatWidget extends Component {
             }
             const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
             const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
+            if (msg && toolCalls && toolCalls.length > 0) {
+                msg.toolCalls = toolCalls;
+            }
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
             session._toolCalls = [];
@@ -446,26 +607,69 @@ export class TalosChatWidget extends Component {
             }
         } else if (state === "delta") {
             const text = this._extractText(payload.message);
-            console.log(LOG_PREFIX, "DELTA extracted text:", JSON.stringify(text)?.substring(0, 200));
+            const deltaTools = this._extractToolCallsFromMessage(payload.message);
+            console.log(LOG_PREFIX, `📝 DELTA: text=${text ? text.substring(0, 100) : "null"} embeddedTools=${deltaTools.length} existingToolCalls=${session._toolCalls.length}`);
+            if (deltaTools.length > 0) {
+                console.log(LOG_PREFIX, "📝 DELTA embedded tools:", deltaTools.map(t => t.name));
+                const existingIds = new Set(session._toolCalls.map(t => t.toolCallId));
+                for (const tc of deltaTools) {
+                    if (!existingIds.has(tc.toolCallId)) {
+                        session._toolCalls.push(tc);
+                        if (widget) widget.state.activityText = `Running ${tc.name}…`;
+                    }
+                }
+            }
+            console.log(LOG_PREFIX, `📝 DELTA text applied:`, JSON.stringify(text)?.substring(0, 200));
             if (text) {
+                if (widget) widget.state.activityText = "";
                 const msg = messages.findLast(m => m.pending);
-                if (msg) msg.text += text;
+                if (msg) {
+                    msg.text += text;
+                    msg.html = markup(renderMarkdown(msg.text));
+                }
                 if (widget) widget._scrollToBottom();
             }
         } else if (state === "final") {
             const finalText = this._extractText(payload.message);
-            console.log(LOG_PREFIX, "FINAL text length:", finalText?.length);
+            const embeddedTools = this._extractToolCallsFromMessage(payload.message);
+            console.group(`${LOG_PREFIX} ✅ FINAL`);
+            console.log("text length:", finalText?.length);
+            console.log("embedded tools from message:", embeddedTools.length, embeddedTools.map(t => t.name));
+            console.log("stream _toolCalls:", session._toolCalls.length, session._toolCalls.map(t => t.name));
+            console.log("raw events:", session._rawEvents.length);
+            console.log("current turn ID:", session.currentTurnId);
+            console.log("full message:", JSON.stringify(payload.message).substring(0, 2000));
+            console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
                 if (finalText) msg.text = finalText;
+                msg.html = markup(renderMarkdown(msg.text));
                 msg.pending = false;
             }
-            this._session.streaming = false;
+            let toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : [];
+            if (embeddedTools.length > 0) {
+                const existingIds = new Set(toolCalls.map(t => t.toolCallId));
+                for (const tc of embeddedTools) {
+                    if (!existingIds.has(tc.toolCallId)) {
+                        toolCalls.push(tc);
+                    }
+                }
+            }
+            const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
+            if (msg && toolCalls.length > 0) {
+                msg.toolCalls = toolCalls;
+            }
+            session._toolCalls = [];
+            session._rawEvents = [];
+            session.streaming = false;
             if (widget) {
                 widget.state.streaming = false;
+                widget.state.activityText = "";
                 widget._scrollToBottom();
             }
-            this._saveResponse(msg ? msg.text : "");
+            const savedTurnId = session.currentTurnId;
+            this._saveResponse(msg ? msg.text : "", toolCalls.length > 0 ? toolCalls : null, rawEvents);
+            this._fetchTrajectory(savedTurnId);
         } else if (state === "error") {
             const errText = payload.errorMessage || "Chat error";
             console.error(LOG_PREFIX, "Chat ERROR:", errText);
@@ -473,18 +677,26 @@ export class TalosChatWidget extends Component {
             if (msg) {
                 msg.pending = false;
                 msg.text = errText;
+                msg.html = markup(renderMarkdown(errText));
                 msg.isError = true;
             }
             this._session.streaming = false;
-            if (widget) widget.state.streaming = false;
+            if (widget) {
+                widget.state.streaming = false;
+                widget.state.activityText = "";
+            }
         } else if (state === "aborted") {
             const msg = messages.findLast(m => m.pending);
             if (msg) {
                 msg.pending = false;
                 if (!msg.text) msg.text = "[Aborted]";
+                msg.html = markup(renderMarkdown(msg.text));
             }
             this._session.streaming = false;
-            if (widget) widget.state.streaming = false;
+            if (widget) {
+                widget.state.streaming = false;
+                widget.state.activityText = "";
+            }
         }
     }
 
@@ -505,23 +717,109 @@ export class TalosChatWidget extends Component {
         return JSON.stringify(message);
     }
 
+    _extractToolCallsFromMessage(message) {
+        if (!message) return [];
+        const content = message.content || message.messages || [];
+        if (!Array.isArray(content)) {
+            if (content && typeof content === "object") {
+                console.log(LOG_PREFIX, "🔍 _extractToolCallsFromMessage: content is object, not array. Keys:", Object.keys(content));
+            }
+            return [];
+        }
+        const tools = [];
+        for (const block of content) {
+            if (!block || typeof block !== "object") continue;
+            if (block.type === "tool_use" || block.type === "toolCall") {
+                tools.push({
+                    toolCallId: block.id || block.toolCallId || `msg-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    name: block.name || "unknown",
+                    args: block.input || block.arguments || null,
+                    result: null,
+                    isError: false,
+                });
+            }
+        }
+        if (tools.length > 0) {
+            console.log(LOG_PREFIX, `🔍 _extractToolCallsFromMessage: found ${tools.length} embedded tool calls:`, tools.map(t => t.name));
+        }
+        return tools;
+    }
+
     async _loadHistory() {
         if (!this.props.sandboxId) return;
         if (this._session.historyLoaded) return;
-        console.log(LOG_PREFIX, "Loading history for sandbox", this.props.sandboxId);
+        console.log(LOG_PREFIX, "📖 _loadHistory: loading for sandbox", this.props.sandboxId);
+        await _loadMarked().catch(e => console.warn(LOG_PREFIX, "marked load failed:", e));
         try {
             const result = await rpc("/talos/chat/history", { sandbox_id: this.props.sandboxId });
-            console.log(LOG_PREFIX, "History loaded:", result.turns?.length, "turns");
+            console.group(`${LOG_PREFIX} 📖 History loaded`);
+            console.log("turns:", result.turns?.length);
+            if (result.turns) {
+                for (const t of result.turns) {
+                    console.log(`  turn ${t.id}: prompt=${t.prompt?.substring(0, 50) || "none"} response=${t.response?.substring(0, 50) || "none"} tool_calls=${t.tool_calls ? "YES" : "no"} qc=${t.qc_severity || "none"}`);
+                }
+            }
+            console.groupEnd();
             if (result.turns) {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
-                    if (t.prompt) this._session.messages.push({ role: "user", text: t.prompt });
-                    if (t.response) this._session.messages.push({ role: "assistant", text: t.response, pending: false });
+                    if (t.prompt) {
+                        this._session.messages.push({ role: "user", text: t.prompt });
+                    }
+
+                    if (t.qc_severity) {
+                        let qcChecks = [];
+                        let qcSummary = "";
+                        if (t.qc_response) {
+                            try {
+                                const qcData = JSON.parse(t.qc_response);
+                                qcChecks = qcData.checks || [];
+                                qcSummary = qcData.summary || "";
+                            } catch {}
+                        }
+                        this._session.messages.push({
+                            role: "assistant",
+                            text: qcSummary || `QC: ${t.qc_severity}`,
+                            isQc: true,
+                            qcSeverity: t.qc_severity,
+                            qcChecks,
+                            pending: false,
+                        });
+                        if (t.qc_dismiss_reason) {
+                            this._session.messages.push({
+                                role: "assistant",
+                                text: `QC dismissed: ${t.qc_dismiss_reason}`,
+                                html: markup(renderMarkdown(`*QC dismissed:* ${t.qc_dismiss_reason}`)),
+                                pending: false,
+                            });
+                        }
+                    }
+
+                    if (t.response) {
+                        const msg = {
+                            role: "assistant",
+                            text: t.response,
+                            html: markup(renderMarkdown(t.response)),
+                            pending: false,
+                        };
+                        if (t.tool_calls) {
+                            try {
+                                const calls = JSON.parse(t.tool_calls);
+                                if (Array.isArray(calls) && calls.length > 0) {
+                                    msg.toolCalls = calls;
+                                    console.log(LOG_PREFIX, `📖 Turn ${t.id}: ${calls.length} tool calls restored:`, calls.map(c => c.name));
+                                }
+                            } catch (e) {
+                                console.warn(LOG_PREFIX, `📖 Turn ${t.id}: tool_calls parse error:`, e);
+                            }
+                        }
+                        this._session.messages.push(msg);
+                    }
                 }
             }
             this._session.historyLoaded = true;
         } catch (e) {
-            console.error(LOG_PREFIX, "History load failed:", e);
+            console.error(LOG_PREFIX, "📖 History load failed:", e);
         }
         this._scrollToBottom();
     }
@@ -529,16 +827,19 @@ export class TalosChatWidget extends Component {
     _wsRpc(method, params) {
         const ws = this._session.ws;
         if (!ws || !this._session.wsConnected) {
+            console.warn(LOG_PREFIX, `📡 _wsRpc(${method}): WS not connected — rejecting`);
             return Promise.reject(new Error("WS not connected"));
         }
         const id = nextId();
         const msg = { type: "req", id, method, params };
+        console.log(LOG_PREFIX, `📡 _wsRpc SEND: method=${method} id=${id} params=${JSON.stringify(params).substring(0, 500)}`);
         return new Promise((resolve, reject) => {
             this._session._pendingRpc.set(id, { resolve, reject });
             ws.send(JSON.stringify(msg));
             setTimeout(() => {
                 if (this._session._pendingRpc.has(id)) {
                     this._session._pendingRpc.delete(id);
+                    console.error(LOG_PREFIX, `📡 _wsRpc TIMEOUT: method=${method} id=${id}`);
                     reject(new Error("WS RPC timeout"));
                 }
             }, 15000);
@@ -548,32 +849,121 @@ export class TalosChatWidget extends Component {
     async _fetchTrajectory(turnId) {
         if (!turnId || !this._session.wsConnected) return;
         const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
-        console.log(LOG_PREFIX, "Fetching trajectory via chat.history for", sessionKey);
+        console.log(LOG_PREFIX, `📜 _fetchTrajectory: turnId=${turnId} sessionKey=${sessionKey}`);
         try {
             const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
             const messages = res?.result?.messages || res?.messages || [];
+            console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
+            if (messages.length > 0) {
+                const roles = messages.map(m => (m?.message || m)?.role || "?");
+                console.log(LOG_PREFIX, "📜 message roles:", roles);
+                const toolMsgs = messages.filter(m => {
+                    const inner = m?.message || m;
+                    return inner?.role === "tool" || inner?.role === "toolResult";
+                });
+                console.log(LOG_PREFIX, `📜 tool/toolResult messages: ${toolMsgs.length}`);
+                const assistantWithToolUse = messages.filter(m => {
+                    const inner = m?.message || m;
+                    if (inner?.role !== "assistant") return false;
+                    const content = inner?.content;
+                    if (!Array.isArray(content)) return false;
+                    return content.some(b => b?.type === "tool_use" || b?.type === "toolCall");
+                });
+                console.log(LOG_PREFIX, `📜 assistant msgs with tool_use blocks: ${assistantWithToolUse.length}`);
+            }
             if (messages.length === 0) {
-                console.warn(LOG_PREFIX, "chat.history returned 0 messages");
+                console.warn(LOG_PREFIX, "📜 chat.history returned 0 messages — no trajectory");
                 return;
             }
-            console.log(LOG_PREFIX, "Trajectory fetched:", messages.length, "messages");
+
+            const extractedTools = this._extractToolCallsFromTrajectory(messages);
+            console.log(LOG_PREFIX, `📜 Extracted ${extractedTools.length} tool calls from trajectory:`, extractedTools.map(t => ({name: t.name, hasResult: !!t.result})));
+            if (extractedTools.length > 0) {
+                const lastAssistant = this._session.messages.findLast(
+                    m => m.role === "assistant" && !m.isQc && !m.isError
+                );
+                if (lastAssistant) {
+                    if (!lastAssistant.toolCalls || lastAssistant.toolCalls.length === 0) {
+                        lastAssistant.toolCalls = extractedTools;
+                        console.log(LOG_PREFIX, "📜 Attached", extractedTools.length, "tools to last assistant msg");
+                    } else {
+                        const existingMap = new Map(lastAssistant.toolCalls.map(t => [t.toolCallId, t]));
+                        let added = 0, updated = 0;
+                        for (const tc of extractedTools) {
+                            const existing = existingMap.get(tc.toolCallId);
+                            if (!existing) {
+                                lastAssistant.toolCalls.push(tc);
+                                added++;
+                            } else if (tc.result && !existing.result) {
+                                existing.result = tc.result;
+                                existing.isError = tc.isError;
+                                if (tc.args && !existing.args) existing.args = tc.args;
+                                updated++;
+                            }
+                        }
+                        console.log(LOG_PREFIX, "📜 Merged", added, "new +", updated, "updated tools");
+                    }
+                }
+            }
+
             await rpc("/talos/chat/save_trajectory", {
                 turn_id: turnId,
                 trajectory_messages: JSON.stringify(messages),
             });
+            console.log(LOG_PREFIX, `📜 save_trajectory done for turn=${turnId}`);
         } catch (e) {
-            console.error(LOG_PREFIX, "Trajectory fetch failed:", e);
+            console.error(LOG_PREFIX, "📜 Trajectory fetch/save failed:", e);
         }
+    }
+
+    _extractToolCallsFromTrajectory(messages) {
+        const toolCalls = {};
+        for (const msg of messages) {
+            const inner = msg?.message || msg;
+            const role = inner?.role || "";
+            const content = inner?.content;
+            if (!Array.isArray(content)) continue;
+
+            if (role === "assistant") {
+                for (const block of content) {
+                    if (!block || typeof block !== "object") continue;
+                    if (block.type === "tool_use" || block.type === "toolCall") {
+                        const tcId = block.id || block.toolCallId || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                        toolCalls[tcId] = {
+                            toolCallId: tcId,
+                            name: block.name || "unknown",
+                            args: block.input || block.arguments || null,
+                            result: null,
+                            isError: false,
+                        };
+                    }
+                }
+            } else if (role === "tool" || role === "toolResult") {
+                const tcId = inner.tool_use_id || inner.toolCallId || "";
+                if (tcId && toolCalls[tcId]) {
+                    let resultText = "";
+                    for (const block of content) {
+                        if (typeof block === "string") resultText += block;
+                        else if (block?.type === "text") resultText += block.text || "";
+                    }
+                    toolCalls[tcId].result = resultText || null;
+                    toolCalls[tcId].isError = !!(inner.is_error || inner.isError);
+                }
+            }
+        }
+        return Object.values(toolCalls);
     }
 
     async _saveResponse(text, toolCalls = null, rawEvents = null) {
         if (!this._session.currentTurnId) {
-            console.warn(LOG_PREFIX, "_saveResponse: no currentTurnId");
+            console.warn(LOG_PREFIX, "💾 _saveResponse: no currentTurnId — skipping");
             return;
         }
-        console.log(LOG_PREFIX, "Saving response for turn", this._session.currentTurnId,
-            toolCalls ? `with ${toolCalls.length} tool call(s)` : "",
-            rawEvents ? `with ${rawEvents.length} raw event(s)` : "");
+        console.group(`${LOG_PREFIX} 💾 _saveResponse turn=${this._session.currentTurnId}`);
+        console.log("text length:", text?.length);
+        console.log("toolCalls:", toolCalls ? toolCalls.length + " — " + JSON.stringify(toolCalls.map(t => ({name: t.name, hasResult: !!t.result}))) : "null");
+        console.log("rawEvents:", rawEvents ? rawEvents.length : "null");
+        console.groupEnd();
         try {
             const params = {
                 turn_id: this._session.currentTurnId,
@@ -599,6 +989,7 @@ export class TalosChatWidget extends Component {
             this._session.messages.push({
                 role: "assistant",
                 text: `Not connected. ${this.state.statusText}`,
+                html: markup(renderMarkdown(`Not connected. ${this.state.statusText}`)),
                 isError: true,
                 pending: false,
             });
@@ -627,9 +1018,15 @@ export class TalosChatWidget extends Component {
         let qcResult = null;
         try {
             const qcResponse = await rpc("/talos/qc", { prompt: text });
-            console.log(LOG_PREFIX, "QC response:", qcResponse);
+            console.log(LOG_PREFIX, "QC response:", JSON.stringify(qcResponse));
             if (qcResponse.error) {
                 console.warn(LOG_PREFIX, "QC error, passing through:", qcResponse.error);
+                this._session.messages.push({
+                    role: "assistant",
+                    text: `⚠️ QC check failed: ${qcResponse.error}`,
+                    pending: false,
+                });
+                this._scrollToBottom();
             } else if (qcResponse.qc_result) {
                 qcResult = qcResponse.qc_result;
                 if (turnId) {
@@ -639,9 +1036,23 @@ export class TalosChatWidget extends Component {
                         qc_response: JSON.stringify(qcResult),
                     }).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
                 }
+            } else {
+                console.warn(LOG_PREFIX, "QC response has no qc_result:", qcResponse);
+                this._session.messages.push({
+                    role: "assistant",
+                    text: "⚠️ QC check returned no result. The LLM response may not have been parseable.",
+                    pending: false,
+                });
+                this._scrollToBottom();
             }
         } catch (e) {
             console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
+            this._session.messages.push({
+                role: "assistant",
+                text: `⚠️ QC call failed: ${e.message || e}`,
+                pending: false,
+            });
+            this._scrollToBottom();
         }
 
         this.state.activityText = "";
@@ -732,7 +1143,9 @@ export class TalosChatWidget extends Component {
                 idempotencyKey: crypto.randomUUID(),
             },
         };
-        console.log(LOG_PREFIX, "SEND chat.send:", JSON.stringify(chatSendMsg));
+        console.group(`${LOG_PREFIX} ➡️ SEND chat.send`);
+        console.log("Full message:", JSON.stringify(chatSendMsg));
+        console.groupEnd();
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
         this._session.messages.push({ role: "assistant", text: "", pending: true });
@@ -770,6 +1183,9 @@ export class TalosChatWidget extends Component {
 
         const toolCalls = session._toolCalls.length > 0 ? [...session._toolCalls] : null;
         const rawEvents = session._rawEvents.length > 0 ? [...session._rawEvents] : null;
+        if (msg && toolCalls && toolCalls.length > 0) {
+            msg.toolCalls = toolCalls;
+        }
         session._streamBuf = "";
         session._lastFlushedWordCount = 0;
         session._toolCalls = [];
@@ -790,5 +1206,9 @@ export class TalosChatWidget extends Component {
             const el = this.messagesEndRef.el;
             if (el) el.scrollIntoView({ behavior: "smooth" });
         });
+    }
+
+    onToggleTools(msg) {
+        msg.toolsExpanded = !msg.toolsExpanded;
     }
 }
