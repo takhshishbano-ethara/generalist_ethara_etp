@@ -555,20 +555,20 @@ class DashboardController(http.Controller):
                 ('check_in', '<=', datetime.combine(today, datetime.max.time())),
             ], limit=1)
 
-            duration_display = "00:00"
+            duration_display = "00.00"
             if attendance and attendance.check_in and attendance.check_out:
                 diff = attendance.check_out - attendance.check_in
                 total_seconds = int(diff.total_seconds())
                 hours = total_seconds // 3600
                 minutes = (total_seconds % 3600) // 60
-                duration_display = f"{hours:02d}:{minutes:02d}"
+                duration_display = f"{hours:02d}.{minutes:02d}"
 
             elif attendance and attendance.check_in and not attendance.check_out:
                 diff = datetime.now() - attendance.check_in
                 total_seconds = int(diff.total_seconds())
                 hours = total_seconds // 3600
                 minutes = (total_seconds % 3600) // 60
-                duration_display = f"{hours:02d}:{minutes:02d}"
+                duration_display = f"{hours:02d}.{minutes:02d}"
 
             task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', date.today())])
             pause_times = [int(p.pause_time) for p in task_record if p.pause_time and p.pause_time.isdigit()]
@@ -577,7 +577,7 @@ class DashboardController(http.Controller):
             # 3. Calculate Productive Duration (in hours)
             hours = total_pause_mins // 3600
             minutes = (total_pause_mins % 3600) // 60
-            productive_duration = f"{hours:02d}:{minutes:02d}"
+            productive_duration = f"{hours:02d}.{minutes:02d}"
 
 
             # 4. Get completed tasks for the graph

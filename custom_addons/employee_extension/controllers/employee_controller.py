@@ -43,6 +43,8 @@ class EmployeeController(http.Controller):
             }
             new_user = ResUsers.create(user_vals)
             employee_vals = {}
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                employee_vals['task_forge_pl_id'] = user.employee_id.id
             if jdata.get('work_location_name'):
                 employee_vals['work_location_name'] = jdata.get('work_location_name')
             if jdata.get('job_title'):
@@ -224,7 +226,7 @@ class EmployeeController(http.Controller):
             if action == 'offboard':
                 employee.sudo().write({
                     'offboarding_state': 'offboarded',
-                    'active': False,
+                    # 'active': False,
                     'task_forge_active': False,
                     'offboard_date': fields.Date.today(),
                     'reason_id': int(jdata.get('reason_id')),
@@ -314,11 +316,21 @@ class EmployeeController(http.Controller):
                 ('check_in', '>=', first_day_of_month),
                 ('check_in', '<=', datetime.combine(today, time.max))
             ])
-            total_present = len(attendances.mapped(lambda a: a.check_in.date()))
+            # total_present = len(attendances.mapped(lambda a: a.check_in.date() if a.check_in else ""))
+            present_dates = []
+            for att in attendances:
+                if att.check_in and isinstance(att.check_in, datetime):
+                    present_dates.append(att.check_in.date())
+            total_present = len(set(present_dates))
+            
             punch_in_times = []
             for att in attendances:
-                check_in_time = att.check_in.time()
-                punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
+                if att.check_in and isinstance(att.check_in, datetime):
+                    punch_in_times.append(att.check_in.hour * 60 + att.check_in.minute)
+            # punch_in_times = []
+            # for att in attendances:
+            #     check_in_time = att.check_in.time()
+            #     punch_in_times.append(check_in_time.hour * 60 + check_in_time.minute)
 
             if punch_in_times:
                 avg_minutes = sum(punch_in_times) / len(punch_in_times)
@@ -396,15 +408,18 @@ class EmployeeController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
-            search = kwargs.get('search')
-            if search:
-                domain += [('name', 'ilike', search)]
 
             if kwargs.get('active') == 'true':
                 domain.append(('active', '=', True))
 
             elif kwargs.get('active') == 'false':
-                domain.append(('active', '=', False))
+                in_team_ids = employee._get_inactive_team_employee_ids()
+                domain = [('employee_id', 'in', in_team_ids)]
+                domain.append(('task_forge_active', '=', False))
+
+            search = kwargs.get('search')
+            if search:
+                domain += [('name', 'ilike', search)]
 
             if kwargs.get('offboarding_state'):
                 domain.append(('offboarding_state', '=', kwargs['offboarding_state']))
@@ -506,7 +521,7 @@ class EmployeeController(http.Controller):
                     'pl_count': pl_count,
                     'qr_count': qr_count,
                     'tasker_count': tk_count,
-                    'offboarded_count': request.env['hr.employee'].sudo().search_count([('active', '=', False)]),
+                    'offboarded_count': request.env['hr.employee'].sudo().search_count([('task_forge_active', '=', False)]),
                     'request_count': request.env['employee.allocation.request'].sudo().search_count([]),
                 })
         except Exception as e:

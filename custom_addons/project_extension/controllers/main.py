@@ -216,9 +216,9 @@ class ProjectController(http.Controller):
                 vals['project_attachments'] = [(6, 0, attachment_ids)]
             # '''''''''''''''''''''''''''''''''''''''
             if kwargs.get('project_qc_reviewer'):
-                vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
+                vals['project_qc_reviewer'] = [(6, 0, parse_ids("project_qc_reviewer"))]
             if kwargs.get('project_tasker'):
-                vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
+                vals['project_tasker'] = [(6, 0, parse_ids("project_tasker"))]
 
             # Schedule Meeting
             if kwargs.get('meeting_date'):

@@ -61,7 +61,7 @@ class TaskForgeTaskController(http.Controller):
                 # We add a '|' for the two following conditions
                 domain.extend(['|', '|', ('employee_id.name', 'ilike', search_val), ('name', 'ilike', search_val), ('project_id.name', 'ilike', search_val)])
 
-            tasks = TaskLog.search(domain, order='create_date desc', limit=int(kwargs.get('limit', 200)))
+            tasks = TaskLog.search(domain, order='create_date desc')
             data = [self._format_task(t) for t in tasks]
             return return_Response(message="Tasks list", status=200, data={'data': data})
         except Exception as e:
@@ -329,7 +329,8 @@ class TaskForgeTaskController(http.Controller):
             'start_time': str(start_time),
             'end_time': str(end_time),
             'pause_time': task.pause_time if task.pause_time else "",
-            'time_taken_mins': task.time_taken_mins or 0,
+            'time_taken_mins': round(int(task.pause_time) / 60, 2) if task.pause_time else 0,
+            # 'time_taken_mins': task.time_taken_mins or 0,
             # 'time_taken_mins': duration_display,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',

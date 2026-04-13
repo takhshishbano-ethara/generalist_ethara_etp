@@ -47,7 +47,9 @@ class TalosSandbox(models.Model):
     talos_id = fields.Many2one(
         "talos.talos", required=True, ondelete="cascade", index=True
     )
-    employee_id = fields.Many2one(related="talos_id.employee_id", store=True, readonly=True)
+    employee_id = fields.Many2one(
+        related="talos_id.employee_id", store=True, readonly=True
+    )
     model_type = fields.Selection(MODEL_TYPES, required=True, readonly=True)
 
     # Docker lifecycle fields (moved from talos.talos)
@@ -810,46 +812,46 @@ class TalosSandbox(models.Model):
                             "cacheWrite": 0,
                         },
                         "contextWindow": 200000,
-                        "maxTokens": 8192,
+                        "maxTokens": 128000,
                     }
                 ],
             }
-            providers["litellm"] = {
-                "baseUrl": "http://litellm:4000/v1",
-                "apiKey": litellm_key,
-                "auth": "api-key",
-                "api": "openai-responses",
-                "models": [
-                    {
-                        "id": "claude-opus-4.6",
-                        "name": "claude-opus-4.6",
-                        "reasoning": True,
-                        "input": ["text", "image"],
-                        "cost": {
-                            "input": 0,
-                            "output": 0,
-                            "cacheRead": 0,
-                            "cacheWrite": 0,
-                        },
-                        "contextWindow": 200000,
-                        "maxTokens": 8192,
+        providers["litellm"] = {
+            "baseUrl": "http://litellm:4000/v1",
+            "apiKey": litellm_key,
+            "auth": "api-key",
+            "api": "openai-responses",
+            "models": [
+                {
+                    "id": "claude-opus-4.6",
+                    "name": "claude-opus-4.6",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
                     },
-                    {
-                        "id": "glm-5",
-                        "name": "glm-5",
-                        "reasoning": True,
-                        "input": ["text", "image"],
-                        "cost": {
-                            "input": 0,
-                            "output": 0,
-                            "cacheRead": 0,
-                            "cacheWrite": 0,
-                        },
-                        "contextWindow": 131072,
-                        "maxTokens": 8192,
+                    "contextWindow": 200000,
+                    "maxTokens": 128000,
+                },
+                {
+                    "id": "glm-5",
+                    "name": "glm-5",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
                     },
-                ],
-            }
+                    "contextWindow": 131072,
+                    "maxTokens": 32768,
+                },
+            ],
+        }
 
         default_model = MODEL_DEFAULTS.get(self.model_type)
         if default_model:

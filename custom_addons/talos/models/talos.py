@@ -68,6 +68,7 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
+      reasoning_effort: "high"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
@@ -82,6 +83,7 @@ model_list:
     litellm_params:
       model: bedrock/converse/{glm_bedrock_arn}
       aws_region_name: {glm_aws_region}
+      reasoning_effort: "high"
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -655,7 +657,9 @@ class TalosTurn(models.Model):
         "talos.sandbox", string="Sandbox", ondelete="cascade", index=True
     )
     talos_id = fields.Many2one(related="sandbox_id.talos_id", store=True, readonly=True)
-    employee_id = fields.Many2one(related="talos_id.employee_id", store=True, readonly=True)
+    employee_id = fields.Many2one(
+        related="talos_id.employee_id", store=True, readonly=True
+    )
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
     prompt = fields.Text(string="Prompt")

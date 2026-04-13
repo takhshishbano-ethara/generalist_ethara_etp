@@ -86,20 +86,20 @@ class HrEmployee(models.Model):
         role = self._get_task_forge_role()
         Employee = self.env['hr.employee'].sudo()
         if role == 'admin':
-            return Employee.search([('active', '=', False)]).ids
+            return Employee.search([('task_forge_active', '=', False)]).ids
         elif role == 'pl':
             return Employee.search([
                 '|',
                 ('task_forge_pl_id', '=', self.id),
                 ('id', '=', self.id),
-                ('active', '=', False),
+                ('task_forge_active', '=', False),
             ]).ids
         elif role in ('qr', 'ql'):
             return Employee.search([
                 '|',
                 ('task_forge_qr_id', '=', self.id),
                 ('id', '=', self.id),
-                ('active', '=', False),
+                ('task_forge_active', '=', False),
             ]).ids
         else:
             return [self.id]
