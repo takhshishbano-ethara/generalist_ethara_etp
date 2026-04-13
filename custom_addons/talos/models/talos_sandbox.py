@@ -204,59 +204,194 @@ class TalosSandbox(models.Model):
     def build_trajectory_json(self):
         self.ensure_one()
         task = self.talos_id
+        # Resolve model name from turns or MODEL_DEFAULTS
+        model_name = ""
+        for t in self.turn_ids.sorted("turn_number", reverse=True):
+            if t.model_name:
+                model_name = t.model_name
+                break
+        if not model_name:
+            default = MODEL_DEFAULTS.get(self.model_type)
+            if default:
+                model_name = default.replace("litellm/", "")
+
         meta_info = {
             "task_type": task.task_type or "",
             "task_description": task.task_id or "",
             "task_completion_status": task.task_status or "",
-            "platform": "macos",
-            "persona_name": task.persona_id.name if task.persona_id else "",
+            "system_prompt": task.seed_prompt or "",
+            "platform": "macOS",
+            "persona": task.persona_id.name if task.persona_id else "",
+            "model": model_name,
             "difficulty": task.difficulty or "",
-            "trajectory_modifier": task.trajectory_modifier or "",
-            "safety_critical": task.safety_critical or "",
-            "model_type": self.model_type,
         }
 
+        messages = self._trajectory_from_ws()
+        if messages is None:
+            messages = self._trajectory_from_events()
+        if messages is None:
+            messages = self._trajectory_from_turns()
+
+        return {"meta_info": meta_info, "messages": messages}
+
+    def _trajectory_from_ws(self):
+        self.ensure_one()
+        for t in self.turn_ids.sorted("turn_number", reverse=True):
+            if t.trajectory_messages:
+                try:
+                    ws_messages = json.loads(t.trajectory_messages)
+                    if isinstance(ws_messages, list) and ws_messages:
+                        return ws_messages
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return None
+
+    def _trajectory_from_events(self):
+        self.ensure_one()
         turns = self.turn_ids.sorted("turn_number")
         messages = []
         msg_counter = 0
+        parent_id = None
 
         for t in turns:
-            parent_id = None
             if t.prompt:
                 msg_counter += 1
                 user_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": user_id,
-                        "parentId": parent_id,
-                        "timestamp": t.create_date.isoformat() if t.create_date else "",
-                        "message": {
-                            "role": "user",
-                            "content": [{"type": "text", "text": t.prompt}],
-                        },
-                    }
-                )
+                messages.append({
+                    "type": "message",
+                    "id": user_id,
+                    "parentId": parent_id,
+                    "timestamp": t.create_date.isoformat() if t.create_date else "",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": t.prompt}],
+                    },
+                })
+                parent_id = user_id
+
+            if t.raw_events:
+                try:
+                    events = json.loads(t.raw_events)
+                    if isinstance(events, list):
+                        messages, msg_counter, parent_id = (
+                            self.talos_id._build_trajectory_from_events(
+                                events, messages, msg_counter, self.id,
+                                parent_id, t.model_name or "",
+                            )
+                        )
+                        continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            if t.tool_calls:
+                try:
+                    calls = json.loads(t.tool_calls)
+                    if isinstance(calls, list):
+                        for tc in calls:
+                            msg_counter += 1
+                            call_id = "%08x-%04x" % (self.id, msg_counter)
+                            tool_call_id = tc.get("toolCallId", call_id)
+                            messages.append({
+                                "type": "message",
+                                "id": call_id,
+                                "parentId": parent_id,
+                                "timestamp": t.write_date.isoformat() if t.write_date else "",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{
+                                        "type": "toolCall",
+                                        "id": tool_call_id,
+                                        "name": tc.get("name", "unknown"),
+                                        "arguments": tc.get("args", {}),
+                                    }],
+                                },
+                            })
+                            parent_id = call_id
+
+                            msg_counter += 1
+                            result_id = "%08x-%04x" % (self.id, msg_counter)
+                            result_text = tc.get("result")
+                            if isinstance(result_text, dict):
+                                result_text = json.dumps(result_text)
+                            elif result_text is None:
+                                result_text = ""
+                            else:
+                                result_text = str(result_text)
+                            messages.append({
+                                "type": "message",
+                                "id": result_id,
+                                "parentId": parent_id,
+                                "timestamp": t.write_date.isoformat() if t.write_date else "",
+                                "message": {
+                                    "role": "toolResult",
+                                    "toolCallId": tool_call_id,
+                                    "toolName": tc.get("name", "unknown"),
+                                    "isError": tc.get("isError", False),
+                                    "content": [{"type": "text", "text": result_text}],
+                                },
+                            })
+                            parent_id = result_id
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            if t.response:
+                msg_counter += 1
+                asst_id = "%08x-%04x" % (self.id, msg_counter)
+                messages.append({
+                    "type": "message",
+                    "id": asst_id,
+                    "parentId": parent_id,
+                    "timestamp": t.write_date.isoformat() if t.write_date else "",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": t.response}],
+                        "model": t.model_name or "",
+                    },
+                })
+                parent_id = asst_id
+
+        return messages if messages else None
+
+    def _trajectory_from_turns(self):
+        self.ensure_one()
+        turns = self.turn_ids.sorted("turn_number")
+        messages = []
+        msg_counter = 0
+        parent_id = None
+
+        for t in turns:
+            if t.prompt:
+                msg_counter += 1
+                user_id = "%08x-%04x" % (self.id, msg_counter)
+                messages.append({
+                    "type": "message",
+                    "id": user_id,
+                    "parentId": parent_id,
+                    "timestamp": t.create_date.isoformat() if t.create_date else "",
+                    "message": {
+                        "role": "user",
+                        "content": [{"type": "text", "text": t.prompt}],
+                    },
+                })
                 parent_id = user_id
 
             if t.response:
                 msg_counter += 1
                 asst_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": asst_id,
-                        "parentId": parent_id,
-                        "timestamp": t.write_date.isoformat() if t.write_date else "",
-                        "message": {
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": t.response}],
-                            "model": t.model_name or "",
-                        },
-                    }
-                )
+                messages.append({
+                    "type": "message",
+                    "id": asst_id,
+                    "parentId": parent_id,
+                    "timestamp": t.write_date.isoformat() if t.write_date else "",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": t.response}],
+                        "model": t.model_name or "",
+                    },
+                })
+                parent_id = asst_id
 
-        return {"meta_info": meta_info, "messages": messages}
+        return messages
 
     # ------------------------------------------------------------------
     # Lifecycle actions
@@ -286,6 +421,9 @@ class TalosSandbox(models.Model):
         self.ensure_one()
         if self.model_type == "1p":
             raise UserError("1P sandboxes cannot be stopped automatically.")
+
+        if self.turn_ids:
+            self.turn_ids.unlink()
 
         mode = self._deployment_mode()
         if mode == "k8s":

@@ -161,6 +161,56 @@
     font-size: 12px;
 }
 
+.o_talos_tools_section {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.o_talos_tools_toggle {
+    font-size: 11px;
+    color: var(--o-text-color-muted, #6c757d);
+    text-decoration: none;
+    &:hover { color: var(--o-brand-primary, #714B67); }
+}
+
+.o_talos_tools_list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.o_talos_tool_item {
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+.o_talos_tool_header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.o_talos_tool_name {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 11px;
+}
+
+.o_talos_tool_output {
+    margin: 4px 0 0;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 4px;
+    font-size: 11px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
 .o_talos_msg_qc {
     font-size: 12px;
     white-space: pre-wrap;

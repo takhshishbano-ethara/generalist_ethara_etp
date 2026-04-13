@@ -5,6 +5,7 @@ import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 import { rpc } from "@web/core/network/rpc";
 import { SandboxCard } from "../components/sandbox_card/sandbox_card";
+import { clearChatSession } from "../chat_widget/chat_widget";
 
 const MODEL_TABS = [
     { type: "claude", label: "Claude 4.6", icon: "fa-microchip" },
@@ -150,7 +151,16 @@ export class TaskDashboard extends Component {
         if (!sandboxId) return;
         this.state.loadingSandbox[sandboxId] = true;
         try {
+            const hasTurns = (this.state.turnCache[sandboxId] || []).length > 0;
+            if (hasTurns) {
+                window.open(`/talos/chat/export_session?sandbox_id=${sandboxId}`, "_blank");
+            }
+
             await this.orm.call("talos.sandbox", "action_stop_sandbox", [[sandboxId]]);
+
+            clearChatSession(sandboxId);
+            this.state.turnCache[sandboxId] = [];
+
             await this._loadSandboxes();
             await this.props.record.load();
         } catch (e) {

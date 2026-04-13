@@ -129,7 +129,7 @@
       <field name="name">talos.turn.list</field>
       <field name="model">talos.turn</field>
       <field name="arch" type="xml">
-        <list default_order="turn_number desc, id desc">
+        <list default_order="turn_number asc, id asc">
           <field name="sandbox_id"/>
           <field name="talos_id"/>
           <field name="employee_id"/>
@@ -141,6 +141,12 @@
           <field name="response"/>
           <field name="model_name"/>
           <field name="tool_names"/>
+          <field name="tool_calls" optional="hide" widget="text"/>
+          <field name="qc_severity" optional="show" widget="badge"
+                 decoration-danger="qc_severity == 'critical'"
+                 decoration-warning="qc_severity in ('high', 'medium')"
+                 decoration-success="qc_severity == 'low'"/>
+          <field name="qc_dismiss_reason" optional="hide"/>
         </list>
       </field>
     </record>
@@ -179,6 +185,13 @@
               </page>
               <page string="Trajectory">
                 <field name="trajectory_messages" nolabel="1" widget="text"/>
+              </page>
+              <page string="QC">
+                <group>
+                  <field name="qc_severity"/>
+                  <field name="qc_dismiss_reason"/>
+                </group>
+                <field name="qc_response" nolabel="1" widget="text"/>
               </page>
             </notebook>
           </sheet>

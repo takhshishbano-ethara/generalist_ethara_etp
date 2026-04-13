@@ -63,6 +63,32 @@
                                         <t t-out="msg.text"/>
                                     </t>
                                     <span t-if="msg.pending and msg.text" class="o_talos_cursor">|</span>
+                                    <t t-if="msg.toolCalls and msg.toolCalls.length">
+                                        <div class="o_talos_tools_section">
+                                            <button class="o_talos_tools_toggle btn btn-link btn-sm p-0"
+                                                    t-on-click="() => this.onToggleTools(msg)">
+                                                <i t-attf-class="fa fa-chevron-#{msg.toolsExpanded ? 'down' : 'right'} me-1"/>
+                                                <span><t t-out="msg.toolCalls.length"/> tool(s) used</span>
+                                            </button>
+                                            <t t-if="msg.toolsExpanded">
+                                                <div class="o_talos_tools_list">
+                                                    <t t-foreach="msg.toolCalls" t-as="tc" t-key="tc.toolCallId || tc_index">
+                                                        <div class="o_talos_tool_item">
+                                                            <div class="o_talos_tool_header">
+                                                                <span t-attf-class="o_talos_tool_status #{tc.isError ? 'text-danger' : 'text-success'}">
+                                                                    <i t-attf-class="fa #{tc.isError ? 'fa-times-circle' : 'fa-check-circle'}"/>
+                                                                </span>
+                                                                <span class="o_talos_tool_name fw-bold"><t t-out="tc.name || 'unknown'"/></span>
+                                                            </div>
+                                                            <t t-if="tc.result">
+                                                                <pre class="o_talos_tool_output"><t t-out="typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)"/></pre>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
                                 </div>
                             </div>
                         </t>
