@@ -1309,7 +1309,7 @@ export class TalosChatWidget extends Component {
         this._session.messages.push({ role: "user", text });
         this._scrollToBottom();
 
-        this.state.activityText = "Sending…";
+        this.state.activityText = "Running QC check…";
         let turnId = null;
         try {
             const r = await rpc("/talos/chat/create_turn", { sandbox_id: this.props.sandboxId, message: text });
@@ -1320,8 +1320,80 @@ export class TalosChatWidget extends Component {
         }
         this._session.currentTurnId = turnId;
 
+        let qcResult = null;
+        try {
+            const qcResponse = await rpc("/talos/qc", { prompt: text });
+            console.log(LOG_PREFIX, "QC response:", JSON.stringify(qcResponse));
+            if (qcResponse.error) {
+                console.warn(LOG_PREFIX, "QC error, passing through:", qcResponse.error);
+                this._session.messages.push({
+                    role: "assistant",
+                    text: `⚠️ QC check failed: ${qcResponse.error}`,
+                    pending: false,
+                });
+                this._scrollToBottom();
+            } else if (qcResponse.qc_result) {
+                qcResult = qcResponse.qc_result;
+                if (turnId) {
+                    rpc("/talos/chat/save_qc", {
+                        turn_id: turnId,
+                        severity: qcResult.severity || "",
+                        qc_response: JSON.stringify(qcResult),
+                    }).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
+                }
+            } else {
+                console.warn(LOG_PREFIX, "QC response has no qc_result:", qcResponse);
+                this._session.messages.push({
+                    role: "assistant",
+                    text: "⚠️ QC check returned no result. The LLM response may not have been parseable.",
+                    pending: false,
+                });
+                this._scrollToBottom();
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "QC call failed, passing through:", e);
+            this._session.messages.push({
+                role: "assistant",
+                text: `⚠️ QC call failed: ${e.message || e}`,
+                pending: false,
+            });
+            this._scrollToBottom();
+        }
+
         this.state.activityText = "";
         this.state.sending = false;
+
+        if (qcResult && qcResult.severity) {
+            this._session.messages.push({
+                role: "assistant",
+                text: qcResult.summary || "QC check completed.",
+                isQc: true,
+                qcSeverity: qcResult.severity,
+                qcChecks: qcResult.checks || [],
+                pending: false,
+            });
+            this._scrollToBottom();
+
+            if (qcResult.severity === "critical") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                return;
+            }
+            if (qcResult.severity === "high") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                this.state.qcDismissReason = "";
+                return;
+            }
+            if (qcResult.severity === "medium" || qcResult.severity === "low") {
+                this.state.qcResult = qcResult;
+                this.state.qcPending = true;
+                this.state.qcPromptText = text;
+                return;
+            }
+        }
 
         this._sendToOpenClaw(text);
     }
