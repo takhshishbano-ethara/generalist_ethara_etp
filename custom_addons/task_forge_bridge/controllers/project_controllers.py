@@ -339,6 +339,118 @@ class TaskForgeProjectController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
+    @http.route('/api/v2/taskforge/project/team_analytics', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'str', 'required': True},
+    })
+    def get_team_analytics(self, **kwargs):
+        try:
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            Employee = request.env['hr.employee'].sudo()
+            Attendance = request.env['hr.attendance'].sudo()
+            team_member_ids = []
+            if project.project_lead:
+                team_member_ids.extend(project.project_lead.ids)
+
+            if project.project_qc_reviewer:
+                team_member_ids.extend(project.project_qc_reviewer.ids)
+
+            if project.project_tasker:
+                team_member_ids.extend(project.project_tasker.ids)
+
+            if project.project_aire:
+                team_member_ids.extend(project.project_aire.ids)
+
+            if project.project_swe:
+                team_member_ids.extend(project.project_swe.ids)
+
+            if not team_member_ids:
+                return return_Response(
+                    message="Team analytics",
+                    status=200,
+                    data={
+                        'project_lead_count': 0,
+                        'qc_reviewer_count': 0,
+                        'qc_lead_count': 0,
+                        'tasker_trainee_count': 0,
+                        'tasker_permanent_count': 0,
+                        'active_member_count': 0,
+                    }
+                )
+
+            role_pl = [
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+            ]
+            role_qr = [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            role_ql = [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            role_tasker = [
+                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+            ]
+
+            project_lead_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_pl)
+            ])
+
+            qc_employees = Employee.search([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_ql)
+            ])
+
+            qc_reviewer_count = qc_employees.filtered(lambda e: e.user_id.user_role.id in role_qr and e._get_task_forge_role() == 'qr')
+            qc_lead_count = qc_employees.filtered(lambda e: e.user_id.user_role.id in role_ql and e._get_task_forge_role() == 'ql')
+
+            tasker_trainee_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_tasker),
+                ('tasker_status', '=', 'trainee')
+            ])
+            tasker_permanent_count = Employee.search_count([
+                ('id', 'in', team_member_ids),
+                ('user_id.user_role', 'in', role_tasker),
+                ('tasker_status', '=', 'permanent')
+            ])
+
+            today = datetime.datetime.now().date()
+            active_member_ids = Attendance.search([
+                ('check_in', '>=', f"{today} 00:00:00"),
+                ('employee_id', 'in', team_member_ids),
+                ('attendance_status', '=', 'present')
+            ]).mapped('employee_id').ids
+            active_member_count = len(set(active_member_ids))
+
+            return return_Response(
+                message="Team analytics",
+                status=200,
+                data={
+                    'project_lead_count': project_lead_count,
+                    'qc_reviewer_count': len(qc_reviewer_count),
+                    'qc_lead_count': len(qc_lead_count),
+                    'tasker_trainee_count': tasker_trainee_count,
+                    'tasker_permanent_count': tasker_permanent_count,
+                    'active_member_count': active_member_count,
+                }
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     def _format_project(self, project):
         has_alloc = bool(request.env['task.forge.allocation'].sudo().search_count([
             ('project_id', '=', project.id)

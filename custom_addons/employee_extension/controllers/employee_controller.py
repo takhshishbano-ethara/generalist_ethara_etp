@@ -21,8 +21,11 @@ class EmployeeController(http.Controller):
     })
     def create_employee(self, **kwargs):
         try:
-            jdata = kwargs.get('jdata')
             user = request.env.user
+            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_cto_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                return return_Response(message="User are not allowed to use these feature.", status=400)
+
+            jdata = kwargs.get('jdata')
             Employee = request.env['hr.employee'].sudo()
             ResUsers = request.env['res.users'].sudo()
 
@@ -132,64 +135,37 @@ class EmployeeController(http.Controller):
                 return return_Response(message=f"Error parsing file: {error_msg}", status=400)
             df = df.fillna('').astype(str)
             ResUsers = request.env['res.users'].sudo()
-            created = []
-            errors = []
+            record_temp = []
             for index, row in df.iterrows():
                 idx = index + 1
                 try:
                     name = row.get('name', '').strip()
                     email = row.get('email', '').strip().lower()
+                    error_msg = ""
                     if not name or name == '':
-                        errors.append(f"Row {idx}: name is missing")
-                        continue
+                        error_msg = f"Row {idx}: name is missing"
+
                     if not email or not email.endswith('@ethara.ai'):
-                        errors.append(f"Row {idx}: invalid ethara.ai email")
-                        continue
+                        error_msg = f"Row {idx}: invalid ethara.ai email"
 
                     if ResUsers.search_count([('login', '=', email)]):
-                        errors.append(f"Row {idx}: {email} already exists")
-                        continue
+                        error_msg = f"Row {idx}: {email} already exists"
 
-                    # user_vals = {
-                    #     'name': name,
-                    #     'login': email,
-                    #     'email': email,
-                    #     'password': row.get('password') if row.get('password') else 'Ethara@123',
-                    # }
-                    # if row.get('user_role'):
-                    #     user_role_domain = [('project_type', '=', 'non-stem'), ('name', '=', row.get('user_role'))]
-                    #     if row.get('user_role') in ['CTO']:
-                    #         user_role_domain = [('name', '=', row.get('user_role'))]
-                    #     user_role = request.env['api.role'].sudo().search(user_role_domain, limit=1)
-                    #     if user_role:
-                    #         user_vals['user_role'] = user_role.id
-                    #
-                    # new_user = ResUsers.create(user_vals)
-                    # if not new_user.employee_id:
-                    #     employee_vals = {
-                    #         'name': name,
-                    #         'work_email': email,
-                    #         'user_id': new_user.id,
-                    #         'work_location_name': row.get('work_location_name', ''),
-                    #         'department_id': int(row['department_id']) if row.get('department_id') else False,
-                    #         'task_forge_pl_id': int(row['pl_id']) if row.get('pl_id') else False,
-                    #         'task_forge_qr_id': int(row['qr_id']) if row.get('qr_id') else False,
-                    #     }
-                    #     if row.get('job_title'):
-                    #         designation_id = request.env['hr.employee.designation'].sudo().search([('name', '=', row.get('job_title'))], limit=1)
-                    #         if designation_id:
-                    #             employee_vals['designation_id'] = designation_id.id
-                    #
-                    #     employee = Employee.create(employee_vals)
-                    #     created.append({'id': employee.id, 'name': employee.name, 'email': employee.work_email})
-
+                    record_temp.append({
+                        'index': index,
+                        'name': name,
+                        'email': email,
+                        'user_role': row.get('user_role'),
+                        'job_title': row.get('job_title'),
+                        'error_msg': error_msg,
+                    })
                 except Exception as e:
-                    errors.append(f"Row {idx}: {str(e)}")
+                    print(f"Row {idx}: {str(e)}")
 
             return return_Response(
-                message=f"File processed: {len(created)} created, {len(errors)} errors",
+                message=f"Success",
                 status=200,
-                data={'data': {'created': created, 'errors': errors}}
+                data={'data': record_temp}
             )
 
         except Exception as e:

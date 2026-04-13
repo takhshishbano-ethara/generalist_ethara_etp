@@ -64,14 +64,19 @@ class TaskForgeBlockerController(http.Controller):
                     ('state', 'not in', ['no_issue']),
                     # ('state', 'in', ['ack', 'escalated']),
                 ]
+
             elif role in ('qr', 'ql'):
                 domain = [('qr_id', '=', employee.id)]
                 if kwargs.get('active_blocker') in [1, '1']:
                     domain.append(('state', 'not in', ['no_issue']))
+
             else:
                 domain = [('employee_id', '=', employee.id)]
                 if kwargs.get('active_blocker') in [1, '1']:
                     domain.append(('state', 'not in', ['no_issue']))
+
+            if kwargs.get('project_id'):
+                domain.append(('project_id', '=', int(kwargs.get('project_id'))))
 
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
