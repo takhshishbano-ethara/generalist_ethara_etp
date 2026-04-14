@@ -3,11 +3,6 @@ import { Component, useState } from "@odoo/owl";
 import { TalosChatWidget } from "../../chat_widget/chat_widget";
 import { GogAuthDialog } from "../gog_auth_dialog/gog_auth_dialog";
 
-const TABS = [
-    { id: "chat", label: "Chat", icon: "fa-comments" },
-    { id: "turns", label: "Turns", icon: "fa-list-ol" },
-];
-
 export class SandboxCard extends Component {
     static template = "talos.SandboxCard";
     static components = { TalosChatWidget, GogAuthDialog };
@@ -23,15 +18,13 @@ export class SandboxCard extends Component {
         gatewayToken: { type: [String, Boolean], optional: true },
         dockerError: { type: [String, Boolean], optional: true },
         disabled: Boolean,
-        turnData: Array,
         loading: Boolean,
         onStart: Function,
         onStop: Function,
     };
 
     setup() {
-        this.state = useState({ activeTab: "chat", showGogAuth: false });
-        this.tabs = TABS;
+        this.state = useState({ showGogAuth: false });
     }
 
     get isRunning() {
@@ -54,10 +47,6 @@ export class SandboxCard extends Component {
             error: "danger",
         };
         return map[this.props.dockerStatus] || "secondary";
-    }
-
-    onTabClick(tabId) {
-        this.state.activeTab = tabId;
     }
 
     onStartClick() {

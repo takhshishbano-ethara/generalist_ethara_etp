@@ -33,7 +33,6 @@
                         gatewayToken="sbProps.gatewayToken"
                         dockerError="sbProps.dockerError"
                         disabled="sbProps.disabled"
-                        turnData="sbProps.turnData"
                         loading="sbProps.loading"
                         onStart.bind="onStartSandbox"
                         onStop.bind="onStopSandbox"

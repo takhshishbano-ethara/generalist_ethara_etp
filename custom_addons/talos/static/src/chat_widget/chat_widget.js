@@ -60,14 +60,54 @@ function nextId() {
 
 const _sessions = new Map();
 
-export function clearChatSession(sandboxId) {
+export async function clearChatSession(sandboxId) {
     if (_sessions.has(sandboxId)) {
         const session = _sessions.get(sandboxId);
+        // Fetch and persist trajectory before tearing down the WS.
+        if (session.ws && session.wsConnected) {
+            const widget = session.ws._odooWidget;
+            const turnId = session.currentTurnId
+                || await _resolveLatestTurnId(sandboxId);
+            if (turnId && widget) {
+                try {
+                    await widget._fetchTrajectory(turnId);
+                } catch (e) {
+                    console.warn("[TalosChatWidget]", "Trajectory save on stop failed:", e);
+                }
+            }
+            if (widget) {
+                widget.state.messages.length = 0;
+                widget.state.connected = false;
+                widget.state.streaming = false;
+                widget.state.sending = false;
+                widget.state.activityText = "";
+                widget.state.statusText = "Session stopped";
+                widget._clearQcState();
+            }
+        }
         if (session.ws) {
             try { session.ws.close(); } catch {}
         }
+        // Covers the ws=null case: session.messages is the same reference as
+        // widget.state.messages (shared via _syncFromSession).
+        session.messages.length = 0;
         _sessions.delete(sandboxId);
     }
+}
+
+async function _resolveLatestTurnId(sandboxId) {
+    try {
+        const history = await rpc("/talos/chat/history", {
+            sandbox_id: sandboxId,
+        });
+        const turns = history?.turns || [];
+        if (turns.length > 0) {
+            return turns[turns.length - 1].id;
+        }
+    } catch (e) {
+        console.warn("[TalosChatWidget]", "Could not resolve latest turn:", e);
+    }
+    return null;
 }
 
 function _getSession(sandboxId) {
@@ -78,6 +118,7 @@ function _getSession(sandboxId) {
             messages: [],
             streaming: false,
             currentTurnId: null,
+            currentRunId: null,
             historyLoaded: false,
             _streamBuf: "",
             _lastFlushedWordCount: 0,
@@ -220,6 +261,8 @@ export class TalosChatWidget extends Component {
                 this._currentSandboxId = this.props.sandboxId;
                 this._session = _getSession(this.props.sandboxId);
                 this._syncFromSession();
+            } else if (this.isRunning && !this._session.wsConnected) {
+                this._tryConnect();
             }
         });
 
@@ -626,6 +669,8 @@ export class TalosChatWidget extends Component {
             ts: new Date().toISOString(),
             stream,
             state,
+            runId: payload.runId || session.currentRunId || "",
+            seq: typeof payload.seq === "number" ? payload.seq : undefined,
             data: JSON.parse(JSON.stringify(data)),
         });
 
@@ -715,8 +760,7 @@ export class TalosChatWidget extends Component {
                 widget.state.activityText = "";
             }
             const savedTurnId = session.currentTurnId;
-            this._saveResponse(msg ? msg.text : "", toolCalls, rawEvents);
-            this._fetchTrajectory(savedTurnId);
+            this._saveAndFetchTrajectory(msg ? msg.text : "", toolCalls, rawEvents, savedTurnId);
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
@@ -813,8 +857,7 @@ export class TalosChatWidget extends Component {
                 widget._scrollToBottom();
             }
             const savedTurnId = session.currentTurnId;
-            this._saveResponse(msg ? msg.text : "", toolCalls.length > 0 ? toolCalls : null, rawEvents);
-            this._fetchTrajectory(savedTurnId);
+            this._saveAndFetchTrajectory(msg ? msg.text : "", toolCalls.length > 0 ? toolCalls : null, rawEvents, savedTurnId);
         } else if (state === "error") {
             const errText = payload.errorMessage || "Chat error";
             console.error(LOG_PREFIX, "Chat ERROR:", errText);
@@ -1111,73 +1154,69 @@ export class TalosChatWidget extends Component {
         });
     }
 
-    async _fetchTrajectory(turnId) {
-        if (!turnId || !this._session.wsConnected) return;
-        const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
-        console.log(LOG_PREFIX, `📜 _fetchTrajectory: turnId=${turnId} sessionKey=${sessionKey}`);
-        try {
-            const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
-            const messages = res?.result?.messages || res?.messages || [];
-            console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
-            if (messages.length > 0) {
-                const roles = messages.map(m => (m?.message || m)?.role || "?");
-                console.log(LOG_PREFIX, "📜 message roles:", roles);
-                const toolMsgs = messages.filter(m => {
-                    const inner = m?.message || m;
-                    return inner?.role === "tool" || inner?.role === "toolResult";
-                });
-                console.log(LOG_PREFIX, `📜 tool/toolResult messages: ${toolMsgs.length}`);
-                const assistantWithToolUse = messages.filter(m => {
-                    const inner = m?.message || m;
-                    if (inner?.role !== "assistant") return false;
-                    const content = inner?.content;
-                    if (!Array.isArray(content)) return false;
-                    return content.some(b => b?.type === "tool_use" || b?.type === "toolCall");
-                });
-                console.log(LOG_PREFIX, `📜 assistant msgs with tool_use blocks: ${assistantWithToolUse.length}`);
-            }
-            if (messages.length === 0) {
-                console.warn(LOG_PREFIX, "📜 chat.history returned 0 messages — no trajectory");
-                return;
-            }
+    async _saveAndFetchTrajectory(text, toolCalls, rawEvents, turnId) {
+        await this._saveResponse(text, toolCalls, rawEvents);
+        await new Promise(r => setTimeout(r, 1000));
+        await this._fetchTrajectory(turnId);
+    }
 
-            const extractedTools = this._extractToolCallsFromTrajectory(messages);
-            console.log(LOG_PREFIX, `📜 Extracted ${extractedTools.length} tool calls from trajectory:`, extractedTools.map(t => ({name: t.name, hasResult: !!t.result})));
-            if (extractedTools.length > 0) {
-                const lastAssistant = this._session.messages.findLast(
-                    m => m.role === "assistant" && !m.isQc && !m.isError
-                );
-                if (lastAssistant) {
-                    if (!lastAssistant.toolCalls || lastAssistant.toolCalls.length === 0) {
-                        lastAssistant.toolCalls = extractedTools;
-                        console.log(LOG_PREFIX, "📜 Attached", extractedTools.length, "tools to last assistant msg");
-                    } else {
-                        const existingMap = new Map(lastAssistant.toolCalls.map(t => [t.toolCallId, t]));
-                        let added = 0, updated = 0;
-                        for (const tc of extractedTools) {
-                            const existing = existingMap.get(tc.toolCallId);
-                            if (!existing) {
-                                lastAssistant.toolCalls.push(tc);
-                                added++;
-                            } else if (tc.result && !existing.result) {
-                                existing.result = tc.result;
-                                existing.isError = tc.isError;
-                                if (tc.args && !existing.args) existing.args = tc.args;
-                                updated++;
+    async _fetchTrajectory(turnId) {
+        if (!turnId) return;
+        const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
+        const maxAttempts = 3;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            console.log(LOG_PREFIX, `📜 _fetchTrajectory attempt ${attempt}/${maxAttempts}: turnId=${turnId}`);
+            try {
+                const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
+                const messages = res?.result?.messages || res?.messages || [];
+                console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
+
+                if (messages.length === 0) {
+                    if (attempt < maxAttempts) {
+                        await new Promise(r => setTimeout(r, 1500));
+                        continue;
+                    }
+                    console.warn(LOG_PREFIX, "📜 chat.history returned 0 messages after all retries");
+                    return;
+                }
+
+                const extractedTools = this._extractToolCallsFromTrajectory(messages);
+                if (extractedTools.length > 0) {
+                    const lastAssistant = this._session.messages.findLast(
+                        m => m.role === "assistant" && !m.isQc && !m.isError
+                    );
+                    if (lastAssistant) {
+                        if (!lastAssistant.toolCalls || lastAssistant.toolCalls.length === 0) {
+                            lastAssistant.toolCalls = extractedTools;
+                        } else {
+                            const existingMap = new Map(lastAssistant.toolCalls.map(t => [t.toolCallId, t]));
+                            for (const tc of extractedTools) {
+                                const existing = existingMap.get(tc.toolCallId);
+                                if (!existing) {
+                                    lastAssistant.toolCalls.push(tc);
+                                } else if (tc.result && !existing.result) {
+                                    existing.result = tc.result;
+                                    existing.isError = tc.isError;
+                                    if (tc.args && !existing.args) existing.args = tc.args;
+                                }
                             }
                         }
-                        console.log(LOG_PREFIX, "📜 Merged", added, "new +", updated, "updated tools");
                     }
                 }
-            }
 
-            await rpc("/talos/chat/save_trajectory", {
-                turn_id: turnId,
-                trajectory_messages: JSON.stringify(messages),
-            });
-            console.log(LOG_PREFIX, `📜 save_trajectory done for turn=${turnId}`);
-        } catch (e) {
-            console.error(LOG_PREFIX, "📜 Trajectory fetch/save failed:", e);
+                await rpc("/talos/chat/save_trajectory", {
+                    turn_id: turnId,
+                    trajectory_messages: JSON.stringify(messages),
+                });
+                console.log(LOG_PREFIX, `📜 save_trajectory done for turn=${turnId}`);
+                return;
+            } catch (e) {
+                console.error(LOG_PREFIX, `📜 Trajectory attempt ${attempt} failed:`, e);
+                if (attempt < maxAttempts) {
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
         }
     }
 
@@ -1228,12 +1267,17 @@ export class TalosChatWidget extends Component {
         console.log("text length:", text?.length);
         console.log("toolCalls:", toolCalls ? toolCalls.length + " — " + JSON.stringify(toolCalls.map(t => ({name: t.name, hasResult: !!t.result}))) : "null");
         console.log("rawEvents:", rawEvents ? rawEvents.length : "null");
+        console.log("runId:", this._session.currentRunId);
         console.groupEnd();
         try {
             const params = {
                 turn_id: this._session.currentTurnId,
                 response: text,
+                timestamp: new Date().toISOString(),
             };
+            if (this._session.currentRunId) {
+                params.run_id = this._session.currentRunId;
+            }
             if (toolCalls && toolCalls.length > 0) {
                 params.tool_calls = JSON.stringify(toolCalls);
             }
@@ -1245,6 +1289,7 @@ export class TalosChatWidget extends Component {
             console.error(LOG_PREFIX, "Save response failed:", e);
         }
         this._session.currentTurnId = null;
+        this._session.currentRunId = null;
     }
 
     _startIncrementalSave() {
@@ -1312,7 +1357,11 @@ export class TalosChatWidget extends Component {
         this.state.activityText = "Running QC check…";
         let turnId = null;
         try {
-            const r = await rpc("/talos/chat/create_turn", { sandbox_id: this.props.sandboxId, message: text });
+            const r = await rpc("/talos/chat/create_turn", {
+                sandbox_id: this.props.sandboxId,
+                message: text,
+                timestamp: new Date().toISOString(),
+            });
             turnId = r.turn_id;
             console.log(LOG_PREFIX, "Turn created:", turnId);
         } catch (e) {
@@ -1437,6 +1486,7 @@ export class TalosChatWidget extends Component {
     }
 
     _sendToOpenClaw(text) {
+        const runId = crypto.randomUUID();
         const chatSendMsg = {
             type: "req",
             id: nextId(),
@@ -1445,7 +1495,7 @@ export class TalosChatWidget extends Component {
                 message: text,
                 sessionKey: "odoo:sandbox:" + this.props.sandboxId,
                 deliver: false,
-                idempotencyKey: crypto.randomUUID(),
+                idempotencyKey: runId,
             },
         };
         console.group(`${LOG_PREFIX} ➡️ SEND chat.send`);
@@ -1453,6 +1503,7 @@ export class TalosChatWidget extends Component {
         console.groupEnd();
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
+        this._session.currentRunId = runId;
         this._session.messages.push({ role: "assistant", text: "", pending: true });
         this.state.activityText = "Waiting for model…";
         this._session.streaming = true;

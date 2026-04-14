@@ -169,11 +169,11 @@ def _build_openclaw_config(gateway_token, env):
                 {
                     "id": bedrock_arn,
                     "name": "claude-inference",
-                    "reasoning": False,
+                    "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                     "contextWindow": 200000,
-                    "maxTokens": 8192,
+                    "maxTokens": 128000,
                 }
             ],
         }
@@ -182,25 +182,25 @@ def _build_openclaw_config(gateway_token, env):
         "baseUrl": "http://localhost:4000/v1",
         "apiKey": litellm_key,
         "auth": "api-key",
-        "api": "openai-responses",
+        "api": "openai-completions",
         "models": [
             {
                 "id": "claude-opus-4.6",
                 "name": "claude-opus-4.6",
-                "reasoning": False,
+                "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 200000,
-                "maxTokens": 8192,
+                "maxTokens": 128000,
             },
             {
                 "id": "kimi-k2.5",
                 "name": "kimi-k2.5",
-                "reasoning": False,
+                "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 131072,
-                "maxTokens": 8192,
+                "maxTokens": 32768,
             },
         ],
     }
@@ -291,11 +291,15 @@ class TalosSandboxK8s(models.AbstractModel):
         if not litellm_yaml:
             kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
             kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
+            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
+            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
                 kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
                 kimi_aws_region=kimi_region,
+                glm_bedrock_arn=glm_arn or "PLACEHOLDER",
+                glm_aws_region=glm_region,
             )
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 

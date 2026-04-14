@@ -3,7 +3,6 @@ import { Component, useState, onMounted } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
-import { rpc } from "@web/core/network/rpc";
 import { SandboxCard } from "../components/sandbox_card/sandbox_card";
 import { clearChatSession } from "../chat_widget/chat_widget";
 
@@ -27,7 +26,6 @@ export class TaskDashboard extends Component {
             activeTab: "claude",
             loadingSandbox: {},
             sandboxes: {},
-            turnCache: {},
         });
 
         onMounted(() => this._loadSandboxes());
@@ -70,28 +68,11 @@ export class TaskDashboard extends Component {
             );
         }
 
-        console.log("[talos-dashboard] Loaded sandboxes:", sandboxes);
-
         const map = {};
         for (const sb of sandboxes) {
             map[sb.model_type] = sb;
         }
         this.state.sandboxes = map;
-
-        for (const sb of sandboxes) {
-            try {
-                const result = await rpc("/talos/chat/history", { sandbox_id: sb.id });
-                this.state.turnCache[sb.id] = (result.turns || []).map((t) => ({
-                    id: t.id,
-                    turn_number: t.turn_number,
-                    prompt: t.prompt,
-                    response: t.response,
-                    status: t.status,
-                }));
-            } catch {
-                this.state.turnCache[sb.id] = [];
-            }
-        }
     }
 
     _buildSandboxProps(modelType) {
@@ -109,7 +90,6 @@ export class TaskDashboard extends Component {
                 gatewayToken: false,
                 dockerError: false,
                 disabled: modelType === "1p",
-                turnData: [],
                 loading: false,
             };
         }
@@ -126,7 +106,6 @@ export class TaskDashboard extends Component {
             gatewayToken: sb.docker_gateway_token || false,
             dockerError: sb.docker_error || false,
             disabled: modelType === "1p",
-            turnData: this.state.turnCache[sb.id] || [],
             loading: !!this.state.loadingSandbox[sb.id],
         };
     }
@@ -141,11 +120,14 @@ export class TaskDashboard extends Component {
             return;
         }
         this.state.loadingSandbox[sandboxId] = true;
+        this._setSandboxStatus(sandboxId, "starting");
+        clearChatSession(sandboxId);
         try {
             await this.orm.call("talos.sandbox", "action_start_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
             await this.props.record.load();
         } catch (e) {
+            this._setSandboxStatus(sandboxId, "error");
             this.notification.add(
                 e.data?.message || e.message || "Failed to start sandbox",
                 { type: "danger" }
@@ -159,16 +141,9 @@ export class TaskDashboard extends Component {
         if (!sandboxId) return;
         this.state.loadingSandbox[sandboxId] = true;
         try {
-            const hasTurns = (this.state.turnCache[sandboxId] || []).length > 0;
-            if (hasTurns) {
-                window.open(`/talos/chat/export_session?sandbox_id=${sandboxId}`, "_blank");
-            }
-
+            await clearChatSession(sandboxId);
             await this.orm.call("talos.sandbox", "action_stop_sandbox", [[sandboxId]]);
-
-            clearChatSession(sandboxId);
-            this.state.turnCache[sandboxId] = [];
-
+            window.open(`/talos/chat/export_session?sandbox_id=${sandboxId}`, "_blank");
             await this._loadSandboxes();
             await this.props.record.load();
         } catch (e) {
@@ -178,6 +153,15 @@ export class TaskDashboard extends Component {
             );
         } finally {
             delete this.state.loadingSandbox[sandboxId];
+        }
+    }
+
+    _setSandboxStatus(sandboxId, status) {
+        for (const sb of Object.values(this.state.sandboxes)) {
+            if (sb.id === sandboxId) {
+                sb.docker_status = status;
+                break;
+            }
         }
     }
 }

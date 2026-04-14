@@ -12,7 +12,7 @@ _logger = logging.getLogger(__name__)
 
 class TalosChatController(http.Controller):
     @http.route("/talos/chat/create_turn", type="json", auth="user")
-    def create_turn(self, sandbox_id=0, message="", model=None, **kw):
+    def create_turn(self, sandbox_id=0, message="", model=None, timestamp="", **kw):
         sandbox_id = int(sandbox_id or 0)
         message = (message or "").strip()
 
@@ -27,15 +27,17 @@ class TalosChatController(http.Controller):
             model = MODEL_DEFAULTS.get(sandbox.model_type, "unknown")
 
         next_num = len(sandbox.turn_ids) + 1
-        turn = request.env["talos.turn"].create(
-            {
-                "sandbox_id": sandbox.id,
-                "turn_number": next_num,
-                "prompt": message,
-                "model_name": model,
-                "turn_status": "Pending",
-            }
-        )
+        vals = {
+            "sandbox_id": sandbox.id,
+            "turn_number": next_num,
+            "prompt": message,
+            "model_name": model,
+            "turn_status": "Pending",
+        }
+        if timestamp:
+            vals["prompt_timestamp"] = timestamp
+
+        turn = request.env["talos.turn"].create(vals)
 
         if sandbox.session_status == "not_started":
             sandbox.sudo().write({"session_status": "in_progress"})
@@ -43,7 +45,17 @@ class TalosChatController(http.Controller):
         return {"turn_id": turn.id}
 
     @http.route("/talos/chat/save_response", type="json", auth="user")
-    def save_response(self, turn_id=0, response="", tool_calls="", raw_events="", partial=False, **kw):
+    def save_response(
+        self,
+        turn_id=0,
+        response="",
+        tool_calls="",
+        raw_events="",
+        run_id="",
+        timestamp="",
+        partial=False,
+        **kw,
+    ):
         turn_id = int(turn_id or 0)
 
         if not turn_id:
@@ -57,6 +69,10 @@ class TalosChatController(http.Controller):
             "response": response or "",
             "turn_status": "Streaming" if partial else "Completed",
         }
+        if run_id:
+            vals["run_id"] = run_id
+        if timestamp:
+            vals["response_timestamp"] = timestamp
         if tool_calls:
             vals["tool_calls"] = tool_calls
         if raw_events:
@@ -114,15 +130,18 @@ class TalosChatController(http.Controller):
                         existing_list = json.loads(turn.tool_calls)
                         existing_count = len(existing_list)
                         existing_has_results = any(
-                            tc.get("result") for tc in existing_list if isinstance(tc, dict)
+                            tc.get("result")
+                            for tc in existing_list
+                            if isinstance(tc, dict)
                         )
                     except (json.JSONDecodeError, TypeError):
                         pass
                 extracted_has_results = any(
                     tc.get("result") for tc in extracted if isinstance(tc, dict)
                 )
-                if (len(extracted) > existing_count
-                    or (extracted_has_results and not existing_has_results)):
+                if len(extracted) > existing_count or (
+                    extracted_has_results and not existing_has_results
+                ):
                     vals["tool_calls"] = json.dumps(extracted)
 
         if vals:
@@ -179,7 +198,9 @@ class TalosChatController(http.Controller):
                         elif isinstance(block, str):
                             result_text += block
                     tool_calls[tc_id]["result"] = result_text or None
-                    tool_calls[tc_id]["isError"] = bool(inner.get("is_error", inner.get("isError", False)))
+                    tool_calls[tc_id]["isError"] = bool(
+                        inner.get("is_error", inner.get("isError", False))
+                    )
 
         return list(tool_calls.values())
 
@@ -198,7 +219,9 @@ class TalosChatController(http.Controller):
         for t in sandbox.turn_ids:
             tool_calls_str = t.tool_calls or ""
             if not tool_calls_str and t.trajectory_messages:
-                extracted = self._extract_tool_calls_from_trajectory(t.trajectory_messages)
+                extracted = self._extract_tool_calls_from_trajectory(
+                    t.trajectory_messages
+                )
                 if extracted:
                     tool_calls_str = json.dumps(extracted)
                     t.sudo().write({"tool_calls": tool_calls_str})
@@ -211,6 +234,8 @@ class TalosChatController(http.Controller):
                     "run_id": t.run_id or "",
                     "model": t.model_name or "",
                     "status": t.turn_status or "",
+                    "prompt_timestamp": t.prompt_timestamp or "",
+                    "response_timestamp": t.response_timestamp or "",
                     "tool_calls": tool_calls_str,
                     "qc_severity": t.qc_severity or "",
                     "qc_response": t.qc_response or "",

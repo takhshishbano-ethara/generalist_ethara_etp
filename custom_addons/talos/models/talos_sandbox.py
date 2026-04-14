@@ -204,7 +204,6 @@ class TalosSandbox(models.Model):
     def build_trajectory_json(self):
         self.ensure_one()
         task = self.talos_id
-        # Resolve model name from turns or MODEL_DEFAULTS
         model_name = ""
         for t in self.turn_ids.sorted("turn_number", reverse=True):
             if t.model_name:
@@ -227,9 +226,9 @@ class TalosSandbox(models.Model):
         }
 
         messages = self._trajectory_from_ws()
-        if messages is None:
+        if not messages:
             messages = self._trajectory_from_events()
-        if messages is None:
+        if not messages:
             messages = self._trajectory_from_turns()
 
         return {"meta_info": meta_info, "messages": messages}
@@ -244,7 +243,7 @@ class TalosSandbox(models.Model):
                         return ws_messages
                 except (json.JSONDecodeError, TypeError):
                     pass
-        return None
+        return []
 
     def _trajectory_from_events(self):
         self.ensure_one()
@@ -254,29 +253,41 @@ class TalosSandbox(models.Model):
         parent_id = None
 
         for t in turns:
-            if t.prompt:
+            run_id = t.run_id or ""
+
+            def _next_id():
+                nonlocal msg_counter
                 msg_counter += 1
-                user_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append({
-                    "type": "message",
-                    "id": user_id,
-                    "parentId": parent_id,
-                    "timestamp": t.create_date.isoformat() if t.create_date else "",
-                    "message": {
-                        "role": "user",
-                        "content": [{"type": "text", "text": t.prompt}],
-                    },
-                })
+                return "%s:%d" % (run_id, msg_counter) if run_id else ""
+
+            if t.prompt:
+                user_id = _next_id()
+                messages.append(
+                    {
+                        "type": "message",
+                        "id": user_id,
+                        "parentId": parent_id,
+                        "timestamp": t.prompt_timestamp
+                        or (t.create_date.isoformat() if t.create_date else ""),
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": t.prompt}],
+                        },
+                    }
+                )
                 parent_id = user_id
 
             if t.raw_events:
                 try:
                     events = json.loads(t.raw_events)
-                    if isinstance(events, list):
+                    if isinstance(events, list) and events:
                         messages, msg_counter, parent_id = (
                             self.talos_id._build_trajectory_from_events(
-                                events, messages, msg_counter, self.id,
-                                parent_id, t.model_name or "",
+                                events,
+                                messages,
+                                msg_counter,
+                                parent_id,
+                                t.model_name or "",
                             )
                         )
                         continue
@@ -288,28 +299,33 @@ class TalosSandbox(models.Model):
                     calls = json.loads(t.tool_calls)
                     if isinstance(calls, list):
                         for tc in calls:
-                            msg_counter += 1
-                            call_id = "%08x-%04x" % (self.id, msg_counter)
-                            tool_call_id = tc.get("toolCallId", call_id)
-                            messages.append({
-                                "type": "message",
-                                "id": call_id,
-                                "parentId": parent_id,
-                                "timestamp": t.write_date.isoformat() if t.write_date else "",
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{
-                                        "type": "toolCall",
-                                        "id": tool_call_id,
-                                        "name": tc.get("name", "unknown"),
-                                        "arguments": tc.get("args", {}),
-                                    }],
-                                },
-                            })
+                            tcid = tc.get("toolCallId", "")
+                            call_id = tcid or _next_id()
+                            messages.append(
+                                {
+                                    "type": "message",
+                                    "id": call_id,
+                                    "parentId": parent_id,
+                                    "timestamp": t.response_timestamp
+                                    or (
+                                        t.write_date.isoformat() if t.write_date else ""
+                                    ),
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": [
+                                            {
+                                                "type": "toolCall",
+                                                "id": tcid or call_id,
+                                                "name": tc.get("name", "unknown"),
+                                                "arguments": tc.get("args", {}),
+                                            }
+                                        ],
+                                    },
+                                }
+                            )
                             parent_id = call_id
 
-                            msg_counter += 1
-                            result_id = "%08x-%04x" % (self.id, msg_counter)
+                            result_id = ("%s:result" % tcid) if tcid else _next_id()
                             result_text = tc.get("result")
                             if isinstance(result_text, dict):
                                 result_text = json.dumps(result_text)
@@ -317,40 +333,49 @@ class TalosSandbox(models.Model):
                                 result_text = ""
                             else:
                                 result_text = str(result_text)
-                            messages.append({
-                                "type": "message",
-                                "id": result_id,
-                                "parentId": parent_id,
-                                "timestamp": t.write_date.isoformat() if t.write_date else "",
-                                "message": {
-                                    "role": "toolResult",
-                                    "toolCallId": tool_call_id,
-                                    "toolName": tc.get("name", "unknown"),
-                                    "isError": tc.get("isError", False),
-                                    "content": [{"type": "text", "text": result_text}],
-                                },
-                            })
+                            messages.append(
+                                {
+                                    "type": "message",
+                                    "id": result_id,
+                                    "parentId": parent_id,
+                                    "timestamp": t.response_timestamp
+                                    or (
+                                        t.write_date.isoformat() if t.write_date else ""
+                                    ),
+                                    "message": {
+                                        "role": "toolResult",
+                                        "toolCallId": tcid or call_id,
+                                        "toolName": tc.get("name", "unknown"),
+                                        "isError": tc.get("isError", False),
+                                        "content": [
+                                            {"type": "text", "text": result_text}
+                                        ],
+                                    },
+                                }
+                            )
                             parent_id = result_id
                 except (json.JSONDecodeError, TypeError):
                     pass
 
             if t.response:
-                msg_counter += 1
-                asst_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append({
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.write_date.isoformat() if t.write_date else "",
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                })
+                asst_id = _next_id()
+                messages.append(
+                    {
+                        "type": "message",
+                        "id": asst_id,
+                        "parentId": parent_id,
+                        "timestamp": t.response_timestamp
+                        or (t.write_date.isoformat() if t.write_date else ""),
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": t.response}],
+                            "model": t.model_name or "",
+                        },
+                    }
+                )
                 parent_id = asst_id
 
-        return messages if messages else None
+        return messages if messages else []
 
     def _trajectory_from_turns(self):
         self.ensure_one()
@@ -360,39 +385,52 @@ class TalosSandbox(models.Model):
         parent_id = None
 
         for t in turns:
-            if t.prompt:
+            run_id = t.run_id or ""
+
+            def _next_id():
+                nonlocal msg_counter
                 msg_counter += 1
-                user_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append({
-                    "type": "message",
-                    "id": user_id,
-                    "parentId": parent_id,
-                    "timestamp": t.create_date.isoformat() if t.create_date else "",
-                    "message": {
-                        "role": "user",
-                        "content": [{"type": "text", "text": t.prompt}],
-                    },
-                })
+                return "%s:%d" % (run_id, msg_counter) if run_id else ""
+
+            if t.prompt:
+                user_id = _next_id()
+                messages.append(
+                    {
+                        "type": "message",
+                        "id": user_id,
+                        "parentId": parent_id,
+                        "timestamp": t.prompt_timestamp
+                        or (t.create_date.isoformat() if t.create_date else ""),
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": t.prompt}],
+                        },
+                    }
+                )
                 parent_id = user_id
 
             if t.response:
-                msg_counter += 1
-                asst_id = "%08x-%04x" % (self.id, msg_counter)
-                messages.append({
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.write_date.isoformat() if t.write_date else "",
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                })
+                asst_id = _next_id()
+                messages.append(
+                    {
+                        "type": "message",
+                        "id": asst_id,
+                        "parentId": parent_id,
+                        "timestamp": t.response_timestamp
+                        or (t.write_date.isoformat() if t.write_date else ""),
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": t.response}],
+                            "model": t.model_name or "",
+                        },
+                    }
+                )
                 parent_id = asst_id
 
         return messages
 
+    # ------------------------------------------------------------------
+    # Lifecycle actions
     # ------------------------------------------------------------------
     # Lifecycle actions
     # ------------------------------------------------------------------
@@ -421,9 +459,6 @@ class TalosSandbox(models.Model):
         self.ensure_one()
         if self.model_type == "1p":
             raise UserError("1P sandboxes cannot be stopped automatically.")
-
-        if self.turn_ids:
-            self.turn_ids.unlink()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -821,7 +856,7 @@ class TalosSandbox(models.Model):
             "baseUrl": "http://litellm:4000/v1",
             "apiKey": litellm_key,
             "auth": "api-key",
-            "api": "openai-responses",
+            "api": "openai-completions",
             "models": [
                 {
                     "id": "claude-opus-4.6",
@@ -881,29 +916,43 @@ class TalosSandbox(models.Model):
         gog_config_dir = os.path.join(workdir, "gog-config")
         os.makedirs(os.path.join(gog_config_dir, "gogcli", "keyring"), exist_ok=True)
         gog_auth_raw = self.talos_id.gog_auth
-        _logger.info("[GogAuth→Docker] task=%s gog_auth present=%s length=%s",
-                     self.talos_id.id, bool(gog_auth_raw), len(gog_auth_raw) if gog_auth_raw else 0)
+        _logger.info(
+            "[GogAuth→Docker] task=%s gog_auth present=%s length=%s",
+            self.talos_id.id,
+            bool(gog_auth_raw),
+            len(gog_auth_raw) if gog_auth_raw else 0,
+        )
         if gog_auth_raw:
             try:
                 gog_data = json.loads(gog_auth_raw)
                 if isinstance(gog_data, dict):
                     # --- Write client_secret.json so gog inside Docker has OAuth credentials ---
                     client_secret_obj = None
-                    if "client_secret" in gog_data and isinstance(gog_data["client_secret"], dict):
+                    if "client_secret" in gog_data and isinstance(
+                        gog_data["client_secret"], dict
+                    ):
                         client_secret_obj = gog_data["client_secret"]
                     elif "installed" in gog_data or "web" in gog_data:
                         client_secret_obj = gog_data
 
                     if client_secret_obj:
-                        cs_path = os.path.join(gog_config_dir, "gogcli", "client_secret.json")
+                        cs_path = os.path.join(
+                            gog_config_dir, "gogcli", "client_secret.json"
+                        )
                         with open(cs_path, "w") as f:
                             json.dump(client_secret_obj, f)
-                        _logger.info("[GogAuth→Docker] wrote client_secret.json to %s", cs_path)
+                        _logger.info(
+                            "[GogAuth→Docker] wrote client_secret.json to %s", cs_path
+                        )
 
                     # --- Write token/config files from the "tokens" dict ---
                     gog_files = gog_data.get("tokens", gog_data)
-                    if "tokens" not in gog_data and ("installed" in gog_data or "web" in gog_data):
-                        _logger.info("[GogAuth→Docker] gog_auth contains raw client_secret only, no tokens to mount")
+                    if "tokens" not in gog_data and (
+                        "installed" in gog_data or "web" in gog_data
+                    ):
+                        _logger.info(
+                            "[GogAuth→Docker] gog_auth contains raw client_secret only, no tokens to mount"
+                        )
                         gog_files = {}
                     written_files = []
                     for rel_path, content in gog_files.items():
@@ -916,10 +965,17 @@ class TalosSandbox(models.Model):
                         with open(abs_path, "w") as f:
                             f.write(content)
                         written_files.append(rel_path)
-                    _logger.info("[GogAuth→Docker] wrote %d token files to %s: %s",
-                                 len(written_files), gog_config_dir, written_files)
+                    _logger.info(
+                        "[GogAuth→Docker] wrote %d token files to %s: %s",
+                        len(written_files),
+                        gog_config_dir,
+                        written_files,
+                    )
             except (json.JSONDecodeError, TypeError):
-                _logger.warning("[GogAuth→Docker] Could not parse gog_auth JSON for task %s", self.talos_id.id)
+                _logger.warning(
+                    "[GogAuth→Docker] Could not parse gog_auth JSON for task %s",
+                    self.talos_id.id,
+                )
 
         gog_cfg = os.path.join(gog_config_dir, "gogcli", "config.json")
         if not os.path.isfile(gog_cfg):
@@ -1016,9 +1072,12 @@ class TalosSandbox(models.Model):
         if task_email:
             env["GOG_ACCOUNT"] = task_email
 
-        _logger.info("[GogAuth→Docker] _build_compose_env task=%s GOG_ACCOUNT=%s GOG_KEYRING_PASSWORD=%s",
-                     self.talos_id.id, task_email or "(none)",
-                     "***set***" if gog_kp else "(empty)")
+        _logger.info(
+            "[GogAuth→Docker] _build_compose_env task=%s GOG_ACCOUNT=%s GOG_KEYRING_PASSWORD=%s",
+            self.talos_id.id,
+            task_email or "(none)",
+            "***set***" if gog_kp else "(empty)",
+        )
         return env
 
     def _wait_for_health(self, compose_bin, project_name, workdir):
