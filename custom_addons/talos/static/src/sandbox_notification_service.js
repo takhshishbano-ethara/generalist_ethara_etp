@@ -21,6 +21,19 @@ const sandboxNotificationService = {
 
             env.bus.trigger("TALOS:SANDBOX_STATUS_CHANGED", payload);
         });
+
+        bus_service.subscribe("talos/golden_ready", (payload) => {
+            const failed = payload.status === "error";
+
+            notification.add(
+                failed
+                    ? `Golden trajectory generation failed. ${payload.error || "Check logs."}`
+                    : "Golden trajectory generated successfully!",
+                { type: failed ? "danger" : "success", sticky: failed },
+            );
+
+            env.bus.trigger("TALOS:GOLDEN_STATUS_CHANGED", payload);
+        });
     },
 };
 

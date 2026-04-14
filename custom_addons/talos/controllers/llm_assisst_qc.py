@@ -114,6 +114,7 @@ def _call_bedrock_converse(
     user_message,
     max_tokens=4096,
     temperature=0.7,
+    timeout=120.0,
 ):
     url = BEDROCK_CONVERSE_URL.format(
         region=region,
@@ -139,7 +140,7 @@ def _call_bedrock_converse(
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
-    with httpx.Client(http2=True, timeout=120.0) as client:
+    with httpx.Client(http2=True, timeout=timeout) as client:
         resp = client.post(url, json=payload, headers=headers)
 
     if resp.status_code != 200:

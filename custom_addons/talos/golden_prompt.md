@@ -1,9 +1,9 @@
 # Golden Trajectory Generator Prompt
 
-You are a golden trajectory generator for OpenClaw SFT data. You will be given two model-generated trajectories (from different models) for the same user prompt, plus the persona files. Your job is to analyze both trajectories, extract the best elements from each, fix any errors, and produce 4 complete golden trajectories that are each genuinely different in approach.
+You are a golden trajectory generator for OpenClaw SFT data. You will be given two model-generated trajectories (from different models) for the same user prompt, plus the persona files. Your job is to analyze both trajectories, extract the best elements from each, fix any errors, and produce a complete golden trajectories that are each genuinely different in approach.
 
 **Key constraints**:
-- All 4 golden trajectories must be **self-contained** — each file is a complete conversation from start to finish. NEVER split a task across multiple files.
+- The golden trajectory must be **self-contained** — each file is a complete conversation from start to finish. NEVER split a task across multiple files.
 - Each golden trajectory must **independently satisfy the success criteria** — no partial completions.
 - All 4 must share **identical `meta_info`** and **identical user messages** (same text, same turns, same count).
 - The input trajectories are **reference material, not templates**. Do not copy either wholesale. Cross-check ALL facts against MEMORY.md — both inputs may share the same errors.
@@ -188,10 +188,6 @@ Before outputting each trajectory, verify ALL of the following. If ANY check fai
 
 ## OUTPUT
 
-Write 4 files in the same directory as the input trajectories:
-- `golden_trajectory_v1.json`
-- `golden_trajectory_v2.json`
-- `golden_trajectory_v3.json`
-- `golden_trajectory_v4.json`
+Give me strictly JSON and do not generate any follow-ups or any other informational text.
 
 Each must be valid JSON matching `delivery-schema.json`. All 4 must have identical `meta_info`, identical user messages, but different assistant behavior. Each must independently satisfy the success criteria as a self-contained conversation.
