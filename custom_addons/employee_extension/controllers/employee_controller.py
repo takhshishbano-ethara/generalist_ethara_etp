@@ -715,7 +715,7 @@ class EmployeeController(http.Controller):
                 task_record = request.env['task.forge.log'].sudo().search_count([('employee_id', '=', employee.id), ('date', '=', today)])
                 active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
                 current_status, _ =  self.get_employee_current_status(emp)
-                data.append({
+                vals = {
                     'id': emp.id if emp else 0,
                     'name': emp.name if emp and emp.name else "",
                     'email': emp.work_email if emp and emp.work_email else "",
@@ -739,7 +739,15 @@ class EmployeeController(http.Controller):
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else "",
                     'active': emp.active or False,
                     'last_active': str(active_task.write_date) if active_task else ""
-                })
+                }
+                if kwargs.get('status') == 'offline' and current_status == 'Offline':
+                    data.append(vals)
+                elif kwargs.get('status') == 'active' and current_status == 'Active':
+                    data.append(vals)
+                elif kwargs.get('status') == 'idle' and current_status == 'Idle':
+                    data.append(vals)
+                else:
+                    data.append(vals)
 
             active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
             assigned_ids = set()
@@ -814,6 +822,123 @@ class EmployeeController(http.Controller):
                 message="success",
                 status=200,
                 data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/get_pl_employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_pl_employees_list(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            Employee = request.env['hr.employee'].sudo()
+            domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                       request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                       request.env.ref('api_auth_gateway.role_pl_non_stem').id]), ('task_forge_active', '=', True)]
+            employees = Employee.search(domain)
+            data = []
+            for emp in employees:
+                data.append({
+                    'id': emp.id if emp else 0,
+                    'name': emp.name if emp and emp.name else "",
+                    'email': emp.work_email if emp and emp.work_email else "",
+                    'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
+                    'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else ""
+                })
+            return return_Response(
+                message=f"{len(data)} employees found",
+                status=200,
+                data={
+                    'data': data,
+                    "total": len(data)
+                })
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/get_qr_employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_qr_employees_list(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            Employee = request.env['hr.employee'].sudo()
+            domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]), ('task_forge_active', '=', True)]
+            employees = Employee.search(domain)
+            data = []
+            for emp in employees:
+                data.append({
+                    'id': emp.id if emp else 0,
+                    'name': emp.name if emp and emp.name else "",
+                    'email': emp.work_email if emp and emp.work_email else "",
+                    'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
+                    'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else ""
+                })
+            return return_Response(
+                message=f"{len(data)} employees found",
+                status=200,
+                data={
+                    'data': data,
+                    "total": len(data)
+                })
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @validate_token
+    @http.route('/api/v2/get_user_role_employee_onboarding', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    def get_user_role_employee_onboarding(self, **kwargs):
+        temp = []
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            pl_emp_id = 0
+            qr_emp_id = 0
+            if user.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                for role in [request.env.ref('api_auth_gateway.role_qc_technical'),
+                                         request.env.ref('api_auth_gateway.role_qc_stem'),
+                                         request.env.ref('api_auth_gateway.role_qc_non_stem'),
+                                         request.env.ref('api_auth_gateway.role_pl_technical'),
+                                         request.env.ref('api_auth_gateway.role_pl_stem'),
+                                         request.env.ref('api_auth_gateway.role_pl_non_stem'),
+                                        request.env.ref('api_auth_gateway.role_tasker_technical'),
+                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
+                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical'), request.env.ref('api_auth_gateway.role_pl_stem'), request.env.ref('api_auth_gateway.role_pl_non_stem')]:
+                pl_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_qc_technical'),
+                                         request.env.ref('api_auth_gateway.role_qc_stem'),
+                                         request.env.ref('api_auth_gateway.role_qc_non_stem'),
+                                        request.env.ref('api_auth_gateway.role_tasker_technical'),
+                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
+                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical'), request.env.ref('api_auth_gateway.role_qc_stem'), request.env.ref('api_auth_gateway.role_qc_non_stem')]:
+                pl_emp_id = employee.task_forge_pl_id.id
+                qr_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_tasker_technical'),
+                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
+                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+            else:
+                domain = []
+                if kwargs.get('project_type'):
+                    domain = [('project_type', '=', kwargs.get('project_type'))]
+                roles = request.env['api.role'].sudo().search(domain)
+                for role in roles:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp, 'pl_emp_id': pl_emp_id, 'qr_emp_id': qr_emp_id}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)

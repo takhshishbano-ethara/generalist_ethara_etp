@@ -463,7 +463,8 @@ class DashboardController(http.Controller):
             if not kwargs.get('page'):
                 limit = total_count
                 offset = 0
-            projects = request.env['project.project'].sudo().search(domain, order='create_date desc', limit=limit, offset=offset)
+            # projects = request.env['project.project'].sudo().search(domain, order='create_date desc', limit=limit, offset=offset)
+            projects = request.env['project.project'].sudo().search(domain, order='id desc', limit=limit, offset=offset)
             project_data = []
             for p in projects:
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)

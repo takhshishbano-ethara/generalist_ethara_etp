@@ -368,7 +368,7 @@ class TaskForgeTaskController(http.Controller):
             }
         TaskLog = request.env['task.forge.log'].sudo()
         tasks = TaskLog.search_count([('employee_id', '=', task.employee_id.id), ('state', 'not in', ['no_issue'])])
-
+        Blocker = request.env['task.forge.blocker'].sudo().search([('task_id', '=', task.id)])
         return {
             'id': task.id if task.id else 0,
             'sequence': task.sequence if task.sequence else "",
@@ -387,7 +387,7 @@ class TaskForgeTaskController(http.Controller):
             # 'time_taken_mins': duration_display,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',
-            'blocker_reason': str(tasks) or '',
+            'blocker_reason': ", ".join(Blocker.mapped('name')) if Blocker else "",
             'quality_score': task.quality_score or 0,
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',

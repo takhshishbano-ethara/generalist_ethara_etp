@@ -350,6 +350,13 @@ class TaskForgeProjectController(http.Controller):
                 message="Project dashboard",
                 status=200,
                 data={
+                    'name': project.name if project.name else "",
+                    'project_seq': project.project_seq if project.project_seq else "",
+                    'client_name': project.client_name if project.client_name else "",
+                    'status': project.stage_id.name if project.stage_id and project.stage_id.name else "",
+                    'category': project.project_category if project.project_category else "",
+                    'date_start': str(project.date_start) if project.date_start else "",
+                    'date_end': str(project.date) if project.date else "",
                     'done_task_count': done_task_count,
                     'this_week_new_task_count': this_week_new_task_count,
                     'total_task_count': total_task_count,
