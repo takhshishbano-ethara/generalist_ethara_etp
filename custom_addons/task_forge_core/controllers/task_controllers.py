@@ -162,6 +162,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -214,6 +215,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '2' if task.state == 'blocker' else '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -288,6 +290,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -342,6 +345,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass

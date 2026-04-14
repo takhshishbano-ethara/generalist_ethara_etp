@@ -162,6 +162,7 @@ class TaskForgeLog(models.Model):
                     'priority': '2',
                     'res_model': 'task.forge.blocker',
                     'res_id': blocker.id,
+                    'project_id': self.project_id.id if self.project_id else False,
                 })
             return blocker
         else:

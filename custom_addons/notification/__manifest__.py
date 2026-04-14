@@ -14,7 +14,7 @@
     # 'website': 'https://yourwebsite.com',
     'license': 'LGPL-3',
     'category': 'Tools',
-    'depends': ['base'],
+    'depends': ['base', 'project'],
     'data': [
         'views/kubera_notification_views.xml',
         'security/ir.model.access.csv',

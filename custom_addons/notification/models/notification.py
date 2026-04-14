@@ -21,6 +21,7 @@ class KuberaNotification(models.Model):
     status = fields.Selection([('0', 'Open'), ('1', 'Closed'), ('2', 'Critical')], string="Status")
     model_ref_id = fields.Many2one('ir.model', string="Model Reference")
     redirect_url = fields.Char('Redirect Url')
+    project_id = fields.Many2one('project.project', string="Project", ondelete='set null', index=True)
 
     @api.model
     def create(self, vals):

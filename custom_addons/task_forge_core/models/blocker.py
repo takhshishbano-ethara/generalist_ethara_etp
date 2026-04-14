@@ -65,6 +65,7 @@ class TaskForgeBlocker(models.Model):
                 'priority': '1',
                 'res_model': 'task.forge.blocker',
                 'res_id': self.id,
+                'project_id': self.project_id.id if self.project_id else False,
             })
 
     def action_qr_escalate(self, notes=None, video_url=None, image_url=None):
@@ -94,6 +95,7 @@ class TaskForgeBlocker(models.Model):
                 'priority': '2',
                 'res_model': 'task.forge.blocker',
                 'res_id': self.id,
+                'project_id': self.project_id.id if self.project_id else False,
             })
 
     def action_pl_validate(self, bug_data):
