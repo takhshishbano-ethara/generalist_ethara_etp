@@ -228,11 +228,13 @@ class TalosSandboxK8s(models.AbstractModel):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes package is not installed on this server.")
 
+        task_record = sandbox_record
         config.load_incluster_config()
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
         sandbox_id = sandbox_record.id
+        task_id = sandbox_id
         persona = sandbox_record.talos_id.persona_id
         if not persona:
             raise UserError(
@@ -269,7 +271,7 @@ class TalosSandboxK8s(models.AbstractModel):
         s3_bucket = self._get_config_param("talos.s3_bucket", S3_BUCKET)
         s3_prefix = self._get_config_param("talos.s3_prefix", S3_TALOS_PREFIX)
 
-        gateway_token = task_record.docker_gateway_token
+        gateway_token = sandbox_record.docker_gateway_token
 
         self._create_secret(
             core_v1,
