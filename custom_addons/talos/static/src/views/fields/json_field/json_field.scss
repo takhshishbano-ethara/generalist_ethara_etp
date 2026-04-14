@@ -1,0 +1,57 @@
+.o_field_talos_json {
+    width: 100%;
+
+    &.o_field_talos_json_readonly {
+        position: relative;
+    }
+
+    .o_talos_json_content {
+        width: 100%;
+    }
+
+    .talos-json-block {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        padding: 16px 18px;
+        margin: 0;
+        overflow-x: auto;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.85em;
+        line-height: 1.55;
+        max-height: 600px;
+        overflow-y: auto;
+
+        code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: inherit;
+            font-family: inherit;
+        }
+
+        .json-key {
+            color: #89b4fa;
+        }
+        .json-string {
+            color: #a6e3a1;
+        }
+        .json-number {
+            color: #fab387;
+        }
+        .json-boolean {
+            color: #cba6f7;
+        }
+        .json-null {
+            color: #f38ba8;
+            font-style: italic;
+        }
+    }
+
+    textarea.o_input {
+        width: 100%;
+        min-height: 80px;
+        resize: vertical;
+    }
+}

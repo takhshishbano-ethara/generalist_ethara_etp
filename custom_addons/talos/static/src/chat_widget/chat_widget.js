@@ -1411,11 +1411,16 @@ export class TalosChatWidget extends Component {
             } else if (qcResponse.qc_result) {
                 qcResult = qcResponse.qc_result;
                 if (turnId) {
-                    rpc("/talos/chat/save_qc", {
+                    const saveParams = {
                         turn_id: turnId,
                         severity: qcResult.severity || "",
                         qc_response: JSON.stringify(qcResult),
-                    }).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
+                    };
+                    if (qcResponse.usage) {
+                        saveParams.bedrock_input_tokens = qcResponse.usage.input_tokens || 0;
+                        saveParams.bedrock_output_tokens = qcResponse.usage.output_tokens || 0;
+                    }
+                    rpc("/talos/chat/save_qc", saveParams).catch(e => console.warn(LOG_PREFIX, "save_qc failed:", e));
                 }
             } else {
                 console.warn(LOG_PREFIX, "QC response has no qc_result:", qcResponse);

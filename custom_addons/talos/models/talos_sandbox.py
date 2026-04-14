@@ -296,6 +296,195 @@ class TalosSandbox(models.Model):
         )
 
     # ------------------------------------------------------------------
+    # JSONL extraction from OpenClaw container
+    # ------------------------------------------------------------------
+
+    def _read_session_jsonl(self):
+        self.ensure_one()
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            return self._read_jsonl_k8s()
+        return self._read_jsonl_local()
+
+    def _read_jsonl_local(self):
+        self.ensure_one()
+        workdir = self.docker_workdir
+        if not workdir or not os.path.isdir(workdir):
+            return []
+
+        persona = self.talos_id.persona_id
+        persona_name = persona.name if persona else "marcus"
+        sessions_dir = os.path.join(
+            workdir, "data", persona_name, "agents", "main", "sessions"
+        )
+        if not os.path.isdir(sessions_dir):
+            _logger.warning(
+                "Sessions dir not found: %s (sandbox=%s)", sessions_dir, self.id
+            )
+            return []
+
+        jsonl_files = sorted(
+            [f for f in os.listdir(sessions_dir) if f.endswith(".jsonl")],
+            key=lambda f: os.path.getmtime(os.path.join(sessions_dir, f)),
+            reverse=True,
+        )
+        if not jsonl_files:
+            _logger.warning("No JSONL files in %s (sandbox=%s)", sessions_dir, self.id)
+            return []
+
+        jsonl_path = os.path.join(sessions_dir, jsonl_files[0])
+        _logger.info(
+            "Reading JSONL from %s (%d bytes, sandbox=%s)",
+            jsonl_path,
+            os.path.getsize(jsonl_path),
+            self.id,
+        )
+
+        entries = []
+        with open(jsonl_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return entries
+
+    def _read_jsonl_k8s(self):
+        self.ensure_one()
+        try:
+            from kubernetes import client as k8s_client, config as k8s_config
+
+            k8s_config.load_incluster_config()
+        except Exception:
+            _logger.warning(
+                "K8s not available for JSONL extraction (sandbox=%s)", self.id
+            )
+            return []
+
+        pod_name = None
+        namespace = "default"
+        try:
+            ns_param = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("talos.k8s_namespace", "default")
+                .strip()
+            )
+            if ns_param:
+                namespace = ns_param
+        except Exception:
+            pass
+
+        label_selector = (
+            "app.kubernetes.io/name=talos-sandbox,talos.sandbox.id=%s" % self.id
+        )
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector
+            )
+            for pod in pods.items:
+                if pod.status.phase == "Running":
+                    pod_name = pod.metadata.name
+                    break
+        except Exception as e:
+            _logger.warning("Failed to find K8s pod for sandbox %s: %s", self.id, e)
+            return []
+
+        if not pod_name:
+            _logger.warning("No running pod found for sandbox %s", self.id)
+            return []
+
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl",
+                    "exec",
+                    "-n",
+                    namespace,
+                    pod_name,
+                    "-c",
+                    "openclaw",
+                    "--",
+                    "sh",
+                    "-c",
+                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                _logger.warning(
+                    "kubectl exec returned no data for sandbox %s: %s",
+                    self.id,
+                    result.stderr[:200],
+                )
+                return []
+
+            entries = []
+            for line in result.stdout.strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            return entries
+        except Exception as e:
+            _logger.warning("kubectl exec failed for sandbox %s: %s", self.id, e)
+            return []
+
+    def _build_trajectory_from_jsonl(self, entries):
+        self.ensure_one()
+        task = self.talos_id
+        model_name = ""
+        default = MODEL_DEFAULTS.get(self.model_type)
+        if default:
+            model_name = default.replace("litellm/", "")
+
+        meta_info = {
+            "task_type": task.task_type or "",
+            "task_description": task.task_id or "",
+            "task_completion_status": task.task_status or "",
+            "system_prompt": task.seed_prompt or "",
+            "platform": "macOS",
+        }
+
+        messages = []
+        last_kept_id = None
+
+        for entry in entries:
+            entry_type = entry.get("type", "")
+            if entry_type != "message":
+                continue
+
+            msg = entry.get("message", {})
+            role = msg.get("role", "")
+            if not role:
+                continue
+
+            entry_id = entry.get("id", "")
+            parent_id = last_kept_id if last_kept_id else entry.get("parentId", "")
+
+            delivery_msg = {
+                "type": "message",
+                "id": entry_id,
+                "parentId": parent_id or "",
+                "timestamp": entry.get("timestamp", ""),
+                "message": msg,
+            }
+            messages.append(delivery_msg)
+            last_kept_id = entry_id
+
+        return {"meta_info": meta_info, "messages": messages}
+
+    # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
 
@@ -626,21 +815,46 @@ class TalosSandbox(models.Model):
 
     def _export_trajectory_to_task(self):
         self.ensure_one()
-        if not self.turn_ids:
-            return
 
-        trajectory = self.build_trajectory_json()
-        trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
+        trajectory_str = ""
 
-        field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
-        if field_name and self.talos_id:
-            self.talos_id.write({field_name: trajectory_str})
+        jsonl_entries = self._read_session_jsonl()
+        if jsonl_entries:
+            trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
+            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
             _logger.info(
-                "Saved trajectory (%d bytes, %d messages) to %s for task %s",
-                len(trajectory_str),
+                "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
+                len(jsonl_entries),
                 len(trajectory.get("messages", [])),
-                field_name,
-                self.talos_id.id,
+                self.id,
+            )
+        elif self.turn_ids:
+            trajectory = self.build_trajectory_json()
+            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
+            _logger.info(
+                "Built trajectory from turns fallback (%d messages, sandbox=%s)",
+                len(trajectory.get("messages", [])),
+                self.id,
+            )
+
+        if trajectory_str:
+            field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
+            if field_name and self.talos_id:
+                self.talos_id.write({field_name: trajectory_str})
+                _logger.info(
+                    "Saved trajectory (%d bytes) to %s for task %s",
+                    len(trajectory_str),
+                    field_name,
+                    self.talos_id.id,
+                )
+
+        if self.turn_ids:
+            turn_count = len(self.turn_ids)
+            self.turn_ids.unlink()
+            _logger.info(
+                "Cleared %d turns for sandbox %s (session isolation)",
+                turn_count,
+                self.id,
             )
 
         turn_count = len(self.turn_ids)

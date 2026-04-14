@@ -26,6 +26,12 @@
     "license": "LGPL-3",
     "assets": {
         "web.assets_backend": [
+            "talos/static/src/views/fields/markdown_field/markdown_field.js",
+            "talos/static/src/views/fields/markdown_field/markdown_field.xml",
+            "talos/static/src/views/fields/markdown_field/markdown_field.scss",
+            "talos/static/src/views/fields/json_field/json_field.js",
+            "talos/static/src/views/fields/json_field/json_field.xml",
+            "talos/static/src/views/fields/json_field/json_field.scss",
             "talos/static/src/sandbox_notification_service.js",
             "talos/static/src/chat_service.js",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.js",
@@ -46,6 +52,9 @@
             "talos/static/src/task_dashboard/task_dashboard.js",
             "talos/static/src/task_dashboard/task_dashboard.xml",
             "talos/static/src/task_dashboard/task_dashboard.scss",
+            "talos/static/src/costing_dashboard/costing_dashboard.js",
+            "talos/static/src/costing_dashboard/costing_dashboard.xml",
+            "talos/static/src/costing_dashboard/costing_dashboard.scss",
         ],
     },
 }
