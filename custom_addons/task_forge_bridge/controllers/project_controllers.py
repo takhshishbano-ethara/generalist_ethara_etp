@@ -353,7 +353,7 @@ class TaskForgeProjectController(http.Controller):
                     'name': project.name if project.name else "",
                     'project_seq': project.project_seq if project.project_seq else "",
                     'client_name': project.client_name if project.client_name else "",
-                    'status': project.stage_id.name if project.stage_id and project.stage_id.name else "",
+                    'status': project.non_stemp_project_status if project.project_category == 'non_stem' else project.stage_id.name,
                     'category': project.project_category if project.project_category else "",
                     'date_start': str(project.date_start) if project.date_start else "",
                     'date_end': str(project.date) if project.date else "",
