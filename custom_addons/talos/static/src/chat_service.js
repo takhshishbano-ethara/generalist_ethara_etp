@@ -16,7 +16,6 @@ export const talosChatService = {
         bus_service.subscribe("talos.chat.error", (payload) => {
             talosChatBus.trigger("error", payload);
         });
-        bus_service.start();
     },
 };
 

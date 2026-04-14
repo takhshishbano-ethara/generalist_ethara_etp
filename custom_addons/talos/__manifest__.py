@@ -9,7 +9,7 @@
         deployments for OpenClaw task environments.
     """,
     "author": "Ethara",
-    "depends": ["base", "web", "hr"],
+    "depends": ["base", "web", "hr", "bus"],
     "data": [
         "security/talos_security.xml",
         "security/ir.model.access.csv",
@@ -26,6 +26,8 @@
     "license": "LGPL-3",
     "assets": {
         "web.assets_backend": [
+            "talos/static/src/sandbox_notification_service.js",
+            "talos/static/src/chat_service.js",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.js",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.xml",
             "talos/static/src/components/sandbox_iframe/sandbox_iframe.scss",

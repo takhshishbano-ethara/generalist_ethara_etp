@@ -94,6 +94,12 @@ model_list:
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
+  - model_name: quiet_sand
+    litellm_params:
+      model: openai/quiet_sand
+      api_base: https://api.llama.com/v1alpha
+      api_key: os.environ/LLAMA_API_KEY
+
 litellm_settings:
   drop_params: true
   telemetry: false
@@ -256,6 +262,7 @@ class Talos(models.Model):
 
     claude_trajectory = fields.Text(string="Claude 4.6 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
+    oneP_trajectory = fields.Text(string="1P Trajectory")
     golden_trajectory = fields.Text(string="Golden Trajectory")
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")

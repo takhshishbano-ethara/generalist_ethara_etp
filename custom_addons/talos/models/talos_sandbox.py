@@ -5,10 +5,13 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
-from odoo import models, fields, api
+from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
+from odoo.modules.registry import Registry
 
 from .talos import (
     _load_dotenv,
@@ -22,6 +25,13 @@ from .talos import (
 
 _logger = logging.getLogger(__name__)
 
+_SANDBOX_POOL_WORKERS = int(os.getenv("SANDBOX_POOL_WORKERS", "3"))
+_SANDBOX_POOL = ThreadPoolExecutor(
+    max_workers=_SANDBOX_POOL_WORKERS, thread_name_prefix="talos-sandbox"
+)
+_SANDBOX_STARTING = set()
+_SANDBOX_LOCK = threading.Lock()
+
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.6"),
     ("glm", "GLM 5"),
@@ -31,12 +41,108 @@ MODEL_TYPES = [
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.6",
     "glm": "litellm/glm-5",
-    "1p": None,
+    "1p": "litellm/quiet_sand",
 }
 
 GATEWAY_PORT_BASE = 19000
 LITELLM_PORT_BASE = 14000
 DB_PORT_BASE = 15432
+
+TRAJECTORY_FIELD_MAP = {
+    "claude": "claude_trajectory",
+    "glm": "glm_trajectory",
+    "1p": "oneP_trajectory",
+}
+
+
+def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
+    """Background worker: start sandbox (docker compose or K8s), then notify via bus.bus."""
+    final_status = "error"
+    error_msg = ""
+    model_type = ""
+    try:
+        # Phase 1: snapshot what we need (short cursor)
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            sandbox = env["talos.sandbox"].browse(sandbox_id)
+            if not sandbox.exists():
+                _logger.error(
+                    "Background sandbox start: sandbox %s does not exist", sandbox_id
+                )
+                return
+            model_type = sandbox.model_type or ""
+
+        # Phase 2: long-running work (separate cursor per _bg method)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["talos.sandbox"].browse(sandbox_id)
+                if mode == "k8s":
+                    sandbox._start_k8s_bg()
+                else:
+                    sandbox._start_local_bg()
+        except Exception as e:
+            _logger.exception(
+                "Background sandbox start failed for sandbox %s: %s",
+                sandbox_id,
+                e,
+            )
+            error_msg = str(e)[:1000]
+
+        # Phase 3: read final status + notify (fresh cursor, retry on conflict)
+        for attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    if not sandbox.exists():
+                        return
+
+                    if error_msg and sandbox.docker_status != "running":
+                        sandbox.write(
+                            {
+                                "docker_status": "error",
+                                "docker_error": error_msg,
+                            }
+                        )
+
+                    final_status = sandbox.docker_status
+                    error_msg = sandbox.docker_error or ""
+
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if not partner:
+                        partner = sandbox.employee_id.user_id.partner_id
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "talos/sandbox_ready",
+                            {
+                                "sandbox_id": sandbox_id,
+                                "docker_status": final_status,
+                                "error": error_msg,
+                                "model_type": model_type,
+                            },
+                        )
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and attempt < 2:
+                    _logger.warning(
+                        "Serialization conflict in Phase 3 for sandbox %s, retry %d",
+                        sandbox_id,
+                        attempt + 1,
+                    )
+                    time.sleep(1 + attempt)
+                    continue
+                raise
+    except Exception:
+        _logger.exception("Background sandbox start crashed (sandbox=%s)", sandbox_id)
+    finally:
+        with _SANDBOX_LOCK:
+            _SANDBOX_STARTING.discard(sandbox_id)
 
 
 class TalosSandbox(models.Model):
@@ -436,35 +542,114 @@ class TalosSandbox(models.Model):
     # ------------------------------------------------------------------
 
     def action_start_sandbox(self):
+        """Start sandbox asynchronously — returns immediately, work runs in background."""
         self.ensure_one()
-        if self.model_type == "1p":
-            raise UserError("1P sandboxes cannot be started automatically.")
+
         if not self.talos_id:
             raise UserError(
                 "Sandbox is not linked to a task (sandbox_id=%s)." % self.id
             )
         if not self.talos_id.persona_id:
             raise UserError(
-                "No persona selected on task '%s'. Please select a persona and save before starting."
+                "No persona selected on task '%s'. "
+                "Please select a persona and save before starting."
                 % (self.talos_id.display_name or self.talos_id.id)
             )
+        if self.docker_status in ("starting", "running"):
+            raise UserError("Sandbox is already %s." % self.docker_status)
 
         mode = self._deployment_mode()
-        if mode == "k8s":
-            self._start_k8s()
-        else:
-            self._start_local()
+
+        # Pre-validate docker availability (Local mode only)
+        if mode != "k8s":
+            if not _docker_available():
+                raise UserError(
+                    "Docker is not available on this server. "
+                    "Please ensure the Docker daemon is running."
+                )
+            if not _compose_cmd():
+                raise UserError("docker compose (or docker-compose) not found.")
+
+        # Dedup: prevent duplicate concurrent starts
+        with _SANDBOX_LOCK:
+            if self.id in _SANDBOX_STARTING:
+                raise UserError("Sandbox start is already in progress.")
+            _SANDBOX_STARTING.add(self.id)
+
+        # Generate gateway token + allocate ports immediately
+        gateway_token = secrets.token_hex(32)
+        write_vals = {
+            "docker_status": "starting",
+            "docker_error": False,
+            "docker_gateway_token": gateway_token,
+        }
+        if mode != "k8s":
+            gateway_port, litellm_port, db_port = self._allocate_ports()
+            write_vals["docker_port"] = gateway_port
+            write_vals["docker_litellm_port"] = litellm_port
+        self.write(write_vals)
+
+        # Capture context for background thread
+        sandbox_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        # Schedule background work AFTER this transaction commits
+        @self.env.cr.postcommit.add
+        def _queue_sandbox_start():
+            _SANDBOX_POOL.submit(
+                _run_sandbox_start_background,
+                db_name,
+                sandbox_id,
+                mode,
+                notify_partner_id,
+            )
+
+        _logger.info(
+            "[SANDBOX] action_start_sandbox | sandbox=%s | model=%s | mode=%s | "
+            "queued to background pool",
+            self.id,
+            self.model_type,
+            mode,
+        )
 
     def action_stop_sandbox(self):
         self.ensure_one()
-        if self.model_type == "1p":
-            raise UserError("1P sandboxes cannot be stopped automatically.")
+
+        self._export_trajectory_to_task()
 
         mode = self._deployment_mode()
         if mode == "k8s":
             self._stop_k8s()
         else:
             self._stop_local()
+
+    def _export_trajectory_to_task(self):
+        self.ensure_one()
+        if not self.turn_ids:
+            return
+
+        trajectory = self.build_trajectory_json()
+        trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
+
+        field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
+        if field_name and self.talos_id:
+            self.talos_id.write({field_name: trajectory_str})
+            _logger.info(
+                "Saved trajectory (%d bytes, %d messages) to %s for task %s",
+                len(trajectory_str),
+                len(trajectory.get("messages", [])),
+                field_name,
+                self.talos_id.id,
+            )
+
+        turn_count = len(self.turn_ids)
+        self.turn_ids.unlink()
+        _logger.info(
+            "Cleared %d turns for sandbox %s (session isolation)",
+            turn_count,
+            self.id,
+        )
 
     def _start_k8s(self):
         if self.docker_status == "running":
@@ -546,7 +731,120 @@ class TalosSandbox(models.Model):
         project_name = "talos-%d-%s" % (self.talos_id.id, self.model_type)
         gateway_port, litellm_port, db_port = self._allocate_ports()
 
-        self.write({"docker_status": "starting", "docker_error": False})
+        try:
+            workdir = self._prepare_workdir(
+                persona, gateway_token, gateway_port, litellm_port, db_port
+            )
+        except Exception as e:
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": "Failed to prepare sandbox: %s" % str(e)[:500],
+                }
+            )
+            return
+
+        compose_env = self._build_compose_env(gateway_token)
+
+        self.write(
+            {
+                "docker_compose_project": project_name,
+                "docker_status": "starting",
+                "docker_port": gateway_port,
+                "docker_litellm_port": litellm_port,
+                "docker_gateway_token": gateway_token,
+                "docker_workdir": workdir,
+                "docker_error": False,
+            }
+        )
+        self.env.cr.commit()
+
+        cmd = compose_bin + [
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.override.yml",
+            "-p",
+            project_name,
+            "up",
+            "-d",
+            "--build",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=900,
+                check=False,
+                cwd=workdir,
+                env=compose_env,
+            )
+
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                self.write(
+                    {
+                        "docker_status": "error",
+                        "docker_error": "Compose up failed (exit %d): %s"
+                        % (result.returncode, error_msg[:1000]),
+                    }
+                )
+                return
+
+            healthy = self._wait_for_health(compose_bin, project_name, workdir)
+
+            if healthy:
+                self.write({"docker_status": "running"})
+                _logger.info(
+                    "Started sandbox (project=%s) sandbox=%s persona=%s model=%s",
+                    project_name,
+                    self.id,
+                    persona.name,
+                    self.model_type,
+                )
+            else:
+                logs = self._capture_container_logs(compose_bin, project_name, workdir)
+                error_detail = (
+                    "Sandbox containers started but the gateway never became "
+                    "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
+                )
+                if logs:
+                    error_detail += (
+                        "\n\nContainer logs (last 30 lines):\n%s" % logs[:2000]
+                    )
+                self.write(
+                    {
+                        "docker_status": "error",
+                        "docker_error": error_detail[:4000],
+                    }
+                )
+                _logger.error(
+                    "Gateway health-check failed for project %s (sandbox %s)",
+                    project_name,
+                    self.id,
+                )
+
+        except subprocess.TimeoutExpired:
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": "docker compose up timed out after 900 seconds",
+                }
+            )
+        except Exception as e:
+            self.write({"docker_status": "error", "docker_error": str(e)[:500]})
+
+    def _start_local_bg(self):
+        """Start local Docker sandbox — called from background thread."""
+        compose_bin = _compose_cmd()
+        persona = self.talos_id.persona_id
+        gateway_token = self.docker_gateway_token
+        gateway_port = self.docker_port
+        litellm_port = self.docker_litellm_port
+        db_port = DB_PORT_BASE + (self.id % 5000)
+        project_name = "talos-%d-%s" % (self.talos_id.id, self.model_type)
 
         try:
             workdir = self._prepare_workdir(
@@ -599,12 +897,7 @@ class TalosSandbox(models.Model):
             self.write(
                 {
                     "docker_compose_project": project_name,
-                    "docker_status": "starting",
-                    "docker_port": gateway_port,
-                    "docker_litellm_port": litellm_port,
-                    "docker_gateway_token": gateway_token,
                     "docker_workdir": workdir,
-                    "docker_error": False,
                 }
             )
 
@@ -635,11 +928,6 @@ class TalosSandbox(models.Model):
                         "docker_error": error_detail[:4000],
                     }
                 )
-                _logger.error(
-                    "Gateway health-check failed for project %s (sandbox %s)",
-                    project_name,
-                    self.id,
-                )
 
         except subprocess.TimeoutExpired:
             self.write(
@@ -649,7 +937,72 @@ class TalosSandbox(models.Model):
                 }
             )
         except Exception as e:
-            self.write({"docker_status": "error", "docker_error": str(e)[:500]})
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": str(e)[:500],
+                }
+            )
+
+    def _start_k8s_bg(self):
+        """Start K8s sandbox — called from background thread."""
+        try:
+            self.env["talos.sandbox.k8s"].deploy_sandbox(self)
+            svc_name = "talos-sandbox-%s" % self.id
+            self.write(
+                {
+                    "docker_compose_project": svc_name,
+                    "docker_port": 18789,
+                }
+            )
+            _logger.info(
+                "Deployed K8s sandbox %s for sandbox %s (persona=%s, model=%s)",
+                svc_name,
+                self.id,
+                self.talos_id.persona_id.name,
+                self.model_type,
+            )
+        except Exception as e:
+            _logger.error("K8s sandbox deploy failed for sandbox %s: %s", self.id, e)
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": str(e)[:1000],
+                }
+            )
+            return
+
+        # Poll for K8s readiness (up to 5 minutes)
+        k8s_model = self.env["talos.sandbox.k8s"]
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            try:
+                status = k8s_model.get_sandbox_status(self)
+                if status == "running":
+                    self.write({"docker_status": "running"})
+                    _logger.info(
+                        "K8s sandbox %s is now running",
+                        self.id,
+                    )
+                    return
+                if status == "error":
+                    self.write(
+                        {
+                            "docker_status": "error",
+                            "docker_error": "K8s deployment failed",
+                        }
+                    )
+                    return
+            except Exception as e:
+                _logger.debug("K8s readiness poll error: %s", e)
+            time.sleep(5)
+
+        # Timeout — leave as starting, cron will continue checking
+        _logger.warning(
+            "K8s sandbox %s did not become ready within 300s, "
+            "cron will continue reconciliation",
+            self.id,
+        )
 
     def _stop_local(self):
         if self.docker_status == "stopped":
@@ -886,6 +1239,20 @@ class TalosSandbox(models.Model):
                     "contextWindow": 131072,
                     "maxTokens": 32768,
                 },
+                {
+                    "id": "quiet_sand",
+                    "name": "quiet_sand",
+                    "reasoning": False,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                    },
+                    "contextWindow": 131072,
+                    "maxTokens": 32768,
+                },
             ],
         }
 
@@ -1081,6 +1448,8 @@ class TalosSandbox(models.Model):
         return env
 
     def _wait_for_health(self, compose_bin, project_name, workdir):
+        import urllib.request
+
         deadline = time.monotonic() + _HEALTH_WAIT_TIMEOUT
         while time.monotonic() < deadline:
             try:
@@ -1094,43 +1463,34 @@ class TalosSandbox(models.Model):
                     cwd=workdir,
                 )
                 output = result.stdout.strip()
-                if not output:
-                    time.sleep(_HEALTH_POLL_INTERVAL)
-                    continue
-
-                try:
-                    data = json.loads(output)
-                except json.JSONDecodeError:
-                    data = json.loads(output.splitlines()[0])
-
-                if isinstance(data, list):
-                    data = data[0] if data else {}
-
-                state = (data.get("State") or "").lower()
-                health = (data.get("Health") or "").lower()
-
-                if state in ("exited", "dead"):
-                    _logger.warning(
-                        "openclaw container exited (project=%s, state=%s)",
-                        project_name,
-                        state,
-                    )
-                    return False
-
-                if health == "healthy" or state == "running":
+                if output:
                     try:
-                        import urllib.request
+                        data = json.loads(output)
+                    except json.JSONDecodeError:
+                        data = json.loads(output.splitlines()[0])
 
-                        urllib.request.urlopen(
-                            "http://localhost:%d/healthz" % self.docker_port,
-                            timeout=5,
+                    if isinstance(data, list):
+                        data = data[0] if data else {}
+
+                    state = (data.get("State") or "").lower()
+                    if state in ("exited", "dead"):
+                        _logger.warning(
+                            "openclaw container exited (project=%s, state=%s)",
+                            project_name,
+                            state,
                         )
-                        return True
-                    except Exception:
-                        pass
-
+                        return False
             except (subprocess.TimeoutExpired, Exception) as e:
-                _logger.debug("Health poll error: %s", e)
+                _logger.debug("Health poll compose-ps error: %s", e)
+
+            try:
+                urllib.request.urlopen(
+                    "http://localhost:%d/healthz" % self.docker_port,
+                    timeout=5,
+                )
+                return True
+            except Exception:
+                pass
 
             time.sleep(_HEALTH_POLL_INTERVAL)
 
@@ -1151,7 +1511,173 @@ class TalosSandbox(models.Model):
             return ""
 
     # ------------------------------------------------------------------
-    # Cron reconciliation
+    # Status reconciliation (local Docker)
+    # ------------------------------------------------------------------
+
+    def _check_local_status(self):
+        """Check actual Docker container state and reconcile with DB status."""
+        self.ensure_one()
+
+        with _SANDBOX_LOCK:
+            if self.id in _SANDBOX_STARTING:
+                return
+
+        if not self.docker_compose_project:
+            if self.docker_status not in ("stopped",):
+                self.write({"docker_status": "stopped"})
+            return
+
+        if self.docker_status == "running":
+            return
+
+        compose_bin = _compose_cmd()
+        if not compose_bin:
+            return
+
+        workdir = self.docker_workdir
+        try:
+            cmd = compose_bin + [
+                "-p",
+                self.docker_compose_project,
+                "ps",
+                "--format",
+                "json",
+                "openclaw",
+            ]
+            kw = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 10,
+                "check": False,
+            }
+            if workdir and os.path.isdir(workdir):
+                kw["cwd"] = workdir
+            result = subprocess.run(cmd, **kw)
+
+            output = result.stdout.strip()
+            if not output:
+                if self.docker_status == "starting":
+                    # Containers may not exist yet (still building image).
+                    # Leave as "starting" — the poll will check again later.
+                    return
+                if self.docker_status != "stopped":
+                    _logger.info(
+                        "[StatusCheck] No container found for project=%s sandbox=%s, marking stopped",
+                        self.docker_compose_project,
+                        self.id,
+                    )
+                    self.write(
+                        {
+                            "docker_status": "stopped",
+                            "docker_compose_project": False,
+                            "docker_port": 0,
+                            "docker_litellm_port": 0,
+                            "docker_gateway_token": False,
+                            "docker_workdir": False,
+                            "docker_error": False,
+                        }
+                    )
+                return
+
+            try:
+                data = json.loads(output)
+            except json.JSONDecodeError:
+                data = json.loads(output.splitlines()[0])
+
+            if isinstance(data, list):
+                data = data[0] if data else {}
+
+            state = (data.get("State") or "").lower()
+            health = (data.get("Health") or "").lower()
+
+            if state in ("exited", "dead"):
+                if self.docker_status != "error":
+                    _logger.info(
+                        "[StatusCheck] Container exited for project=%s sandbox=%s (state=%s), marking error",
+                        self.docker_compose_project,
+                        self.id,
+                        state,
+                    )
+                    self.write(
+                        {
+                            "docker_status": "error",
+                            "docker_error": "Container exited unexpectedly (state=%s)"
+                            % state,
+                        }
+                    )
+            elif state == "running" and health == "unhealthy":
+                if self.docker_status == "starting":
+                    _logger.debug(
+                        "[StatusCheck] Container unhealthy during startup for project=%s sandbox=%s, "
+                        "waiting for health check to pass",
+                        self.docker_compose_project,
+                        self.id,
+                    )
+                elif self.docker_status != "error":
+                    _logger.info(
+                        "[StatusCheck] Container unhealthy for project=%s sandbox=%s, marking error",
+                        self.docker_compose_project,
+                        self.id,
+                    )
+                    self.write(
+                        {
+                            "docker_status": "error",
+                            "docker_error": "Container running but unhealthy",
+                        }
+                    )
+            elif state == "running" and health in ("", "healthy"):
+                if self.docker_status != "running":
+                    _logger.info(
+                        "[StatusCheck] Container running for project=%s sandbox=%s, updating to running",
+                        self.docker_compose_project,
+                        self.id,
+                    )
+                    self.write({"docker_status": "running"})
+            elif state == "running" and health == "starting":
+                # Docker health check still running — container is up but
+                # not yet confirmed healthy.  Leave as "starting" so the
+                # frontend poll checks again in a few seconds.
+                _logger.debug(
+                    "[StatusCheck] Container running, health starting for project=%s sandbox=%s",
+                    self.docker_compose_project,
+                    self.id,
+                )
+            # else: "created", "restarting" etc → leave as "starting"
+
+        except subprocess.TimeoutExpired:
+            _logger.debug(
+                "[StatusCheck] Timed out checking status for sandbox %s", self.id
+            )
+        except Exception as e:
+            _logger.debug(
+                "[StatusCheck] Error checking status for sandbox %s: %s", self.id, e
+            )
+
+    def action_check_status(self):
+        """Public action: reconcile DB docker_status with actual Docker state.
+
+        Called by the frontend on page load to fix stale statuses.
+        Returns a dict mapping sandbox_id → current docker_status for the caller.
+        """
+        mode = self._deployment_mode()
+        result = {}
+        for sandbox in self:
+            if (
+                sandbox.docker_status in ("stopped",)
+                and not sandbox.docker_compose_project
+            ):
+                result[sandbox.id] = sandbox.docker_status
+                continue
+
+            if mode == "local":
+                sandbox._check_local_status()
+            # k8s reconciliation is handled by cron
+
+            result[sandbox.id] = sandbox.docker_status
+        return result
+
+    # ------------------------------------------------------------------
+    # Cron reconciliation (k8s)
     # ------------------------------------------------------------------
 
     @api.model
@@ -1183,6 +1709,23 @@ class TalosSandbox(models.Model):
                                 "docker_error": "Sandbox deployment not found after timeout",
                             }
                         )
+                    # Notify UI of status change
+                    if status in ("running", "error"):
+                        partner = (
+                            sandbox.employee_id.user_id.partner_id
+                            or sandbox.talos_id.user_id.partner_id
+                        )
+                        if partner:
+                            self.env["bus.bus"]._sendone(
+                                partner,
+                                "talos/sandbox_ready",
+                                {
+                                    "sandbox_id": sandbox.id,
+                                    "docker_status": status,
+                                    "error": sandbox.docker_error or "",
+                                    "model_type": sandbox.model_type,
+                                },
+                            )
             except Exception as e:
                 _logger.error(
                     "Reconciliation error for sandbox %s: %s",

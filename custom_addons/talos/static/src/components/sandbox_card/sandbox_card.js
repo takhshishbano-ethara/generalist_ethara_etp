@@ -1,11 +1,10 @@
 /** @odoo-module */
-import { Component, useState } from "@odoo/owl";
+import { Component } from "@odoo/owl";
 import { TalosChatWidget } from "../../chat_widget/chat_widget";
-import { GogAuthDialog } from "../gog_auth_dialog/gog_auth_dialog";
 
 export class SandboxCard extends Component {
     static template = "talos.SandboxCard";
-    static components = { TalosChatWidget, GogAuthDialog };
+    static components = { TalosChatWidget };
     static props = {
         sandboxId: Number,
         taskId: Number,
@@ -22,10 +21,6 @@ export class SandboxCard extends Component {
         onStart: Function,
         onStop: Function,
     };
-
-    setup() {
-        this.state = useState({ showGogAuth: false });
-    }
 
     get isRunning() {
         return this.props.dockerStatus === "running";
@@ -61,17 +56,5 @@ export class SandboxCard extends Component {
         if (this.props.sandboxId) {
             window.open(`/talos/chat/export_session?sandbox_id=${this.props.sandboxId}`, "_blank");
         }
-    }
-
-    onGogAuthClick() {
-        this.state.showGogAuth = true;
-    }
-
-    onGogAuthClose() {
-        this.state.showGogAuth = false;
-    }
-
-    onGogAuthSuccess() {
-        this.state.showGogAuth = false;
     }
 }

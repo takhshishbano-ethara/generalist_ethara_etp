@@ -5,7 +5,7 @@ import logging
 from odoo import http
 from odoo.http import request
 
-from ..models.talos_sandbox import MODEL_DEFAULTS
+from ..models.talos_sandbox import MODEL_DEFAULTS, TRAJECTORY_FIELD_MAP
 
 _logger = logging.getLogger(__name__)
 
@@ -254,7 +254,15 @@ class TalosChatController(http.Controller):
             sandbox = request.env["talos.sandbox"].browse(sandbox_id)
             if not sandbox.exists():
                 return request.not_found()
-            trajectory = sandbox.build_trajectory_json()
+
+            field_name = TRAJECTORY_FIELD_MAP.get(sandbox.model_type)
+            saved = field_name and sandbox.talos_id and sandbox.talos_id[field_name]
+            if saved:
+                content = saved
+            else:
+                trajectory = sandbox.build_trajectory_json()
+                content = json.dumps(trajectory, indent=2, ensure_ascii=False)
+
             label = sandbox.model_type or "sandbox"
             filename = "session-%s-%d.json" % (label, sandbox_id)
         elif task_id:
@@ -262,11 +270,10 @@ class TalosChatController(http.Controller):
             if not task.exists():
                 return request.not_found()
             trajectory = task.build_trajectory_json()
+            content = json.dumps(trajectory, indent=2, ensure_ascii=False)
             filename = "session-%d.json" % task_id
         else:
             return request.not_found()
-
-        content = json.dumps(trajectory, indent=2, ensure_ascii=False)
 
         return request.make_response(
             content,

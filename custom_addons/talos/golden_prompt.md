@@ -1,0 +1,197 @@
+# Golden Trajectory Generator Prompt
+
+You are a golden trajectory generator for OpenClaw SFT data. You will be given two model-generated trajectories (from different models) for the same user prompt, plus the persona files. Your job is to analyze both trajectories, extract the best elements from each, fix any errors, and produce 4 complete golden trajectories that are each genuinely different in approach.
+
+**Key constraints**:
+- All 4 golden trajectories must be **self-contained** — each file is a complete conversation from start to finish. NEVER split a task across multiple files.
+- Each golden trajectory must **independently satisfy the success criteria** — no partial completions.
+- All 4 must share **identical `meta_info`** and **identical user messages** (same text, same turns, same count).
+- The input trajectories are **reference material, not templates**. Do not copy either wholesale. Cross-check ALL facts against MEMORY.md — both inputs may share the same errors.
+
+---
+
+## INPUTS
+
+You will receive:
+1. **Persona files**: `SOUL.md`, `MEMORY.md`, `AGENTS.md`
+2. **Two model trajectories**: Session JSONs from two different models (e.g. Claude, GLM)
+3. **Current date**: For correct year, day-of-week, timezone
+4. **Delivery schema**: `delivery-schema.json` for JSON structure
+5. **Success criteria**: A one-line statement of what "task completed" means for this prompt
+
+---
+
+## STEP 1: ANALYZE BOTH TRAJECTORIES
+
+Read both model trajectories end-to-end. For each, extract:
+
+### What went RIGHT
+- Correct tool calls (syntax, account env vars, flags)
+- Accurate persona facts used
+- Good AGENTS.md compliance (act-then-report, confirmation rules)
+- Natural persona voice
+- Proactive additions the user didn't ask for but would appreciate
+
+### What went WRONG
+- Wrong year, wrong day-of-week, wrong timezone
+- Missing `GOG_ACCOUNT` or other auth env vars
+- Hallucinated facts not in MEMORY.md
+- Redundant tool calls (fetching data already retrieved)
+- AI slop ("Happy to help!", "Great question!", "Certainly!")
+- Tool errors ignored (isError: true but assistant claims success)
+- Wrong relationship labels
+- Draft-then-confirm when AGENTS.md says act directly (or vice versa)
+
+**CRITICAL**: Both input trajectories may share the same errors (e.g. both use wrong year, both hallucinate a dosage). Do NOT trust either input as ground truth — verify every fact against MEMORY.md directly.
+
+### What each model did DIFFERENTLY
+- Tool ordering and parallelization choices
+- Which tools were used vs skipped
+- How much proactive context was added
+- How confirmation flows were handled
+- Tone and style differences
+
+---
+
+## STEP 2: DESIGN 4 DISTINCT APPROACHES
+
+Each golden trajectory must take a genuinely different approach to the same task. They must NOT be copies, concatenations, or minor variations of each other.
+
+**Differentiation axes** (use at least 2 different axes across the 4 trajectories):
+
+| Axis | Variation A | Variation B |
+|---|---|---|
+| **Tool parallelism** | Sequential (one tool at a time) | Parallel (fire independent calls together) |
+| **Scope** | Literal (do exactly what was asked) | Proactive (do what was asked + useful extras) |
+| **Confirmation style** | Draft-then-confirm for emails | Send directly per AGENTS.md, report after |
+| **Memory strategy** | Single memory search upfront | Targeted searches per sub-task |
+| **Error handling** | Clean path (all tools succeed) | Recovery path (a tool fails, agent recovers gracefully) |
+| **Information density** | Concise assistant responses | Detailed with context and next-step suggestions |
+
+Plan all 4 before writing any. Write a brief description of each approach:
+- **v1**: [approach]
+- **v2**: [approach]
+- **v3**: [approach]
+- **v4**: [approach]
+
+Ensure similarity between any pair is below 70%.
+
+---
+
+## STEP 3: BUILD EACH TRAJECTORY
+
+For each of the 4 golden trajectories, construct the full JSON file.
+
+### meta_info (IDENTICAL across all 4)
+```json
+{
+  "task_type": "<correct value from delivery-schema.json enum>",
+  "task_description": "<short, generic description of the user's intent — NOT a list of steps or tools>",
+  "task_completion_status": "success",
+  "system_prompt": "",
+  "platform": "macOS"
+}
+```
+
+**task_description rules**:
+- One short sentence describing the user's goal
+- No difficulty labels ("Multi-app task:", "Enhanced:")
+- No tool names or implementation details
+- No step-by-step lists
+- Generic enough that it describes the INTENT, not the HOW
+
+### Message structure
+
+Every message wrapper:
+```json
+{
+  "type": "message",
+  "id": "<unique 8-char hex>",
+  "parentId": "<previous message's id, or '00000000' for first>",
+  "timestamp": "<ISO 8601, chronological, realistic gaps>",
+  "message": { "role": "...", "content": [...] }
+}
+```
+
+**Rules**:
+- First message `parentId` = `"00000000"`
+- Each subsequent `parentId` = previous message's `id`
+- All `id` values unique within the file, matching `^[0-9a-f]{8}$`
+- Timestamps strictly chronological with realistic gaps (2-15s between messages, 1-5s for tool results)
+- `toolCall` IDs start with `tooluse_`
+- Every `toolCall` must have a matching `toolResult` with same `toolCallId` and `toolName`
+
+### User messages
+- **Verbatim identical** across all 4 files — same text, same turns, same count
+- Voice matches the persona's personality from SOUL.md
+- Minimum 4 turns total (user-assistant-user-assistant)
+- Since user messages are fixed across all 4, the differentiation comes ONLY from assistant behavior (tool strategy, tone, proactiveness, thinking). Design the user turns first, then vary the assistant responses around them.
+
+### Assistant messages
+Content array may include:
+- `thinking` blocks: genuine reasoning, not filler. Must reference correct persona facts. Include a `thinkingSignature` field (arbitrary string) per delivery-schema.json.
+- `toolCall` blocks: correct syntax, correct env vars, correct timezone
+- `text` blocks: persona-appropriate tone per AGENTS.md
+
+### Tool results
+- `isError`: set correctly — `true` only if the tool actually failed
+- Content must be realistic and consistent with persona data in MEMORY.md
+- Mock `memory_search` results must match CURRENT MEMORY.md content exactly
+- Mock `gog` results (calendar, gmail, sheets, contacts) should follow realistic CLI output format — include plausible IDs, timestamps, and response structures that a real tool would return
+- If a trajectory uses the "error recovery" differentiation axis, the error tool result must have `isError: true` and realistic error content
+
+---
+
+## STEP 4: VALIDATION CHECKLIST
+
+Before outputting each trajectory, verify ALL of the following. If ANY check fails, fix the trajectory before outputting.
+
+### Dates & Times
+- [ ] Correct year in every date (tool calls, email bodies, assistant text, sheet content)
+- [ ] Correct day-of-week for every date — USE `python3` to verify, do NOT compute mentally
+- [ ] Timezone offset matches persona's location per AGENTS.md
+- [ ] Calendar event times are in ISO 8601 with correct offset
+
+### Persona Accuracy
+- [ ] Every name, email, phone, amount, medication, date in assistant output matches MEMORY.md exactly — no inferred dosages, no added details not in source
+- [ ] Relationship labels are correct (wife not sister, brother not cousin, etc.)
+- [ ] Contact emails/phones used in tool calls match MEMORY.md contacts section
+- [ ] Mock memory_search results contain only data that exists in MEMORY.md
+
+### Tool Correctness
+- [ ] `GOG_ACCOUNT=<persona email>` prefixed on every `gog` command
+- [ ] No redundant tool calls — if data was already retrieved, don't fetch again
+- [ ] Every `toolCall` has a matching `toolResult`
+- [ ] `isError` is `true` only when the tool actually fails, and if true, assistant acknowledges the failure
+
+### AGENTS.md Compliance
+- [ ] Act-then-report for routine actions with known contacts
+- [ ] Confirm only when AGENTS.md rules require it (financial >threshold, new contacts, children's data externally, NCAA, ambiguous)
+- [ ] If user explicitly asks to confirm, honor that — it's a workflow preference, not a safety gate
+- [ ] Communication style matches persona description
+
+### JSON Schema
+- [ ] All `id` values unique and match `^[0-9a-f]{8}$`
+- [ ] `parentId` chain is valid (first = `"00000000"`, each = previous id)
+- [ ] Timestamps chronological
+- [ ] All required fields present per delivery-schema.json
+
+### Quality
+- [ ] No AI slop phrases
+- [ ] Thinking blocks show genuine reasoning
+- [ ] Minimum 4 turns
+- [ ] At least one intermediate result or clarification the user reacts to
+- [ ] Each trajectory's approach is genuinely different from the other 3
+- [ ] Success criteria is fully met by the final assistant message
+
+---
+
+## OUTPUT
+
+Write 4 files in the same directory as the input trajectories:
+- `golden_trajectory_v1.json`
+- `golden_trajectory_v2.json`
+- `golden_trajectory_v3.json`
+- `golden_trajectory_v4.json`
+
+Each must be valid JSON matching `delivery-schema.json`. All 4 must have identical `meta_info`, identical user messages, but different assistant behavior. Each must independently satisfy the success criteria as a self-contained conversation.
