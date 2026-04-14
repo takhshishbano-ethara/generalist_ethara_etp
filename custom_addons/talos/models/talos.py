@@ -254,6 +254,10 @@ class Talos(models.Model):
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
     oneP_session_status = fields.Selection(related="oneP_sandbox_id.session_status")
 
+    claude_trajectory = fields.Text(string="Claude 4.6 Trajectory")
+    glm_trajectory = fields.Text(string="GLM 5 Trajectory")
+    golden_trajectory = fields.Text(string="Golden Trajectory")
+
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
         for rec in self:
