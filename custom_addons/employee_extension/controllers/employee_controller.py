@@ -559,12 +559,14 @@ class EmployeeController(http.Controller):
 
             first_day_of_month = today.replace(day=1)
             days_passed = today.day
+
             attendances = request.env['hr.attendance'].sudo().search([
                 ('employee_id', '=', employee.id),
                 ('check_in', '>=', first_day_of_month),
-                ('check_in', '<=', datetime.combine(today, time.max))
-            ])
+                ('check_in', '<=', datetime.combine(today, time.max)), ('attendance_status', '=', 'present')])
+
             # total_present = len(attendances.mapped(lambda a: a.check_in.date() if a.check_in else ""))
+
             present_dates = []
             for att in attendances:
                 if att.check_in and isinstance(att.check_in, datetime):
@@ -601,6 +603,7 @@ class EmployeeController(http.Controller):
                 ('date_to', '<=', datetime.combine(today, time.max))
             ])
             leave_taken = sum(leaves.mapped('number_of_days'))
+            absent = working_days_count - total_present - leave_taken
             return return_Response(
                 message="Employee details",
                 status=200,
@@ -637,6 +640,7 @@ class EmployeeController(http.Controller):
                     'this_month_total_present': total_present,
                     'this_month_total_working_days': working_days_count,
                     'leave_taken': leave_taken,
+                    'absent': absent,
                     'avg_punch_in_time': avg_punch_in
                 }}
             )
@@ -712,8 +716,8 @@ class EmployeeController(http.Controller):
                     return round(percentage, 2), total
 
                 this_week_prod, _ = get_prod_stats(emp.id, start_this_week, today)
-                task_record = request.env['task.forge.log'].sudo().search_count([('employee_id', '=', employee.id), ('date', '=', today)])
-                active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
+                task_record = request.env['task.forge.log'].sudo().search_count([('employee_id', '=', emp.id), ('date', '=', today)])
+                active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', emp.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
                 current_status, _ =  self.get_employee_current_status(emp)
                 vals = {
                     'id': emp.id if emp else 0,
@@ -913,7 +917,7 @@ class EmployeeController(http.Controller):
                                         request.env.ref('api_auth_gateway.role_tasker_stem'),
                                         request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
                     temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
-            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical'), request.env.ref('api_auth_gateway.role_pl_stem'), request.env.ref('api_auth_gateway.role_pl_non_stem')]:
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 pl_emp_id = employee.id
                 for role in [request.env.ref('api_auth_gateway.role_qc_technical'),
                                          request.env.ref('api_auth_gateway.role_qc_stem'),
@@ -922,7 +926,7 @@ class EmployeeController(http.Controller):
                                         request.env.ref('api_auth_gateway.role_tasker_stem'),
                                         request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
                     temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
-            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical'), request.env.ref('api_auth_gateway.role_qc_stem'), request.env.ref('api_auth_gateway.role_qc_non_stem')]:
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
                 pl_emp_id = employee.task_forge_pl_id.id
                 qr_emp_id = employee.id
                 for role in [request.env.ref('api_auth_gateway.role_tasker_technical'),
