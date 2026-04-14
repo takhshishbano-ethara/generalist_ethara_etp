@@ -67,7 +67,7 @@ class KuberhaNotificationRestAPI(http.Controller):
             page = int(jdata.get('page', 1))
             limit = int(jdata.get('limit', 10))
             offset = (page - 1) * limit
-            domain = [('user_id', '=', user_id.id)]
+            domain = []
 
             if jdata.get('target_user_id'):
                 domain = [('user_id', '=', int(jdata.get('target_user_id')))]
@@ -129,6 +129,27 @@ class KuberhaNotificationRestAPI(http.Controller):
                 "unread_message_count": unread_message_count
             }
             return return_Response(res, 200)
+
+        except Exception as e:
+            msg = {"message": f"Something went wrong: {str(e)}", "status_code": 400}
+            return return_Response(msg, 400)
+
+    @validate_token
+    @http.route(['/api/v1/get_notification_user_list'], methods=['GET'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({})
+    def get_notification_user_list(self, **params):
+        try:
+            temp = []
+            for user in request.env['res.users'].sudo().search([]):
+                temp.append({
+                    'id': user.id,
+                    'name': user.name
+                })
+            return return_Response({
+                "status_code": 200,
+                "message": "Success",
+                "record": temp
+            }, 200)
 
         except Exception as e:
             msg = {"message": f"Something went wrong: {str(e)}", "status_code": 400}
