@@ -740,12 +740,13 @@ class EmployeeController(http.Controller):
                     'active': emp.active or False,
                     'last_active': str(active_task.write_date) if active_task else ""
                 }
-                if kwargs.get('status') == 'offline' and current_status == 'Offline':
-                    data.append(vals)
-                elif kwargs.get('status') == 'active' and current_status == 'Active':
-                    data.append(vals)
-                elif kwargs.get('status') == 'idle' and current_status == 'Idle':
-                    data.append(vals)
+                if kwargs.get('status'):
+                    if kwargs.get('status') == 'offline' and current_status == 'Offline':
+                        data.append(vals)
+                    elif kwargs.get('status') == 'active' and current_status == 'Active':
+                        data.append(vals)
+                    elif kwargs.get('status') == 'idle' and current_status == 'Idle':
+                        data.append(vals)
                 else:
                     data.append(vals)
 
