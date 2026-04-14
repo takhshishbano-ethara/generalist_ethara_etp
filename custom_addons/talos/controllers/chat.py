@@ -54,6 +54,8 @@ class TalosChatController(http.Controller):
         run_id="",
         timestamp="",
         partial=False,
+        trajectory_input_tokens=0,
+        trajectory_output_tokens=0,
         **kw,
     ):
         turn_id = int(turn_id or 0)
@@ -77,13 +79,26 @@ class TalosChatController(http.Controller):
             vals["tool_calls"] = tool_calls
         if raw_events:
             vals["raw_events"] = raw_events
+        if trajectory_input_tokens:
+            vals["trajectory_input_tokens"] = int(trajectory_input_tokens)
+        if trajectory_output_tokens:
+            vals["trajectory_output_tokens"] = int(trajectory_output_tokens)
 
         turn.write(vals)
 
         return {"success": True}
 
     @http.route("/talos/chat/save_qc", type="json", auth="user")
-    def save_qc(self, turn_id=0, severity="", qc_response="", dismiss_reason="", **kw):
+    def save_qc(
+        self,
+        turn_id=0,
+        severity="",
+        qc_response="",
+        dismiss_reason="",
+        bedrock_input_tokens=0,
+        bedrock_output_tokens=0,
+        **kw,
+    ):
         turn_id = int(turn_id or 0)
         if not turn_id:
             return {"error": "turn_id is required"}
@@ -104,6 +119,10 @@ class TalosChatController(http.Controller):
             vals["qc_response"] = qc_response
         if dismiss_reason:
             vals["qc_dismiss_reason"] = dismiss_reason
+        if bedrock_input_tokens:
+            vals["bedrock_input_tokens"] = int(bedrock_input_tokens)
+        if bedrock_output_tokens:
+            vals["bedrock_output_tokens"] = int(bedrock_output_tokens)
 
         turn.write(vals)
         return {"success": True}

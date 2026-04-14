@@ -940,6 +940,10 @@ class TalosTurn(models.Model):
     )
     qc_response = fields.Text(string="QC Response (JSON)")
     qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
+    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
+    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
+    trajectory_input_tokens = fields.Integer(string="Trajectory Input Tokens", default=0)
+    trajectory_output_tokens = fields.Integer(string="Trajectory Output Tokens", default=0)
     tool_names = fields.Char(
         string="Tools Used", compute="_compute_tool_names", store=True
     )

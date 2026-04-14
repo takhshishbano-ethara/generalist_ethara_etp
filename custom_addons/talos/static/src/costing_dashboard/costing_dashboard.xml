@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="talos.CostingDashboard">
+        <div class="o_talos_costing">
+            <div class="o_talos_costing_header">
+                <div class="o_talos_costing_title_row">
+                    <h2 class="o_talos_costing_title">Token Usage</h2>
+                    <span class="o_talos_costing_date_range" t-out="dateRangeLabel"/>
+                </div>
+                <div class="o_talos_costing_periods">
+                    <t t-foreach="periods" t-as="p" t-key="p.key">
+                        <button t-attf-class="o_talos_period_btn #{state.period === p.key ? 'active' : ''}"
+                                t-on-click="() => this.onPeriodChange(p.key)">
+                            <t t-out="p.label"/>
+                        </button>
+                    </t>
+                </div>
+            </div>
+
+            <div t-if="state.totals" class="o_talos_costing_summary">
+                <div class="o_talos_summary_card">
+                    <div class="o_talos_summary_label">Bedrock QC Tokens</div>
+                    <div class="o_talos_summary_value bedrock" t-out="formatNumber(state.totals.bedrock_total)"/>
+                    <div class="o_talos_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.bedrock_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.bedrock_output)"/></span>
+                    </div>
+                </div>
+                <div class="o_talos_summary_card">
+                    <div class="o_talos_summary_label">Trajectory Tokens</div>
+                    <div class="o_talos_summary_value trajectory" t-out="formatNumber(state.totals.trajectory_total)"/>
+                    <div class="o_talos_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.trajectory_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.trajectory_output)"/></span>
+                    </div>
+                </div>
+                <div class="o_talos_summary_card grand">
+                    <div class="o_talos_summary_label">Total Tokens</div>
+                    <div class="o_talos_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
+                </div>
+            </div>
+
+            <div t-if="state.loading" class="o_talos_costing_loading">
+                <i class="fa fa-spinner fa-spin fa-2x"/>
+            </div>
+
+            <div t-elif="state.rows.length === 0" class="o_talos_costing_empty">
+                <i class="fa fa-bar-chart fa-3x mb-3"/>
+                <p>No token usage data for this period.</p>
+            </div>
+
+            <div t-else="" class="o_talos_costing_table_wrap">
+                <table class="o_talos_costing_table">
+                    <thead>
+                        <tr>
+                            <th class="col-employee" t-on-click="() => this.onSort('employee_name')">
+                                Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
+                            </th>
+                            <th class="col-num" t-on-click="() => this.onSort('bedrock_input')">
+                                Bedrock In <i t-attf-class="fa #{sortIcon('bedrock_input')} ms-1"/>
+                            </th>
+                            <th class="col-num" t-on-click="() => this.onSort('bedrock_output')">
+                                Bedrock Out <i t-attf-class="fa #{sortIcon('bedrock_output')} ms-1"/>
+                            </th>
+                            <th class="col-num col-subtotal" t-on-click="() => this.onSort('bedrock_total')">
+                                Bedrock Total <i t-attf-class="fa #{sortIcon('bedrock_total')} ms-1"/>
+                            </th>
+                            <th class="col-num" t-on-click="() => this.onSort('trajectory_input')">
+                                Trajectory In <i t-attf-class="fa #{sortIcon('trajectory_input')} ms-1"/>
+                            </th>
+                            <th class="col-num" t-on-click="() => this.onSort('trajectory_output')">
+                                Trajectory Out <i t-attf-class="fa #{sortIcon('trajectory_output')} ms-1"/>
+                            </th>
+                            <th class="col-num col-subtotal" t-on-click="() => this.onSort('trajectory_total')">
+                                Trajectory Total <i t-attf-class="fa #{sortIcon('trajectory_total')} ms-1"/>
+                            </th>
+                            <th class="col-num col-grand" t-on-click="() => this.onSort('grand_total')">
+                                Grand Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="sortedRows" t-as="row" t-key="row.employee_id">
+                            <tr>
+                                <td class="col-employee">
+                                    <i class="fa fa-user-circle me-2"/>
+                                    <t t-out="row.employee_name"/>
+                                </td>
+                                <td class="col-num" t-out="formatNumber(row.bedrock_input)"/>
+                                <td class="col-num" t-out="formatNumber(row.bedrock_output)"/>
+                                <td class="col-num col-subtotal" t-out="formatNumber(row.bedrock_total)"/>
+                                <td class="col-num" t-out="formatNumber(row.trajectory_input)"/>
+                                <td class="col-num" t-out="formatNumber(row.trajectory_output)"/>
+                                <td class="col-num col-subtotal" t-out="formatNumber(row.trajectory_total)"/>
+                                <td class="col-num col-grand" t-out="formatNumber(row.grand_total)"/>
+                            </tr>
+                        </t>
+                    </tbody>
+                    <tfoot t-if="state.totals">
+                        <tr>
+                            <td class="col-employee"><strong>Totals</strong></td>
+                            <td class="col-num" t-out="formatNumber(state.totals.bedrock_input)"/>
+                            <td class="col-num" t-out="formatNumber(state.totals.bedrock_output)"/>
+                            <td class="col-num col-subtotal" t-out="formatNumber(state.totals.bedrock_total)"/>
+                            <td class="col-num" t-out="formatNumber(state.totals.trajectory_input)"/>
+                            <td class="col-num" t-out="formatNumber(state.totals.trajectory_output)"/>
+                            <td class="col-num col-subtotal" t-out="formatNumber(state.totals.trajectory_total)"/>
+                            <td class="col-num col-grand" t-out="formatNumber(state.totals.grand_total)"/>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </t>
+</templates>

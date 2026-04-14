@@ -1,0 +1,266 @@
+.o_talos_costing {
+    padding: 24px 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    font-family: inherit;
+}
+
+.o_talos_costing_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.o_talos_costing_title_row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.o_talos_costing_title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--o-text-color, #212529);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.o_talos_costing_date_range {
+    font-size: 13px;
+    color: var(--o-text-color-muted, #6c757d);
+    font-weight: 500;
+}
+
+.o_talos_costing_periods {
+    display: flex;
+    gap: 4px;
+    background: var(--o-gray-100, #f1f3f5);
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.o_talos_period_btn {
+    padding: 6px 16px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--o-text-color-muted, #6c757d);
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--o-text-color, #212529);
+    }
+
+    &.active {
+        background: #fff;
+        color: var(--o-brand-primary, #714B67);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+}
+
+.o_talos_costing_summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.o_talos_summary_card {
+    background: #fff;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 10px;
+    padding: 18px 20px;
+    transition: box-shadow 0.15s ease;
+
+    &:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    &.grand {
+        background: linear-gradient(135deg, #f8f5ff 0%, #f0e8ff 100%);
+        border-color: rgba(113, 75, 103, 0.2);
+    }
+}
+
+.o_talos_summary_label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--o-text-color-muted, #6c757d);
+    margin-bottom: 6px;
+}
+
+.o_talos_summary_value {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+
+    &.bedrock {
+        color: #2563eb;
+    }
+
+    &.trajectory {
+        color: #059669;
+    }
+
+    &.grand {
+        color: var(--o-brand-primary, #714B67);
+    }
+}
+
+.o_talos_summary_sub {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--o-text-color-muted, #6c757d);
+
+    strong {
+        color: var(--o-text-color, #212529);
+        font-weight: 600;
+    }
+}
+
+.o_talos_costing_loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 0;
+    color: var(--o-text-color-muted, #6c757d);
+}
+
+.o_talos_costing_empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 0;
+    color: var(--o-text-color-muted, #6c757d);
+
+    p {
+        margin: 0;
+        font-size: 15px;
+    }
+}
+
+.o_talos_costing_table_wrap {
+    background: #fff;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.o_talos_costing_table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+
+    thead {
+        background: var(--o-gray-100, #f8f9fa);
+
+        th {
+            padding: 12px 14px;
+            font-weight: 600;
+            color: var(--o-text-color-muted, #6c757d);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            border-bottom: 2px solid var(--o-border-color, #dee2e6);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            transition: color 0.1s;
+
+            &:hover {
+                color: var(--o-text-color, #212529);
+            }
+
+            .fa {
+                font-size: 10px;
+                opacity: 0.5;
+            }
+        }
+    }
+
+    tbody {
+        tr {
+            border-bottom: 1px solid var(--o-border-color, #dee2e6);
+            transition: background 0.1s;
+
+            &:last-child {
+                border-bottom: none;
+            }
+
+            &:hover {
+                background: rgba(113, 75, 103, 0.02);
+            }
+        }
+
+        td {
+            padding: 11px 14px;
+            color: var(--o-text-color, #212529);
+        }
+    }
+
+    tfoot {
+        background: var(--o-gray-100, #f8f9fa);
+        border-top: 2px solid var(--o-border-color, #dee2e6);
+
+        td {
+            padding: 12px 14px;
+            font-weight: 700;
+            color: var(--o-text-color, #212529);
+        }
+    }
+
+    .col-employee {
+        text-align: left;
+        min-width: 160px;
+
+        .fa {
+            color: var(--o-text-color-muted, #6c757d);
+            font-size: 14px;
+        }
+    }
+
+    .col-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        min-width: 100px;
+    }
+
+    .col-subtotal {
+        font-weight: 600;
+        color: var(--o-text-color, #212529) !important;
+        background: rgba(0, 0, 0, 0.015);
+    }
+
+    .col-grand {
+        font-weight: 700;
+        color: var(--o-brand-primary, #714B67) !important;
+        background: rgba(113, 75, 103, 0.04);
+    }
+}
+
+@media (max-width: 768px) {
+    .o_talos_costing {
+        padding: 16px;
+    }
+
+    .o_talos_costing_summary {
+        grid-template-columns: 1fr;
+    }
+
+    .o_talos_costing_table_wrap {
+        overflow-x: auto;
+    }
+}
