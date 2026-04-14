@@ -31,7 +31,7 @@ MODEL_TYPES = [
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.6",
     "glm": "litellm/glm-5",
-    "1p": None,
+    "1p": "litellm/quiet_sand",
 }
 
 GATEWAY_PORT_BASE = 19000
@@ -437,8 +437,6 @@ class TalosSandbox(models.Model):
 
     def action_start_sandbox(self):
         self.ensure_one()
-        if self.model_type == "1p":
-            raise UserError("1P sandboxes cannot be started automatically.")
         if not self.talos_id:
             raise UserError(
                 "Sandbox is not linked to a task (sandbox_id=%s)." % self.id
@@ -457,8 +455,6 @@ class TalosSandbox(models.Model):
 
     def action_stop_sandbox(self):
         self.ensure_one()
-        if self.model_type == "1p":
-            raise UserError("1P sandboxes cannot be stopped automatically.")
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -546,8 +542,6 @@ class TalosSandbox(models.Model):
         project_name = "talos-%d-%s" % (self.talos_id.id, self.model_type)
         gateway_port, litellm_port, db_port = self._allocate_ports()
 
-        self.write({"docker_status": "starting", "docker_error": False})
-
         try:
             workdir = self._prepare_workdir(
                 persona, gateway_token, gateway_port, litellm_port, db_port
@@ -562,6 +556,17 @@ class TalosSandbox(models.Model):
             return
 
         compose_env = self._build_compose_env(gateway_token)
+
+        self.write({
+            "docker_compose_project": project_name,
+            "docker_status": "starting",
+            "docker_port": gateway_port,
+            "docker_litellm_port": litellm_port,
+            "docker_gateway_token": gateway_token,
+            "docker_workdir": workdir,
+            "docker_error": False,
+        })
+        self.env.cr.commit()
 
         cmd = compose_bin + [
             "-f",
@@ -591,22 +596,10 @@ class TalosSandbox(models.Model):
                 self.write(
                     {
                         "docker_status": "error",
-                        "docker_error": "Compose up failed: %s" % error_msg[:1000],
+                        "docker_error": "Compose up failed (exit %d): %s" % (result.returncode, error_msg[:1000]),
                     }
                 )
                 return
-
-            self.write(
-                {
-                    "docker_compose_project": project_name,
-                    "docker_status": "starting",
-                    "docker_port": gateway_port,
-                    "docker_litellm_port": litellm_port,
-                    "docker_gateway_token": gateway_token,
-                    "docker_workdir": workdir,
-                    "docker_error": False,
-                }
-            )
 
             healthy = self._wait_for_health(compose_bin, project_name, workdir)
 
@@ -886,6 +879,20 @@ class TalosSandbox(models.Model):
                     "contextWindow": 131072,
                     "maxTokens": 32768,
                 },
+                {
+                    "id": "quiet_sand",
+                    "name": "quiet_sand",
+                    "reasoning": False,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                    },
+                    "contextWindow": 131072,
+                    "maxTokens": 32768,
+                },
             ],
         }
 
@@ -1081,6 +1088,8 @@ class TalosSandbox(models.Model):
         return env
 
     def _wait_for_health(self, compose_bin, project_name, workdir):
+        import urllib.request
+
         deadline = time.monotonic() + _HEALTH_WAIT_TIMEOUT
         while time.monotonic() < deadline:
             try:
@@ -1094,43 +1103,34 @@ class TalosSandbox(models.Model):
                     cwd=workdir,
                 )
                 output = result.stdout.strip()
-                if not output:
-                    time.sleep(_HEALTH_POLL_INTERVAL)
-                    continue
-
-                try:
-                    data = json.loads(output)
-                except json.JSONDecodeError:
-                    data = json.loads(output.splitlines()[0])
-
-                if isinstance(data, list):
-                    data = data[0] if data else {}
-
-                state = (data.get("State") or "").lower()
-                health = (data.get("Health") or "").lower()
-
-                if state in ("exited", "dead"):
-                    _logger.warning(
-                        "openclaw container exited (project=%s, state=%s)",
-                        project_name,
-                        state,
-                    )
-                    return False
-
-                if health == "healthy" or state == "running":
+                if output:
                     try:
-                        import urllib.request
+                        data = json.loads(output)
+                    except json.JSONDecodeError:
+                        data = json.loads(output.splitlines()[0])
 
-                        urllib.request.urlopen(
-                            "http://localhost:%d/healthz" % self.docker_port,
-                            timeout=5,
+                    if isinstance(data, list):
+                        data = data[0] if data else {}
+
+                    state = (data.get("State") or "").lower()
+                    if state in ("exited", "dead"):
+                        _logger.warning(
+                            "openclaw container exited (project=%s, state=%s)",
+                            project_name,
+                            state,
                         )
-                        return True
-                    except Exception:
-                        pass
-
+                        return False
             except (subprocess.TimeoutExpired, Exception) as e:
-                _logger.debug("Health poll error: %s", e)
+                _logger.debug("Health poll compose-ps error: %s", e)
+
+            try:
+                urllib.request.urlopen(
+                    "http://localhost:%d/healthz" % self.docker_port,
+                    timeout=5,
+                )
+                return True
+            except Exception:
+                pass
 
             time.sleep(_HEALTH_POLL_INTERVAL)
 
@@ -1151,7 +1151,136 @@ class TalosSandbox(models.Model):
             return ""
 
     # ------------------------------------------------------------------
-    # Cron reconciliation
+    # Status reconciliation (local Docker)
+    # ------------------------------------------------------------------
+
+    def _check_local_status(self):
+        """Check actual Docker container state and reconcile with DB status."""
+        self.ensure_one()
+        if not self.docker_compose_project:
+            # No project name → must be stopped
+            if self.docker_status not in ("stopped",):
+                self.write({"docker_status": "stopped"})
+            return
+
+        compose_bin = _compose_cmd()
+        if not compose_bin:
+            return
+
+        workdir = self.docker_workdir
+        try:
+            cmd = compose_bin + [
+                "-p", self.docker_compose_project,
+                "ps", "--format", "json", "openclaw",
+            ]
+            kw = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 10,
+                "check": False,
+            }
+            if workdir and os.path.isdir(workdir):
+                kw["cwd"] = workdir
+            result = subprocess.run(cmd, **kw)
+
+            output = result.stdout.strip()
+            if not output:
+                if self.docker_status == "starting":
+                    # Containers may not exist yet (still building image).
+                    # Leave as "starting" — the poll will check again later.
+                    return
+                if self.docker_status != "stopped":
+                    _logger.info(
+                        "[StatusCheck] No container found for project=%s sandbox=%s, marking stopped",
+                        self.docker_compose_project, self.id,
+                    )
+                    self.write({
+                        "docker_status": "stopped",
+                        "docker_compose_project": False,
+                        "docker_port": 0,
+                        "docker_litellm_port": 0,
+                        "docker_gateway_token": False,
+                        "docker_workdir": False,
+                        "docker_error": False,
+                    })
+                return
+
+            try:
+                data = json.loads(output)
+            except json.JSONDecodeError:
+                data = json.loads(output.splitlines()[0])
+
+            if isinstance(data, list):
+                data = data[0] if data else {}
+
+            state = (data.get("State") or "").lower()
+            health = (data.get("Health") or "").lower()
+
+            if state in ("exited", "dead"):
+                if self.docker_status != "error":
+                    _logger.info(
+                        "[StatusCheck] Container exited for project=%s sandbox=%s (state=%s), marking error",
+                        self.docker_compose_project, self.id, state,
+                    )
+                    self.write({
+                        "docker_status": "error",
+                        "docker_error": "Container exited unexpectedly (state=%s)" % state,
+                    })
+            elif state == "running" and health == "unhealthy":
+                # Unhealthy BEFORE healthy check — fail fast
+                if self.docker_status != "error":
+                    _logger.info(
+                        "[StatusCheck] Container unhealthy for project=%s sandbox=%s, marking error",
+                        self.docker_compose_project, self.id,
+                    )
+                    self.write({
+                        "docker_status": "error",
+                        "docker_error": "Container running but unhealthy",
+                    })
+            elif state == "running" and health in ("", "healthy"):
+                if self.docker_status != "running":
+                    _logger.info(
+                        "[StatusCheck] Container running for project=%s sandbox=%s, updating to running",
+                        self.docker_compose_project, self.id,
+                    )
+                    self.write({"docker_status": "running"})
+            elif state == "running" and health == "starting":
+                # Docker health check still running — container is up but
+                # not yet confirmed healthy.  Leave as "starting" so the
+                # frontend poll checks again in a few seconds.
+                _logger.debug(
+                    "[StatusCheck] Container running, health starting for project=%s sandbox=%s",
+                    self.docker_compose_project, self.id,
+                )
+            # else: "created", "restarting" etc → leave as "starting"
+
+        except subprocess.TimeoutExpired:
+            _logger.debug("[StatusCheck] Timed out checking status for sandbox %s", self.id)
+        except Exception as e:
+            _logger.debug("[StatusCheck] Error checking status for sandbox %s: %s", self.id, e)
+
+    def action_check_status(self):
+        """Public action: reconcile DB docker_status with actual Docker state.
+
+        Called by the frontend on page load to fix stale statuses.
+        Returns a dict mapping sandbox_id → current docker_status for the caller.
+        """
+        mode = self._deployment_mode()
+        result = {}
+        for sandbox in self:
+            if sandbox.docker_status in ("stopped",) and not sandbox.docker_compose_project:
+                result[sandbox.id] = sandbox.docker_status
+                continue
+
+            if mode == "local":
+                sandbox._check_local_status()
+            # k8s reconciliation is handled by cron
+
+            result[sandbox.id] = sandbox.docker_status
+        return result
+
+    # ------------------------------------------------------------------
+    # Cron reconciliation (k8s)
     # ------------------------------------------------------------------
 
     @api.model

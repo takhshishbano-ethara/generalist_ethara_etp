@@ -94,6 +94,12 @@ model_list:
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
+  - model_name: quiet_sand
+    litellm_params:
+      model: openai/quiet_sand
+      api_base: https://api.llama.com/v1alpha
+      api_key: os.environ/LLAMA_API_KEY
+
 litellm_settings:
   drop_params: true
   telemetry: false

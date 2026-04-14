@@ -1486,6 +1486,10 @@ export class TalosChatWidget extends Component {
     }
 
     _sendToOpenClaw(text) {
+        if (!this._session.ws || !this._session.wsConnected) {
+            console.warn(LOG_PREFIX, "WebSocket not connected, cannot send message");
+            return;
+        }
         const runId = crypto.randomUUID();
         const chatSendMsg = {
             type: "req",

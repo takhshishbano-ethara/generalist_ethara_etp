@@ -11,12 +11,6 @@
                     </span>
                 </div>
                 <div class="o_talos_card_actions">
-                    <t t-if="!props.disabled">
-                        <button class="btn btn-sm btn-outline-danger me-1" t-on-click="onGogAuthClick"
-                                title="Authenticate Google account">
-                            <i class="fa fa-google"/>
-                        </button>
-                    </t>
                     <t t-if="props.disabled">
                         <button class="btn btn-sm btn-outline-secondary" disabled="true">
                             Coming Soon
@@ -66,13 +60,6 @@
                     </div>
                 </div>
             </t>
-
-            <!-- Gog Auth Dialog -->
-            <GogAuthDialog t-if="state.showGogAuth"
-                taskId="props.taskId"
-                email="props.taskEmail || ''"
-                onClose.bind="onGogAuthClose"
-                onSuccess.bind="onGogAuthSuccess"/>
         </div>
     </t>
 </templates>

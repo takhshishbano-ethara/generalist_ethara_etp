@@ -23,6 +23,11 @@
                  decoration-danger="glm_status == 'error'"
                  decoration-info="glm_status == 'starting'"
                  decoration-muted="glm_status == 'stopped'"/>
+          <field name="oneP_status" widget="badge" string="1P"
+                 decoration-success="oneP_status == 'running'"
+                 decoration-danger="oneP_status == 'error'"
+                 decoration-info="oneP_status == 'starting'"
+                 decoration-muted="oneP_status == 'stopped'"/>
         </list>
       </field>
     </record>

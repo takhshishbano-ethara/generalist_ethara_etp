@@ -202,6 +202,15 @@ def _build_openclaw_config(gateway_token, env):
                 "contextWindow": 131072,
                 "maxTokens": 32768,
             },
+            {
+                "id": "quiet_sand",
+                "name": "quiet_sand",
+                "reasoning": False,
+                "input": ["text", "image"],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "contextWindow": 131072,
+                "maxTokens": 32768,
+            },
         ],
     }
     config_dict["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
@@ -245,6 +254,7 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_db_password = env.get("LITELLM_DB_PASSWORD", "").strip()
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
+        llama_api_key = env.get("LLAMA_API_KEY", "").strip()
 
         openclaw_image = self._get_config_param(
             "talos.openclaw_image",
@@ -270,6 +280,7 @@ class TalosSandboxK8s(models.AbstractModel):
             litellm_master_key=litellm_master_key,
             litellm_db_password=litellm_db_password,
             aws_bearer=aws_bearer,
+            llama_api_key=llama_api_key,
         )
 
         self._create_persona_configmap(
@@ -341,6 +352,7 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_master_key,
         litellm_db_password,
         aws_bearer,
+        llama_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
@@ -355,6 +367,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 "LITELLM_MASTER_KEY": litellm_master_key,
                 "LITELLM_DB_PASSWORD": litellm_db_password,
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
+                "LLAMA_API_KEY": llama_api_key,
             },
         )
         try:
@@ -649,6 +662,15 @@ class TalosSandboxK8s(models.AbstractModel):
                 client.V1EnvVar(name="DISABLE_SCHEMA_UPDATE", value="true"),
                 client.V1EnvVar(name="DISABLE_SPEND_LOGS", value="true"),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
+                client.V1EnvVar(
+                    name="LLAMA_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="LLAMA_API_KEY",
+                        ),
+                    ),
+                ),
             ],
             volume_mounts=[
                 client.V1VolumeMount(
