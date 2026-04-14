@@ -258,6 +258,18 @@ class ProjectController(http.Controller):
                     vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             project = request.env['project.project'].sudo().create(vals)
             try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'New Project Created',
+                    'message': f'Project "{project.name}" has been created.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+            try:
                 if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
                     email_body = kwargs.get('meeting_body', '')
                     meeting_info_html = f"""
@@ -439,6 +451,17 @@ class ProjectController(http.Controller):
                         vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             if vals:
                 project.sudo().write(vals)
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Project Updated',
+                        'message': f'Project "{project.name}" has been updated.',
+                        'user_id': request.env.uid,
+                        'priority': '1',
+                        'res_model': 'project.project',
+                        'res_id': project.id,
+                    })
+                except Exception:
+                    pass
                 try:
                     if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
                         email_body = kwargs.get('meeting_body', '')
@@ -814,6 +837,20 @@ class ProjectController(http.Controller):
                 mail.send()
             except Exception as e:
                 print(f"Error While Sending Mail: {e}")
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'PL Portal Updated',
+                    'message': f'Project "{project.name}" PL portal skills & teams updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Project PL Portal Updated Successfully.", status=200)
         except Exception as e:
             return return_Response(message="Operation Failed", status=500, errors=[str(e)])
@@ -905,6 +942,20 @@ class ProjectController(http.Controller):
             if vals:
                 vals['is_aire_stage_completed'] = True
                 project.sudo().write(vals)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'AIRE Portal Updated',
+                    'message': f'Project "{project.name}" AIRE portal details updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Project AIRE Portal Updated Successfully.", status=200)
 
         except Exception as e:
@@ -966,6 +1017,20 @@ class ProjectController(http.Controller):
                 vals['is_swe_stage_completed'] = True
                 vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_6', raise_if_not_found=False).id
                 project.sudo().write(vals)
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'SWE Portal Updated',
+                    'message': f'Project "{project.name}" SWE portal details updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(message="Project SWE Portal Updated Successfully.", status=200)
 
         except Exception as e:
@@ -1016,6 +1081,20 @@ class ProjectController(http.Controller):
                 'stage_id': request.env.ref('project_extension.project_project_stage_ethara_15').id,
                 'non_stemp_project_status': 'paused'
             })
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Paused',
+                    'message': f'Project "{project.name}" has been paused.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Success",
                 status=200)
@@ -1037,6 +1116,20 @@ class ProjectController(http.Controller):
                 'stage_id': request.env.ref('project_extension.project_project_stage_ethara_13').id,
                 'non_stemp_project_status': 'closed'
             })
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Closed',
+                    'message': f'Project "{project.name}" has been closed.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Success",
                 status=200)
@@ -1058,6 +1151,20 @@ class ProjectController(http.Controller):
                 'stage_id': request.env.ref('project_extension.project_project_stage_ethara_16').id,
                 'non_stemp_project_status': 'cancel'
             })
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Cancelled',
+                    'message': f'Project "{project.name}" has been cancelled.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
             return return_Response(
                 message="Success",
                 status=200)

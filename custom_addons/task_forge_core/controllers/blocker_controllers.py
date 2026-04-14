@@ -44,6 +44,7 @@ class TaskForgeBlockerController(http.Controller):
                     'priority': '2',
                     'res_model': 'task.forge.blocker',
                     'res_id': blocker.id,
+                    'project_id': blocker.project_id.id if blocker.project_id else False,
                 })
             except Exception:
                 pass
@@ -134,6 +135,7 @@ class TaskForgeBlockerController(http.Controller):
                         'priority': '1',
                         'res_model': 'task.forge.blocker',
                         'res_id': blocker.id,
+                        'project_id': blocker.project_id.id if blocker.project_id else False,
                     })
                 except Exception:
                     pass
@@ -165,6 +167,7 @@ class TaskForgeBlockerController(http.Controller):
                         'priority': '2',
                         'res_model': 'task.forge.blocker',
                         'res_id': blocker.id,
+                        'project_id': blocker.project_id.id if blocker.project_id else False,
                     })
                 except Exception:
                     pass
@@ -207,6 +210,7 @@ class TaskForgeBlockerController(http.Controller):
                     'priority': '2',
                     'res_model': 'task.forge.validated.bug',
                     'res_id': bug.id,
+                    'project_id': blocker.project_id.id if blocker.project_id else False,
                 })
             except Exception:
                 pass

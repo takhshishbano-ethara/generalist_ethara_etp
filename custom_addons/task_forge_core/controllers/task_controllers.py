@@ -162,6 +162,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -214,6 +215,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '2' if task.state == 'blocker' else '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -288,6 +290,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -342,6 +345,7 @@ class TaskForgeTaskController(http.Controller):
                     'priority': '1',
                     'res_model': 'task.forge.log',
                     'res_id': task.id,
+                    'project_id': task.project_id.id if task.project_id else False,
                 })
             except Exception:
                 pass
@@ -388,6 +392,8 @@ class TaskForgeTaskController(http.Controller):
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',
             'blocker_reason': ", ".join(Blocker.mapped('name')) if Blocker else "",
+            'blocker_count': len(Blocker),
+            'blocker_status': state.get(Blocker.mapped('state')[0]) or "" if Blocker else "",
             'quality_score': task.quality_score or 0,
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',

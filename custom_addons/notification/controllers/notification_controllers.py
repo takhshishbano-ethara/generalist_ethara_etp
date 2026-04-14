@@ -67,11 +67,28 @@ class KuberhaNotificationRestAPI(http.Controller):
             page = int(jdata.get('page', 1))
             limit = int(jdata.get('limit', 10))
             offset = (page - 1) * limit
-            domain = [('user_id', '=', user_id.id)]
+            domain = []
+
+            if jdata.get('target_user_id'):
+                domain = [('user_id', '=', int(jdata.get('target_user_id')))]
+
+            if jdata.get('date'):
+                filter_date = datetime.strptime(jdata['date'], '%Y-%m-%d')
+                domain.append(('create_date', '>=', filter_date))
+                domain.append(('create_date', '<', filter_date + timedelta(days=1)))
+
+            if jdata.get('start_date') and jdata.get('end_date'):
+                start = datetime.strptime(jdata['start_date'], '%Y-%m-%d')
+                end = datetime.strptime(jdata['end_date'], '%Y-%m-%d') + timedelta(days=1)
+                domain.append(('create_date', '>=', start))
+                domain.append(('create_date', '<', end))
+
             if jdata.get('id'):
                 domain.append(('id', '=', int(jdata.get('id'))))
             if jdata.get('priority'):
                 domain.append(('priority', '=', jdata.get('priority')))
+            if jdata.get('project_id'):
+                domain.append(('project_id', '=', int(jdata.get('project_id'))))
             if jdata.get('status'):
                 if jdata.get('status') == 'read':
                     domain.append(('is_read', '=', True))
@@ -96,9 +113,10 @@ class KuberhaNotificationRestAPI(http.Controller):
                     'res_id':  safe_get_value(rec, 'res_id', 'int'),
                     'is_read': safe_get_value(rec, 'is_read', 'bool'),
                     'create_date': date,
-                    # 'write_date': safe_get_value(rec,'write_date', 'datetime'),
                     'write_date': date,
-                    'redirect_url': safe_get_value(rec,'redirect_url', 'str')
+                    'redirect_url': safe_get_value(rec,'redirect_url', 'str'),
+                    'project_id': rec.project_id.id if rec.project_id else 0,
+                    'project_name': rec.project_id.name if rec.project_id else "",
                 }
 
                 temp.append(vals)
@@ -111,6 +129,126 @@ class KuberhaNotificationRestAPI(http.Controller):
                 "unread_message_count": unread_message_count
             }
             return return_Response(res, 200)
+
+        except Exception as e:
+            msg = {"message": f"Something went wrong: {str(e)}", "status_code": 400}
+            return return_Response(msg, 400)
+
+    @validate_token
+    @http.route(['/api/v1/get_notification_user_list'], methods=['GET'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({})
+    def get_notification_user_list(self, **params):
+        try:
+            temp = []
+            for user in request.env['res.users'].sudo().search([]):
+                temp.append({
+                    'id': user.id,
+                    'name': user.name
+                })
+            return return_Response({
+                "status_code": 200,
+                "message": "Success",
+                "record": temp
+            }, 200)
+
+        except Exception as e:
+            msg = {"message": f"Something went wrong: {str(e)}", "status_code": 400}
+            return return_Response(msg, 400)
+
+    @validate_token
+    @http.route(['/api/v1/get_notification_grouped'], methods=['GET'], type='http', auth='public', csrf=False, cors='*')
+    @validate_request({})
+    def get_notification_grouped(self, **params):
+        """
+        Returns notifications grouped: today-{date}, tomorrow-{date}, older.
+        Optionally filtered by project_id.
+        """
+        try:
+            IST_OFFSET = timedelta(hours=5, minutes=30)
+            try:
+                user_id = request.env['res.users'].sudo().browse(self.env.uid)
+            except Exception:
+                user_id = request.env['res.users'].sudo().browse(request.env.uid)
+
+            jdata = params.get('jdata')
+            Notification = request.env['kubera.notification'].sudo()
+
+            base_domain = [('user_id', '=', user_id.id)]
+            if jdata.get('target_user_id'):
+                base_domain = [('user_id', '=', int(jdata.get('target_user_id')))]
+            if jdata.get('project_id'):
+                base_domain.append(('project_id', '=', int(jdata.get('project_id'))))
+            if jdata.get('priority'):
+                base_domain.append(('priority', '=', jdata.get('priority')))
+            if jdata.get('status'):
+                if jdata.get('status') == 'read':
+                    base_domain.append(('is_read', '=', True))
+                else:
+                    base_domain.append(('is_read', '=', False))
+
+            now_ist = datetime.utcnow() + IST_OFFSET
+            today_ist = now_ist.date()
+            tomorrow_ist = today_ist + timedelta(days=1)
+
+            today_start_utc = datetime.combine(today_ist, datetime.min.time()) - IST_OFFSET
+            today_end_utc = today_start_utc + timedelta(days=1)
+            tomorrow_start_utc = today_end_utc
+            tomorrow_end_utc = tomorrow_start_utc + timedelta(days=1)
+
+            def format_date_key(prefix, dt):
+                return f"{prefix}-{dt.strftime('%-d-%B-%Y')}"
+
+            def format_records(records):
+                result = []
+                for rec in records:
+                    date_str = str(rec.create_date + IST_OFFSET) if rec.create_date else ""
+                    result.append({
+                        'id': safe_get_value(rec, 'id', 'int'),
+                        'title': safe_get_value(rec, 'title', 'str'),
+                        'message': safe_get_value(rec, 'message', 'str'),
+                        'status': safe_get_value(rec, 'status', 'str'),
+                        'res_model': safe_get_value(rec, 'res_model', 'str'),
+                        'priority': safe_get_value(rec, 'priority', 'str'),
+                        'res_id': safe_get_value(rec, 'res_id', 'int'),
+                        'is_read': safe_get_value(rec, 'is_read', 'bool'),
+                        'create_date': date_str,
+                        'write_date': date_str,
+                        'redirect_url': safe_get_value(rec, 'redirect_url', 'str'),
+                        'project_id': rec.project_id.id if rec.project_id else 0,
+                        'project_name': rec.project_id.name if rec.project_id else "",
+                    })
+                return result
+
+            today_recs = Notification.search(
+                base_domain + [('create_date', '>=', today_start_utc), ('create_date', '<', today_end_utc)],
+                order='id desc',
+            )
+            tomorrow_recs = Notification.search(
+                base_domain + [('create_date', '>=', tomorrow_start_utc), ('create_date', '<', tomorrow_end_utc)],
+                order='id desc',
+            )
+            older_recs = Notification.search(
+                base_domain + [('create_date', '<', today_start_utc)],
+                order='id desc',
+            )
+
+            today_key = format_date_key("Today", today_ist)
+            tomorrow_key = format_date_key("Tomorrow", tomorrow_ist)
+
+            data = {
+                today_key: format_records(today_recs),
+                tomorrow_key: format_records(tomorrow_recs),
+                'older': format_records(older_recs),
+            }
+
+            return return_Response({
+                "status_code": 200,
+                "message": "Success",
+                "record": data,
+                "today_count": len(today_recs),
+                "tomorrow_count": len(tomorrow_recs),
+                "older_count": len(older_recs)
+            }, 200)
 
         except Exception as e:
             msg = {"message": f"Something went wrong: {str(e)}", "status_code": 400}

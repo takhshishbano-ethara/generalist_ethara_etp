@@ -69,6 +69,7 @@ class TaskForgeProjectController(http.Controller):
                     'priority': '1',
                     'res_model': 'project.project',
                     'res_id': project.id,
+                    'project_id': project.id,
                 })
             except Exception:
                 pass
@@ -120,6 +121,7 @@ class TaskForgeProjectController(http.Controller):
                     'priority': '1',
                     'res_model': 'project.project',
                     'res_id': project.id,
+                    'project_id': project.id,
                 })
             except Exception:
                 pass

@@ -906,32 +906,49 @@ class EmployeeController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
             pl_emp_id = 0
             qr_emp_id = 0
-            if user.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
-                for role in [request.env.ref('api_auth_gateway.role_qc_technical'),
-                                         request.env.ref('api_auth_gateway.role_qc_stem'),
-                                         request.env.ref('api_auth_gateway.role_qc_non_stem'),
-                                         request.env.ref('api_auth_gateway.role_pl_technical'),
-                                         request.env.ref('api_auth_gateway.role_pl_stem'),
-                                         request.env.ref('api_auth_gateway.role_pl_non_stem'),
-                                        request.env.ref('api_auth_gateway.role_tasker_technical'),
-                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
-                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
-                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
-            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+            # if user.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+            #     for role in [request.env.ref('api_auth_gateway.role_qc_stem'),
+            #                  request.env.ref('api_auth_gateway.role_qc_technical'),
+            #                  request.env.ref('api_auth_gateway.role_pl_stem'),
+            #                  request.env.ref('api_auth_gateway.role_pl_technical'),
+            #                  request.env.ref('api_auth_gateway.role_qc_non_stem'),
+            #                  request.env.ref('api_auth_gateway.role_pl_non_stem'),
+            #                  request.env.ref('api_auth_gateway.role_tasker_technical'),
+            #                  request.env.ref('api_auth_gateway.role_tasker_stem'),
+            #                  request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+            #         temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 pl_emp_id = employee.id
-                for role in [request.env.ref('api_auth_gateway.role_qc_technical'),
-                                         request.env.ref('api_auth_gateway.role_qc_stem'),
-                                         request.env.ref('api_auth_gateway.role_qc_non_stem'),
-                                        request.env.ref('api_auth_gateway.role_tasker_technical'),
-                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
-                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                for role in [request.env.ref('api_auth_gateway.role_qc_non_stem'), request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
                     temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
-            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id]:
+                pl_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_qc_technical'), request.env.ref('api_auth_gateway.role_tasker_technical')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_stem').id]:
+                pl_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_qc_stem'), request.env.ref('api_auth_gateway.role_tasker_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_stem').id]:
                 pl_emp_id = employee.task_forge_pl_id.id
                 qr_emp_id = employee.id
-                for role in [request.env.ref('api_auth_gateway.role_tasker_technical'),
-                                        request.env.ref('api_auth_gateway.role_tasker_stem'),
-                                        request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                for role in [request.env.ref('api_auth_gateway.role_tasker_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                pl_emp_id = employee.task_forge_pl_id.id
+                qr_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_tasker_non_stem')]:
+                    temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
+
+            elif user.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id]:
+                pl_emp_id = employee.task_forge_pl_id.id
+                qr_emp_id = employee.id
+                for role in [request.env.ref('api_auth_gateway.role_tasker_technical')]:
                     temp.append({'id': role.id, 'name': role.name,'project_type': role.project_type})
             else:
                 domain = []
