@@ -92,6 +92,20 @@ class TaskForgeBlockerController(http.Controller):
             if kwargs.get('project_id'):
                 domain.append(('project_id', '=', int(kwargs.get('project_id'))))
 
+            if kwargs.get('search'):
+                domain.append(('name', 'ilike', kwargs.get('search')))
+
+            if kwargs.get('status'):
+                domain.append(('state', 'in', [kwargs.get('status')]))
+
+            if kwargs.get('priority'):
+                domain.append(('priority', '=', kwargs.get('priority')))
+
+            if kwargs.get('assignee'):
+                domain.append('|')
+                domain.append(('qr_id', '=', int(kwargs.get('assignee'))))
+                domain.append(('pl_id', '=', int(kwargs.get('assignee'))))
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
@@ -256,3 +270,26 @@ class TaskForgeBlockerController(http.Controller):
             'validated_bug_id': b.validated_bug_id.id if b.validated_bug_id else 0,
             'created_at': b.create_date.isoformat() if b.create_date else '',
         }
+
+    @http.route('/api/v2/get_blocker_assignee_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({'project_id': {'type': 'str', 'required': True}})
+    def get_blocker_assignee_list(self, **kwargs):
+        temp = []
+        try:
+            project_id = int(kwargs.get('project_id'))
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+            for emp in project.project_lead | project.project_qc_reviewer:
+                temp.append({
+                    'id': emp.id,
+                    'name': emp.name
+                })
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)

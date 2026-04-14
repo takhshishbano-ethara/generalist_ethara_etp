@@ -237,59 +237,100 @@ class TaskForgeLeaveController(http.Controller):
     def leave_hierarchy(self, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
-                return return_Response(message="Admin access required", status=403)
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
 
             Employee = request.env['hr.employee'].sudo()
             Leave = request.env['hr.leave'].sudo()
             today = datetime.now().date()
-            pls = Employee.search([('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_non_stem').id, request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id])])
-            hierarchy = []
+            role = employee._get_task_forge_role()
 
-            for pl in pls:
-                pl_leaves = Leave.search_count([
-                    ('employee_id', '=', pl.id),
-                    ('date_from', '<=', today),
-                    ('date_to', '>=', today),
-                    ('state', '=', 'validate'),
+            if role == 'admin':
+                # CTO: full tree — all PLs → their QRs → their Taskers
+                pls = Employee.search([
+                    ('user_id.user_role', 'in', [
+                        request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                        request.env.ref('api_auth_gateway.role_pl_technical').id,
+                        request.env.ref('api_auth_gateway.role_pl_stem').id,
+                    ])
                 ])
-                qrs = Employee.search([('task_forge_pl_id', '=', pl.id), ('task_forge_active', '=', True)])
-                qr_data = []
-                for qr in qrs:
-                    taskers = Employee.search([('task_forge_qr_id', '=', qr.id), ('task_forge_active', '=', True)])
-                    tasker_data = []
-                    for t in taskers:
-                        on_leave = Leave.search_count([
-                            ('employee_id', '=', t.id),
-                            ('date_from', '<=', today),
-                            ('date_to', '>=', today),
-                            ('state', '=', 'validate'),
-                        ])
-                        pending = Leave.search_count([
-                            ('employee_id', '=', t.id),
-                            ('state', '=', 'confirm'),
-                        ])
-                        tasker_data.append({
-                            'id': t.id,
-                            'name': t.name,
-                            'on_leave': bool(on_leave),
-                            'pending_leaves': pending,
-                        })
-                    qr_data.append({
-                        'id': qr.id,
-                        'name': qr.name,
-                        'taskers': tasker_data,
-                    })
-                hierarchy.append({
-                    'id': pl.id,
-                    'name': pl.name,
-                    'on_leave': bool(pl_leaves),
-                    'qrs': qr_data,
-                })
+                hierarchy = []
+                for pl in pls:
+                    hierarchy.append(self._build_pl_node(pl, Employee, Leave, today))
+                return return_Response(message="Leave hierarchy", status=200, data={'data': hierarchy})
 
-            return return_Response(message="Leave hierarchy", status=200, data={'data': hierarchy})
+            elif role == 'pl':
+                # PL: own subtree — self as PL → their QRs → their Taskers
+                hierarchy = [self._build_pl_node(employee, Employee, Leave, today)]
+                return return_Response(message="Leave hierarchy", status=200, data={'data': hierarchy})
+
+            elif role in ('qr', 'ql'):
+                # QR/QL: own taskers with leave data
+                taskers = Employee.search([('task_forge_qr_id', '=', employee.id), ('task_forge_active', '=', True)])
+                tasker_data = [self._build_tasker_node(t, Leave, today) for t in taskers]
+                qr_node = {
+                    'id': employee.id,
+                    'name': employee.name,
+                    'on_leave': self._is_on_leave(employee, Leave, today),
+                    'pending_leaves': self._pending_leave_count(employee, Leave),
+                    'taskers': tasker_data,
+                }
+                return return_Response(message="Leave hierarchy", status=200, data={'data': [qr_node]})
+
+            else:
+                # Tasker: own leave data only
+                tasker_node = self._build_tasker_node(employee, Leave, today)
+                return return_Response(message="Leave hierarchy", status=200, data={'data': [tasker_node]})
+
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    def _is_on_leave(self, emp, Leave, today):
+        """Check if employee is on approved leave today."""
+        return bool(Leave.search_count([
+            ('employee_id', '=', emp.id),
+            ('date_from', '<=', today),
+            ('date_to', '>=', today),
+            ('state', '=', 'validate'),
+        ]))
+
+    def _pending_leave_count(self, emp, Leave):
+        """Count pending leave requests for employee."""
+        return Leave.search_count([
+            ('employee_id', '=', emp.id),
+            ('state', '=', 'confirm'),
+        ])
+
+    def _build_tasker_node(self, t, Leave, today):
+        """Build leave data node for a tasker."""
+        return {
+            'id': t.id,
+            'name': t.name,
+            'on_leave': self._is_on_leave(t, Leave, today),
+            'pending_leaves': self._pending_leave_count(t, Leave),
+        }
+
+    def _build_qr_node(self, qr, Employee, Leave, today):
+        """Build QR node with tasker subtree."""
+        taskers = Employee.search([('task_forge_qr_id', '=', qr.id), ('task_forge_active', '=', True)])
+        return {
+            'id': qr.id,
+            'name': qr.name,
+            'on_leave': self._is_on_leave(qr, Leave, today),
+            'pending_leaves': self._pending_leave_count(qr, Leave),
+            'taskers': [self._build_tasker_node(t, Leave, today) for t in taskers],
+        }
+
+    def _build_pl_node(self, pl, Employee, Leave, today):
+        """Build PL node with full QR → Tasker subtree."""
+        qrs = Employee.search([('task_forge_pl_id', '=', pl.id), ('task_forge_active', '=', True)])
+        return {
+            'id': pl.id,
+            'name': pl.name,
+            'on_leave': self._is_on_leave(pl, Leave, today),
+            'qrs': [self._build_qr_node(qr, Employee, Leave, today) for qr in qrs],
+        }
 
     def _format_leave(self, leave):
         state_map = {
