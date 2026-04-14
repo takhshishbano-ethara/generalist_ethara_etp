@@ -6,11 +6,15 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
-from odoo import models, fields, api
+from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
 from odoo.modules.module import get_module_path
+from odoo.modules.registry import Registry
 from odoo.tools import config as odoo_config
 
 _logger = logging.getLogger(__name__)
@@ -21,6 +25,177 @@ DB_PORT_BASE = 15432
 
 _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
+
+_GOLDEN_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="talos-golden")
+_GOLDEN_GENERATING = set()
+_GOLDEN_LOCK = threading.Lock()
+
+_golden_prompt_cache = None
+
+
+def _get_golden_prompt():
+    global _golden_prompt_cache
+    if _golden_prompt_cache is not None:
+        return _golden_prompt_cache
+    mod_path = get_module_path("talos")
+    if not mod_path:
+        return ""
+    path = os.path.join(mod_path, "golden_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _golden_prompt_cache = f.read().strip()
+    else:
+        _golden_prompt_cache = ""
+    return _golden_prompt_cache
+
+
+def _run_golden_generation_background(db_name, task_id, notify_partner_id):
+    try:
+        # Phase 1: read all inputs
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["talos.talos"].browse(task_id)
+            if not task.exists():
+                _logger.error("Golden gen: task %s does not exist", task_id)
+                return
+
+            claude_traj = task.claude_trajectory or ""
+            glm_traj = task.glm_trajectory or ""
+            persona = task.persona_id
+            soul_md = persona.soul_md or "" if persona else ""
+            memory_md = persona.memory_md or "" if persona else ""
+            agents_md = persona.agents_md or "" if persona else ""
+
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+            dotenv = _load_dotenv()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+
+        if not api_key:
+            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+        if not inference_arn:
+            raise RuntimeError(
+                "Bedrock Inference ARN not configured in Settings > Talos"
+            )
+
+        system_prompt = _get_golden_prompt()
+
+        delivery_schema = ""
+        schema_path = os.path.join(
+            get_module_path("talos") or "", "Delivery_Schema.json"
+        )
+        if os.path.isfile(schema_path):
+            with open(schema_path, "r") as f:
+                delivery_schema = f.read().strip()
+
+        user_message = (
+            "## Current Date\n%s\n\n"
+            "## Delivery Schema\n```json\n%s\n```\n\n"
+            "## SOUL.md\n%s\n\n"
+            "## MEMORY.md\n%s\n\n"
+            "## AGENTS.md\n%s\n\n"
+            "## Model Trajectory 1 (Claude)\n%s\n\n"
+            "## Model Trajectory 2 (GLM)\n%s"
+        ) % (
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+            delivery_schema,
+            soul_md,
+            memory_md,
+            agents_md,
+            claude_traj,
+            glm_traj,
+        )
+
+        # Phase 2: call Bedrock (long-running, no cursor held)
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=65536,
+            temperature=0.7,
+            timeout=600.0,
+        )
+        _logger.info(
+            "Golden trajectory generated for task %s (%d chars, tokens: %s)",
+            task_id,
+            len(response_text),
+            usage,
+        )
+
+        # Phase 3: write result + notify
+        for attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["talos.talos"].browse(task_id)
+                    if not task.exists():
+                        return
+                    task.write(
+                        {
+                            "golden_trajectory": response_text,
+                            "golden_status": "done",
+                            "golden_error": False,
+                        }
+                    )
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "talos/golden_ready",
+                            {"task_id": task_id, "status": "done"},
+                        )
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and attempt < 2:
+                    time.sleep(1 + attempt)
+                    continue
+                raise
+
+    except Exception as e:
+        _logger.exception("Golden trajectory generation failed for task %s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                task = env["talos.talos"].browse(task_id)
+                if task.exists():
+                    task.write(
+                        {
+                            "golden_status": "error",
+                            "golden_error": str(e)[:1000],
+                        }
+                    )
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "talos/golden_ready",
+                            {
+                                "task_id": task_id,
+                                "status": "error",
+                                "error": str(e)[:500],
+                            },
+                        )
+        except Exception:
+            _logger.exception(
+                "Failed to write golden error status for task %s", task_id
+            )
+    finally:
+        with _GOLDEN_LOCK:
+            _GOLDEN_GENERATING.discard(task_id)
 
 
 def _format_tool_result(result):
@@ -264,6 +439,17 @@ class Talos(models.Model):
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
     oneP_trajectory = fields.Text(string="1P Trajectory")
     golden_trajectory = fields.Text(string="Golden Trajectory")
+    golden_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Golden Status",
+        default="idle",
+    )
+    golden_error = fields.Text(string="Golden Error")
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -330,6 +516,37 @@ class Talos(models.Model):
         count = len(turns)
         turns.unlink()
         _logger.info("Cleared %d turns for task %s", count, self.id)
+
+    def action_generate_golden_trajectory(self):
+        self.ensure_one()
+        if not self.claude_trajectory:
+            raise UserError(
+                "Claude trajectory is empty. Stop the Claude sandbox first."
+            )
+        if not self.glm_trajectory:
+            raise UserError("GLM trajectory is empty. Stop the GLM sandbox first.")
+        if not self.persona_id:
+            raise UserError("No persona selected.")
+
+        with _GOLDEN_LOCK:
+            if self.id in _GOLDEN_GENERATING:
+                raise UserError("Golden trajectory generation is already in progress.")
+            _GOLDEN_GENERATING.add(self.id)
+
+        self.write({"golden_status": "generating", "golden_error": False})
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        @self.env.cr.postcommit.add
+        def _queue():
+            _GOLDEN_POOL.submit(
+                _run_golden_generation_background,
+                db_name,
+                task_id,
+                notify_partner_id,
+            )
 
     # ── Trajectory export ───────────────────────────────────────
 
