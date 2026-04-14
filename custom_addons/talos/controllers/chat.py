@@ -163,6 +163,24 @@ class TalosChatController(http.Controller):
                 ):
                     vals["tool_calls"] = json.dumps(extracted)
 
+            # Extract token usage from trajectory messages
+            token_usage = self._extract_token_usage_from_trajectory(
+                trajectory_messages
+            )
+            if token_usage["input_tokens"] > 0 or token_usage["output_tokens"] > 0:
+                model_type = (
+                    turn.sandbox_id.model_type if turn.sandbox_id else ""
+                )
+                if model_type == "claude":
+                    vals["claude_input_tokens"] = token_usage["input_tokens"]
+                    vals["claude_output_tokens"] = token_usage["output_tokens"]
+                elif model_type == "glm":
+                    vals["glm_input_tokens"] = token_usage["input_tokens"]
+                    vals["glm_output_tokens"] = token_usage["output_tokens"]
+                else:
+                    vals["trajectory_input_tokens"] = token_usage["input_tokens"]
+                    vals["trajectory_output_tokens"] = token_usage["output_tokens"]
+
         if vals:
             turn.write(vals)
 
@@ -222,6 +240,36 @@ class TalosChatController(http.Controller):
                     )
 
         return list(tool_calls.values())
+
+    @staticmethod
+    def _extract_token_usage_from_trajectory(trajectory_json):
+        """Sum input_tokens / output_tokens from all messages in a trajectory.
+
+        Anthropic API responses embed usage data in the message metadata as:
+          {"usage": {"input_tokens": N, "output_tokens": N}}
+        OpenClaw gateway wraps each message as:
+          {"message": {..., "usage": {...}}, ...}
+        """
+        try:
+            messages = json.loads(trajectory_json)
+        except (json.JSONDecodeError, TypeError):
+            return {"input_tokens": 0, "output_tokens": 0}
+        if not isinstance(messages, list):
+            return {"input_tokens": 0, "output_tokens": 0}
+
+        total_in = 0
+        total_out = 0
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            usage = msg.get("usage") or {}
+            inner = msg.get("message")
+            if isinstance(inner, dict):
+                usage = usage or inner.get("usage") or {}
+            total_in += int(usage.get("input_tokens", 0))
+            total_out += int(usage.get("output_tokens", 0))
+
+        return {"input_tokens": total_in, "output_tokens": total_out}
 
     @http.route("/talos/chat/history", type="json", auth="user")
     def chat_history(self, sandbox_id=0, **kw):

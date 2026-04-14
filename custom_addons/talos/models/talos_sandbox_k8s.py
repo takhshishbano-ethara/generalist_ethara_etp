@@ -135,7 +135,6 @@ def _build_openclaw_config(gateway_token, env):
             "auth": {
                 "mode": "token",
                 "token": gateway_token,
-                "rateLimiting": False,
             },
             "trustedProxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
             "controlUi": {

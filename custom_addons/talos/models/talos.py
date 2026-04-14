@@ -944,6 +944,10 @@ class TalosTurn(models.Model):
     bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
     trajectory_input_tokens = fields.Integer(string="Trajectory Input Tokens", default=0)
     trajectory_output_tokens = fields.Integer(string="Trajectory Output Tokens", default=0)
+    claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
+    claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
+    glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
+    glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
     tool_names = fields.Char(
         string="Tools Used", compute="_compute_tool_names", store=True
     )
