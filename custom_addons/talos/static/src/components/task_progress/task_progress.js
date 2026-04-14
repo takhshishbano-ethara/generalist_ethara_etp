@@ -47,7 +47,7 @@ const STEPS = [
             in_progress: "fa-microchip",
             completed: "fa-check-circle",
         },
-        comingSoon: true,
+        comingSoon: false,
     },
 ];
 

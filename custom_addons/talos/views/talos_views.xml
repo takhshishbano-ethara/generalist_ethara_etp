@@ -88,6 +88,9 @@
               <group>
                 <field name="glm_trajectory" widget="text" nolabel="1" placeholder="GLM 5 Trajectory" readonly="1"/>
               </group>
+              <group>
+                <field name="oneP_trajectory" widget="text" nolabel="1" placeholder="1P Trajectory" readonly="1"/>
+              </group>
             </group>
             <group string="Golden Trajectory">
               <field name="golden_trajectory" widget="text" nolabel="1" placeholder="Golden Trajectory" colspan="2"/>

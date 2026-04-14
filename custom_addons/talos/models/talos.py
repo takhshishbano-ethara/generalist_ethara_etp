@@ -262,6 +262,7 @@ class Talos(models.Model):
 
     claude_trajectory = fields.Text(string="Claude 4.6 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
+    oneP_trajectory = fields.Text(string="1P Trajectory")
     golden_trajectory = fields.Text(string="Golden Trajectory")
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")

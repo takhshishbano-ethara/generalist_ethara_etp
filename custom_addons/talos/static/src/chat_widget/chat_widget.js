@@ -128,6 +128,7 @@ function _getSession(sandboxId) {
             _pendingRpc: new Map(),
             _incrementalSaveTimer: null,
             _lastSavedText: "",
+            _heartbeatTimer: null,
             qcPending: false,
             qcResult: null,
             qcDismissReason: "",
@@ -324,6 +325,10 @@ export class TalosChatWidget extends Component {
             this.state.statusText = "Sandbox not running";
             return;
         }
+        if (this._session.ws) {
+            const rs = this._session.ws.readyState;
+            if (rs === WebSocket.CONNECTING || rs === WebSocket.OPEN) return;
+        }
         const wsUrl = this.gatewayWsUrl;
         const token = this.gatewayToken;
         if (!wsUrl || !token) {
@@ -413,6 +418,7 @@ export class TalosChatWidget extends Component {
                 if (frame.ok) {
                     console.log(LOG_PREFIX, "✅ CONNECTED OK — caps:", JSON.stringify(frame.result?.caps || frame.caps || "n/a"));
                     this._session.wsConnected = true;
+                    this._startHeartbeat();
                     if (widget) {
                         widget.state.connected = true;
                         widget.state.statusText = "Connected";
@@ -630,6 +636,7 @@ export class TalosChatWidget extends Component {
             }
             this._session.wsConnected = false;
             this._session.ws = null;
+            this._stopHeartbeat();
             const widget = ws._odooWidget;
             if (widget) {
                 widget.state.connected = false;
@@ -648,6 +655,7 @@ export class TalosChatWidget extends Component {
     }
 
     _disconnectGateway() {
+        this._stopHeartbeat();
         if (this._session.ws) {
             console.log(LOG_PREFIX, "Disconnecting WS");
             try { this._session.ws.close(); } catch {}
@@ -655,6 +663,23 @@ export class TalosChatWidget extends Component {
         }
         this._session.wsConnected = false;
         this.state.connected = false;
+    }
+
+    _startHeartbeat() {
+        this._stopHeartbeat();
+        this._session._heartbeatTimer = setInterval(() => {
+            const ws = this._session.ws;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "req", id: nextId(), method: "sessions.list", params: {} }));
+            }
+        }, 30000);
+    }
+
+    _stopHeartbeat() {
+        if (this._session._heartbeatTimer) {
+            clearInterval(this._session._heartbeatTimer);
+            this._session._heartbeatTimer = null;
+        }
     }
 
     _handleChatEvent(payload, widget) {
@@ -1259,24 +1284,28 @@ export class TalosChatWidget extends Component {
     }
 
     async _saveResponse(text, toolCalls = null, rawEvents = null) {
-        if (!this._session.currentTurnId) {
+        const turnId = this._session.currentTurnId;
+        const runId = this._session.currentRunId;
+        if (!turnId) {
             console.warn(LOG_PREFIX, "💾 _saveResponse: no currentTurnId — skipping");
             return;
         }
-        console.group(`${LOG_PREFIX} 💾 _saveResponse turn=${this._session.currentTurnId}`);
+        this._session.currentTurnId = null;
+        this._session.currentRunId = null;
+        console.group(`${LOG_PREFIX} 💾 _saveResponse turn=${turnId}`);
         console.log("text length:", text?.length);
         console.log("toolCalls:", toolCalls ? toolCalls.length + " — " + JSON.stringify(toolCalls.map(t => ({name: t.name, hasResult: !!t.result}))) : "null");
         console.log("rawEvents:", rawEvents ? rawEvents.length : "null");
-        console.log("runId:", this._session.currentRunId);
+        console.log("runId:", runId);
         console.groupEnd();
         try {
             const params = {
-                turn_id: this._session.currentTurnId,
+                turn_id: turnId,
                 response: text,
                 timestamp: new Date().toISOString(),
             };
-            if (this._session.currentRunId) {
-                params.run_id = this._session.currentRunId;
+            if (runId) {
+                params.run_id = runId;
             }
             if (toolCalls && toolCalls.length > 0) {
                 params.tool_calls = JSON.stringify(toolCalls);
@@ -1288,8 +1317,6 @@ export class TalosChatWidget extends Component {
         } catch (e) {
             console.error(LOG_PREFIX, "Save response failed:", e);
         }
-        this._session.currentTurnId = null;
-        this._session.currentRunId = null;
     }
 
     _startIncrementalSave() {
@@ -1485,9 +1512,22 @@ export class TalosChatWidget extends Component {
         this._session.qcPromptText = "";
     }
 
-    _sendToOpenClaw(text) {
+    async _sendToOpenClaw(text) {
         if (!this._session.ws || !this._session.wsConnected) {
-            console.warn(LOG_PREFIX, "WebSocket not connected, cannot send message");
+            for (let i = 0; i < 5; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                if (this._session.ws && this._session.wsConnected) break;
+            }
+        }
+        if (!this._session.ws || !this._session.wsConnected) {
+            this._session.messages.push({
+                role: "assistant",
+                text: "Connection lost while processing. Please try again.",
+                html: markup(renderMarkdown("Connection lost while processing. Please try again.")),
+                isError: true,
+                pending: false,
+            });
+            this._scrollToBottom();
             return;
         }
         const runId = crypto.randomUUID();

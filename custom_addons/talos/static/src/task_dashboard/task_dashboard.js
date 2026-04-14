@@ -35,11 +35,32 @@ export class TaskDashboard extends Component {
             gogAuthDone: false,
         });
 
+        this._onSandboxStatusChanged = (ev) => {
+            this._handleSandboxStatusChanged(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "TALOS:SANDBOX_STATUS_CHANGED",
+            this._onSandboxStatusChanged,
+        );
+
         onMounted(() => {
             this._loadSandboxes();
             this._checkGogAuthStatus();
         });
-        onWillUnmount(() => this._stopPolling());
+        onWillUnmount(() => {
+            this._stopPolling();
+            this.env.bus.removeEventListener(
+                "TALOS:SANDBOX_STATUS_CHANGED",
+                this._onSandboxStatusChanged,
+            );
+        });
+    }
+
+    _handleSandboxStatusChanged(payload) {
+        const sandboxId = payload.sandbox_id;
+        delete this.state.loadingSandbox[sandboxId];
+        this._loadSandboxes();
+        this.props.record.load();
     }
 
     get taskId() {
@@ -233,8 +254,8 @@ export class TaskDashboard extends Component {
         try {
             await this.orm.call("talos.sandbox", "action_start_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
-            await this.props.record.load();
         } catch (e) {
+            delete this.state.loadingSandbox[sandboxId];
             this._setSandboxStatus(sandboxId, "error");
             delete this.state.loadingSandbox[sandboxId];
             this.notification.add(
