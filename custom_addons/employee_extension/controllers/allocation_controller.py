@@ -3,7 +3,9 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
-from datetime import datetime
+from datetime import datetime, timedelta
+
+IST_OFFSET = timedelta(hours=5, minutes=30)
 import json
 
 
@@ -239,9 +241,9 @@ class AllocationController(http.Controller):
                     'requested_by': allocation_request.requested_by.name if allocation_request.requested_by else "",
                     'requested_by_role': allocation_request.requested_by.user_role.name if allocation_request.requested_by else "",
                     'approved_by': allocation_request.approved_by.name if allocation_request.approved_by else "",
-                    'approval_date': allocation_request.approval_date.isoformat() if allocation_request.approval_date else "",
+                    'approval_date': (allocation_request.approval_date + IST_OFFSET).isoformat() if allocation_request.approval_date else "",
                     'notes': allocation_request.notes or "",
-                    'created_at': allocation_request.create_date.isoformat() if allocation_request.create_date else "",
+                    'created_at': (allocation_request.create_date + IST_OFFSET).isoformat() if allocation_request.create_date else "",
                     'assign_employees': [{'id': i.id, 'name': i.name} for i in allocation_request.assign_employees]
                 }}
             )
@@ -274,7 +276,7 @@ class AllocationController(http.Controller):
                 'state': req.state,
                 'requested_by': req.requested_by.name if req.requested_by else "",
                 'requested_by_role': req.requested_by.user_role.name if req.requested_by else "",
-                'created_at': req.create_date.isoformat() if req.create_date else "",
+                'created_at': (req.create_date + IST_OFFSET).isoformat() if req.create_date else "",
                 'assign_employees': [{'id': i.id, 'name': i.name} for i in req.assign_employees]
             } for req in requests]
 
