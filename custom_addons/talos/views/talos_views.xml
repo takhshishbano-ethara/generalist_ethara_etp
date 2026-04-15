@@ -69,6 +69,20 @@
                 <field name="email" readonly="not is_talos_admin"/>
                 <field name="password" readonly="not is_talos_admin" string="Google Password"/>
                 <field name="gog_auth" readonly="not is_talos_admin" string="GOG Auth"/>
+                <field name="outlook_username" readonly="not is_talos_admin"/>
+                <field name="outlook_password" readonly="not is_talos_admin"/>
+                <field name="eventbrite_username" readonly="not is_talos_admin"/>
+                <field name="eventbrite_password" readonly="not is_talos_admin"/>
+                <field name="strava_username" readonly="not is_talos_admin"/>
+                <field name="strava_password" readonly="not is_talos_admin"/>
+                <field name="oura_username" readonly="not is_talos_admin"/>
+                <field name="oura_password" readonly="not is_talos_admin"/>
+                <field name="instagram_username" readonly="not is_talos_admin"/>
+                <field name="instagram_password" readonly="not is_talos_admin"/>
+                <field name="facebook_username" readonly="not is_talos_admin"/>
+                <field name="facebook_password" readonly="not is_talos_admin"/>
+                <field name="threads_username" readonly="not is_talos_admin"/>
+                <field name="threads_password" readonly="not is_talos_admin"/>
               </group>
             </group>
 
