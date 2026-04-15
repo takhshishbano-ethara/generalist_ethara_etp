@@ -42,6 +42,7 @@
             <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
                 <t t-set="sbProps" t-value="this._buildSandboxProps(tab.type)"/>
                 <div t-attf-class="o_talos_dashboard_body #{state.activeTab !== tab.type ? 'o_talos_panel_hidden' : ''}">
+                    <t t-if="sbProps.taskId">
                     <SandboxCard
                         sandboxId="sbProps.sandboxId"
                         taskId="sbProps.taskId"
@@ -58,6 +59,10 @@
                         onStart.bind="onStartSandbox"
                         onStop.bind="onStopSandbox"
                     />
+                    </t>
+                    <div t-else="" class="p-4 text-muted text-center">
+                        Save the task first to enable sandboxes.
+                    </div>
                 </div>
             </t>
 

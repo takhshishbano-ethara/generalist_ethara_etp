@@ -336,14 +336,14 @@ class Talos(models.Model):
 
     @api.depends_context("uid")
     def _compute_is_talos_admin(self):
-        is_admin = self.env.user.has_group("talos.group_talos_admin")
+        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
         for rec in self:
             rec.is_talos_admin = is_admin
 
     def _search_is_talos_admin(self, operator, value):
         if operator not in ("=", "!="):
             raise ValueError("Unsupported operator")
-        is_admin = self.env.user.has_group("talos.group_talos_admin")
+        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
         if (operator == "=" and value) or (operator == "!=" and not value):
             return [] if is_admin else [("id", "=", False)]
         return [("id", "=", False)] if is_admin else []
@@ -353,7 +353,10 @@ class Talos(models.Model):
     task_status = fields.Selection(
         [("Submitted", "Submitted"), ("NotSubmitted", "Not Submitted")]
     )
-    employee_id = fields.Many2one("hr.employee")
+    employee_id = fields.Many2one(
+        "hr.employee",
+        default=lambda self: self.env.user.employee_id,
+    )
     user_id = fields.Many2one(related="employee_id.user_id")
 
     persona_id = fields.Many2one(
