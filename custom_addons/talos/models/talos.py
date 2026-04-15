@@ -398,9 +398,10 @@ class Talos(models.Model):
     )
     safety_critical = fields.Selection(
         [
-            ("high_stake_actions", "high_stake_actions"),
+            ("high_stakes_actions", "high_stakes_actions"),
             ("borderline_requests", "borderline_requests"),
             ("private_data_usage", "private_data_usage"),
+            ("N/A", "N/A"),
         ],
         string="Safety Critical",
     )
