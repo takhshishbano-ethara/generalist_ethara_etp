@@ -510,6 +510,31 @@ class Talos(models.Model):
             "target": "self",
         }
 
+    def action_delete_trajectory_entry(self, field_name, entry_index):
+        self.ensure_one()
+        valid_fields = {"claude_trajectory", "glm_trajectory", "oneP_trajectory", "golden_trajectory"}
+        if field_name not in valid_fields:
+            raise UserError(f"Invalid trajectory field: {field_name}")
+
+        raw = self[field_name] or ""
+        if not raw.strip():
+            return False
+
+        try:
+            entries = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            raise UserError("Trajectory data is corrupted.")
+
+        if not isinstance(entries, list):
+            raise UserError("Trajectory data is not in multi-session format.")
+
+        if entry_index < 0 or entry_index >= len(entries):
+            raise UserError(f"Invalid entry index: {entry_index}")
+
+        entries.pop(entry_index)
+        self.write({field_name: json.dumps(entries, indent=2, ensure_ascii=False) if entries else ""})
+        return True
+
     def action_clear_turns(self):
         self.ensure_one()
         turns = self._get_all_turns()

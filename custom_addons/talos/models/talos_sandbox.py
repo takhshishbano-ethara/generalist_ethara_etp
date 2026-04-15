@@ -816,12 +816,11 @@ class TalosSandbox(models.Model):
     def _export_trajectory_to_task(self):
         self.ensure_one()
 
-        trajectory_str = ""
+        trajectory = None
 
         jsonl_entries = self._read_session_jsonl()
         if jsonl_entries:
             trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
-            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
             _logger.info(
                 "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
                 len(jsonl_entries),
@@ -830,20 +829,45 @@ class TalosSandbox(models.Model):
             )
         elif self.turn_ids:
             trajectory = self.build_trajectory_json()
-            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
             _logger.info(
                 "Built trajectory from turns fallback (%d messages, sandbox=%s)",
                 len(trajectory.get("messages", [])),
                 self.id,
             )
 
-        if trajectory_str:
+        if trajectory:
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
-                self.talos_id.write({field_name: trajectory_str})
+                session_entry = {
+                    "session_id": secrets.token_hex(8),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "trajectory": trajectory,
+                }
+
+                existing_raw = self.talos_id[field_name] or ""
+                entries = []
+                if existing_raw.strip():
+                    try:
+                        parsed = json.loads(existing_raw)
+                        if isinstance(parsed, list):
+                            entries = parsed
+                        else:
+                            entries = [{
+                                "session_id": "legacy",
+                                "timestamp": "",
+                                "trajectory": parsed,
+                            }]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                entries.append(session_entry)
+                new_value = json.dumps(entries, indent=2, ensure_ascii=False)
+
+                self.talos_id.write({field_name: new_value})
                 _logger.info(
-                    "Saved trajectory (%d bytes) to %s for task %s",
-                    len(trajectory_str),
+                    "Appended trajectory session %s (%d total entries) to %s for task %s",
+                    session_entry["session_id"],
+                    len(entries),
                     field_name,
                     self.talos_id.id,
                 )
@@ -856,14 +880,6 @@ class TalosSandbox(models.Model):
                 turn_count,
                 self.id,
             )
-
-        turn_count = len(self.turn_ids)
-        self.turn_ids.unlink()
-        _logger.info(
-            "Cleared %d turns for sandbox %s (session isolation)",
-            turn_count,
-            self.id,
-        )
 
     def _start_k8s(self):
         if self.docker_status == "running":

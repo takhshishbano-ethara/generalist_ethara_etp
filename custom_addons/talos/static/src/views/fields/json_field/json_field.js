@@ -7,8 +7,10 @@ import { useInputField } from "@web/views/fields/input_field_hook";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { formatText } from "@web/views/fields/formatters";
 import { useRecordObserver } from "@web/model/relational_model/utils";
+import { useService } from "@web/core/utils/hooks";
 
 import { Component, markup, useRef, useState } from "@odoo/owl";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 function escapeHtml(s) {
     const div = document.createElement("div");
@@ -35,16 +37,27 @@ function syntaxHighlightJsonToHtml(jsonStr) {
     );
 }
 
-function formatJsonContent(raw) {
-    if (!raw) return "";
+function parseEntries(raw) {
+    if (!raw) return [];
     const trimmed = raw.trim();
+    if (!trimmed) return [];
     try {
         const parsed = JSON.parse(trimmed);
-        const pretty = JSON.stringify(parsed, null, 2);
-        return `<pre class="talos-json-block"><code>${syntaxHighlightJsonToHtml(pretty)}</code></pre>`;
+        if (Array.isArray(parsed)) {
+            return parsed;
+        }
+        return [{ session_id: "legacy", timestamp: "", trajectory: parsed }];
     } catch (_e) {
-        return `<pre class="talos-json-block"><code>${escapeHtml(trimmed)}</code></pre>`;
+        return [{ session_id: "raw", timestamp: "", trajectory: trimmed }];
     }
+}
+
+function renderTrajectoryHtml(trajectory) {
+    if (typeof trajectory === "string") {
+        return `<pre class="talos-json-block"><code>${escapeHtml(trajectory)}</code></pre>`;
+    }
+    const pretty = JSON.stringify(trajectory, null, 2);
+    return `<pre class="talos-json-block"><code>${syntaxHighlightJsonToHtml(pretty)}</code></pre>`;
 }
 
 export class TalosJsonField extends Component {
@@ -56,7 +69,10 @@ export class TalosJsonField extends Component {
 
     setup() {
         this.textareaRef = useRef("textarea");
-        this.state = useState({ renderedHtml: "" });
+        this.state = useState({ entries: [], deleting: -1 });
+        this.orm = useService("orm");
+        this.action = useService("action");
+        this.dialog = useService("dialog");
 
         if (!this.props.readonly) {
             useInputField({
@@ -67,17 +83,48 @@ export class TalosJsonField extends Component {
             useAutoresize(this.textareaRef, { minimumHeight: 50 });
         } else {
             useRecordObserver((record) => {
-                const raw = formatText(record.data[this.props.name]);
-                this.state.renderedHtml = formatJsonContent(raw);
+                this._updateEntries(formatText(record.data[this.props.name]));
             });
-            this.state.renderedHtml = formatJsonContent(
-                formatText(this.props.record.data[this.props.name])
-            );
+            this._updateEntries(formatText(this.props.record.data[this.props.name]));
         }
     }
 
-    get renderedMarkup() {
-        return markup(this.state.renderedHtml || "");
+    _updateEntries(raw) {
+        const parsed = parseEntries(raw);
+        this.state.entries = parsed.map((entry, idx) => ({
+            index: idx,
+            sessionId: entry.session_id || `session-${idx + 1}`,
+            timestamp: entry.timestamp || "",
+            html: markup(renderTrajectoryHtml(entry.trajectory)),
+        }));
+    }
+
+    get hasEntries() {
+        return this.state.entries.length > 0;
+    }
+
+    onDeleteEntry(index) {
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Delete Trajectory Session"),
+            body: _t("Are you sure you want to delete this generated trajectory session? This action cannot be undone."),
+            confirmLabel: _t("Delete"),
+            confirmClass: "btn-danger",
+            cancelLabel: _t("Cancel"),
+            confirm: async () => {
+                this.state.deleting = index;
+                try {
+                    await this.orm.call(
+                        "talos.talos",
+                        "action_delete_trajectory_entry",
+                        [this.props.record.resId],
+                        { field_name: this.props.name, entry_index: index }
+                    );
+                    await this.props.record.load();
+                } finally {
+                    this.state.deleting = -1;
+                }
+            },
+        });
     }
 }
 
