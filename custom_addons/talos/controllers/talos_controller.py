@@ -101,22 +101,30 @@ class Talos(http.Controller):
                 gog_auth_val = item.get('gog_auth')
                 gog_auth_str = json.dumps(gog_auth_val) if gog_auth_val else ''
 
+                creds = item.get('credentials', {})
+                gmail_creds = creds.get('gmail', {})
+
                 vals = {
                     'task_id': task_id,
                     'persona_id': persona.id,
                     'task_status': 'NotSubmitted',
-                    'task_type': item.get('task_type', ''),
-                    'difficulty': item.get('difficulty', ''),
-                    'trajectory_modifier': item.get('trajectory_modifier', ''),
-                    'safety_critical': item.get('safety_critical', ''),
+                    'task_type': (item.get('task_type') or '').strip() or False,
+                    'difficulty': (item.get('difficulty') or '').strip() or False,
+                    'trajectory_modifier': (item.get('trajectory_modifier') or '').strip() or False,
+                    'safety_critical': (item.get('safety_critical') or '').strip() or False,
                     'seed_prompt': item.get('seed prompt', ''),
                     'agent_md': item.get('agent.md', ''),
                     'soul_md': item.get('soul.md', ''),
                     'memory_md': item.get('memory.md', ''),
-                    'email': item.get('email', ''),
-                    'password': item.get('password', ''),
+                    'email': gmail_creds.get('email', ''),
+                    'password': gmail_creds.get('password', ''),
                     'gog_auth': gog_auth_str,
                 }
+
+                for service in ('outlook', 'eventbrite', 'strava', 'oura', 'instagram', 'facebook', 'threads'):
+                    svc_creds = creds.get(service, {})
+                    vals['%s_username' % service] = svc_creds.get('username') or svc_creds.get('email', '')
+                    vals['%s_password' % service] = svc_creds.get('password', '')
 
                 record = TalosModel.create(vals)
                 created_ids.append(record.id)
