@@ -140,6 +140,7 @@ def _build_openclaw_config(gateway_token, env):
             "controlUi": {
                 "allowedOrigins": [
                     "https://projects.ethara.ai",
+                    "http://projects.ethara.ai",
                     "http://localhost:18789",
                     "http://127.0.0.1:18789",
                     "http://0.0.0.0:18789",
