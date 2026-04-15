@@ -378,9 +378,7 @@ class TalosSandbox(models.Model):
         except Exception:
             pass
 
-        label_selector = (
-            "app.kubernetes.io/name=talos-sandbox,talos.sandbox.id=%s" % self.id
-        )
+        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % self.id
         try:
             core_v1 = k8s_client.CoreV1Api()
             pods = core_v1.list_namespaced_pod(
@@ -483,6 +481,21 @@ class TalosSandbox(models.Model):
             last_kept_id = entry_id
 
         return {"meta_info": meta_info, "messages": messages}
+
+    @staticmethod
+    def _extract_tokens_from_jsonl(entries):
+        total_in = 0
+        total_out = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            usage = entry.get("usage") or {}
+            msg = entry.get("message")
+            if isinstance(msg, dict):
+                usage = usage or msg.get("usage") or {}
+            total_in += int(usage.get("input_tokens", 0) or 0)
+            total_out += int(usage.get("output_tokens", 0) or 0)
+        return total_in, total_out
 
     # ------------------------------------------------------------------
     # Export
@@ -852,11 +865,13 @@ class TalosSandbox(models.Model):
                         if isinstance(parsed, list):
                             entries = parsed
                         else:
-                            entries = [{
-                                "session_id": "legacy",
-                                "timestamp": "",
-                                "trajectory": parsed,
-                            }]
+                            entries = [
+                                {
+                                    "session_id": "legacy",
+                                    "timestamp": "",
+                                    "trajectory": parsed,
+                                }
+                            ]
                     except (json.JSONDecodeError, TypeError):
                         pass
 
@@ -871,6 +886,33 @@ class TalosSandbox(models.Model):
                     field_name,
                     self.talos_id.id,
                 )
+
+        # Extract token usage and persist to task (survives turn deletion)
+        token_entries = jsonl_entries if jsonl_entries else []
+        if token_entries and self.talos_id:
+            total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
+            if total_in > 0 or total_out > 0:
+                token_field_map = {
+                    "claude": ("claude_input_tokens", "claude_output_tokens"),
+                    "glm": ("glm_input_tokens", "glm_output_tokens"),
+                    "1p": ("oneP_input_tokens", "oneP_output_tokens"),
+                }
+                fields_pair = token_field_map.get(self.model_type)
+                if fields_pair:
+                    self.talos_id.write(
+                        {
+                            fields_pair[0]: total_in,
+                            fields_pair[1]: total_out,
+                        }
+                    )
+                    _logger.info(
+                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        total_in,
+                        total_out,
+                        fields_pair[0],
+                        fields_pair[1],
+                        self.talos_id.id,
+                    )
 
         if self.turn_ids:
             turn_count = len(self.turn_ids)

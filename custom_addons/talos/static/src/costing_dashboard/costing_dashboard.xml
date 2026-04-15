@@ -54,7 +54,7 @@
                     <div class="o_talos_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
                     <div class="o_talos_summary_sub">
                         <span>QC: <strong t-out="formatNumber(state.totals.bedrock_total)"/></span>
-                        <span>Traj: <strong t-out="formatNumber(state.totals.claude_total + state.totals.glm_total + state.totals.trajectory_total)"/></span>
+                        <span>Traj: <strong t-out="formatNumber(state.totals.claude_total + state.totals.glm_total)"/></span>
                     </div>
                 </div>
             </div>

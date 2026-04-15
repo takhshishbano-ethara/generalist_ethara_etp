@@ -193,8 +193,8 @@ def _build_openclaw_config(gateway_token, env):
                 "maxTokens": 128000,
             },
             {
-                "id": "kimi-k2.5",
-                "name": "kimi-k2.5",
+                "id": "glm-5",
+                "name": "glm-5",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -520,7 +520,32 @@ class TalosSandboxK8s(models.AbstractModel):
                 resources=client.V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
-            )
+            ),
+            client.V1Container(
+                name="persona-setup",
+                image=openclaw_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "mkdir -p /data/workspace/memory /data/workspace/skills && "
+                    "cp /persona-src/* /data/workspace/ 2>/dev/null || true && "
+                    "chown -R 1000:1000 /data/workspace",
+                ],
+                volume_mounts=[
+                    client.V1VolumeMount(
+                        name="persona-files",
+                        mount_path="/persona-src",
+                        read_only=True,
+                    ),
+                    client.V1VolumeMount(
+                        name="openclaw-data",
+                        mount_path="/data",
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
+            ),
         ]
 
         openclaw_container = client.V1Container(

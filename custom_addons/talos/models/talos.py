@@ -451,6 +451,14 @@ class Talos(models.Model):
     )
     golden_error = fields.Text(string="Golden Error")
 
+    # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
+    claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
+    claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
+    glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
+    glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
+    oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
+    oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
+
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
         for rec in self:
@@ -512,7 +520,12 @@ class Talos(models.Model):
 
     def action_delete_trajectory_entry(self, field_name, entry_index):
         self.ensure_one()
-        valid_fields = {"claude_trajectory", "glm_trajectory", "oneP_trajectory", "golden_trajectory"}
+        valid_fields = {
+            "claude_trajectory",
+            "glm_trajectory",
+            "oneP_trajectory",
+            "golden_trajectory",
+        }
         if field_name not in valid_fields:
             raise UserError(f"Invalid trajectory field: {field_name}")
 
@@ -532,7 +545,13 @@ class Talos(models.Model):
             raise UserError(f"Invalid entry index: {entry_index}")
 
         entries.pop(entry_index)
-        self.write({field_name: json.dumps(entries, indent=2, ensure_ascii=False) if entries else ""})
+        self.write(
+            {
+                field_name: json.dumps(entries, indent=2, ensure_ascii=False)
+                if entries
+                else ""
+            }
+        )
         return True
 
     def action_clear_turns(self):
@@ -967,8 +986,12 @@ class TalosTurn(models.Model):
     qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
     bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
     bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
-    trajectory_input_tokens = fields.Integer(string="Trajectory Input Tokens", default=0)
-    trajectory_output_tokens = fields.Integer(string="Trajectory Output Tokens", default=0)
+    trajectory_input_tokens = fields.Integer(
+        string="Trajectory Input Tokens", default=0
+    )
+    trajectory_output_tokens = fields.Integer(
+        string="Trajectory Output Tokens", default=0
+    )
     claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
