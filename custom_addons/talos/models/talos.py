@@ -411,6 +411,7 @@ class Talos(models.Model):
     email = fields.Char(string="Email")
     password = fields.Char(string="Password")
     gog_auth = fields.Text(string="Google Auth")
+    gog_auth_token = fields.Text(string="Google Auth Token")
     outlook_username = fields.Char(string="Outlook Username")
     outlook_password = fields.Char(string="Outlook Password")
     eventbrite_username = fields.Char(string="Eventbrite Username")

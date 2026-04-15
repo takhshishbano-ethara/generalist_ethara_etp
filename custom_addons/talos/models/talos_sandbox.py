@@ -1555,17 +1555,21 @@ class TalosSandbox(models.Model):
         gog_config_dir = os.path.join(workdir, "gog-config")
         os.makedirs(os.path.join(gog_config_dir, "gogcli", "keyring"), exist_ok=True)
         gog_auth_raw = self.talos_id.gog_auth
+        gog_auth_token_raw = self.talos_id.gog_auth_token
         _logger.info(
-            "[GogAuth→Docker] task=%s gog_auth present=%s length=%s",
+            "[GogAuth→Docker] task=%s gog_auth present=%s length=%s gog_auth_token present=%s length=%s",
             self.talos_id.id,
             bool(gog_auth_raw),
             len(gog_auth_raw) if gog_auth_raw else 0,
+            bool(gog_auth_token_raw),
+            len(gog_auth_token_raw) if gog_auth_token_raw else 0,
         )
+
+        # --- Write client_secret.json from gog_auth (client credentials only) ---
         if gog_auth_raw:
             try:
                 gog_data = json.loads(gog_auth_raw)
                 if isinstance(gog_data, dict):
-                    # --- Write client_secret.json so gog inside Docker has OAuth credentials ---
                     client_secret_obj = None
                     if "client_secret" in gog_data and isinstance(
                         gog_data["client_secret"], dict
@@ -1583,16 +1587,18 @@ class TalosSandbox(models.Model):
                         _logger.info(
                             "[GogAuth→Docker] wrote client_secret.json to %s", cs_path
                         )
+            except (json.JSONDecodeError, TypeError):
+                _logger.warning(
+                    "[GogAuth→Docker] Could not parse gog_auth JSON for task %s",
+                    self.talos_id.id,
+                )
 
-                    # --- Write token/config files from the "tokens" dict ---
-                    gog_files = gog_data.get("tokens", gog_data)
-                    if "tokens" not in gog_data and (
-                        "installed" in gog_data or "web" in gog_data
-                    ):
-                        _logger.info(
-                            "[GogAuth→Docker] gog_auth contains raw client_secret only, no tokens to mount"
-                        )
-                        gog_files = {}
+        # --- Write token/config files from gog_auth_token (auth tokens) ---
+        if gog_auth_token_raw:
+            try:
+                token_data = json.loads(gog_auth_token_raw)
+                if isinstance(token_data, dict):
+                    gog_files = token_data.get("tokens", {})
                     written_files = []
                     for rel_path, content in gog_files.items():
                         if rel_path in ("client_secret", "tokens"):
@@ -1612,7 +1618,7 @@ class TalosSandbox(models.Model):
                     )
             except (json.JSONDecodeError, TypeError):
                 _logger.warning(
-                    "[GogAuth→Docker] Could not parse gog_auth JSON for task %s",
+                    "[GogAuth→Docker] Could not parse gog_auth_token JSON for task %s",
                     self.talos_id.id,
                 )
 

@@ -224,14 +224,6 @@ class TalosGogAuthController(http.Controller):
 
         keyring_pw = task.password or ""
 
-        original_client_secret = None
-        cs_str, _ = self._extract_client_secret(task.gog_auth)
-        if cs_str:
-            try:
-                original_client_secret = json.loads(cs_str)
-            except (json.JSONDecodeError, TypeError):
-                pass
-
         config_dir = _gog_config_dir(task.id)
         _logger.info("[GogAuth] exchange_token config_dir=%s email=%s", config_dir, email)
         env = _gog_env(keyring_pw)
@@ -285,10 +277,8 @@ class TalosGogAuthController(http.Controller):
 
             if gog_auth_data:
                 save_data = {"tokens": gog_auth_data}
-                if original_client_secret:
-                    save_data["client_secret"] = original_client_secret
-                task.sudo().write({"gog_auth": json.dumps(save_data)})
-                _logger.info("[GogAuth] step 2 SUCCESS: saved gog_auth to task %s (keys: %s)",
+                task.sudo().write({"gog_auth_token": json.dumps(save_data)})
+                _logger.info("[GogAuth] step 2 SUCCESS: saved gog_auth_token to task %s (keys: %s)",
                              task.id, list(save_data.keys()))
 
             return {"success": True, "email": email}
@@ -306,9 +296,9 @@ class TalosGogAuthController(http.Controller):
         if err:
             return err
 
-        if task.gog_auth:
+        if task.gog_auth_token:
             try:
-                data = json.loads(task.gog_auth)
+                data = json.loads(task.gog_auth_token)
                 if data:
                     return {
                         "authenticated": True,
