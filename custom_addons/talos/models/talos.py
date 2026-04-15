@@ -119,7 +119,7 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
             user_message=user_message,
             max_tokens=65536,
             temperature=0.7,
-            timeout=600.0,
+            timeout=1800.0,
         )
         _logger.info(
             "Golden trajectory generated for task %s (%d chars, tokens: %s)",
