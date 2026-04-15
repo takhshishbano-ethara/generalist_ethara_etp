@@ -1,7 +1,10 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_talos_talos,talos.talos,model_talos_talos,base.group_user,1,1,1,1
-access_talos_domain,talos.domain,model_talos_domain,base.group_user,1,1,1,1
-access_talos_turn,talos.turn,model_talos_turn,base.group_user,1,1,1,1
-access_talos_persona,talos.persona,model_talos_persona,base.group_user,1,1,1,1
-access_talos_taxonomy,talos.taxonomy,model_talos_taxonomy,base.group_user,1,1,1,1
-access_talos_sandbox,talos.sandbox,model_talos_sandbox,base.group_user,1,1,1,1
+access_talos_talos_tasker,talos.talos.tasker,model_talos_talos,etp_user_roles.group_tasker,1,1,1,1
+access_talos_turn_tasker,talos.turn.tasker,model_talos_turn,etp_user_roles.group_tasker,1,1,1,1
+access_talos_sandbox_tasker,talos.sandbox.tasker,model_talos_sandbox,etp_user_roles.group_tasker,1,1,1,1
+access_talos_persona_tasker,talos.persona.tasker,model_talos_persona,etp_user_roles.group_tasker,1,0,0,0
+access_talos_taxonomy_tasker,talos.taxonomy.tasker,model_talos_taxonomy,etp_user_roles.group_tasker,1,0,0,0
+access_talos_domain_tasker,talos.domain.tasker,model_talos_domain,etp_user_roles.group_tasker,1,0,0,0
+access_talos_persona_ql,talos.persona.ql,model_talos_persona,etp_user_roles.group_quality_lead,1,1,1,1
+access_talos_taxonomy_ql,talos.taxonomy.ql,model_talos_taxonomy,etp_user_roles.group_quality_lead,1,1,1,1
+access_talos_domain_ql,talos.domain.ql,model_talos_domain,etp_user_roles.group_quality_lead,1,1,1,1

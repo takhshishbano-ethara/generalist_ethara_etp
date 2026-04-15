@@ -9,7 +9,7 @@
         deployments for OpenClaw task environments.
     """,
     "author": "Ethara",
-    "depends": ["base", "web", "hr", "bus"],
+    "depends": ["base", "web", "hr", "bus", "etp_user_roles"],
     "data": [
         "security/talos_security.xml",
         "security/ir.model.access.csv",
