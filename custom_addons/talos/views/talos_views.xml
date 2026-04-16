@@ -108,11 +108,11 @@
 
             <group string="Trajectories" colspan="2">
               <separator string="Claude 4.6 Trajectory" colspan="2"/>
-              <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.6 Trajectory" readonly="1" colspan="2"/>
+              <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.6 Trajectory" colspan="2"/>
               <separator string="GLM 5 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="GLM 5 Trajectory" readonly="1" colspan="2"/>
+              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="GLM 5 Trajectory" colspan="2"/>
               <separator string="1P Trajectory" colspan="2"/>
-              <field name="oneP_trajectory" widget="talos_json" nolabel="1" placeholder="1P Trajectory" readonly="1" colspan="2"/>
+              <field name="oneP_trajectory" widget="talos_json" nolabel="1" placeholder="1P Trajectory" colspan="2"/>
             </group>
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>

@@ -21,6 +21,7 @@ from .talos import (
     _DEFAULT_LITELLM_CONFIG,
     _HEALTH_WAIT_TIMEOUT,
     _HEALTH_POLL_INTERVAL,
+    generate_task_description_sync,
 )
 
 _logger = logging.getLogger(__name__)
@@ -356,92 +357,12 @@ class TalosSandbox(models.Model):
         self.ensure_one()
         try:
             from kubernetes import client as k8s_client, config as k8s_config
-            from kubernetes.stream import stream as k8s_stream
 
-            try:
-                k8s_config.load_incluster_config()
-            except Exception:
-                k8s_config.load_kube_config()
+            k8s_config.load_incluster_config()
         except Exception:
             _logger.warning(
                 "K8s not available for JSONL extraction (sandbox=%s)", self.id
             )
-            return []
-
-        namespace = "talos"
-        try:
-            ns_param = (
-                self.env["ir.config_parameter"]
-                .sudo()
-                .get_param("talos.k8s_namespace", "talos")
-                .strip()
-            )
-            if ns_param:
-                namespace = ns_param
-        except Exception:
-            pass
-
-        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % self.id
-        try:
-            core_v1 = k8s_client.CoreV1Api()
-            pods = core_v1.list_namespaced_pod(
-                namespace=namespace, label_selector=label_selector
-            )
-            pod_name = None
-            for pod in pods.items:
-                if pod.status.phase == "Running":
-                    pod_name = pod.metadata.name
-                    break
-        except Exception as e:
-            _logger.warning("Failed to find K8s pod for sandbox %s: %s", self.id, e)
-            return []
-
-        if not pod_name:
-            _logger.warning("No running pod found for sandbox %s", self.id)
-            return []
-
-        try:
-            resp = k8s_stream(
-                core_v1.connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                container="openclaw",
-                command=[
-                    "sh",
-                    "-c",
-                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
-                ],
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-                _preload_content=True,
-            )
-            if not resp or not resp.strip():
-                _logger.warning(
-                    "K8s exec returned no JSONL data for sandbox %s", self.id
-                )
-                return []
-
-            entries = []
-            for line in resp.strip().splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-            _logger.info(
-                "Read %d JSONL entries from K8s pod %s (sandbox=%s)",
-                len(entries),
-                pod_name,
-                self.id,
-            )
-            return entries
-        except Exception as e:
-            _logger.warning("K8s exec failed for sandbox %s: %s", self.id, e)
             return []
 
         pod_name = None
@@ -933,6 +854,18 @@ class TalosSandbox(models.Model):
             )
 
         if trajectory:
+            task = self.talos_id
+            seed_prompt = task.seed_prompt if task else ""
+            messages = trajectory.get("messages", [])
+            desc = generate_task_description_sync(self.env, seed_prompt, messages)
+            if desc:
+                trajectory.setdefault("meta_info", {})["task_description"] = desc
+                _logger.info(
+                    "Injected Kimi task_description (%d chars) into trajectory for sandbox %s",
+                    len(desc),
+                    self.id,
+                )
+
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
                 session_entry = {

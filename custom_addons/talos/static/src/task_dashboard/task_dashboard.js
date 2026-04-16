@@ -271,9 +271,9 @@ export class TaskDashboard extends Component {
         try {
             await clearChatSession(sandboxId);
             await this.orm.call("talos.sandbox", "action_stop_sandbox", [[sandboxId]]);
-            window.open(`/talos/chat/export_session?sandbox_id=${sandboxId}`, "_blank");
             await this._loadSandboxes();
             await this.props.record.load();
+            window.location.reload();
         } catch (e) {
             this.notification.add(
                 e.data?.message || e.message || "Failed to stop sandbox",
