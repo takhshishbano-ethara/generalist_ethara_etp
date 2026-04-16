@@ -22,6 +22,7 @@ from .talos import (
     _HEALTH_WAIT_TIMEOUT,
     _HEALTH_POLL_INTERVAL,
     generate_task_description_sync,
+    _TASKDESC_POOL,
 )
 
 _logger = logging.getLogger(__name__)
@@ -54,6 +55,42 @@ TRAJECTORY_FIELD_MAP = {
     "glm": "glm_trajectory",
     "1p": "oneP_trajectory",
 }
+
+
+def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messages):
+    """Background: generate task description via Kimi and inject into saved trajectory."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            desc = generate_task_description_sync(env, seed_prompt, messages)
+            if not desc:
+                return
+            task = env["talos.talos"].browse(task_id)
+            if not task.exists():
+                return
+            raw = task[field_name] or ""
+            if not raw.strip():
+                return
+            data = json.loads(raw)
+            if isinstance(data, list) and data:
+                data[-1].setdefault("trajectory", {}).setdefault("meta_info", {})[
+                    "task_description"
+                ] = desc
+            elif isinstance(data, dict):
+                data.setdefault("meta_info", {})["task_description"] = desc
+            task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+            _logger.info(
+                "Injected task_description (%d chars) into %s for task %s",
+                len(desc),
+                field_name,
+                task_id,
+            )
+    except Exception:
+        _logger.exception(
+            "Failed to inject task_description into %s for task %s",
+            field_name,
+            task_id,
+        )
 
 
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
@@ -854,18 +891,6 @@ class TalosSandbox(models.Model):
             )
 
         if trajectory:
-            task = self.talos_id
-            seed_prompt = task.seed_prompt if task else ""
-            messages = trajectory.get("messages", [])
-            desc = generate_task_description_sync(self.env, seed_prompt, messages)
-            if desc:
-                trajectory.setdefault("meta_info", {})["task_description"] = desc
-                _logger.info(
-                    "Injected Kimi task_description (%d chars) into trajectory for sandbox %s",
-                    len(desc),
-                    self.id,
-                )
-
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
                 session_entry = {
@@ -902,6 +927,18 @@ class TalosSandbox(models.Model):
                     len(entries),
                     field_name,
                     self.talos_id.id,
+                )
+
+                # Fire-and-forget: generate task description and inject into trajectory
+                seed_prompt = self.talos_id.seed_prompt or ""
+                messages = trajectory.get("messages", [])
+                _TASKDESC_POOL.submit(
+                    _inject_task_description_bg,
+                    self.env.cr.dbname,
+                    self.talos_id.id,
+                    field_name,
+                    seed_prompt,
+                    messages,
                 )
 
         # Extract token usage and persist to task (survives turn deletion)
