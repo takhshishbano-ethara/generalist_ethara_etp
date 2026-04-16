@@ -129,6 +129,8 @@ function _getSession(sandboxId) {
             _incrementalSaveTimer: null,
             _lastSavedText: "",
             _heartbeatTimer: null,
+            _reconnectAttempts: 0,
+            _reconnectTimer: null,
             qcPending: false,
             qcResult: null,
             qcDismissReason: "",
@@ -418,6 +420,7 @@ export class TalosChatWidget extends Component {
                 if (frame.ok) {
                     console.log(LOG_PREFIX, "✅ CONNECTED OK — caps:", JSON.stringify(frame.result?.caps || frame.caps || "n/a"));
                     this._session.wsConnected = true;
+                    this._session._reconnectAttempts = 0;
                     this._startHeartbeat();
                     if (widget) {
                         widget.state.connected = true;
@@ -642,9 +645,23 @@ export class TalosChatWidget extends Component {
                 widget.state.connected = false;
                 widget.state.activityText = "";
                 if (widget.state.streaming) { widget.state.streaming = false; widget.state.sending = false; }
-                widget.state.statusText = was ? "Disconnected — reconnecting…" : `Closed (code=${ev.code} reason=${ev.reason || "n/a"})`;
-                if (was && widget.isRunning) {
-                    setTimeout(() => widget._tryConnect(), 2000);
+
+                const MAX_RECONNECT = 8;
+                const attempts = this._session._reconnectAttempts || 0;
+
+                if (was && widget.isRunning && attempts < MAX_RECONNECT) {
+                    const delay = Math.min(2000 * Math.pow(2, attempts), 60000);
+                    this._session._reconnectAttempts = attempts + 1;
+                    widget.state.statusText = `Disconnected — reconnecting in ${Math.round(delay / 1000)}s (attempt ${attempts + 1}/${MAX_RECONNECT})…`;
+                    if (this._session._reconnectTimer) clearTimeout(this._session._reconnectTimer);
+                    this._session._reconnectTimer = setTimeout(() => {
+                        this._session._reconnectTimer = null;
+                        widget._tryConnect();
+                    }, delay);
+                } else if (was && widget.isRunning) {
+                    widget.state.statusText = "Connection failed after multiple attempts. Please reload.";
+                } else {
+                    widget.state.statusText = `Closed (code=${ev.code} reason=${ev.reason || "n/a"})`;
                 }
             }
         };
@@ -656,6 +673,10 @@ export class TalosChatWidget extends Component {
 
     _disconnectGateway() {
         this._stopHeartbeat();
+        if (this._session._reconnectTimer) {
+            clearTimeout(this._session._reconnectTimer);
+            this._session._reconnectTimer = null;
+        }
         if (this._session.ws) {
             console.log(LOG_PREFIX, "Disconnecting WS");
             try { this._session.ws.close(); } catch {}

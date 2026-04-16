@@ -493,8 +493,12 @@ class TalosSandbox(models.Model):
             msg = entry.get("message")
             if isinstance(msg, dict):
                 usage = usage or msg.get("usage") or {}
-            total_in += int(usage.get("input_tokens", 0) or 0)
-            total_out += int(usage.get("output_tokens", 0) or 0)
+            total_in += int(
+                usage.get("input_tokens", 0) or usage.get("inputTokens", 0) or 0
+            )
+            total_out += int(
+                usage.get("output_tokens", 0) or usage.get("outputTokens", 0) or 0
+            )
         return total_in, total_out
 
     # ------------------------------------------------------------------
@@ -915,6 +919,30 @@ class TalosSandbox(models.Model):
                     )
 
         if self.turn_ids:
+            # Aggregate bedrock QC tokens to task level before deleting turns
+            if self.talos_id:
+                bedrock_in = sum(t.bedrock_input_tokens or 0 for t in self.turn_ids)
+                bedrock_out = sum(t.bedrock_output_tokens or 0 for t in self.turn_ids)
+                if bedrock_in > 0 or bedrock_out > 0:
+                    self.talos_id.write(
+                        {
+                            "bedrock_input_tokens": (
+                                self.talos_id.bedrock_input_tokens or 0
+                            )
+                            + bedrock_in,
+                            "bedrock_output_tokens": (
+                                self.talos_id.bedrock_output_tokens or 0
+                            )
+                            + bedrock_out,
+                        }
+                    )
+                    _logger.info(
+                        "Aggregated bedrock QC tokens (in=%d, out=%d) to task %s",
+                        bedrock_in,
+                        bedrock_out,
+                        self.talos_id.id,
+                    )
+
             turn_count = len(self.turn_ids)
             self.turn_ids.unlink()
             _logger.info(
