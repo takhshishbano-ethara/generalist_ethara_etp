@@ -356,12 +356,92 @@ class TalosSandbox(models.Model):
         self.ensure_one()
         try:
             from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes.stream import stream as k8s_stream
 
-            k8s_config.load_incluster_config()
+            try:
+                k8s_config.load_incluster_config()
+            except Exception:
+                k8s_config.load_kube_config()
         except Exception:
             _logger.warning(
                 "K8s not available for JSONL extraction (sandbox=%s)", self.id
             )
+            return []
+
+        namespace = "talos"
+        try:
+            ns_param = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("talos.k8s_namespace", "talos")
+                .strip()
+            )
+            if ns_param:
+                namespace = ns_param
+        except Exception:
+            pass
+
+        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % self.id
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector
+            )
+            pod_name = None
+            for pod in pods.items:
+                if pod.status.phase == "Running":
+                    pod_name = pod.metadata.name
+                    break
+        except Exception as e:
+            _logger.warning("Failed to find K8s pod for sandbox %s: %s", self.id, e)
+            return []
+
+        if not pod_name:
+            _logger.warning("No running pod found for sandbox %s", self.id)
+            return []
+
+        try:
+            resp = k8s_stream(
+                core_v1.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                container="openclaw",
+                command=[
+                    "sh",
+                    "-c",
+                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
+                ],
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False,
+                _preload_content=True,
+            )
+            if not resp or not resp.strip():
+                _logger.warning(
+                    "K8s exec returned no JSONL data for sandbox %s", self.id
+                )
+                return []
+
+            entries = []
+            for line in resp.strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+            _logger.info(
+                "Read %d JSONL entries from K8s pod %s (sandbox=%s)",
+                len(entries),
+                pod_name,
+                self.id,
+            )
+            return entries
+        except Exception as e:
+            _logger.warning("K8s exec failed for sandbox %s: %s", self.id, e)
             return []
 
         pod_name = None
