@@ -721,11 +721,10 @@ export class TalosChatWidget extends Component {
 
             session._streamBuf = data.text || "";
             const wordCount = session._streamBuf.split(/\s+/).length;
-            if (wordCount - session._lastFlushedWordCount >= STREAM_WORD_THRESHOLD) {
+                if (wordCount - session._lastFlushedWordCount >= STREAM_WORD_THRESHOLD) {
                 msg.text = session._streamBuf;
                 msg.html = markup(renderMarkdown(session._streamBuf));
                 session._lastFlushedWordCount = wordCount;
-                if (widget) widget._scrollToBottom();
             }
         } else if (stream === "tool") {
             const phase = data.phase || "";
@@ -839,7 +838,6 @@ export class TalosChatWidget extends Component {
                     msg.text += text;
                     msg.html = markup(renderMarkdown(msg.text));
                 }
-                if (widget) widget._scrollToBottom();
             }
         } else if (state === "final") {
             const finalText = this._extractText(payload.message);
