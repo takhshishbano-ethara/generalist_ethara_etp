@@ -820,6 +820,7 @@ class EmployeeController(http.Controller):
                 message=f"{len(data)} employees found",
                 status=200,
                 data={
+                    'total_record_count': total_count,
                     'data': data,
                     "total": len(data),
                     "on_bench": on_bench_count,
@@ -1060,7 +1061,8 @@ class EmployeeController(http.Controller):
 
     @http.route('/api/v2/get_on_bench_employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({"role_id": {"type": "string", "required": True}})
+    # @validate_request({"role_id": {"type": "string", "required": True}})
+    @validate_request({})
     def get_on_bench_employees(self, **kwargs):
         temp = []
         try:
@@ -1070,7 +1072,12 @@ class EmployeeController(http.Controller):
                 assign_employee.extend(ap.project_lead.ids)
                 assign_employee.extend(ap.project_qc_reviewer.ids)
                 assign_employee.extend(ap.project_tasker.ids)
-            employees = self.env['hr.employee'].sudo().search([('id', 'not in', assign_employee), ('user_id.user_role', '=', int(kwargs.get('role_id')))])
+            domain = [('id', 'not in', assign_employee)]
+
+            if kwargs.get('role_id'):
+                domain.append(('user_id.user_role', '=', int(kwargs.get('role_id'))))
+
+            employees = self.env['hr.employee'].sudo().search(domain)
             temp = [{
                 'id': emp.id or 0,
                 'name': emp.name or "",
