@@ -434,7 +434,7 @@ class ApiAuthController(http.Controller):
                 ('user_id', '=', user.id),
                 ('used', '=', False),
             ]).write({'used': True})
-            access_token = request.env['api.access_token'].sudo().search([('user_id', '=', user_id.id)])
+            access_token = request.env['api.access_token'].sudo().search([('user_id', '=', user.id)])
             if access_token:
                 for token in access_token:
                     token.sudo().unlink()
