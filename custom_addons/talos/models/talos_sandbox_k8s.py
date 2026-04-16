@@ -447,7 +447,13 @@ class TalosSandboxK8s(models.AbstractModel):
                             continue
                         if not isinstance(content, str):
                             continue
-                        safe_key = rel_path.replace("/", "__")
+                        import re
+
+                        safe_key = re.sub(
+                            r"[^-._a-zA-Z0-9]",
+                            lambda m: "_%02x_" % ord(m.group()),
+                            rel_path,
+                        )
                         string_data[safe_key] = content
             except (json.JSONDecodeError, TypeError):
                 _logger.warning(
@@ -647,13 +653,16 @@ class TalosSandboxK8s(models.AbstractModel):
                     "-c",
                     "mkdir -p /gog-out/gogcli/keyring && "
                     "for f in /gog-src/*; do "
-                    "  bn=$(basename $f); "
-                    "  real=$(echo $bn | sed 's/__/\\//g'); "
-                    "  case $bn in _GOG_*) continue;; esac; "
-                    "  mkdir -p /gog-out/gogcli/$(dirname $real) && "
-                    "  cp -L $f /gog-out/gogcli/$real; "
+                    '  bn=$(basename "$f"); '
+                    '  case "$bn" in _GOG_*) continue;; esac; '
+                    '  real=$(python3 -c "'
+                    "import re,sys; "
+                    "print(re.sub(r'_([0-9a-f]{2})_', lambda m: chr(int(m.group(1),16)), sys.argv[1]))\" "
+                    '  "$bn") && '
+                    '  mkdir -p "/gog-out/gogcli/$(dirname "$real")" && '
+                    '  cp -L "$f" "/gog-out/gogcli/$real"; '
                     "done && "
-                    "ls -la /gog-out/gogcli/ && "
+                    "ls -laR /gog-out/gogcli/ && "
                     "chown -R 1000:1000 /gog-out",
                 ],
                 volume_mounts=[
