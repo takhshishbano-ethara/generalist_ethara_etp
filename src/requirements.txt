@@ -49,6 +49,7 @@ pyusb==1.2.1
 qrcode==7.4.2
 reportlab==4.1.0
 requests==2.31.0
+httpx[http2]==0.28.1
 requests-file==3.0.1
 requests-toolbelt==1.0.0
 rjsmin==1.2.0

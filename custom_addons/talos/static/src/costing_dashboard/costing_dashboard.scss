@@ -1,6 +1,6 @@
 .o_talos_costing {
     padding: 24px 32px;
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
     font-family: inherit;
 }
@@ -65,19 +65,22 @@
     }
 }
 
+/* ── Summary Cards ── */
 .o_talos_costing_summary {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 16px;
     margin-bottom: 28px;
 }
 
 .o_talos_summary_card {
+    position: relative;
     background: #fff;
     border: 1px solid var(--o-border-color, #dee2e6);
     border-radius: 10px;
     padding: 18px 20px;
     transition: box-shadow 0.15s ease;
+    overflow: hidden;
 
     &:hover {
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -86,6 +89,35 @@
     &.grand {
         background: linear-gradient(135deg, #f8f5ff 0%, #f0e8ff 100%);
         border-color: rgba(113, 75, 103, 0.2);
+    }
+}
+
+.o_talos_summary_icon {
+    font-size: 16px;
+    margin-bottom: 6px;
+    opacity: 0.45;
+    color: var(--o-text-color-muted, #6c757d);
+}
+
+.o_talos_summary_badge {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 4px;
+
+    &.qc {
+        background: rgba(37, 99, 235, 0.1);
+        color: #2563eb;
+    }
+
+    &.trajectory {
+        background: rgba(5, 150, 105, 0.1);
+        color: #059669;
     }
 }
 
@@ -103,6 +135,14 @@
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.02em;
+
+    &.claude {
+        color: #d97706;
+    }
+
+    &.glm {
+        color: #7c3aed;
+    }
 
     &.bedrock {
         color: #2563eb;
@@ -130,6 +170,7 @@
     }
 }
 
+/* ── Loading / Empty ── */
 .o_talos_costing_loading {
     display: flex;
     align-items: center;
@@ -152,11 +193,13 @@
     }
 }
 
+/* ── Table ── */
 .o_talos_costing_table_wrap {
     background: #fff;
     border: 1px solid var(--o-border-color, #dee2e6);
     border-radius: 10px;
     overflow: hidden;
+    overflow-x: auto;
 }
 
 .o_talos_costing_table {
@@ -167,8 +210,43 @@
     thead {
         background: var(--o-gray-100, #f8f9fa);
 
+        .o_talos_col_group_row th {
+            text-align: center;
+            border-bottom: 1px solid var(--o-border-color, #dee2e6);
+        }
+
+        .col-group-header {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            padding: 8px 14px;
+            text-align: center;
+            border-left: 2px solid var(--o-border-color, #dee2e6);
+            border-right: 2px solid var(--o-border-color, #dee2e6);
+
+            .fa {
+                font-size: 11px;
+                opacity: 0.6;
+            }
+        }
+
+        .col-group-bedrock {
+            color: #2563eb;
+            background: rgba(37, 99, 235, 0.04);
+        }
+
+        .col-group-claude {
+            color: #d97706;
+            background: rgba(217, 119, 6, 0.04);
+        }
+
+        .col-group-glm {
+            color: #7c3aed;
+            background: rgba(124, 58, 237, 0.04);
+        }
+
         th {
-            padding: 12px 14px;
+            padding: 10px 14px;
             font-weight: 600;
             color: var(--o-text-color-muted, #6c757d);
             text-transform: uppercase;
@@ -235,13 +313,27 @@
     .col-num {
         text-align: right;
         font-variant-numeric: tabular-nums;
-        min-width: 100px;
+        min-width: 80px;
+    }
+
+    .col-bedrock {
+        background: rgba(37, 99, 235, 0.02);
+        border-left: 1px solid rgba(37, 99, 235, 0.06);
+    }
+
+    .col-claude {
+        background: rgba(217, 119, 6, 0.02);
+        border-left: 1px solid rgba(217, 119, 6, 0.06);
+    }
+
+    .col-glm {
+        background: rgba(124, 58, 237, 0.02);
+        border-left: 1px solid rgba(124, 58, 237, 0.06);
     }
 
     .col-subtotal {
         font-weight: 600;
         color: var(--o-text-color, #212529) !important;
-        background: rgba(0, 0, 0, 0.015);
     }
 
     .col-grand {
@@ -251,16 +343,19 @@
     }
 }
 
-@media (max-width: 768px) {
+/* ── Responsive ── */
+@media (max-width: 992px) {
     .o_talos_costing {
         padding: 16px;
     }
 
     .o_talos_costing_summary {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
     }
+}
 
-    .o_talos_costing_table_wrap {
-        overflow-x: auto;
+@media (max-width: 576px) {
+    .o_talos_costing_summary {
+        grid-template-columns: 1fr;
     }
 }

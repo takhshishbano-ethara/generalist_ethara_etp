@@ -5,8 +5,70 @@
         position: relative;
     }
 
-    .o_talos_json_content {
-        width: 100%;
+    .talos-json-entry {
+        margin-bottom: 4px;
+    }
+
+    .talos-json-entry-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        background: #181825;
+        border: 1px solid #313244;
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
+    }
+
+    .talos-json-session-label {
+        font-size: 0.8em;
+        font-weight: 600;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .talos-json-timestamp {
+        font-weight: 400;
+        color: #6c7086;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+
+    .talos-json-delete-btn {
+        background: none;
+        border: 1px solid transparent;
+        color: #6c7086;
+        cursor: pointer;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        line-height: 1;
+        transition: all 0.15s ease;
+
+        &:hover {
+            color: #f38ba8;
+            border-color: #f38ba8;
+            background: rgba(243, 139, 168, 0.1);
+        }
+
+        &:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    }
+
+    .talos-json-entry-body {
+        .talos-json-block {
+            border-radius: 0 0 6px 6px;
+            margin-top: 0;
+        }
+    }
+
+    .talos-json-divider {
+        border: none;
+        border-top: 1px dashed #45475a;
+        margin: 12px 0;
     }
 
     .talos-json-block {

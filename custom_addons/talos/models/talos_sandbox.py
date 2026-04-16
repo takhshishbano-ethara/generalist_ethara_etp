@@ -370,7 +370,7 @@ class TalosSandbox(models.Model):
             ns_param = (
                 self.env["ir.config_parameter"]
                 .sudo()
-                .get_param("talos.k8s_namespace", "default")
+                .get_param("talos.k8s_namespace", "talos")
                 .strip()
             )
             if ns_param:
@@ -378,9 +378,7 @@ class TalosSandbox(models.Model):
         except Exception:
             pass
 
-        label_selector = (
-            "app.kubernetes.io/name=talos-sandbox,talos.sandbox.id=%s" % self.id
-        )
+        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % self.id
         try:
             core_v1 = k8s_client.CoreV1Api()
             pods = core_v1.list_namespaced_pod(
@@ -483,6 +481,21 @@ class TalosSandbox(models.Model):
             last_kept_id = entry_id
 
         return {"meta_info": meta_info, "messages": messages}
+
+    @staticmethod
+    def _extract_tokens_from_jsonl(entries):
+        total_in = 0
+        total_out = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            usage = entry.get("usage") or {}
+            msg = entry.get("message")
+            if isinstance(msg, dict):
+                usage = usage or msg.get("usage") or {}
+            total_in += int(usage.get("input_tokens", 0) or 0)
+            total_out += int(usage.get("output_tokens", 0) or 0)
+        return total_in, total_out
 
     # ------------------------------------------------------------------
     # Export
@@ -816,12 +829,11 @@ class TalosSandbox(models.Model):
     def _export_trajectory_to_task(self):
         self.ensure_one()
 
-        trajectory_str = ""
+        trajectory = None
 
         jsonl_entries = self._read_session_jsonl()
         if jsonl_entries:
             trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
-            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
             _logger.info(
                 "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
                 len(jsonl_entries),
@@ -830,23 +842,77 @@ class TalosSandbox(models.Model):
             )
         elif self.turn_ids:
             trajectory = self.build_trajectory_json()
-            trajectory_str = json.dumps(trajectory, indent=2, ensure_ascii=False)
             _logger.info(
                 "Built trajectory from turns fallback (%d messages, sandbox=%s)",
                 len(trajectory.get("messages", [])),
                 self.id,
             )
 
-        if trajectory_str:
+        if trajectory:
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
-                self.talos_id.write({field_name: trajectory_str})
+                session_entry = {
+                    "session_id": secrets.token_hex(8),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "trajectory": trajectory,
+                }
+
+                existing_raw = self.talos_id[field_name] or ""
+                entries = []
+                if existing_raw.strip():
+                    try:
+                        parsed = json.loads(existing_raw)
+                        if isinstance(parsed, list):
+                            entries = parsed
+                        else:
+                            entries = [
+                                {
+                                    "session_id": "legacy",
+                                    "timestamp": "",
+                                    "trajectory": parsed,
+                                }
+                            ]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                entries.append(session_entry)
+                new_value = json.dumps(entries, indent=2, ensure_ascii=False)
+
+                self.talos_id.write({field_name: new_value})
                 _logger.info(
-                    "Saved trajectory (%d bytes) to %s for task %s",
-                    len(trajectory_str),
+                    "Appended trajectory session %s (%d total entries) to %s for task %s",
+                    session_entry["session_id"],
+                    len(entries),
                     field_name,
                     self.talos_id.id,
                 )
+
+        # Extract token usage and persist to task (survives turn deletion)
+        token_entries = jsonl_entries if jsonl_entries else []
+        if token_entries and self.talos_id:
+            total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
+            if total_in > 0 or total_out > 0:
+                token_field_map = {
+                    "claude": ("claude_input_tokens", "claude_output_tokens"),
+                    "glm": ("glm_input_tokens", "glm_output_tokens"),
+                    "1p": ("oneP_input_tokens", "oneP_output_tokens"),
+                }
+                fields_pair = token_field_map.get(self.model_type)
+                if fields_pair:
+                    self.talos_id.write(
+                        {
+                            fields_pair[0]: total_in,
+                            fields_pair[1]: total_out,
+                        }
+                    )
+                    _logger.info(
+                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        total_in,
+                        total_out,
+                        fields_pair[0],
+                        fields_pair[1],
+                        self.talos_id.id,
+                    )
 
         if self.turn_ids:
             turn_count = len(self.turn_ids)
@@ -856,14 +922,6 @@ class TalosSandbox(models.Model):
                 turn_count,
                 self.id,
             )
-
-        turn_count = len(self.turn_ids)
-        self.turn_ids.unlink()
-        _logger.info(
-            "Cleared %d turns for sandbox %s (session isolation)",
-            turn_count,
-            self.id,
-        )
 
     def _start_k8s(self):
         if self.docker_status == "running":
@@ -1497,17 +1555,21 @@ class TalosSandbox(models.Model):
         gog_config_dir = os.path.join(workdir, "gog-config")
         os.makedirs(os.path.join(gog_config_dir, "gogcli", "keyring"), exist_ok=True)
         gog_auth_raw = self.talos_id.gog_auth
+        gog_auth_token_raw = self.talos_id.gog_auth_token
         _logger.info(
-            "[GogAuth→Docker] task=%s gog_auth present=%s length=%s",
+            "[GogAuth→Docker] task=%s gog_auth present=%s length=%s gog_auth_token present=%s length=%s",
             self.talos_id.id,
             bool(gog_auth_raw),
             len(gog_auth_raw) if gog_auth_raw else 0,
+            bool(gog_auth_token_raw),
+            len(gog_auth_token_raw) if gog_auth_token_raw else 0,
         )
+
+        # --- Write client_secret.json from gog_auth (client credentials only) ---
         if gog_auth_raw:
             try:
                 gog_data = json.loads(gog_auth_raw)
                 if isinstance(gog_data, dict):
-                    # --- Write client_secret.json so gog inside Docker has OAuth credentials ---
                     client_secret_obj = None
                     if "client_secret" in gog_data and isinstance(
                         gog_data["client_secret"], dict
@@ -1525,16 +1587,18 @@ class TalosSandbox(models.Model):
                         _logger.info(
                             "[GogAuth→Docker] wrote client_secret.json to %s", cs_path
                         )
+            except (json.JSONDecodeError, TypeError):
+                _logger.warning(
+                    "[GogAuth→Docker] Could not parse gog_auth JSON for task %s",
+                    self.talos_id.id,
+                )
 
-                    # --- Write token/config files from the "tokens" dict ---
-                    gog_files = gog_data.get("tokens", gog_data)
-                    if "tokens" not in gog_data and (
-                        "installed" in gog_data or "web" in gog_data
-                    ):
-                        _logger.info(
-                            "[GogAuth→Docker] gog_auth contains raw client_secret only, no tokens to mount"
-                        )
-                        gog_files = {}
+        # --- Write token/config files from gog_auth_token (auth tokens) ---
+        if gog_auth_token_raw:
+            try:
+                token_data = json.loads(gog_auth_token_raw)
+                if isinstance(token_data, dict):
+                    gog_files = token_data.get("tokens", {})
                     written_files = []
                     for rel_path, content in gog_files.items():
                         if rel_path in ("client_secret", "tokens"):
@@ -1554,7 +1618,7 @@ class TalosSandbox(models.Model):
                     )
             except (json.JSONDecodeError, TypeError):
                 _logger.warning(
-                    "[GogAuth→Docker] Could not parse gog_auth JSON for task %s",
+                    "[GogAuth→Docker] Could not parse gog_auth_token JSON for task %s",
                     self.talos_id.id,
                 )
 
