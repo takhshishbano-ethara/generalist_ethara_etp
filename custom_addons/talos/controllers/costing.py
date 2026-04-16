@@ -20,7 +20,7 @@ class TalosCostingController(http.Controller):
         else:
             start = None
 
-        # Read Claude/GLM/1P tokens from task-level fields (survives turn deletion)
+        # Read all token data from task-level fields (survives turn deletion)
         Task = request.env["talos.talos"].sudo()
         task_domain = []
         if start:
@@ -29,18 +29,8 @@ class TalosCostingController(http.Controller):
             )
         tasks = Task.search(task_domain)
 
-        # Read Bedrock QC tokens from turns (written during session, may be deleted)
-        Turn = request.env["talos.turn"].sudo()
-        turn_domain = []
-        if start:
-            turn_domain.append(
-                ("create_date", ">=", start.strftime("%Y-%m-%d 00:00:00"))
-            )
-        turns = Turn.search(turn_domain)
-
         emp_map = {}
 
-        # Aggregate task-level Claude/GLM/1P tokens
         for task in tasks:
             eid = task.employee_id.id if task.employee_id else 0
             ename = task.employee_id.name if task.employee_id else "Unassigned"
@@ -55,28 +45,12 @@ class TalosCostingController(http.Controller):
                     "glm_input": 0,
                     "glm_output": 0,
                 }
+            emp_map[eid]["bedrock_input"] += task.bedrock_input_tokens or 0
+            emp_map[eid]["bedrock_output"] += task.bedrock_output_tokens or 0
             emp_map[eid]["claude_input"] += task.claude_input_tokens or 0
             emp_map[eid]["claude_output"] += task.claude_output_tokens or 0
             emp_map[eid]["glm_input"] += task.glm_input_tokens or 0
             emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
-
-        # Aggregate turn-level Bedrock QC tokens
-        for t in turns:
-            eid = t.employee_id.id if t.employee_id else 0
-            ename = t.employee_id.name if t.employee_id else "Unassigned"
-            if eid not in emp_map:
-                emp_map[eid] = {
-                    "employee_id": eid,
-                    "employee_name": ename,
-                    "bedrock_input": 0,
-                    "bedrock_output": 0,
-                    "claude_input": 0,
-                    "claude_output": 0,
-                    "glm_input": 0,
-                    "glm_output": 0,
-                }
-            emp_map[eid]["bedrock_input"] += t.bedrock_input_tokens or 0
-            emp_map[eid]["bedrock_output"] += t.bedrock_output_tokens or 0
 
         rows = []
         totals = {

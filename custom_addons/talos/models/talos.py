@@ -477,6 +477,8 @@ class Talos(models.Model):
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
     oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
     oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
+    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
+    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):

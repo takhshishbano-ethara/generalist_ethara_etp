@@ -292,6 +292,13 @@ class TalosSandboxK8s(models.AbstractModel):
             persona,
         )
 
+        self._create_gog_secret(
+            core_v1,
+            task_id,
+            labels,
+            task_record,
+        )
+
         openclaw_config = _build_openclaw_config(gateway_token, env)
         self._create_openclaw_config_configmap(
             core_v1,
@@ -403,6 +410,91 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
+    def _create_gog_secret(self, core_v1, task_id, labels, task_record):
+        string_data = {}
+
+        # Extract client_secret.json from gog_auth
+        gog_auth_raw = task_record.talos_id.gog_auth or ""
+        if gog_auth_raw:
+            try:
+                gog_data = json.loads(gog_auth_raw)
+                if isinstance(gog_data, dict):
+                    client_secret_obj = None
+                    if "client_secret" in gog_data and isinstance(
+                        gog_data["client_secret"], dict
+                    ):
+                        client_secret_obj = gog_data["client_secret"]
+                    elif "installed" in gog_data or "web" in gog_data:
+                        client_secret_obj = gog_data
+                    if client_secret_obj:
+                        string_data["client_secret.json"] = json.dumps(
+                            client_secret_obj
+                        )
+            except (json.JSONDecodeError, TypeError):
+                _logger.warning(
+                    "[GogAuth→K8s] Could not parse gog_auth for task %s", task_id
+                )
+
+        # Extract token files from gog_auth_token
+        gog_auth_token_raw = task_record.talos_id.gog_auth_token or ""
+        if gog_auth_token_raw:
+            try:
+                token_data = json.loads(gog_auth_token_raw)
+                if isinstance(token_data, dict):
+                    gog_files = token_data.get("tokens", {})
+                    for rel_path, content in gog_files.items():
+                        if rel_path in ("client_secret", "tokens"):
+                            continue
+                        if not isinstance(content, str):
+                            continue
+                        import re
+
+                        safe_key = re.sub(
+                            r"[^-._a-zA-Z0-9]",
+                            lambda m: "_%02x_" % ord(m.group()),
+                            rel_path,
+                        )
+                        string_data[safe_key] = content
+            except (json.JSONDecodeError, TypeError):
+                _logger.warning(
+                    "[GogAuth→K8s] Could not parse gog_auth_token for task %s", task_id
+                )
+
+        # Always include config.json default
+        if "config.json" not in string_data and "config.json" not in [
+            k.replace("__", "/") for k in string_data
+        ]:
+            string_data["config.json"] = json.dumps({"keyring_backend": "file"})
+
+        # Store GOG_KEYRING_PASSWORD and GOG_ACCOUNT in the secret too
+        gog_kp = task_record.talos_id.password or ""
+        gog_account = task_record.talos_id.email or ""
+        string_data["_GOG_KEYRING_PASSWORD"] = gog_kp
+        string_data["_GOG_ACCOUNT"] = gog_account
+
+        _logger.info(
+            "[GogAuth→K8s] Creating GOG secret for task %s with %d keys: %s",
+            task_id,
+            len(string_data),
+            list(string_data.keys()),
+        )
+
+        secret = client.V1Secret(
+            api_version="v1",
+            kind="Secret",
+            metadata=client.V1ObjectMeta(
+                name="talos-sandbox-gog-%s" % task_id,
+                namespace=NAMESPACE,
+                labels=labels,
+            ),
+            string_data=string_data,
+        )
+        try:
+            core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
     def _create_openclaw_config_configmap(
         self, core_v1, task_id, labels, openclaw_config
     ):
@@ -461,6 +553,7 @@ class TalosSandboxK8s(models.AbstractModel):
     ):
         task_id = task_record.id
         secret_name = "talos-sandbox-creds-%s" % task_id
+        gog_secret_name = "talos-sandbox-gog-%s" % task_id
         persona_cm = "talos-sandbox-persona-%s" % task_id
         openclaw_config_cm = "talos-sandbox-openclaw-config-%s" % task_id
         litellm_config_cm = "talos-litellm-config-%s" % task_id
@@ -552,6 +645,41 @@ class TalosSandboxK8s(models.AbstractModel):
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
             ),
+            client.V1Container(
+                name="gog-setup",
+                image=openclaw_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "mkdir -p /gog-out/gogcli/keyring && "
+                    "for f in /gog-src/*; do "
+                    '  bn=$(basename "$f"); '
+                    '  case "$bn" in _GOG_*) continue;; esac; '
+                    '  real=$(python3 -c "'
+                    "import re,sys; "
+                    "print(re.sub(r'_([0-9a-f]{2})_', lambda m: chr(int(m.group(1),16)), sys.argv[1]))\" "
+                    '  "$bn") && '
+                    '  mkdir -p "/gog-out/gogcli/$(dirname "$real")" && '
+                    '  cp -L "$f" "/gog-out/gogcli/$real"; '
+                    "done && "
+                    "ls -laR /gog-out/gogcli/ && "
+                    "chown -R 1000:1000 /gog-out 2>/dev/null || true",
+                ],
+                volume_mounts=[
+                    client.V1VolumeMount(
+                        name="gog-secret",
+                        mount_path="/gog-src",
+                        read_only=True,
+                    ),
+                    client.V1VolumeMount(
+                        name="gog-config",
+                        mount_path="/gog-out",
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
+            ),
         ]
 
         openclaw_container = client.V1Container(
@@ -595,6 +723,26 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
                 client.V1EnvVar(name="BEDROCK_MODEL_ARN", value=bedrock_arn),
+                client.V1EnvVar(
+                    name="GOG_KEYRING_PASSWORD",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=gog_secret_name,
+                            key="_GOG_KEYRING_PASSWORD",
+                            optional=True,
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="GOG_ACCOUNT",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=gog_secret_name,
+                            key="_GOG_ACCOUNT",
+                            optional=True,
+                        ),
+                    ),
+                ),
             ],
             volume_mounts=[
                 client.V1VolumeMount(
@@ -615,6 +763,10 @@ class TalosSandboxK8s(models.AbstractModel):
                     mount_path="/home/node/.openclaw/openclaw.json",
                     sub_path="openclaw.json",
                     read_only=True,
+                ),
+                client.V1VolumeMount(
+                    name="gog-config",
+                    mount_path="/home/node/.config",
                 ),
             ],
             resources=client.V1ResourceRequirements(
@@ -789,6 +941,17 @@ class TalosSandboxK8s(models.AbstractModel):
                 config_map=client.V1ConfigMapVolumeSource(
                     name=litellm_config_cm,
                 ),
+            ),
+            client.V1Volume(
+                name="gog-secret",
+                secret=client.V1SecretVolumeSource(
+                    secret_name=gog_secret_name,
+                    optional=True,
+                ),
+            ),
+            client.V1Volume(
+                name="gog-config",
+                empty_dir=client.V1EmptyDirVolumeSource(),
             ),
         ]
 
@@ -1027,6 +1190,11 @@ class TalosSandboxK8s(models.AbstractModel):
         self._delete_resource(
             core_v1.delete_namespaced_secret,
             "talos-sandbox-creds-%s" % task_id,
+            NAMESPACE,
+        )
+        self._delete_resource(
+            core_v1.delete_namespaced_secret,
+            "talos-sandbox-gog-%s" % task_id,
             NAMESPACE,
         )
         self._delete_resource(

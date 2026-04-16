@@ -3,9 +3,9 @@
 import { registry } from "@web/core/registry";
 
 const sandboxNotificationService = {
-    dependencies: ["bus_service", "notification"],
+    dependencies: ["bus_service", "notification", "action"],
 
-    start(env, { bus_service, notification }) {
+    start(env, { bus_service, notification, action }) {
         bus_service.subscribe("talos/sandbox_ready", (payload) => {
             const status = payload.docker_status || payload.status;
             const sandboxId = payload.sandbox_id;
@@ -33,6 +33,10 @@ const sandboxNotificationService = {
             );
 
             env.bus.trigger("TALOS:GOLDEN_STATUS_CHANGED", payload);
+
+            setTimeout(() => {
+                action.doAction("reload");
+            }, 1500);
         });
     },
 };
