@@ -1608,10 +1608,8 @@ export class TalosChatWidget extends Component {
     }
 
     _scrollToBottom() {
-        Promise.resolve().then(() => {
-            const el = this.messagesEndRef.el;
-            if (el) el.scrollIntoView({ behavior: "smooth" });
-        });
+        // Auto-scroll disabled — users reported it interferes with reading
+        // while streaming. The chat container retains its scroll position.
     }
 
     onToggleTools(msg) {
