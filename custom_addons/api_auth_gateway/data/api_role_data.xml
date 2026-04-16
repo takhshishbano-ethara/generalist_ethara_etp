@@ -63,7 +63,7 @@
         </record>
 
         <record id="role_qc_non_stem" model="api.role">
-            <field name="name">QC</field>
+            <field name="name">QR</field>
             <field name="project_type">non-stem</field>
             <field name="user_type">QC-Non-Stem</field>
         </record>

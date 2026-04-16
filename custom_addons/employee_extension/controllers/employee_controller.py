@@ -324,6 +324,18 @@ class EmployeeController(http.Controller):
                         employee_vals['task_forge_qr_id'] = user.employee_id.id
                         employee_vals['task_forge_pl_id'] = user.employee_id.task_forge_pl_id.id
 
+                    if row.get('qr_email'):
+                        qr_email = request.env['res.users'].sudo().search([('login', '=', row.get('qr_email'))], limit=1)
+                        if qr_email:
+                            if qr_email.employee_id:
+                                employee_vals['task_forge_qr_id'] = qr_email.employee_id.id
+
+                    if row.get('pl_email'):
+                        pl_email = request.env['res.users'].sudo().search([('login', '=', row.get('pl_email'))], limit=1)
+                        if pl_email:
+                            if pl_email.employee_id:
+                                employee_vals['task_forge_pl_id'] = pl_email.employee_id.id
+
                     if row.get('department_id'):
                         employee_vals['department_id'] = int(row.get('department_id'))
 
@@ -343,7 +355,33 @@ class EmployeeController(http.Controller):
                     else:
                         employee = new_user.employee_id
                         new_user.employee_id.sudo().write(employee_vals)
-                    #
+                    if row.get('project_id'):
+                        ProjectRequest = request.env['project.project'].sudo().browse(row.get('project_id'))
+                        emp_list = []
+                        if ProjectRequest.exists():
+                            if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                                            request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                                            request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                                emp_list = ProjectRequest.project_lead.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_lead = [(6, 0, emp_list)]
+
+                            elif employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                                              request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                                              request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                                emp_list = ProjectRequest.project_qc_reviewer.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_qc_reviewer = [(6, 0, emp_list)]
+
+                            elif employee.user_id.user_role.id in [
+                                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                                emp_list = ProjectRequest.project_tasker.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
+
+                        #
                     # if not new_user.employee_id:
                     #     employee_vals = {
                     #         'name': name,

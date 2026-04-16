@@ -146,7 +146,7 @@ class TaskForgeLeaveController(http.Controller):
             leaves = Leave.search(domain, order='create_date desc', limit=limit, offset=offset)
             data = [self._format_leave(l) for l in leaves]
 
-            return return_Response(message="Leaves list", status=200, data={'data': data})
+            return return_Response(message="Leaves list", status=200, data={'data': data, 'total_record_count': total_count})
         except Exception as e:
             return return_Response(message=str(e), status=400)
 

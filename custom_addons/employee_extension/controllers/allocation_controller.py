@@ -158,6 +158,50 @@ class AllocationController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
+    @http.route('/api/v1/project_allocation/employee', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'assign_employees': {'type': 'list', 'required': True},
+        'project_id': {"type": "int", "required": True},
+    })
+    def project_allocation_action(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+
+            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
+                return return_Response(message="Insufficient permissions to approve", status=403)
+
+            ProjectRequest = request.env['project.project'].sudo()
+            project = ProjectRequest.browse(jdata.get('project_id'))
+
+            if not project.exists():
+                return return_Response(message="Product not found", status=404)
+
+            employees = request.env['hr.employee'].sudo().search([('id', 'in', jdata.get('assign_employees'))])
+            project_lead = project.project_lead.ids
+            project_qc_reviewer = project.project_qc_reviewer.ids
+            project_tasker = project.project_tasker.ids
+
+            for emp in employees:
+                if emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                    project_lead.append(emp.id)
+
+                elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                    project_qc_reviewer.append(emp.id)
+
+                elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                    project_tasker.append(emp.id)
+
+            project.sudo().write({
+                'project_lead': [(6, 0, project_lead)],
+                'project_qc_reviewer': [(6, 0, project_qc_reviewer)],
+                'project_tasker': [(6, 0, project_tasker)]
+            })
+            return return_Response(message="Employee Allocation Completed Successfully.", status=200)
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v1/allocation/request/reject', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({

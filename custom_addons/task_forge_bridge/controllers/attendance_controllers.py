@@ -352,7 +352,7 @@ class TaskForgeAttendanceController(http.Controller):
             return return_Response(
                 message="Today's attendance",
                 status=200,
-                data={'data': temp,'count': len(temp)},
+                data={'data': temp,'count': len(temp), 'total_record_count': total_count},
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
