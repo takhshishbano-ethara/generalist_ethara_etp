@@ -663,7 +663,7 @@ class TalosSandboxK8s(models.AbstractModel):
                     '  cp -L "$f" "/gog-out/gogcli/$real"; '
                     "done && "
                     "ls -laR /gog-out/gogcli/ && "
-                    "chown -R 1000:1000 /gog-out",
+                    "chown -R 1000:1000 /gog-out 2>/dev/null || true",
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(
