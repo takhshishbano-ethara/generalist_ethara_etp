@@ -67,7 +67,33 @@ class EmployeeController(http.Controller):
                 employee_vals['user_id'] = new_user.id
                 employee = Employee.create(employee_vals)
             else:
+                employee = new_user.employee_id
                 new_user.employee_id.sudo().write(employee_vals)
+            if kwargs.get('project_id'):
+                ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
+                emp_list = []
+                if ProjectRequest.exists():
+                    if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                        emp_list = ProjectRequest.project_lead.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_lead = [(6, 0, emp_list)]
+
+                    elif employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                                           request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                                           request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                        emp_list = ProjectRequest.project_qc_reviewer.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_qc_reviewer = [(6, 0, emp_list)]
+
+                    elif employee.user_id.user_role.id in [
+                        request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                        request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                        request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                        emp_list = ProjectRequest.project_tasker.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
 
             try:
                 request.env['kubera.notification'].sudo().create({
@@ -324,6 +350,18 @@ class EmployeeController(http.Controller):
                         employee_vals['task_forge_qr_id'] = user.employee_id.id
                         employee_vals['task_forge_pl_id'] = user.employee_id.task_forge_pl_id.id
 
+                    if row.get('qr_email'):
+                        qr_email = request.env['res.users'].sudo().search([('login', '=', row.get('qr_email'))], limit=1)
+                        if qr_email:
+                            if qr_email.employee_id:
+                                employee_vals['task_forge_qr_id'] = qr_email.employee_id.id
+
+                    if row.get('pl_email'):
+                        pl_email = request.env['res.users'].sudo().search([('login', '=', row.get('pl_email'))], limit=1)
+                        if pl_email:
+                            if pl_email.employee_id:
+                                employee_vals['task_forge_pl_id'] = pl_email.employee_id.id
+
                     if row.get('department_id'):
                         employee_vals['department_id'] = int(row.get('department_id'))
 
@@ -343,7 +381,33 @@ class EmployeeController(http.Controller):
                     else:
                         employee = new_user.employee_id
                         new_user.employee_id.sudo().write(employee_vals)
-                    #
+                    if kwargs.get('project_id'):
+                        ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
+                        emp_list = []
+                        if ProjectRequest.exists():
+                            if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                                            request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                                            request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                                emp_list = ProjectRequest.project_lead.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_lead = [(6, 0, emp_list)]
+
+                            elif employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                                              request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                                              request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                                emp_list = ProjectRequest.project_qc_reviewer.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_qc_reviewer = [(6, 0, emp_list)]
+
+                            elif employee.user_id.user_role.id in [
+                                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                                emp_list = ProjectRequest.project_tasker.ids
+                                emp_list.append(employee.id)
+                                ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
+
+                        #
                     # if not new_user.employee_id:
                     #     employee_vals = {
                     #         'name': name,
@@ -782,6 +846,7 @@ class EmployeeController(http.Controller):
                 message=f"{len(data)} employees found",
                 status=200,
                 data={
+                    'total_record_count': total_count,
                     'data': data,
                     "total": len(data),
                     "on_bench": on_bench_count,
@@ -1022,7 +1087,8 @@ class EmployeeController(http.Controller):
 
     @http.route('/api/v2/get_on_bench_employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({"role_id": {"type": "string", "required": True}})
+    # @validate_request({"role_id": {"type": "string", "required": True}})
+    @validate_request({})
     def get_on_bench_employees(self, **kwargs):
         temp = []
         try:
@@ -1032,7 +1098,12 @@ class EmployeeController(http.Controller):
                 assign_employee.extend(ap.project_lead.ids)
                 assign_employee.extend(ap.project_qc_reviewer.ids)
                 assign_employee.extend(ap.project_tasker.ids)
-            employees = self.env['hr.employee'].sudo().search([('id', 'not in', assign_employee), ('user_id.user_role', '=', int(kwargs.get('role_id')))])
+            domain = [('id', 'not in', assign_employee)]
+
+            if kwargs.get('role_id'):
+                domain.append(('user_id.user_role', '=', int(kwargs.get('role_id'))))
+
+            employees = self.env['hr.employee'].sudo().search(domain)
             temp = [{
                 'id': emp.id or 0,
                 'name': emp.name or "",
