@@ -30,7 +30,12 @@ _GOLDEN_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="talos-golde
 _GOLDEN_GENERATING = set()
 _GOLDEN_LOCK = threading.Lock()
 
+_TASKDESC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="talos-taskdesc")
+_TASKDESC_GENERATING = set()
+_TASKDESC_LOCK = threading.Lock()
+
 _golden_prompt_cache = None
+_taskdesc_prompt_cache = None
 
 
 def _get_golden_prompt():
@@ -47,6 +52,22 @@ def _get_golden_prompt():
     else:
         _golden_prompt_cache = ""
     return _golden_prompt_cache
+
+
+def _get_taskdesc_prompt():
+    global _taskdesc_prompt_cache
+    if _taskdesc_prompt_cache is not None:
+        return _taskdesc_prompt_cache
+    mod_path = get_module_path("talos")
+    if not mod_path:
+        return ""
+    path = os.path.join(mod_path, "task_description_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _taskdesc_prompt_cache = f.read().strip()
+    else:
+        _taskdesc_prompt_cache = ""
+    return _taskdesc_prompt_cache
 
 
 def _run_golden_generation_background(db_name, task_id, notify_partner_id):
@@ -196,6 +217,196 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
     finally:
         with _GOLDEN_LOCK:
             _GOLDEN_GENERATING.discard(task_id)
+
+
+def _run_task_description_background(db_name, task_id, notify_partner_id):
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["talos.talos"].browse(task_id)
+            if not task.exists():
+                _logger.error("Task desc gen: task %s does not exist", task_id)
+                return
+
+            claude_traj = task.claude_trajectory or ""
+            glm_traj = task.glm_trajectory or ""
+            oneP_traj = task.oneP_trajectory or ""
+            seed_prompt = task.seed_prompt or ""
+            persona = task.persona_id
+            soul_md = persona.soul_md or "" if persona else ""
+
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+            dotenv = _load_dotenv()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+
+        if not api_key:
+            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+        if not inference_arn:
+            raise RuntimeError(
+                "Bedrock Inference ARN not configured in Settings > Talos"
+            )
+
+        system_prompt = _get_taskdesc_prompt()
+
+        user_message = (
+            "## Seed Prompt\n%s\n\n"
+            "## Persona (SOUL.md)\n%s\n\n"
+            "## Claude Trajectory\n%s\n\n"
+            "## GLM Trajectory\n%s\n\n"
+            "## 1P Trajectory\n%s"
+        ) % (seed_prompt, soul_md, claude_traj, glm_traj, oneP_traj)
+
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=4096,
+            temperature=0.5,
+            timeout=300.0,
+        )
+        _logger.info(
+            "Task description generated for task %s (%d chars, tokens: %s)",
+            task_id,
+            len(response_text),
+            usage,
+        )
+
+        for attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["talos.talos"].browse(task_id)
+                    if not task.exists():
+                        return
+                    task.write(
+                        {
+                            "task_description": response_text,
+                            "task_description_status": "done",
+                            "task_description_error": False,
+                        }
+                    )
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "talos/taskdesc_ready",
+                            {"task_id": task_id, "status": "done"},
+                        )
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and attempt < 2:
+                    time.sleep(1 + attempt)
+                    continue
+                raise
+
+    except Exception as e:
+        _logger.exception("Task description generation failed for task %s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                task = env["talos.talos"].browse(task_id)
+                if task.exists():
+                    task.write(
+                        {
+                            "task_description_status": "error",
+                            "task_description_error": str(e)[:1000],
+                        }
+                    )
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "talos/taskdesc_ready",
+                            {
+                                "task_id": task_id,
+                                "status": "error",
+                                "error": str(e)[:500],
+                            },
+                        )
+        except Exception:
+            _logger.exception(
+                "Failed to write task desc error status for task %s", task_id
+            )
+    finally:
+        with _TASKDESC_LOCK:
+            _TASKDESC_GENERATING.discard(task_id)
+
+
+def generate_task_description_sync(env, seed_prompt, messages_json):
+    """Call Kimi/Bedrock to generate a single-line task description.
+
+    Args:
+        env: Odoo environment (for reading config params).
+        seed_prompt: The original user seed prompt.
+        messages_json: JSON string or list of trajectory messages.
+
+    Returns:
+        A single-line description string, or empty string on failure.
+    """
+    try:
+        ICP = env["ir.config_parameter"].sudo()
+        inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+        region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+
+        if not api_key or not inference_arn:
+            _logger.warning("generate_task_description_sync: missing credentials")
+            return ""
+
+        system_prompt = _get_taskdesc_prompt()
+        if not system_prompt:
+            _logger.warning("generate_task_description_sync: no task_description_prompt.md")
+            return ""
+
+        if isinstance(messages_json, list):
+            messages_text = json.dumps(messages_json, ensure_ascii=False)[:8000]
+        else:
+            messages_text = str(messages_json)[:8000]
+
+        user_message = (
+            "## Seed Prompt\n%s\n\n"
+            "## Chat Messages\n%s"
+        ) % (seed_prompt or "", messages_text)
+
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=256,
+            temperature=0.3,
+            timeout=60.0,
+        )
+        desc = response_text.strip().replace("\n", " ")
+        _logger.info(
+            "generate_task_description_sync: generated %d chars, tokens=%s",
+            len(desc),
+            usage,
+        )
+        return desc
+    except Exception as e:
+        _logger.warning("generate_task_description_sync failed: %s", e)
+        return ""
 
 
 def _format_tool_result(result):
@@ -470,6 +681,19 @@ class Talos(models.Model):
     )
     golden_error = fields.Text(string="Golden Error")
 
+    task_description = fields.Text(string="Task Description")
+    task_description_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Task Description Status",
+        default="idle",
+    )
+    task_description_error = fields.Text(string="Task Description Error")
+
     # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
     claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
@@ -608,6 +832,34 @@ class Talos(models.Model):
         def _queue():
             _GOLDEN_POOL.submit(
                 _run_golden_generation_background,
+                db_name,
+                task_id,
+                notify_partner_id,
+            )
+
+    def action_generate_task_description(self):
+        self.ensure_one()
+        has_any = self.claude_trajectory or self.glm_trajectory or self.oneP_trajectory
+        if not has_any:
+            raise UserError(
+                "At least one model trajectory is required to generate a task description."
+            )
+
+        with _TASKDESC_LOCK:
+            if self.id in _TASKDESC_GENERATING:
+                raise UserError("Task description generation is already in progress.")
+            _TASKDESC_GENERATING.add(self.id)
+
+        self.write({"task_description_status": "generating", "task_description_error": False})
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        @self.env.cr.postcommit.add
+        def _queue_taskdesc():
+            _TASKDESC_POOL.submit(
+                _run_task_description_background,
                 db_name,
                 task_id,
                 notify_partner_id,

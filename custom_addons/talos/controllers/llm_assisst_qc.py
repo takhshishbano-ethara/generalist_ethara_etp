@@ -20,6 +20,7 @@ BEDROCK_CONVERSE_URL = (
 )
 
 _system_prompt_cache = None
+_trajectory_qc_prompt_cache = None
 
 
 def _get_system_prompt():
@@ -39,6 +40,25 @@ def _get_system_prompt():
         _system_prompt_cache = ""
 
     return _system_prompt_cache
+
+
+def _get_trajectory_qc_prompt():
+    global _trajectory_qc_prompt_cache
+    if _trajectory_qc_prompt_cache is not None:
+        return _trajectory_qc_prompt_cache
+
+    mod_path = get_module_path("talos")
+    if not mod_path:
+        return ""
+
+    path = os.path.join(mod_path, "trajectory_qc_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _trajectory_qc_prompt_cache = f.read().strip()
+    else:
+        _trajectory_qc_prompt_cache = ""
+
+    return _trajectory_qc_prompt_cache
 
 
 def _parse_json_response(text):
@@ -211,6 +231,61 @@ class LlmAssistQc(http.Controller):
             )
         except Exception as e:
             _logger.exception("QC Bedrock call failed")
+            return {"error": str(e)[:500]}
+
+        parsed_json = _parse_json_response(response_text)
+        qc_verdict = _parse_qc_verdict(response_text)
+
+        result = {
+            "success": True,
+            "response": response_text,
+            "usage": usage,
+        }
+        if parsed_json is not None:
+            result["parsed_json"] = parsed_json
+        if qc_verdict is not None:
+            result["qc_result"] = qc_verdict
+
+        return result
+
+    @http.route("/talos/trajectory_qc", type="json", auth="user")
+    def trajectory_qc(self, trajectory="", max_tokens=4096, temperature=0.7, **kw):
+        """Run QC evaluation on a single trajectory session."""
+        trajectory = (trajectory or "").strip()
+        if not trajectory:
+            return {"error": "trajectory is required"}
+
+        env = _load_dotenv()
+        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        if not api_key:
+            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+
+        ICP = request.env["ir.config_parameter"].sudo()
+        inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+        region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+        if not inference_arn:
+            return {"error": "Bedrock Inference ARN not configured in Settings > Talos"}
+
+        system_prompt = _get_trajectory_qc_prompt()
+        if not system_prompt:
+            return {"error": "trajectory_qc_prompt.md not found"}
+
+        if len(trajectory) > 50000:
+            trajectory = trajectory[:50000] + "\n\n[... truncated for length ...]"
+
+        try:
+            response_text, usage = _call_bedrock_converse(
+                api_key=api_key,
+                inference_arn=inference_arn,
+                region=region,
+                system_prompt=system_prompt,
+                user_message=trajectory,
+                max_tokens=int(max_tokens),
+                temperature=float(temperature),
+            )
+        except Exception as e:
+            _logger.exception("Trajectory QC Bedrock call failed")
             return {"error": str(e)[:500]}
 
         parsed_json = _parse_json_response(response_text)
