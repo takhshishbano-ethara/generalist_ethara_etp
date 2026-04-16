@@ -67,7 +67,33 @@ class EmployeeController(http.Controller):
                 employee_vals['user_id'] = new_user.id
                 employee = Employee.create(employee_vals)
             else:
+                employee = new_user.employee_id
                 new_user.employee_id.sudo().write(employee_vals)
+            if kwargs.get('project_id'):
+                ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
+                emp_list = []
+                if ProjectRequest.exists():
+                    if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                        emp_list = ProjectRequest.project_lead.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_lead = [(6, 0, emp_list)]
+
+                    elif employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                                           request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                                           request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                        emp_list = ProjectRequest.project_qc_reviewer.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_qc_reviewer = [(6, 0, emp_list)]
+
+                    elif employee.user_id.user_role.id in [
+                        request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                        request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                        request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                        emp_list = ProjectRequest.project_tasker.ids
+                        emp_list.append(employee.id)
+                        ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
 
             try:
                 request.env['kubera.notification'].sudo().create({
@@ -355,8 +381,8 @@ class EmployeeController(http.Controller):
                     else:
                         employee = new_user.employee_id
                         new_user.employee_id.sudo().write(employee_vals)
-                    if row.get('project_id'):
-                        ProjectRequest = request.env['project.project'].sudo().browse(row.get('project_id'))
+                    if kwargs.get('project_id'):
+                        ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
                         emp_list = []
                         if ProjectRequest.exists():
                             if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
