@@ -1,6 +1,9 @@
 from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value, generate_s3_link, is_valid_email, is_valid_mobile
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class ApiAuthController(http.Controller):
 
@@ -247,6 +250,10 @@ class ApiAuthController(http.Controller):
             if 'uid' not in uid:
                 return return_Response(message="Incorrect Password.", status=400, errors=[])
             user_id.sudo().password = jdata.get('new_password')
+            access_token = request.env['api.access_token'].sudo().search([('user_id', '=', user_id.id)])
+            if access_token:
+                for token in access_token:
+                    token.sudo().unlink()
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Profile Updated Successfully", status=200)
@@ -310,4 +317,132 @@ class ApiAuthController(http.Controller):
             return return_Response(message="Success", status=200, data={"record": data})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
+    # =====================================================
+    # Forgot Password / Reset Password
+    # =====================================================
+
+    @http.route('/api/v1/forgot_password', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({'email': {'type': 'str', 'required': True}})
+    def forgot_password(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            email = jdata.get('email', '').lower().strip()
+
+            if not is_valid_email(email):
+                return return_Response(message="Please enter a valid email address.", status=400)
+
+            user = request.env['res.users'].sudo().search([
+                ('login', '=', email),
+                ('active', '=', True),
+            ], limit=1)
+
+            # Prevent email enumeration: always return success
+            if not user:
+                return return_Response(
+                    message="If an account exists with this email, a password reset link has been sent.",
+                    status=200
+                )
+
+            ResetToken = request.env['api.password_reset_token'].sudo()
+            token = ResetToken.generate_reset_token(user.id)
+
+            base_url = request.env['ir.config_parameter'].sudo().get_param(
+                'api_auth_gateway.password_reset_url',
+                default='http://localhost:3000/reset-password'
+            )
+            reset_link = '%s?token=%s' % (base_url, token)
+
+            try:
+                template = request.env.ref('api_auth_gateway.email_template_password_reset', raise_if_not_found=False)
+                if template:
+                    template.sudo().with_context(
+                        reset_link=reset_link,
+                        user_name=user.name,
+                    ).send_mail(user.id, force_send=True)
+                else:
+                    mail_values = {
+                        'subject': 'Password Reset Request - Ethara',
+                        'email_from': request.env['ir.config_parameter'].sudo().get_param('mail.catchall.email', 'noreply@ethara.com'),
+                        'email_to': email,
+                        'body_html': '''
+                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                                <h2 style="color: #333;">Password Reset Request</h2>
+                                <p>Hi %s,</p>
+                                <p>We received a request to reset your password. Click the button below to set a new password:</p>
+                                <p style="text-align: center; margin: 30px 0;">
+                                    <a href="%s" style="background-color: #007bff; color: white; padding: 12px 30px;
+                                       text-decoration: none; border-radius: 5px; font-size: 16px;">
+                                       Reset Password
+                                    </a>
+                                </p>
+                                <p style="color: #666; font-size: 13px;">This link will expire in <strong>1 hour</strong>.</p>
+                                <p style="color: #666; font-size: 13px;">If you did not request a password reset, please ignore this email.</p>
+                                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                                <p style="color: #999; font-size: 11px;">Ethara Team</p>
+                            </div>
+                        ''' % (user.name, reset_link),
+                    }
+                    request.env['mail.mail'].sudo().create(mail_values).send()
+            except Exception as e:
+                _logger.error('Failed to send password reset email to %s: %s', email, str(e))
+                return return_Response(message="Failed to send reset email. Please try again later.", status=400)
+
+            return return_Response(
+                message="If an account exists with this email, a password reset link has been sent.",
+                status=200
+            )
+        except Exception as e:
+            _logger.error('Forgot password error: %s', str(e))
+            return return_Response(message="Something went wrong. Please try again.", status=400, errors=[str(e)])
+
+    @http.route('/api/v1/reset_password', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        'token': {'type': 'str', 'required': True},
+        'new_password': {'type': 'str', 'required': True},
+        'confirm_password': {'type': 'str', 'required': True},
+    })
+    def reset_password(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            token = jdata.get('token', '').strip()
+            new_password = jdata.get('new_password', '').strip()
+            confirm_password = jdata.get('confirm_password', '').strip()
+
+            if new_password != confirm_password:
+                return return_Response(message="The password and confirm password do not match.", status=400)
+
+            if len(new_password) < 6:
+                return return_Response(message="Password must be at least 6 characters long.", status=400)
+
+            ResetToken = request.env['api.password_reset_token'].sudo()
+            token_record = ResetToken.validate_reset_token(token)
+
+            if not token_record:
+                return return_Response(
+                    message="Invalid or expired reset link. Please request a new password reset.",
+                    status=400
+                )
+
+            user = token_record.user_id
+
+            user.sudo().password = new_password
+
+            token_record.sudo().write({'used': True})
+
+            ResetToken.search([
+                ('user_id', '=', user.id),
+                ('used', '=', False),
+            ]).write({'used': True})
+            access_token = request.env['api.access_token'].sudo().search([('user_id', '=', user_id.id)])
+            if access_token:
+                for token in access_token:
+                    token.sudo().unlink()
+            return return_Response(
+                message="Password has been reset successfully. Please login with your new password.",
+                status=200
+            )
+        except Exception as e:
+            _logger.error('Reset password error: %s', str(e))
+            return return_Response(message="Something went wrong. Please try again.", status=400, errors=[str(e)])
 
