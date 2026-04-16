@@ -495,17 +495,21 @@ class TalosSandboxK8s(models.AbstractModel):
                 command=[
                     "sh",
                     "-c",
+                    "RUN_ID=$(TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
+                    "echo $RUN_ID > /data/session/.talos-run-id && "
                     "chown -R 1000:1000 /data/session /data/browser-profiles; "
-                    "aws s3 ls %s >/dev/null 2>&1 && "
-                    "aws s3 sync %s /data/session/ --no-progress --quiet || true; "
+                    "aws s3 ls %slatest/ >/dev/null 2>&1 && "
+                    "aws s3 sync %slatest/ /data/session/ --no-progress --quiet || true; "
                     "aws s3 ls %s >/dev/null 2>&1 && "
                     "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
+                    "aws s3 sync /data/session/ %shistory/run-$RUN_ID/start/ --no-progress --quiet 2>/dev/null || true; "
                     "chown -R 1000:1000 /data/session /data/browser-profiles"
                     % (
                         session_s3_path,
                         session_s3_path,
                         browser_s3_path,
                         browser_s3_path,
+                        session_s3_path,
                     ),
                 ],
                 volume_mounts=[
@@ -529,7 +533,8 @@ class TalosSandboxK8s(models.AbstractModel):
                     "sh",
                     "-c",
                     "mkdir -p /data/workspace/memory /data/workspace/skills && "
-                    "cp /persona-src/* /data/workspace/ 2>/dev/null || true && "
+                    "cp -L /persona-src/* /data/workspace/ 2>/dev/null; "
+                    "ls -la /data/workspace/ && "
                     "chown -R 1000:1000 /data/workspace",
                 ],
                 volume_mounts=[

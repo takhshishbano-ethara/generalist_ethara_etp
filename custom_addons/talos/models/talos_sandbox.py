@@ -370,7 +370,7 @@ class TalosSandbox(models.Model):
             ns_param = (
                 self.env["ir.config_parameter"]
                 .sudo()
-                .get_param("talos.k8s_namespace", "default")
+                .get_param("talos.k8s_namespace", "talos")
                 .strip()
             )
             if ns_param:
