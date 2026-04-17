@@ -6,6 +6,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from .talos import _load_dotenv, _DEFAULT_LITELLM_CONFIG
+from .talos_sandbox import MODEL_DEFAULTS
 
 _logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def _build_prestop_script(task_id, persona_name):
     ) % (session_path, browser_path)
 
 
-def _build_openclaw_config(gateway_token, env):
+def _build_openclaw_config(gateway_token, env, model_type="claude"):
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -213,7 +214,7 @@ def _build_openclaw_config(gateway_token, env):
             },
         ],
     }
-    config_dict["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+    config_dict["agents"] = {"defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.6")}}
 
     return config_dict
 
@@ -299,7 +300,7 @@ class TalosSandboxK8s(models.AbstractModel):
             task_record,
         )
 
-        openclaw_config = _build_openclaw_config(gateway_token, env)
+        openclaw_config = _build_openclaw_config(gateway_token, env, sandbox_record.model_type)
         self._create_openclaw_config_configmap(
             core_v1,
             task_id,
