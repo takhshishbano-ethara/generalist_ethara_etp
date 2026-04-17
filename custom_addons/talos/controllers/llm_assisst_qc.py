@@ -126,6 +126,21 @@ def _parse_qc_verdict(text):
     }
 
 
+def _is_degenerate(text, threshold=0.8):
+    """Detect repetitive token degeneration (e.g. '!!!...', 'aaa...').
+
+    Returns True when any single character makes up more than *threshold*
+    of the response — a strong signal the model collapsed into a loop.
+    """
+    if not text or len(text) < 20:
+        return False
+    from collections import Counter
+
+    counts = Counter(text)
+    most_common_count = counts.most_common(1)[0][1]
+    return most_common_count / len(text) >= threshold
+
+
 def _call_bedrock_converse(
     api_key,
     inference_arn,
@@ -134,6 +149,7 @@ def _call_bedrock_converse(
     user_message,
     max_tokens=4096,
     temperature=0.7,
+    top_p=0.9,
     timeout=120.0,
 ):
     url = BEDROCK_CONVERSE_URL.format(
@@ -155,12 +171,13 @@ def _call_bedrock_converse(
         "inferenceConfig": {
             "maxTokens": max_tokens,
             "temperature": temperature,
+            "topP": top_p,
         },
     }
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
-    with httpx.Client(http2=True, timeout=timeout) as client:
+    with httpx.Client(http2=False, timeout=timeout) as client:
         resp = client.post(url, json=payload, headers=headers)
 
     if resp.status_code != 200:
@@ -198,7 +215,7 @@ def _call_bedrock_converse(
 class LlmAssistQc(http.Controller):
     @http.route("/talos/qc", type="json", auth="user")
     def qc_prompt(
-        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.7, **kw
+        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.3, **kw
     ):
         prompt = (prompt or "").strip()
         if not prompt:
@@ -229,6 +246,20 @@ class LlmAssistQc(http.Controller):
                 max_tokens=int(max_tokens),
                 temperature=float(temperature),
             )
+
+            if _is_degenerate(response_text):
+                _logger.warning("QC response degenerated, retrying with temperature=0.1")
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=prompt,
+                    max_tokens=int(max_tokens),
+                    temperature=0.1,
+                    top_p=0.7,
+                )
+
         except Exception as e:
             _logger.exception("QC Bedrock call failed")
             return {"error": str(e)[:500]}
@@ -249,7 +280,7 @@ class LlmAssistQc(http.Controller):
         return result
 
     @http.route("/talos/trajectory_qc", type="json", auth="user")
-    def trajectory_qc(self, trajectory="", max_tokens=4096, temperature=0.7, **kw):
+    def trajectory_qc(self, trajectory="", max_tokens=4096, temperature=0.3, **kw):
         """Run QC evaluation on a single trajectory session."""
         trajectory = (trajectory or "").strip()
         if not trajectory:
@@ -284,6 +315,22 @@ class LlmAssistQc(http.Controller):
                 max_tokens=int(max_tokens),
                 temperature=float(temperature),
             )
+
+            if _is_degenerate(response_text):
+                _logger.warning(
+                    "Trajectory QC response degenerated, retrying with temperature=0.1"
+                )
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=trajectory,
+                    max_tokens=int(max_tokens),
+                    temperature=0.1,
+                    top_p=0.7,
+                )
+
         except Exception as e:
             _logger.exception("Trajectory QC Bedrock call failed")
             return {"error": str(e)[:500]}

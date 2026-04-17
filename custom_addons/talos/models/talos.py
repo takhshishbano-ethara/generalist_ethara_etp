@@ -376,9 +376,9 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
             return ""
 
         if isinstance(messages_json, list):
-            messages_text = json.dumps(messages_json, ensure_ascii=False)[:8000]
+            messages_text = json.dumps(messages_json, ensure_ascii=False)[:16000]
         else:
-            messages_text = str(messages_json)[:8000]
+            messages_text = str(messages_json)[:16000]
 
         user_message = (
             "## Seed Prompt\n%s\n\n"
@@ -393,9 +393,9 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
             region=region,
             system_prompt=system_prompt,
             user_message=user_message,
-            max_tokens=256,
+            max_tokens=1024,
             temperature=0.3,
-            timeout=60.0,
+            timeout=90.0,
         )
         desc = response_text.strip().replace("\n", " ")
         _logger.info(
