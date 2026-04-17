@@ -8,7 +8,7 @@ import { useRecordObserver } from "@web/model/relational_model/utils";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 
-import { Component, markup, useRef, useState, onMounted, onPatched } from "@odoo/owl";
+import { Component, markup, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 function escapeHtml(s) {
@@ -78,6 +78,8 @@ export class TalosJsonField extends Component {
             qcExpandedChecks: {},
             qcCollapsed: {},
         });
+        this._qcPollingTimers = {};
+        this._taskDescPollingTimers = {};
         this.orm = useService("orm");
         this.action = useService("action");
         this.dialog = useService("dialog");
@@ -94,6 +96,7 @@ export class TalosJsonField extends Component {
             this._resumePendingQc();
         });
         onPatched(() => this._autoResizeEditTextarea());
+        onWillUnmount(() => this._clearAllPolling());
     }
 
     _autoResizeEditTextarea() {
@@ -107,10 +110,68 @@ export class TalosJsonField extends Component {
     _resumePendingQc() {
         for (const entry of this.state.entries) {
             if (entry.qcStatus === "pending") {
-                this.onQcEntry(entry.index);
-                break;
+                this._startQcPolling(entry.index);
+            }
+            if (entry.taskDescriptionStatus === "pending") {
+                this._startTaskDescPolling(entry.index);
             }
         }
+    }
+
+    _clearAllPolling() {
+        for (const key of Object.keys(this._qcPollingTimers)) {
+            clearInterval(this._qcPollingTimers[key]);
+        }
+        this._qcPollingTimers = {};
+        for (const key of Object.keys(this._taskDescPollingTimers)) {
+            clearInterval(this._taskDescPollingTimers[key]);
+        }
+        this._taskDescPollingTimers = {};
+    }
+
+    _startQcPolling(index) {
+        if (this._qcPollingTimers[index]) return;
+        this._qcPollingTimers[index] = setInterval(async () => {
+            try {
+                await this.props.record.load();
+                const raw = formatText(this.props.record.data[this.props.name]);
+                const entries = parseEntries(raw);
+                if (index < entries.length) {
+                    const status = entries[index].qc_status;
+                    if (status && status !== "pending") {
+                        clearInterval(this._qcPollingTimers[index]);
+                        delete this._qcPollingTimers[index];
+                        if (status === "done" && entries[index].qc_result) {
+                            this.state.qcResults[index] = entries[index].qc_result;
+                            this.state.qcCollapsed[index] = false;
+                        }
+                        this.state.qcRunning = -1;
+                    }
+                }
+            } catch (_e) {
+                // network hiccup — keep polling
+            }
+        }, 5000);
+    }
+
+    _startTaskDescPolling(index) {
+        if (this._taskDescPollingTimers[index]) return;
+        this._taskDescPollingTimers[index] = setInterval(async () => {
+            try {
+                await this.props.record.load();
+                const raw = formatText(this.props.record.data[this.props.name]);
+                const entries = parseEntries(raw);
+                if (index < entries.length) {
+                    const status = entries[index].task_description_status;
+                    if (status && status !== "pending") {
+                        clearInterval(this._taskDescPollingTimers[index]);
+                        delete this._taskDescPollingTimers[index];
+                    }
+                }
+            } catch (_e) {
+                // network hiccup — keep polling
+            }
+        }, 5000);
     }
 
     _updateEntries(raw) {
@@ -123,6 +184,7 @@ export class TalosJsonField extends Component {
             html: markup(renderTrajectoryHtml(entry.trajectory)),
             qcStatus: entry.qc_status || null,
             qcResult: entry.qc_result || null,
+            taskDescriptionStatus: entry.task_description_status || null,
         }));
     }
 
@@ -210,63 +272,37 @@ export class TalosJsonField extends Component {
         this.state.editError = "";
     }
 
-    async _persistQcState(index, qcStatus, qcResult) {
-        const raw = this.props.record.data[this.props.name] || "";
-        const entries = parseEntries(raw);
-        if (index < entries.length) {
-            entries[index].qc_status = qcStatus;
-            if (qcResult) {
-                entries[index].qc_result = qcResult;
-            } else {
-                delete entries[index].qc_result;
-            }
-            const newValue = JSON.stringify(entries, null, 2);
-            await this.props.record.update({ [this.props.name]: newValue });
-            if (this.props.record.resId) {
-                await this.orm.write("talos.talos", [this.props.record.resId], {
-                    [this.props.name]: newValue,
-                });
-            }
-        }
-    }
-
     async onQcEntry(index) {
         if (this.state.qcRunning >= 0) return;
 
-        const entry = this.state.entries[index];
-        if (!entry) return;
-
-        const trajectoryStr = typeof entry.trajectory === "string"
-            ? entry.trajectory
-            : JSON.stringify(entry.trajectory, null, 2);
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) {
+            this.notification.add(_t("Save the record first"), { type: "warning" });
+            return;
+        }
 
         this.state.qcRunning = index;
         this.state.qcCollapsed[index] = false;
         delete this.state.qcResults[index];
 
-        await this._persistQcState(index, "pending", null);
-
         try {
-            const resp = await rpc("/talos/trajectory_qc", { trajectory: trajectoryStr });
+            const resp = await rpc("/talos/trajectory_qc", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: index,
+            });
             if (resp.error) {
                 this.notification.add(resp.error, { type: "danger", sticky: false });
-                await this._persistQcState(index, "error", null);
+                this.state.qcRunning = -1;
                 return;
             }
-            if (resp.qc_result) {
-                this.state.qcResults[index] = resp.qc_result;
-                await this._persistQcState(index, "done", resp.qc_result);
-            } else {
-                this.notification.add(_t("QC returned no parseable result"), { type: "warning" });
-                await this._persistQcState(index, "error", null);
-            }
+            this._startQcPolling(index);
         } catch (e) {
             this.notification.add(
                 _t("QC failed: ") + (e.message || String(e)),
                 { type: "danger", sticky: false },
             );
-            await this._persistQcState(index, "error", null);
-        } finally {
             this.state.qcRunning = -1;
         }
     }

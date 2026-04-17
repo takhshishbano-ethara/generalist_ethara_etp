@@ -347,6 +347,20 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
             _TASKDESC_GENERATING.discard(task_id)
 
 
+import re as _re
+
+def _is_degenerate_output(text):
+    if not text or len(text) < 20:
+        return True
+    repeated = _re.search(r'(.)\1{15,}', text)
+    if repeated:
+        return True
+    unique_chars = len(set(text.lower()))
+    if unique_chars < 8 and len(text) > 30:
+        return True
+    return False
+
+
 def generate_task_description_sync(env, seed_prompt, messages_json):
     """Call Kimi/Bedrock to generate a single-line task description.
 
@@ -398,6 +412,14 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
             timeout=90.0,
         )
         desc = response_text.strip().replace("\n", " ")
+
+        if _is_degenerate_output(desc):
+            _logger.warning(
+                "generate_task_description_sync: degenerate output detected (%d chars), discarding",
+                len(desc),
+            )
+            return ""
+
         _logger.info(
             "generate_task_description_sync: generated %d chars, tokens=%s",
             len(desc),
@@ -878,7 +900,7 @@ class Talos(models.Model):
         meta_info = {
             "task_type": self.task_type or "",
             "task_description": self.task_id or "",
-            "task_completion_status": self.task_status or "",
+            "task_completion_status": "success",
             "system_prompt": self.seed_prompt or "",
             "platform": "macOS",
             "persona": self.persona_id.name if self.persona_id else "",
@@ -894,15 +916,18 @@ class Talos(models.Model):
 
     def _trajectory_from_ws(self):
         self.ensure_one()
+        best_messages = []
+        best_count = 0
         for t in self._get_all_turns().sorted("turn_number", reverse=True):
             if t.trajectory_messages:
                 try:
                     ws_messages = json.loads(t.trajectory_messages)
-                    if isinstance(ws_messages, list) and len(ws_messages) > 0:
-                        return ws_messages
+                    if isinstance(ws_messages, list) and len(ws_messages) > best_count:
+                        best_messages = ws_messages
+                        best_count = len(ws_messages)
                 except (json.JSONDecodeError, TypeError):
-                    pass
-        return []
+                    continue
+        return best_messages
 
     def _build_trajectory_fallback(self):
         self.ensure_one()

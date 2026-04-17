@@ -35,6 +35,17 @@
         letter-spacing: normal;
     }
 
+    .talos-json-taskdesc-loading {
+        font-weight: 500;
+        color: #f9e2af;
+        text-transform: none;
+        letter-spacing: normal;
+        padding: 16px 12px;
+        font-size: 0.95em;
+
+        i { margin-right: 6px; }
+    }
+
     .talos-json-entry-actions {
         display: flex;
         align-items: center;
