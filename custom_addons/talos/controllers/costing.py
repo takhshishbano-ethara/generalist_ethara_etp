@@ -20,7 +20,6 @@ class TalosCostingController(http.Controller):
         else:
             start = None
 
-        # Read all token data from task-level fields (survives turn deletion)
         Task = request.env["talos.talos"].sudo()
         task_domain = []
         if start:
@@ -44,6 +43,14 @@ class TalosCostingController(http.Controller):
                     "claude_output": 0,
                     "glm_input": 0,
                     "glm_output": 0,
+                    "oneP_input": 0,
+                    "oneP_output": 0,
+                    "traj_qc_input": 0,
+                    "traj_qc_output": 0,
+                    "taskdesc_input": 0,
+                    "taskdesc_output": 0,
+                    "golden_input": 0,
+                    "golden_output": 0,
                 }
             emp_map[eid]["bedrock_input"] += task.bedrock_input_tokens or 0
             emp_map[eid]["bedrock_output"] += task.bedrock_output_tokens or 0
@@ -51,25 +58,37 @@ class TalosCostingController(http.Controller):
             emp_map[eid]["claude_output"] += task.claude_output_tokens or 0
             emp_map[eid]["glm_input"] += task.glm_input_tokens or 0
             emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
+            emp_map[eid]["oneP_input"] += task.oneP_input_tokens or 0
+            emp_map[eid]["oneP_output"] += task.oneP_output_tokens or 0
+            emp_map[eid]["traj_qc_input"] += task.traj_qc_input_tokens or 0
+            emp_map[eid]["traj_qc_output"] += task.traj_qc_output_tokens or 0
+            emp_map[eid]["taskdesc_input"] += task.taskdesc_input_tokens or 0
+            emp_map[eid]["taskdesc_output"] += task.taskdesc_output_tokens or 0
+            emp_map[eid]["golden_input"] += task.golden_input_tokens or 0
+            emp_map[eid]["golden_output"] += task.golden_output_tokens or 0
 
         rows = []
-        totals = {
-            "bedrock_input": 0,
-            "bedrock_output": 0,
-            "bedrock_total": 0,
-            "claude_input": 0,
-            "claude_output": 0,
-            "claude_total": 0,
-            "glm_input": 0,
-            "glm_output": 0,
-            "glm_total": 0,
-            "grand_total": 0,
-        }
+        total_keys = [
+            "bedrock_input", "bedrock_output", "bedrock_total",
+            "claude_input", "claude_output", "claude_total",
+            "glm_input", "glm_output", "glm_total",
+            "oneP_input", "oneP_output", "oneP_total",
+            "traj_qc_input", "traj_qc_output", "traj_qc_total",
+            "taskdesc_input", "taskdesc_output", "taskdesc_total",
+            "golden_input", "golden_output", "golden_total",
+            "grand_total",
+        ]
+        totals = {k: 0 for k in total_keys}
 
         for data in sorted(emp_map.values(), key=lambda r: r["employee_name"]):
             bt = data["bedrock_input"] + data["bedrock_output"]
             ct = data["claude_input"] + data["claude_output"]
             gt = data["glm_input"] + data["glm_output"]
+            ot = data["oneP_input"] + data["oneP_output"]
+            tqt = data["traj_qc_input"] + data["traj_qc_output"]
+            tdt = data["taskdesc_input"] + data["taskdesc_output"]
+            gdt = data["golden_input"] + data["golden_output"]
+
             row = {
                 "employee_id": data["employee_id"],
                 "employee_name": data["employee_name"],
@@ -82,22 +101,26 @@ class TalosCostingController(http.Controller):
                 "glm_input": data["glm_input"],
                 "glm_output": data["glm_output"],
                 "glm_total": gt,
-                "grand_total": bt + ct + gt,
+                "oneP_input": data["oneP_input"],
+                "oneP_output": data["oneP_output"],
+                "oneP_total": ot,
+                "traj_qc_input": data["traj_qc_input"],
+                "traj_qc_output": data["traj_qc_output"],
+                "traj_qc_total": tqt,
+                "taskdesc_input": data["taskdesc_input"],
+                "taskdesc_output": data["taskdesc_output"],
+                "taskdesc_total": tdt,
+                "golden_input": data["golden_input"],
+                "golden_output": data["golden_output"],
+                "golden_total": gdt,
+                "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
             }
             rows.append(row)
-            for k in (
-                "bedrock_input",
-                "bedrock_output",
-                "bedrock_total",
-                "claude_input",
-                "claude_output",
-                "claude_total",
-                "glm_input",
-                "glm_output",
-                "glm_total",
-            ):
-                totals[k] += row[k]
-            totals["grand_total"] += row["grand_total"]
+            for k in total_keys:
+                if k == "grand_total":
+                    totals[k] += row[k]
+                elif k in row:
+                    totals[k] += row[k]
 
         return {
             "period": period,

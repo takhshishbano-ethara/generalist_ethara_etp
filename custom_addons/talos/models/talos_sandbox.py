@@ -56,6 +56,78 @@ TRAJECTORY_FIELD_MAP = {
 }
 
 
+def _mark_task_description_status(db_name, task_id, field_name, status, entry_index=-1):
+    """Update the task_description_status on a trajectory entry."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["talos.talos"].browse(task_id)
+            if not task.exists():
+                return
+            raw = task[field_name] or ""
+            if not raw.strip():
+                return
+            data = json.loads(raw)
+            if isinstance(data, list) and data:
+                idx = entry_index if 0 <= entry_index < len(data) else -1
+                data[idx]["task_description_status"] = status
+                task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+    except Exception:
+        _logger.exception(
+            "Failed to mark task_description_status=%s for %s task %s",
+            status, field_name, task_id,
+        )
+
+
+def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messages, entry_index=-1):
+    """Background: generate task description via Kimi and inject into saved trajectory."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            desc, usage = generate_task_description_sync(env, seed_prompt, messages)
+            if usage.get("input_tokens", 0) > 0 or usage.get("output_tokens", 0) > 0:
+                task_rec = env["talos.talos"].browse(task_id)
+                if task_rec.exists():
+                    task_rec.write({
+                        "taskdesc_input_tokens": (task_rec.taskdesc_input_tokens or 0) + usage.get("input_tokens", 0),
+                        "taskdesc_output_tokens": (task_rec.taskdesc_output_tokens or 0) + usage.get("output_tokens", 0),
+                    })
+            if not desc:
+                _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
+                return
+            task = env["talos.talos"].browse(task_id)
+            if not task.exists():
+                return
+            raw = task[field_name] or ""
+            if not raw.strip():
+                return
+            data = json.loads(raw)
+            if isinstance(data, list) and data:
+                idx = entry_index if 0 <= entry_index < len(data) else -1
+                mi = data[idx].setdefault("trajectory", {}).setdefault("meta_info", {})
+                mi["task_description"] = desc
+                mi["task_completion_status"] = "success"
+                data[idx]["task_description_status"] = "done"
+            elif isinstance(data, dict):
+                mi = data.setdefault("meta_info", {})
+                mi["task_description"] = desc
+                mi["task_completion_status"] = "success"
+            task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+            _logger.info(
+                "Injected task_description (%d chars) into %s for task %s",
+                len(desc),
+                field_name,
+                task_id,
+            )
+    except Exception:
+        _logger.exception(
+            "Failed to inject task_description into %s for task %s",
+            field_name,
+            task_id,
+        )
+        _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
+
+
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
     """Background worker: start sandbox (docker compose or K8s), then notify via bus.bus."""
     final_status = "error"
@@ -327,30 +399,30 @@ class TalosSandbox(models.Model):
         jsonl_files = sorted(
             [f for f in os.listdir(sessions_dir) if f.endswith(".jsonl")],
             key=lambda f: os.path.getmtime(os.path.join(sessions_dir, f)),
-            reverse=True,
         )
         if not jsonl_files:
             _logger.warning("No JSONL files in %s (sandbox=%s)", sessions_dir, self.id)
             return []
 
-        jsonl_path = os.path.join(sessions_dir, jsonl_files[0])
         _logger.info(
-            "Reading JSONL from %s (%d bytes, sandbox=%s)",
-            jsonl_path,
-            os.path.getsize(jsonl_path),
+            "Reading %d JSONL file(s) from %s (sandbox=%s)",
+            len(jsonl_files),
+            sessions_dir,
             self.id,
         )
 
         entries = []
-        with open(jsonl_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+        for fname in jsonl_files:
+            jsonl_path = os.path.join(sessions_dir, fname)
+            with open(jsonl_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
         return entries
 
     def _read_jsonl_k8s(self):
@@ -379,14 +451,16 @@ class TalosSandbox(models.Model):
         except Exception:
             pass
 
-        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % self.id
+        task_id = self.talos_id.id if self.talos_id else self.id
+        label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % task_id
         try:
             core_v1 = k8s_client.CoreV1Api()
             pods = core_v1.list_namespaced_pod(
                 namespace=namespace, label_selector=label_selector
             )
             for pod in pods.items:
-                if pod.status.phase == "Running":
+                phase = (pod.status.phase or "").lower()
+                if phase not in ("failed", "unknown"):
                     pod_name = pod.metadata.name
                     break
         except Exception as e:
@@ -439,6 +513,32 @@ class TalosSandbox(models.Model):
             _logger.warning("kubectl exec failed for sandbox %s: %s", self.id, e)
             return []
 
+    @staticmethod
+    def _sanitize_jsonl_message(msg):
+        """Strip internal OpenClaw metadata from a JSONL message before export."""
+        msg = dict(msg)
+
+        msg.pop("sender", None)
+        msg.pop("thinkingSignature", None)
+
+        # Clean pipe-separated toolCallIds (e.g. "tooluse_abc|123" → "tooluse_abc")
+        content = msg.get("content")
+        if isinstance(content, list):
+            cleaned = []
+            for block in content:
+                if isinstance(block, dict):
+                    block = dict(block)
+                    tcid = block.get("toolCallId", "")
+                    if isinstance(tcid, str) and "|" in tcid:
+                        block["toolCallId"] = tcid.split("|", 1)[0]
+                    tc_id = block.get("id", "")
+                    if block.get("type") == "tool_use" and isinstance(tc_id, str) and "|" in tc_id:
+                        block["id"] = tc_id.split("|", 1)[0]
+                cleaned.append(block)
+            msg["content"] = cleaned
+
+        return msg
+
     def _build_trajectory_from_jsonl(self, entries):
         self.ensure_one()
         task = self.talos_id
@@ -450,13 +550,14 @@ class TalosSandbox(models.Model):
         meta_info = {
             "task_type": task.task_type or "",
             "task_description": task.task_id or "",
-            "task_completion_status": task.task_status or "",
+            "task_completion_status": "success",
             "system_prompt": task.seed_prompt or "",
             "platform": "macOS",
         }
 
         messages = []
         last_kept_id = None
+        seen_user_msg = False
 
         for entry in entries:
             entry_type = entry.get("type", "")
@@ -467,6 +568,14 @@ class TalosSandbox(models.Model):
             role = msg.get("role", "")
             if not role:
                 continue
+
+            # Skip session startup messages (system init before first user message)
+            if role == "user":
+                seen_user_msg = True
+            elif role == "system" and not seen_user_msg:
+                continue
+
+            msg = self._sanitize_jsonl_message(msg)
 
             entry_id = entry.get("id", "")
             parent_id = last_kept_id if last_kept_id else entry.get("parentId", "")
@@ -530,7 +639,7 @@ class TalosSandbox(models.Model):
         meta_info = {
             "task_type": task.task_type or "",
             "task_description": task.task_id or "",
-            "task_completion_status": task.task_status or "",
+            "task_completion_status": "success",
             "system_prompt": task.seed_prompt or "",
             "platform": "macOS",
             "persona": task.persona_id.name if task.persona_id else "",
@@ -548,15 +657,26 @@ class TalosSandbox(models.Model):
 
     def _trajectory_from_ws(self):
         self.ensure_one()
+        best_messages = []
+        best_count = 0
         for t in self.turn_ids.sorted("turn_number", reverse=True):
             if t.trajectory_messages:
                 try:
                     ws_messages = json.loads(t.trajectory_messages)
                     if isinstance(ws_messages, list) and ws_messages:
-                        return ws_messages
+                        # Pick the turn with the most messages (most complete snapshot)
+                        if len(ws_messages) > best_count:
+                            best_messages = ws_messages
+                            best_count = len(ws_messages)
                 except (json.JSONDecodeError, TypeError):
-                    pass
-        return []
+                    continue
+        if not best_messages:
+            _logger.debug(
+                "No valid trajectory_messages found in %d turns (sandbox=%s)",
+                len(self.turn_ids),
+                self.id,
+            )
+        return best_messages
 
     def _trajectory_from_events(self):
         self.ensure_one()
@@ -854,18 +974,6 @@ class TalosSandbox(models.Model):
             )
 
         if trajectory:
-            task = self.talos_id
-            seed_prompt = task.seed_prompt if task else ""
-            messages = trajectory.get("messages", [])
-            desc = generate_task_description_sync(self.env, seed_prompt, messages)
-            if desc:
-                trajectory.setdefault("meta_info", {})["task_description"] = desc
-                _logger.info(
-                    "Injected Kimi task_description (%d chars) into trajectory for sandbox %s",
-                    len(desc),
-                    self.id,
-                )
-
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
                 session_entry = {
@@ -955,6 +1063,33 @@ class TalosSandbox(models.Model):
                         bedrock_out,
                         self.talos_id.id,
                     )
+
+                turn_token_map = {
+                    "claude": (
+                        "claude_input_tokens", "claude_output_tokens",
+                        "claude_input_tokens", "claude_output_tokens",
+                    ),
+                    "glm": (
+                        "glm_input_tokens", "glm_output_tokens",
+                        "glm_input_tokens", "glm_output_tokens",
+                    ),
+                }
+                turn_fields = turn_token_map.get(self.model_type)
+                if turn_fields:
+                    turn_in_field, turn_out_field, task_in_field, task_out_field = turn_fields
+                    t_in = sum(getattr(t, turn_in_field, 0) or 0 for t in self.turn_ids)
+                    t_out = sum(getattr(t, turn_out_field, 0) or 0 for t in self.turn_ids)
+                    if t_in > 0 or t_out > 0:
+                        existing_in = getattr(self.talos_id, task_in_field, 0) or 0
+                        existing_out = getattr(self.talos_id, task_out_field, 0) or 0
+                        self.talos_id.write({
+                            task_in_field: existing_in + t_in,
+                            task_out_field: existing_out + t_out,
+                        })
+                        _logger.info(
+                            "Aggregated %s turn tokens (in=%d, out=%d) to task %s",
+                            self.model_type, t_in, t_out, self.talos_id.id,
+                        )
 
             turn_count = len(self.turn_ids)
             self.turn_ids.unlink()

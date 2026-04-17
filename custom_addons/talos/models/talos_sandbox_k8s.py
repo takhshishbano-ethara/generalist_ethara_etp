@@ -6,6 +6,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from .talos import _load_dotenv, _DEFAULT_LITELLM_CONFIG
+from .talos_sandbox import MODEL_DEFAULTS
 
 _logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def _build_prestop_script(task_id, persona_name):
     ) % (session_path, browser_path)
 
 
-def _build_openclaw_config(gateway_token, env):
+def _build_openclaw_config(gateway_token, env, model_type="claude"):
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -213,7 +214,7 @@ def _build_openclaw_config(gateway_token, env):
             },
         ],
     }
-    config_dict["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+    config_dict["agents"] = {"defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.6")}}
 
     return config_dict
 
@@ -299,7 +300,7 @@ class TalosSandboxK8s(models.AbstractModel):
             task_record,
         )
 
-        openclaw_config = _build_openclaw_config(gateway_token, env)
+        openclaw_config = _build_openclaw_config(gateway_token, env, sandbox_record.model_type)
         self._create_openclaw_config_configmap(
             core_v1,
             task_id,
@@ -572,14 +573,17 @@ class TalosSandboxK8s(models.AbstractModel):
         db_url = ""
 
         prestop_script = (
-            "echo '[talos] preStop: backing up session data to S3...' && "
-            "aws s3 sync /home/node/.openclaw/ %s "
+            "RUN_ID=$(cat /home/node/.openclaw/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
+            "echo '[talos] preStop: backing up session run-'$RUN_ID && "
+            "aws s3 sync /home/node/.openclaw/ %slatest/ "
+            "--no-progress --quiet --delete 2>/dev/null || true && "
+            "aws s3 sync /home/node/.openclaw/ %shistory/run-$RUN_ID/stop/ "
             "--no-progress --quiet 2>/dev/null || true && "
             "aws s3 sync /home/node/.openclaw/browser-profiles/ %s "
             "--no-progress --quiet 2>/dev/null || true && "
-            "echo '[talos] preStop: backup complete, waiting for connections to drain...' && "
+            "echo '[talos] preStop: backup complete' && "
             "sleep 10"
-        ) % (session_s3_path, browser_s3_path)
+        ) % (session_s3_path, session_s3_path, browser_s3_path)
 
         init_containers = [
             client.V1Container(
@@ -591,18 +595,12 @@ class TalosSandboxK8s(models.AbstractModel):
                     "RUN_ID=$(TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
                     "echo $RUN_ID > /data/session/.talos-run-id && "
                     "chown -R 1000:1000 /data/session /data/browser-profiles; "
-                    "aws s3 ls %slatest/ >/dev/null 2>&1 && "
-                    "aws s3 sync %slatest/ /data/session/ --no-progress --quiet || true; "
                     "aws s3 ls %s >/dev/null 2>&1 && "
                     "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
-                    "aws s3 sync /data/session/ %shistory/run-$RUN_ID/start/ --no-progress --quiet 2>/dev/null || true; "
                     "chown -R 1000:1000 /data/session /data/browser-profiles"
                     % (
-                        session_s3_path,
-                        session_s3_path,
                         browser_s3_path,
                         browser_s3_path,
-                        session_s3_path,
                     ),
                 ],
                 volume_mounts=[
@@ -636,6 +634,30 @@ class TalosSandboxK8s(models.AbstractModel):
                         mount_path="/persona-src",
                         read_only=True,
                     ),
+                    client.V1VolumeMount(
+                        name="openclaw-data",
+                        mount_path="/data",
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
+            ),
+            client.V1Container(
+                name="snapshot-start",
+                image=aws_cli_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "RUN_ID=$(cat /data/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
+                    "echo '[talos] snapshot-start: saving fresh state as run-'$RUN_ID && "
+                    "aws s3 sync /data/ %shistory/run-$RUN_ID/start/ "
+                    "--no-progress --quiet 2>/dev/null || true"
+                    % (
+                        session_s3_path,
+                    ),
+                ],
+                volume_mounts=[
                     client.V1VolumeMount(
                         name="openclaw-data",
                         mount_path="/data",

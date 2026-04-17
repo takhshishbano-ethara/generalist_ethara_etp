@@ -324,11 +324,24 @@ class TalosChatController(http.Controller):
 
             field_name = TRAJECTORY_FIELD_MAP.get(sandbox.model_type)
             saved = field_name and sandbox.talos_id and sandbox.talos_id[field_name]
+            trajectory = None
             if saved:
-                content = saved
-            else:
+                try:
+                    parsed = json.loads(saved)
+                    if isinstance(parsed, list) and parsed:
+                        # Saved format: [{session_id, timestamp, trajectory}, ...]
+                        # Extract the most recent session's trajectory.
+                        trajectory = parsed[-1].get("trajectory")
+                    elif isinstance(parsed, dict):
+                        # Legacy format: {meta_info, messages} stored directly.
+                        trajectory = parsed
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    pass
+
+            if not trajectory:
                 trajectory = sandbox.build_trajectory_json()
-                content = json.dumps(trajectory, indent=2, ensure_ascii=False)
+
+            content = json.dumps(trajectory, indent=2, ensure_ascii=False)
 
             label = sandbox.model_type or "sandbox"
             filename = "session-%s-%d.json" % (label, sandbox_id)

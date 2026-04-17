@@ -34,9 +34,11 @@ const sandboxNotificationService = {
 
             env.bus.trigger("TALOS:GOLDEN_STATUS_CHANGED", payload);
 
-            setTimeout(() => {
+            try {
                 action.doAction("reload");
-            }, 1500);
+            } catch {
+                window.location.reload();
+            }
         });
     },
 };

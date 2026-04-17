@@ -68,7 +68,7 @@
 /* ── Summary Cards ── */
 .o_talos_costing_summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 16px;
     margin-bottom: 28px;
 }
@@ -119,6 +119,11 @@
         background: rgba(5, 150, 105, 0.1);
         color: #059669;
     }
+
+    &.ai {
+        background: rgba(168, 85, 247, 0.1);
+        color: #a855f7;
+    }
 }
 
 .o_talos_summary_label {
@@ -136,20 +141,24 @@
     line-height: 1.1;
     letter-spacing: -0.02em;
 
-    &.claude {
-        color: #d97706;
-    }
-
-    &.glm {
-        color: #7c3aed;
+    &.sandbox {
+        color: #059669;
     }
 
     &.bedrock {
         color: #2563eb;
     }
 
-    &.trajectory {
-        color: #059669;
+    &.traj-qc {
+        color: #0284c7;
+    }
+
+    &.taskdesc {
+        color: #a855f7;
+    }
+
+    &.golden {
+        color: #d97706;
     }
 
     &.grand {
@@ -163,6 +172,7 @@
     margin-top: 8px;
     font-size: 12px;
     color: var(--o-text-color-muted, #6c757d);
+    flex-wrap: wrap;
 
     strong {
         color: var(--o-text-color, #212529);
@@ -230,11 +240,6 @@
             }
         }
 
-        .col-group-bedrock {
-            color: #2563eb;
-            background: rgba(37, 99, 235, 0.04);
-        }
-
         .col-group-claude {
             color: #d97706;
             background: rgba(217, 119, 6, 0.04);
@@ -243,6 +248,31 @@
         .col-group-glm {
             color: #7c3aed;
             background: rgba(124, 58, 237, 0.04);
+        }
+
+        .col-group-oneP {
+            color: #059669;
+            background: rgba(5, 150, 105, 0.04);
+        }
+
+        .col-group-bedrock {
+            color: #2563eb;
+            background: rgba(37, 99, 235, 0.04);
+        }
+
+        .col-group-traj-qc {
+            color: #0284c7;
+            background: rgba(2, 132, 199, 0.04);
+        }
+
+        .col-group-taskdesc {
+            color: #a855f7;
+            background: rgba(168, 85, 247, 0.04);
+        }
+
+        .col-group-golden {
+            color: #ea580c;
+            background: rgba(234, 88, 12, 0.04);
         }
 
         th {
@@ -313,27 +343,41 @@
     .col-num {
         text-align: right;
         font-variant-numeric: tabular-nums;
-        min-width: 80px;
-    }
-
-    .col-bedrock {
-        background: rgba(37, 99, 235, 0.02);
-        border-left: 1px solid rgba(37, 99, 235, 0.06);
-    }
-
-    .col-claude {
-        background: rgba(217, 119, 6, 0.02);
-        border-left: 1px solid rgba(217, 119, 6, 0.06);
-    }
-
-    .col-glm {
-        background: rgba(124, 58, 237, 0.02);
-        border-left: 1px solid rgba(124, 58, 237, 0.06);
+        min-width: 64px;
+        padding: 11px 10px;
     }
 
     .col-subtotal {
         font-weight: 600;
-        color: var(--o-text-color, #212529) !important;
+        border-right: 2px solid var(--o-border-color, #dee2e6);
+    }
+
+    .col-claude {
+        background: rgba(217, 119, 6, 0.02);
+    }
+
+    .col-glm {
+        background: rgba(124, 58, 237, 0.02);
+    }
+
+    .col-oneP {
+        background: rgba(5, 150, 105, 0.02);
+    }
+
+    .col-bedrock {
+        background: rgba(37, 99, 235, 0.02);
+    }
+
+    .col-traj-qc {
+        background: rgba(2, 132, 199, 0.02);
+    }
+
+    .col-taskdesc {
+        background: rgba(168, 85, 247, 0.02);
+    }
+
+    .col-golden {
+        background: rgba(234, 88, 12, 0.02);
     }
 
     .col-grand {

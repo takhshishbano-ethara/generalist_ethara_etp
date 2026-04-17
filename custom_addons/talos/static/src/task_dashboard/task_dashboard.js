@@ -273,7 +273,6 @@ export class TaskDashboard extends Component {
             await this.orm.call("talos.sandbox", "action_stop_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
             await this.props.record.load();
-            window.location.reload();
         } catch (e) {
             this.notification.add(
                 e.data?.message || e.message || "Failed to stop sandbox",

@@ -3,13 +3,15 @@ import json
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import httpx
 
-from odoo import http
+from odoo import api, http, SUPERUSER_ID
 from odoo.http import request
 from odoo.modules.module import get_module_path
+from odoo.modules.registry import Registry
 
 from ..models.talos import _load_dotenv
 
@@ -19,46 +21,46 @@ BEDROCK_CONVERSE_URL = (
     "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
 )
 
-_system_prompt_cache = None
-_trajectory_qc_prompt_cache = None
+_system_prompt_cache = {"text": None, "mtime": 0}
+_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
 
 
 def _get_system_prompt():
-    global _system_prompt_cache
-    if _system_prompt_cache is not None:
-        return _system_prompt_cache
-
     mod_path = get_module_path("talos")
     if not mod_path:
         return ""
 
     path = os.path.join(mod_path, "system_prompts.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _system_prompt_cache = f.read().strip()
-    else:
-        _system_prompt_cache = ""
+    if not os.path.isfile(path):
+        return ""
 
-    return _system_prompt_cache
+    mtime = os.path.getmtime(path)
+    if _system_prompt_cache["text"] is not None and _system_prompt_cache["mtime"] == mtime:
+        return _system_prompt_cache["text"]
+
+    with open(path, "r") as f:
+        _system_prompt_cache["text"] = f.read().strip()
+    _system_prompt_cache["mtime"] = mtime
+    return _system_prompt_cache["text"]
 
 
 def _get_trajectory_qc_prompt():
-    global _trajectory_qc_prompt_cache
-    if _trajectory_qc_prompt_cache is not None:
-        return _trajectory_qc_prompt_cache
-
     mod_path = get_module_path("talos")
     if not mod_path:
         return ""
 
     path = os.path.join(mod_path, "trajectory_qc_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _trajectory_qc_prompt_cache = f.read().strip()
-    else:
-        _trajectory_qc_prompt_cache = ""
+    if not os.path.isfile(path):
+        return ""
 
-    return _trajectory_qc_prompt_cache
+    mtime = os.path.getmtime(path)
+    if _trajectory_qc_prompt_cache["text"] is not None and _trajectory_qc_prompt_cache["mtime"] == mtime:
+        return _trajectory_qc_prompt_cache["text"]
+
+    with open(path, "r") as f:
+        _trajectory_qc_prompt_cache["text"] = f.read().strip()
+    _trajectory_qc_prompt_cache["mtime"] = mtime
+    return _trajectory_qc_prompt_cache["text"]
 
 
 def _parse_json_response(text):
@@ -126,6 +128,144 @@ def _parse_qc_verdict(text):
     }
 
 
+def _is_degenerate(text, threshold=0.8):
+    """Detect repetitive token degeneration (e.g. '!!!...', 'aaa...').
+
+    Returns True when any single character makes up more than *threshold*
+    of the response — a strong signal the model collapsed into a loop.
+    """
+    if not text or len(text) < 20:
+        return False
+    from collections import Counter
+
+    counts = Counter(text)
+    most_common_count = counts.most_common(1)[0][1]
+    return most_common_count / len(text) >= threshold
+
+
+_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="traj_qc")
+
+
+def _run_trajectory_qc_background(
+    db_name, record_id, field_name, entry_index, trajectory_str
+):
+    """Background worker: run QC via Bedrock and write result into trajectory entry in DB."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+            from ..models.talos import _load_dotenv as _ld
+            dotenv = _ld()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+
+            if not api_key or not inference_arn:
+                _logger.warning("QC bg: missing credentials")
+                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                return
+
+            system_prompt = _get_trajectory_qc_prompt()
+            if not system_prompt:
+                _logger.warning("QC bg: no trajectory_qc_prompt.md")
+                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                return
+
+            if len(trajectory_str) > 50000:
+                trajectory_str = trajectory_str[:50000] + "\n\n[... truncated for length ...]"
+
+            total_usage = {"input_tokens": 0, "output_tokens": 0}
+            try:
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=trajectory_str,
+                    max_tokens=4096,
+                    temperature=0.3,
+                )
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
+                if _is_degenerate(response_text):
+                    _logger.warning("QC bg: degenerate response, retrying temp=0.1")
+                    response_text, usage = _call_bedrock_converse(
+                        api_key=api_key,
+                        inference_arn=inference_arn,
+                        region=region,
+                        system_prompt=system_prompt,
+                        user_message=trajectory_str,
+                        max_tokens=4096,
+                        temperature=0.1,
+                        top_p=0.7,
+                    )
+                    total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                    total_usage["output_tokens"] += usage.get("output_tokens", 0)
+            except Exception as e:
+                _logger.exception("QC bg: Bedrock call failed")
+                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+                return
+
+            _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+
+            qc_verdict = _parse_qc_verdict(response_text)
+            if qc_verdict:
+                _update_qc_entry(env, record_id, field_name, entry_index, "done", qc_verdict)
+                _logger.info("QC bg: done for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+            else:
+                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                _logger.warning("QC bg: no parseable verdict for record=%s", record_id)
+    except Exception:
+        _logger.exception("QC bg: unhandled error for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+
+
+def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):
+    """Write qc_status and qc_result into a specific trajectory entry in DB."""
+    try:
+        task = env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return
+        data = json.loads(raw)
+        entries = data if isinstance(data, list) else [data]
+        if entry_index < 0 or entry_index >= len(entries):
+            return
+        entries[entry_index]["qc_status"] = qc_status
+        if qc_result:
+            entries[entry_index]["qc_result"] = qc_result
+        elif "qc_result" in entries[entry_index]:
+            del entries[entry_index]["qc_result"]
+        new_value = json.dumps(data, indent=2, ensure_ascii=False)
+        task.write({field_name: new_value})
+    except Exception:
+        _logger.exception("_update_qc_entry failed for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+
+
+def _accumulate_tokens(env, record_id, in_field, out_field, usage):
+    """Add usage tokens to existing task-level counters."""
+    try:
+        t_in = usage.get("input_tokens", 0)
+        t_out = usage.get("output_tokens", 0)
+        if t_in <= 0 and t_out <= 0:
+            return
+        task = env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return
+        task.write({
+            in_field: (getattr(task, in_field, 0) or 0) + t_in,
+            out_field: (getattr(task, out_field, 0) or 0) + t_out,
+        })
+    except Exception:
+        _logger.exception(
+            "_accumulate_tokens failed for record=%s %s/%s",
+            record_id, in_field, out_field,
+        )
+
+
 def _call_bedrock_converse(
     api_key,
     inference_arn,
@@ -134,7 +274,8 @@ def _call_bedrock_converse(
     user_message,
     max_tokens=4096,
     temperature=0.7,
-    timeout=120.0,
+    top_p=0.9,
+    timeout=600.0,
 ):
     url = BEDROCK_CONVERSE_URL.format(
         region=region,
@@ -155,12 +296,13 @@ def _call_bedrock_converse(
         "inferenceConfig": {
             "maxTokens": max_tokens,
             "temperature": temperature,
+            "topP": top_p,
         },
     }
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
-    with httpx.Client(http2=True, timeout=timeout) as client:
+    with httpx.Client(http2=False, timeout=timeout) as client:
         resp = client.post(url, json=payload, headers=headers)
 
     if resp.status_code != 200:
@@ -198,7 +340,7 @@ def _call_bedrock_converse(
 class LlmAssistQc(http.Controller):
     @http.route("/talos/qc", type="json", auth="user")
     def qc_prompt(
-        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.7, **kw
+        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.3, **kw
     ):
         prompt = (prompt or "").strip()
         if not prompt:
@@ -229,6 +371,20 @@ class LlmAssistQc(http.Controller):
                 max_tokens=int(max_tokens),
                 temperature=float(temperature),
             )
+
+            if _is_degenerate(response_text):
+                _logger.warning("QC response degenerated, retrying with temperature=0.1")
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=prompt,
+                    max_tokens=int(max_tokens),
+                    temperature=0.1,
+                    top_p=0.7,
+                )
+
         except Exception as e:
             _logger.exception("QC Bedrock call failed")
             return {"error": str(e)[:500]}
@@ -249,59 +405,97 @@ class LlmAssistQc(http.Controller):
         return result
 
     @http.route("/talos/trajectory_qc", type="json", auth="user")
-    def trajectory_qc(self, trajectory="", max_tokens=4096, temperature=0.7, **kw):
-        """Run QC evaluation on a single trajectory session."""
-        trajectory = (trajectory or "").strip()
-        if not trajectory:
-            return {"error": "trajectory is required"}
+    def trajectory_qc(self, record_id=0, field_name="", entry_index=-1, **kw):
+        record_id = int(record_id or 0)
+        entry_index = int(entry_index if entry_index is not None else -1)
+        if not record_id or not field_name:
+            return {"error": "record_id and field_name are required"}
 
-        env = _load_dotenv()
-        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        if not api_key:
-            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+        task = request.env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return {"error": "Task not found"}
 
-        ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
-
-        if not inference_arn:
-            return {"error": "Bedrock Inference ARN not configured in Settings > Talos"}
-
-        system_prompt = _get_trajectory_qc_prompt()
-        if not system_prompt:
-            return {"error": "trajectory_qc_prompt.md not found"}
-
-        if len(trajectory) > 50000:
-            trajectory = trajectory[:50000] + "\n\n[... truncated for length ...]"
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return {"error": "No trajectory data"}
 
         try:
-            response_text, usage = _call_bedrock_converse(
-                api_key=api_key,
-                inference_arn=inference_arn,
-                region=region,
-                system_prompt=system_prompt,
-                user_message=trajectory,
-                max_tokens=int(max_tokens),
-                temperature=float(temperature),
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Could not parse trajectory JSON"}
+
+        entries = data if isinstance(data, list) else [data]
+        if entry_index < 0 or entry_index >= len(entries):
+            return {"error": "Invalid entry index"}
+
+        entry = entries[entry_index]
+        traj = entry.get("trajectory", entry)
+        trajectory_str = json.dumps(traj, ensure_ascii=False)
+
+        entries[entry_index]["qc_status"] = "pending"
+        if "qc_result" in entries[entry_index]:
+            del entries[entry_index]["qc_result"]
+        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+
+        db_name = request.env.cr.dbname
+
+        def _submit():
+            _QC_POOL.submit(
+                _run_trajectory_qc_background,
+                db_name, record_id, field_name, entry_index, trajectory_str,
             )
-        except Exception as e:
-            _logger.exception("Trajectory QC Bedrock call failed")
-            return {"error": str(e)[:500]}
 
-        parsed_json = _parse_json_response(response_text)
-        qc_verdict = _parse_qc_verdict(response_text)
+        request.env.cr.postcommit.add(_submit)
 
-        result = {
-            "success": True,
-            "response": response_text,
-            "usage": usage,
-        }
-        if parsed_json is not None:
-            result["parsed_json"] = parsed_json
-        if qc_verdict is not None:
-            result["qc_result"] = qc_verdict
+        return {"success": True}
 
-        return result
+    @http.route("/talos/generate_task_description", type="json", auth="user")
+    def generate_task_description(self, record_id=0, field_name="", entry_index=-1, **kw):
+        """Trigger background task-description generation for a trajectory entry."""
+        record_id = int(record_id or 0)
+        entry_index = int(entry_index if entry_index is not None else -1)
+        if not record_id or not field_name:
+            return {"error": "record_id and field_name are required"}
+
+        task = request.env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return {"error": "Task not found"}
+
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return {"error": "No trajectory data"}
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Could not parse trajectory JSON"}
+
+        entries = data if isinstance(data, list) else [data]
+        if entry_index < 0 or entry_index >= len(entries):
+            return {"error": "Invalid entry index"}
+
+        entry = entries[entry_index]
+        traj = entry.get("trajectory", entry)
+        seed_prompt = task.seed_prompt or ""
+        messages = traj.get("messages", [])
+
+        entries[entry_index]["task_description_status"] = "pending"
+        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+
+        db_name = request.env.cr.dbname
+
+        from ..models.talos import _TASKDESC_POOL
+        from ..models.talos_sandbox import _inject_task_description_bg
+
+        def _submit():
+            _TASKDESC_POOL.submit(
+                _inject_task_description_bg,
+                db_name, record_id, field_name, seed_prompt, messages, entry_index,
+            )
+
+        request.env.cr.postcommit.add(_submit)
+
+        return {"success": True}
 
     @http.route(
         "/api/talos/llm_assist_qc",
