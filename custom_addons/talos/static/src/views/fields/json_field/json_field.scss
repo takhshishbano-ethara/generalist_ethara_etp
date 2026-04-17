@@ -35,17 +35,6 @@
         letter-spacing: normal;
     }
 
-    .talos-json-taskdesc-loading {
-        font-weight: 500;
-        color: #f9e2af;
-        text-transform: none;
-        letter-spacing: normal;
-        padding: 16px 12px;
-        font-size: 0.95em;
-
-        i { margin-right: 6px; }
-    }
-
     .talos-json-entry-actions {
         display: flex;
         align-items: center;
@@ -54,7 +43,8 @@
 
     .talos-json-edit-btn,
     .talos-json-delete-btn,
-    .talos-json-qc-btn {
+    .talos-json-qc-btn,
+    .talos-json-taskdesc-btn {
         background: none;
         border: 1px solid transparent;
         color: #6c7086;
@@ -87,6 +77,12 @@
         color: #a6e3a1;
         border-color: #a6e3a1;
         background: rgba(166, 227, 161, 0.1);
+    }
+
+    .talos-json-taskdesc-btn:hover {
+        color: #cba6f7;
+        border-color: #cba6f7;
+        background: rgba(203, 166, 247, 0.1);
     }
 
     .talos-json-entry-body {

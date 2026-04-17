@@ -116,16 +116,28 @@
             </group>
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>
+            <field name="golden_started_at" invisible="1"/>
             <group string="Golden Trajectory">
               <div colspan="2" invisible="golden_status != 'generating'">
                 <span class="text-info">
-                  <i class="fa fa-spinner fa-spin"/> Generating golden trajectory via Kimi...
+                  <i class="fa fa-spinner fa-spin"/> Generating golden trajectory (up to 20 min)…
+                </span>
+                <span class="text-muted ms-2" invisible="not golden_started_at">
+                  Started: <field name="golden_started_at" widget="datetime" readonly="1" nolabel="1" class="d-inline"/>
                 </span>
               </div>
               <div colspan="2" invisible="golden_status != 'error'">
-                <span class="text-danger">
-                  <i class="fa fa-exclamation-triangle"/> Generation failed:
-                </span>
+                <div class="d-flex align-items-start gap-2 mb-2">
+                  <span class="text-danger">
+                    <i class="fa fa-exclamation-triangle"/> Generation failed:
+                  </span>
+                  <button class="btn btn-sm btn-outline-warning"
+                          name="action_generate_golden_trajectory" type="object"
+                          invisible="not claude_trajectory or not glm_trajectory"
+                          confirm="Retry golden trajectory generation?">
+                    <i class="fa fa-refresh"/> Retry
+                  </button>
+                </div>
                 <field name="golden_error" nolabel="1" readonly="1"/>
               </div>
               <field name="golden_trajectory" widget="talos_json" nolabel="1" placeholder="Golden Trajectory" colspan="2"/>

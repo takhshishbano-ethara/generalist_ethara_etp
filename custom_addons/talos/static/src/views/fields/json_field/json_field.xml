@@ -6,21 +6,6 @@
             <t t-if="hasEntries">
                 <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
                     <div class="talos-json-entry">
-                        <t t-if="entry.taskDescriptionStatus === 'pending'">
-                            <!-- Full loading state: hide all content until trajectory is ready -->
-                            <div class="talos-json-entry-header">
-                                <span class="talos-json-session-label">
-                                    Session <t t-esc="entry.index + 1"/>
-                                    <t t-if="entry.timestamp">
-                                        <span class="talos-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
-                                    </t>
-                                </span>
-                            </div>
-                            <div class="talos-json-taskdesc-loading">
-                                <i class="fa fa-spinner fa-spin"/> Generating trajectory…
-                            </div>
-                        </t>
-                        <t t-else="">
                             <div class="talos-json-entry-header">
                                 <span class="talos-json-session-label">
                                     Session <t t-esc="entry.index + 1"/>
@@ -38,8 +23,19 @@
                                             <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
                                         </button>
                                     </t>
+                                    <button class="talos-json-taskdesc-btn"
+                                            t-att-disabled="isAnyActionRunning or entry.taskDescriptionStatus === 'pending'"
+                                            t-on-click="() => this.onGenerateTaskDesc(entry.index)"
+                                            title="Generate task description via AI">
+                                        <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
+                                            <i class="fa fa-spinner fa-spin"/> Describing…
+                                        </t>
+                                        <t t-else="">
+                                            <i class="fa fa-magic"/> Describe
+                                        </t>
+                                    </button>
                                     <button class="talos-json-qc-btn"
-                                            t-att-disabled="state.qcRunning >= 0 or entry.qcStatus === 'pending'"
+                                            t-att-disabled="isAnyActionRunning or entry.qcStatus === 'pending'"
                                             t-on-click="() => this.onQcEntry(entry.index)"
                                             t-att-title="hasQcResult ? 'Re-run QC' : 'Run QC on this trajectory'">
                                         <t t-if="state.qcRunning === entry.index">
@@ -60,13 +56,14 @@
                                     </button>
                                     <t t-if="isEditable and state.editingIndex !== entry.index">
                                         <button class="talos-json-edit-btn"
+                                                t-att-disabled="isAnyActionRunning"
                                                 t-on-click="() => this.onEditEntry(entry.index)"
                                                 title="Edit this trajectory">
                                             <i class="fa fa-pencil"/>
                                         </button>
                                     </t>
                                     <button class="talos-json-delete-btn"
-                                            t-att-disabled="state.deleting === entry.index"
+                                            t-att-disabled="state.deleting === entry.index or isAnyActionRunning"
                                             t-on-click="() => this.onDeleteEntry(entry.index)"
                                             title="Delete this trajectory">
                                         <t t-if="state.deleting === entry.index">
@@ -79,7 +76,6 @@
                                 </div>
                             </div>
 
-                            <!-- QC Result Panel -->
                             <t t-set="qc" t-value="state.qcResults[entry.index] || entry.qcResult"/>
                             <t t-if="qc and !state.qcCollapsed[entry.index]">
                                 <div t-attf-class="talos-qc-result talos-qc-#{qc.severity}">
@@ -155,7 +151,6 @@
                             <t t-else="">
                                 <div class="talos-json-entry-body" t-out="entry.html"/>
                             </t>
-                        </t>
                     </div>
                     <t t-if="!entry_last">
                         <hr class="talos-json-divider"/>

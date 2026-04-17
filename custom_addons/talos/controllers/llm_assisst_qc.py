@@ -21,46 +21,46 @@ BEDROCK_CONVERSE_URL = (
     "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
 )
 
-_system_prompt_cache = None
-_trajectory_qc_prompt_cache = None
+_system_prompt_cache = {"text": None, "mtime": 0}
+_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
 
 
 def _get_system_prompt():
-    global _system_prompt_cache
-    if _system_prompt_cache is not None:
-        return _system_prompt_cache
-
     mod_path = get_module_path("talos")
     if not mod_path:
         return ""
 
     path = os.path.join(mod_path, "system_prompts.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _system_prompt_cache = f.read().strip()
-    else:
-        _system_prompt_cache = ""
+    if not os.path.isfile(path):
+        return ""
 
-    return _system_prompt_cache
+    mtime = os.path.getmtime(path)
+    if _system_prompt_cache["text"] is not None and _system_prompt_cache["mtime"] == mtime:
+        return _system_prompt_cache["text"]
+
+    with open(path, "r") as f:
+        _system_prompt_cache["text"] = f.read().strip()
+    _system_prompt_cache["mtime"] = mtime
+    return _system_prompt_cache["text"]
 
 
 def _get_trajectory_qc_prompt():
-    global _trajectory_qc_prompt_cache
-    if _trajectory_qc_prompt_cache is not None:
-        return _trajectory_qc_prompt_cache
-
     mod_path = get_module_path("talos")
     if not mod_path:
         return ""
 
     path = os.path.join(mod_path, "trajectory_qc_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _trajectory_qc_prompt_cache = f.read().strip()
-    else:
-        _trajectory_qc_prompt_cache = ""
+    if not os.path.isfile(path):
+        return ""
 
-    return _trajectory_qc_prompt_cache
+    mtime = os.path.getmtime(path)
+    if _trajectory_qc_prompt_cache["text"] is not None and _trajectory_qc_prompt_cache["mtime"] == mtime:
+        return _trajectory_qc_prompt_cache["text"]
+
+    with open(path, "r") as f:
+        _trajectory_qc_prompt_cache["text"] = f.read().strip()
+    _trajectory_qc_prompt_cache["mtime"] = mtime
+    return _trajectory_qc_prompt_cache["text"]
 
 
 def _parse_json_response(text):
@@ -175,6 +175,7 @@ def _run_trajectory_qc_background(
             if len(trajectory_str) > 50000:
                 trajectory_str = trajectory_str[:50000] + "\n\n[... truncated for length ...]"
 
+            total_usage = {"input_tokens": 0, "output_tokens": 0}
             try:
                 response_text, usage = _call_bedrock_converse(
                     api_key=api_key,
@@ -185,6 +186,8 @@ def _run_trajectory_qc_background(
                     max_tokens=4096,
                     temperature=0.3,
                 )
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
                 if _is_degenerate(response_text):
                     _logger.warning("QC bg: degenerate response, retrying temp=0.1")
                     response_text, usage = _call_bedrock_converse(
@@ -197,10 +200,15 @@ def _run_trajectory_qc_background(
                         temperature=0.1,
                         top_p=0.7,
                     )
+                    total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                    total_usage["output_tokens"] += usage.get("output_tokens", 0)
             except Exception as e:
                 _logger.exception("QC bg: Bedrock call failed")
                 _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
                 return
+
+            _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
 
             qc_verdict = _parse_qc_verdict(response_text)
             if qc_verdict:
@@ -235,6 +243,27 @@ def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_resu
         task.write({field_name: new_value})
     except Exception:
         _logger.exception("_update_qc_entry failed for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+
+
+def _accumulate_tokens(env, record_id, in_field, out_field, usage):
+    """Add usage tokens to existing task-level counters."""
+    try:
+        t_in = usage.get("input_tokens", 0)
+        t_out = usage.get("output_tokens", 0)
+        if t_in <= 0 and t_out <= 0:
+            return
+        task = env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return
+        task.write({
+            in_field: (getattr(task, in_field, 0) or 0) + t_in,
+            out_field: (getattr(task, out_field, 0) or 0) + t_out,
+        })
+    except Exception:
+        _logger.exception(
+            "_accumulate_tokens failed for record=%s %s/%s",
+            record_id, in_field, out_field,
+        )
 
 
 def _call_bedrock_converse(
@@ -414,6 +443,54 @@ class LlmAssistQc(http.Controller):
             _QC_POOL.submit(
                 _run_trajectory_qc_background,
                 db_name, record_id, field_name, entry_index, trajectory_str,
+            )
+
+        request.env.cr.postcommit.add(_submit)
+
+        return {"success": True}
+
+    @http.route("/talos/generate_task_description", type="json", auth="user")
+    def generate_task_description(self, record_id=0, field_name="", entry_index=-1, **kw):
+        """Trigger background task-description generation for a trajectory entry."""
+        record_id = int(record_id or 0)
+        entry_index = int(entry_index if entry_index is not None else -1)
+        if not record_id or not field_name:
+            return {"error": "record_id and field_name are required"}
+
+        task = request.env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return {"error": "Task not found"}
+
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return {"error": "No trajectory data"}
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Could not parse trajectory JSON"}
+
+        entries = data if isinstance(data, list) else [data]
+        if entry_index < 0 or entry_index >= len(entries):
+            return {"error": "Invalid entry index"}
+
+        entry = entries[entry_index]
+        traj = entry.get("trajectory", entry)
+        seed_prompt = task.seed_prompt or ""
+        messages = traj.get("messages", [])
+
+        entries[entry_index]["task_description_status"] = "pending"
+        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+
+        db_name = request.env.cr.dbname
+
+        from ..models.talos import _TASKDESC_POOL
+        from ..models.talos_sandbox import _inject_task_description_bg
+
+        def _submit():
+            _TASKDESC_POOL.submit(
+                _inject_task_description_bg,
+                db_name, record_id, field_name, seed_prompt, messages, entry_index,
             )
 
         request.env.cr.postcommit.add(_submit)

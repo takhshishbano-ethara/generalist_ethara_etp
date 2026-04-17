@@ -22,7 +22,6 @@ from .talos import (
     _HEALTH_WAIT_TIMEOUT,
     _HEALTH_POLL_INTERVAL,
     generate_task_description_sync,
-    _TASKDESC_POOL,
 )
 
 _logger = logging.getLogger(__name__)
@@ -57,8 +56,8 @@ TRAJECTORY_FIELD_MAP = {
 }
 
 
-def _mark_task_description_status(db_name, task_id, field_name, status):
-    """Update the task_description_status on the last trajectory entry."""
+def _mark_task_description_status(db_name, task_id, field_name, status, entry_index=-1):
+    """Update the task_description_status on a trajectory entry."""
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -70,7 +69,8 @@ def _mark_task_description_status(db_name, task_id, field_name, status):
                 return
             data = json.loads(raw)
             if isinstance(data, list) and data:
-                data[-1]["task_description_status"] = status
+                idx = entry_index if 0 <= entry_index < len(data) else -1
+                data[idx]["task_description_status"] = status
                 task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
     except Exception:
         _logger.exception(
@@ -79,14 +79,21 @@ def _mark_task_description_status(db_name, task_id, field_name, status):
         )
 
 
-def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messages):
+def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messages, entry_index=-1):
     """Background: generate task description via Kimi and inject into saved trajectory."""
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
-            desc = generate_task_description_sync(env, seed_prompt, messages)
+            desc, usage = generate_task_description_sync(env, seed_prompt, messages)
+            if usage.get("input_tokens", 0) > 0 or usage.get("output_tokens", 0) > 0:
+                task_rec = env["talos.talos"].browse(task_id)
+                if task_rec.exists():
+                    task_rec.write({
+                        "taskdesc_input_tokens": (task_rec.taskdesc_input_tokens or 0) + usage.get("input_tokens", 0),
+                        "taskdesc_output_tokens": (task_rec.taskdesc_output_tokens or 0) + usage.get("output_tokens", 0),
+                    })
             if not desc:
-                _mark_task_description_status(db_name, task_id, field_name, "done")
+                _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
                 return
             task = env["talos.talos"].browse(task_id)
             if not task.exists():
@@ -96,10 +103,11 @@ def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messa
                 return
             data = json.loads(raw)
             if isinstance(data, list) and data:
-                mi = data[-1].setdefault("trajectory", {}).setdefault("meta_info", {})
+                idx = entry_index if 0 <= entry_index < len(data) else -1
+                mi = data[idx].setdefault("trajectory", {}).setdefault("meta_info", {})
                 mi["task_description"] = desc
                 mi["task_completion_status"] = "success"
-                data[-1]["task_description_status"] = "done"
+                data[idx]["task_description_status"] = "done"
             elif isinstance(data, dict):
                 mi = data.setdefault("meta_info", {})
                 mi["task_description"] = desc
@@ -117,7 +125,7 @@ def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messa
             field_name,
             task_id,
         )
-        _mark_task_description_status(db_name, task_id, field_name, "done")
+        _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
 
 
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
@@ -972,7 +980,6 @@ class TalosSandbox(models.Model):
                     "session_id": secrets.token_hex(8),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "trajectory": trajectory,
-                    "task_description_status": "pending",
                 }
 
                 existing_raw = self.talos_id[field_name] or ""
@@ -1004,22 +1011,6 @@ class TalosSandbox(models.Model):
                     field_name,
                     self.talos_id.id,
                 )
-
-                seed_prompt = self.talos_id.seed_prompt or ""
-                messages = trajectory.get("messages", [])
-                db_name = self.env.cr.dbname
-                task_id = self.talos_id.id
-
-                @self.env.cr.postcommit.add
-                def _queue_task_description():
-                    _TASKDESC_POOL.submit(
-                        _inject_task_description_bg,
-                        db_name,
-                        task_id,
-                        field_name,
-                        seed_prompt,
-                        messages,
-                    )
 
         # Extract token usage and persist to task (survives turn deletion)
         token_entries = jsonl_entries if jsonl_entries else []
@@ -1072,6 +1063,33 @@ class TalosSandbox(models.Model):
                         bedrock_out,
                         self.talos_id.id,
                     )
+
+                turn_token_map = {
+                    "claude": (
+                        "claude_input_tokens", "claude_output_tokens",
+                        "claude_input_tokens", "claude_output_tokens",
+                    ),
+                    "glm": (
+                        "glm_input_tokens", "glm_output_tokens",
+                        "glm_input_tokens", "glm_output_tokens",
+                    ),
+                }
+                turn_fields = turn_token_map.get(self.model_type)
+                if turn_fields:
+                    turn_in_field, turn_out_field, task_in_field, task_out_field = turn_fields
+                    t_in = sum(getattr(t, turn_in_field, 0) or 0 for t in self.turn_ids)
+                    t_out = sum(getattr(t, turn_out_field, 0) or 0 for t in self.turn_ids)
+                    if t_in > 0 or t_out > 0:
+                        existing_in = getattr(self.talos_id, task_in_field, 0) or 0
+                        existing_out = getattr(self.talos_id, task_out_field, 0) or 0
+                        self.talos_id.write({
+                            task_in_field: existing_in + t_in,
+                            task_out_field: existing_out + t_out,
+                        })
+                        _logger.info(
+                            "Aggregated %s turn tokens (in=%d, out=%d) to task %s",
+                            self.model_type, t_in, t_out, self.talos_id.id,
+                        )
 
             turn_count = len(self.turn_ids)
             self.turn_ids.unlink()

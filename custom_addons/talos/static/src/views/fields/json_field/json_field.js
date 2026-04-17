@@ -77,6 +77,7 @@ export class TalosJsonField extends Component {
             qcResults: {},
             qcExpandedChecks: {},
             qcCollapsed: {},
+            taskDescGenerating: -1,
         });
         this._qcPollingTimers = {};
         this._taskDescPollingTimers = {};
@@ -113,6 +114,7 @@ export class TalosJsonField extends Component {
                 this._startQcPolling(entry.index);
             }
             if (entry.taskDescriptionStatus === "pending") {
+                this.state.taskDescGenerating = entry.index;
                 this._startTaskDescPolling(entry.index);
             }
         }
@@ -166,10 +168,10 @@ export class TalosJsonField extends Component {
                     if (status && status !== "pending") {
                         clearInterval(this._taskDescPollingTimers[index]);
                         delete this._taskDescPollingTimers[index];
+                        this.state.taskDescGenerating = -1;
                     }
                 }
             } catch (_e) {
-                // network hiccup — keep polling
             }
         }, 5000);
     }
@@ -194,6 +196,10 @@ export class TalosJsonField extends Component {
 
     get isEditable() {
         return !this.props.readonly;
+    }
+
+    get isAnyActionRunning() {
+        return this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0;
     }
 
     onDeleteEntry(index) {
@@ -273,7 +279,7 @@ export class TalosJsonField extends Component {
     }
 
     async onQcEntry(index) {
-        if (this.state.qcRunning >= 0) return;
+        if (this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0) return;
 
         const recordId = this.props.record.resId;
         const fieldName = this.props.name;
@@ -304,6 +310,39 @@ export class TalosJsonField extends Component {
                 { type: "danger", sticky: false },
             );
             this.state.qcRunning = -1;
+        }
+    }
+
+    async onGenerateTaskDesc(index) {
+        if (this.state.taskDescGenerating >= 0 || this.state.qcRunning >= 0) return;
+
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) {
+            this.notification.add(_t("Save the record first"), { type: "warning" });
+            return;
+        }
+
+        this.state.taskDescGenerating = index;
+
+        try {
+            const resp = await rpc("/talos/generate_task_description", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: index,
+            });
+            if (resp.error) {
+                this.notification.add(resp.error, { type: "danger", sticky: false });
+                this.state.taskDescGenerating = -1;
+                return;
+            }
+            this._startTaskDescPolling(index);
+        } catch (e) {
+            this.notification.add(
+                _t("Description generation failed: ") + (e.message || String(e)),
+                { type: "danger", sticky: false },
+            );
+            this.state.taskDescGenerating = -1;
         }
     }
 

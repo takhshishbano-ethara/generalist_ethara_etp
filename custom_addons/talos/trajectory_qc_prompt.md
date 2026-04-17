@@ -296,45 +296,103 @@ Golden trajectory files (`golden_trajectory_v1.json`) are validated with the sam
 
 ---
 
-## 7. REPORTING FORMAT
+## 7. REPORTING FORMAT — MACHINE-READABLE JSON
 
-### Per-File Output
+> **CRITICAL**: You MUST output your final result as a single JSON code block (```json ... ```). The system parses this JSON programmatically. Any other format will cause the QC to fail silently.
 
-For each trajectory file, report:
+Output exactly ONE JSON code block with this structure:
 
-```
-PASS  <relative_path>
-FAIL  <relative_path>
-       ↳ <error description 1>
-       ↳ <error description 2>
-```
-
-### Per-Persona Breakdown
-
-Group results by task/persona folder:
-
-```
-<persona_folder>    N files  |  ALL PASS  /  M FAIL
-```
-
-### Summary
-
-```
-Total files : N
-Passed      : N
-Failed      : N
-
-QC RESULT: PASS — All N files match the expected structure.
-QC RESULT: FAIL — M/N files have structural issues.
+```json
+{
+  "severity": "<low|medium|high|critical>",
+  "summary": "<1-3 sentence overall assessment>",
+  "total_fails": <integer>,
+  "total_warns": <integer>,
+  "total_passes": <integer>,
+  "checks": [
+    {
+      "check": <integer starting from 1>,
+      "name": "<check name, e.g. 'Top-Level Keys', 'meta_info.task_type'>",
+      "verdict": "<PASS|WARN|FAIL>",
+      "reason": "<explanation of what was found or why it failed>",
+      "fix": "<optional: suggested fix if verdict is WARN or FAIL, omit if PASS>"
+    }
+  ]
+}
 ```
 
-### Failure Detail
+### Severity Mapping
 
-For each failed file, list all errors with:
-- File path (relative to trajectories root)
-- Error location (e.g., `messages[42].content[1]`)
-- Expected value/type vs actual value/type
-- Severity (BLOCK / WARNING)
+| Condition | Severity |
+|---|---|
+| 0 FAILs, 0 WARNs | `low` |
+| 0 FAILs, 1-4 WARNs | `medium` |
+| 0 FAILs, 5+ WARNs | `high` |
+| Any FAIL (BLOCK-level) | `critical` |
+
+### Field Rules
+
+- **`severity`**: One of `low`, `medium`, `high`, `critical`. Lowercase only.
+- **`summary`**: Brief human-readable assessment. Include the most important finding.
+- **`total_fails`**: Count of checks with verdict `FAIL`.
+- **`total_warns`**: Count of checks with verdict `WARN`.
+- **`total_passes`**: Count of checks with verdict `PASS`.
+- **`checks`**: Array of individual check results. Each check object MUST have:
+  - `check`: Sequential integer starting from 1.
+  - `name`: Short check name (e.g. `"JSON Validity"`, `"meta_info.task_type"`).
+  - `verdict`: Exactly one of `"PASS"`, `"WARN"`, or `"FAIL"` — **uppercase only**.
+  - `reason`: Explanation. For PASS, briefly confirm what was found. For WARN/FAIL, explain what's wrong and what the actual value was.
+  - `fix` *(optional)*: Suggested fix. Include only for WARN/FAIL verdicts.
+
+### Example Output (passing trajectory)
+
+```json
+{
+  "severity": "low",
+  "summary": "Trajectory is structurally valid. All required keys present, meta_info complete, message chain intact.",
+  "total_fails": 0,
+  "total_warns": 0,
+  "total_passes": 14,
+  "checks": [
+    {"check": 1, "name": "JSON Validity", "verdict": "PASS", "reason": "Valid JSON object, root is {}"},
+    {"check": 2, "name": "Top-Level Keys", "verdict": "PASS", "reason": "meta_info and messages present, no extra keys"},
+    {"check": 3, "name": "meta_info.task_type", "verdict": "PASS", "reason": "Value 'health_and_wellness' is in the valid enum list"},
+    {"check": 4, "name": "meta_info.task_description", "verdict": "PASS", "reason": "Non-empty, 87 characters, not a placeholder"},
+    {"check": 5, "name": "meta_info.task_completion_status", "verdict": "PASS", "reason": "Value 'success' is valid"},
+    {"check": 6, "name": "meta_info.system_prompt", "verdict": "PASS", "reason": "Non-empty system prompt present (2341 chars)"},
+    {"check": 7, "name": "meta_info.platform", "verdict": "PASS", "reason": "Value 'macOS' is a known platform"},
+    {"check": 8, "name": "Message Envelope Structure", "verdict": "PASS", "reason": "All 24 messages have type, id, parentId, timestamp, message keys"},
+    {"check": 9, "name": "First Message Role", "verdict": "PASS", "reason": "First message has role 'user'"},
+    {"check": 10, "name": "parentId Chain", "verdict": "PASS", "reason": "All parentId references resolve to preceding message ids"},
+    {"check": 11, "name": "Message Roles", "verdict": "PASS", "reason": "All roles are user/assistant/toolResult"},
+    {"check": 12, "name": "Content Block Types", "verdict": "PASS", "reason": "All content blocks have valid types (text/thinking/toolCall/toolResult)"},
+    {"check": 13, "name": "Timestamp Ordering", "verdict": "PASS", "reason": "Monotonically non-decreasing across all 24 messages"},
+    {"check": 14, "name": "Conversation Depth", "verdict": "PASS", "reason": "24 messages (minimum 3 required)"}
+  ]
+}
+```
+
+### Example Output (failing trajectory)
+
+```json
+{
+  "severity": "critical",
+  "summary": "Empty system_prompt and broken parentId chain. 2 BLOCK-level failures.",
+  "total_fails": 2,
+  "total_warns": 1,
+  "total_passes": 11,
+  "checks": [
+    {"check": 1, "name": "JSON Validity", "verdict": "PASS", "reason": "Valid JSON object"},
+    {"check": 2, "name": "Top-Level Keys", "verdict": "PASS", "reason": "meta_info and messages present"},
+    {"check": 3, "name": "meta_info.task_type", "verdict": "PASS", "reason": "Value 'customer_service' is valid"},
+    {"check": 4, "name": "meta_info.task_description", "verdict": "WARN", "reason": "Only 18 characters — suspiciously short", "fix": "Provide a more descriptive task_description (50+ chars recommended)"},
+    {"check": 5, "name": "meta_info.system_prompt", "verdict": "FAIL", "reason": "system_prompt is empty string after strip()", "fix": "Populate system_prompt with the persona/agent instructions used during the conversation"},
+    {"check": 6, "name": "parentId Chain", "verdict": "FAIL", "reason": "messages[3].parentId='abc123' does not match any preceding message id", "fix": "Fix parentId of message at index 3 to reference the correct preceding message id"}
+  ]
+}
+```
+
+> **Do NOT include any text outside the JSON code block.** No preamble, no explanation, no markdown outside the fence. The JSON block is the ONLY output.
 
 ---
 

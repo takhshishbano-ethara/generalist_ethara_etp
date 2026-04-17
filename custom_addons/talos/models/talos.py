@@ -140,7 +140,7 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
             user_message=user_message,
             max_tokens=65536,
             temperature=0.7,
-            timeout=1800.0,
+            timeout=1200.0,
         )
         _logger.info(
             "Golden trajectory generated for task %s (%d chars, tokens: %s)",
@@ -157,13 +157,18 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
                     task = env["talos.talos"].browse(task_id)
                     if not task.exists():
                         return
-                    task.write(
-                        {
-                            "golden_trajectory": response_text,
-                            "golden_status": "done",
-                            "golden_error": False,
-                        }
-                    )
+                    write_vals = {
+                        "golden_trajectory": response_text,
+                        "golden_status": "done",
+                        "golden_error": False,
+                        "golden_started_at": False,
+                    }
+                    g_in = usage.get("input_tokens", 0)
+                    g_out = usage.get("output_tokens", 0)
+                    if g_in > 0 or g_out > 0:
+                        write_vals["golden_input_tokens"] = (task.golden_input_tokens or 0) + g_in
+                        write_vals["golden_output_tokens"] = (task.golden_output_tokens or 0) + g_out
+                    task.write(write_vals)
                     partner = None
                     if notify_partner_id:
                         partner = env["res.partner"].browse(notify_partner_id)
@@ -193,6 +198,7 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
                         {
                             "golden_status": "error",
                             "golden_error": str(e)[:1000],
+                            "golden_started_at": False,
                         }
                     )
                     partner = None
@@ -285,13 +291,17 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
                     task = env["talos.talos"].browse(task_id)
                     if not task.exists():
                         return
-                    task.write(
-                        {
-                            "task_description": response_text,
-                            "task_description_status": "done",
-                            "task_description_error": False,
-                        }
-                    )
+                    write_vals = {
+                        "task_description": response_text,
+                        "task_description_status": "done",
+                        "task_description_error": False,
+                    }
+                    t_in = usage.get("input_tokens", 0)
+                    t_out = usage.get("output_tokens", 0)
+                    if t_in > 0 or t_out > 0:
+                        write_vals["taskdesc_input_tokens"] = (task.taskdesc_input_tokens or 0) + t_in
+                        write_vals["taskdesc_output_tokens"] = (task.taskdesc_output_tokens or 0) + t_out
+                    task.write(write_vals)
                     partner = None
                     if notify_partner_id:
                         partner = env["res.partner"].browse(notify_partner_id)
@@ -364,13 +374,8 @@ def _is_degenerate_output(text):
 def generate_task_description_sync(env, seed_prompt, messages_json):
     """Call Kimi/Bedrock to generate a single-line task description.
 
-    Args:
-        env: Odoo environment (for reading config params).
-        seed_prompt: The original user seed prompt.
-        messages_json: JSON string or list of trajectory messages.
-
     Returns:
-        A single-line description string, or empty string on failure.
+        Tuple of (description_string, usage_dict).
     """
     try:
         ICP = env["ir.config_parameter"].sudo()
@@ -382,12 +387,12 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
 
         if not api_key or not inference_arn:
             _logger.warning("generate_task_description_sync: missing credentials")
-            return ""
+            return "", {}
 
         system_prompt = _get_taskdesc_prompt()
         if not system_prompt:
             _logger.warning("generate_task_description_sync: no task_description_prompt.md")
-            return ""
+            return "", {}
 
         if isinstance(messages_json, list):
             messages_text = json.dumps(messages_json, ensure_ascii=False)[:16000]
@@ -418,17 +423,17 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
                 "generate_task_description_sync: degenerate output detected (%d chars), discarding",
                 len(desc),
             )
-            return ""
+            return "", usage
 
         _logger.info(
             "generate_task_description_sync: generated %d chars, tokens=%s",
             len(desc),
             usage,
         )
-        return desc
+        return desc, usage
     except Exception as e:
         _logger.warning("generate_task_description_sync failed: %s", e)
-        return ""
+        return "", {}
 
 
 def _format_tool_result(result):
@@ -702,6 +707,7 @@ class Talos(models.Model):
         default="idle",
     )
     golden_error = fields.Text(string="Golden Error")
+    golden_started_at = fields.Datetime(string="Golden Started At")
 
     task_description = fields.Text(string="Task Description")
     task_description_status = fields.Selection(
@@ -725,6 +731,16 @@ class Talos(models.Model):
     oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
     bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
     bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
+
+    # Trajectory QC tokens (from trajectory_qc endpoint, Bedrock calls per-entry)
+    traj_qc_input_tokens = fields.Integer(string="Traj QC Input Tokens", default=0)
+    traj_qc_output_tokens = fields.Integer(string="Traj QC Output Tokens", default=0)
+    # Task description generation tokens (trajectory-level + task-level)
+    taskdesc_input_tokens = fields.Integer(string="Task Desc Input Tokens", default=0)
+    taskdesc_output_tokens = fields.Integer(string="Task Desc Output Tokens", default=0)
+    # Golden trajectory generation tokens
+    golden_input_tokens = fields.Integer(string="Golden Gen Input Tokens", default=0)
+    golden_output_tokens = fields.Integer(string="Golden Gen Output Tokens", default=0)
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -844,7 +860,11 @@ class Talos(models.Model):
                 raise UserError("Golden trajectory generation is already in progress.")
             _GOLDEN_GENERATING.add(self.id)
 
-        self.write({"golden_status": "generating", "golden_error": False})
+        self.write({
+            "golden_status": "generating",
+            "golden_error": False,
+            "golden_started_at": fields.Datetime.now(),
+        })
 
         task_id = self.id
         db_name = self.env.cr.dbname
