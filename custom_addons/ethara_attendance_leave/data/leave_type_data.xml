@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Sick Leave (SL) -->
+        <record id="leave_type_sl" model="hr.leave.type">
+            <field name="name">Sick Leave</field>
+            <field name="ethara_leave_code">sl</field>
+            <field name="sequence">10</field>
+            <field name="color">1</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="support_document" eval="True"/>
+            <field name="unpaid" eval="False"/>
+            <!-- Ethara policy fields -->
+            <field name="available_during_probation" eval="True"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="requires_medical_certificate" eval="True"/>
+            <field name="medical_cert_threshold_days">2</field>
+            <field name="advance_notice_days">0</field>
+            <field name="lapses_at_year_end" eval="True"/>
+            <field name="max_carry_forward_days">0</field>
+            <field name="apply_sandwich_rule" eval="False"/>
+            <field name="monthly_accrual_days">1</field>
+        </record>
+
+        <!-- Casual Leave (CL) -->
+        <record id="leave_type_cl" model="hr.leave.type">
+            <field name="name">Casual Leave</field>
+            <field name="ethara_leave_code">cl</field>
+            <field name="sequence">20</field>
+            <field name="color">4</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">half_day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <!-- Ethara policy fields -->
+            <field name="available_during_probation" eval="False"/>
+            <field name="allow_half_day" eval="True"/>
+            <field name="requires_medical_certificate" eval="False"/>
+            <field name="medical_cert_threshold_days">0</field>
+            <field name="advance_notice_days">0</field>
+            <field name="lapses_at_year_end" eval="True"/>
+            <field name="max_carry_forward_days">0</field>
+            <field name="apply_sandwich_rule" eval="True"/>
+            <field name="monthly_accrual_days">1</field>
+        </record>
+
+        <!-- Earned Leave (EL) -->
+        <record id="leave_type_el" model="hr.leave.type">
+            <field name="name">Earned Leave</field>
+            <field name="ethara_leave_code">el</field>
+            <field name="sequence">30</field>
+            <field name="color">5</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">both</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <!-- Ethara policy fields -->
+            <field name="available_during_probation" eval="True"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="requires_medical_certificate" eval="False"/>
+            <field name="medical_cert_threshold_days">0</field>
+            <field name="advance_notice_days">20</field>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="max_carry_forward_days">7</field>
+            <field name="apply_sandwich_rule" eval="False"/>
+            <field name="monthly_accrual_days">1</field>
+        </record>
+
+    </data>
+</odoo>

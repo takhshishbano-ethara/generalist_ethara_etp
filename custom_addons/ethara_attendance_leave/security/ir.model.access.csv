@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_hr_leave_type_ethara,hr.leave.type.ethara,hr_holidays.model_hr_leave_type,hr_holidays.group_hr_holidays_user,1,1,1,1
+access_hr_leave_ethara,hr.leave.ethara,hr_holidays.model_hr_leave,hr_holidays.group_hr_holidays_user,1,1,1,1
+access_hr_attendance_ethara,hr.attendance.ethara,hr_attendance.model_hr_attendance,hr_attendance.group_hr_attendance_user,1,1,1,1
+access_hr_employee_ethara,hr.employee.ethara,hr.model_hr_employee,hr.group_hr_user,1,1,1,1

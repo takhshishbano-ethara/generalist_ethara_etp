@@ -3,7 +3,8 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request
 )
-from datetime import datetime
+from odoo.exceptions import ValidationError
+from datetime import datetime, timedelta, date as date_type
 import json
 from odoo import fields
 
@@ -77,17 +78,121 @@ class TaskForgeLeaveController(http.Controller):
                     status=400
                 )
 
+            start = datetime.strptime(from_date, '%Y-%m-%d').date() if isinstance(from_date, str) else from_date
+            end = datetime.strptime(to_date, '%Y-%m-%d').date() if isinstance(to_date, str) else to_date
+
+            weekend_dates = []
+            current = start
+            while current <= end:
+                if current.weekday() in (5, 6):
+                    weekend_dates.append(current.strftime('%Y-%m-%d'))
+                current += timedelta(days=1)
+
+            if weekend_dates:
+                return return_Response(
+                    message=f"Cannot apply leave on weekends (Saturday/Sunday): {', '.join(weekend_dates)}",
+                    status=400
+                )
+
+            company = request.env.company
+            calendar = employee.resource_calendar_id or company.resource_calendar_id
+            public_holidays = request.env['resource.calendar.leaves'].sudo().search([
+                ('resource_id', '=', False),
+                ('date_from', '<=', f"{to_date} 23:59:59"),
+                ('date_to', '>=', f"{from_date} 00:00:00"),
+                ('calendar_id', 'in', [False, calendar.id if calendar else False]),
+                ('company_id', 'in', [company.id, False]),
+            ])
+
+            if public_holidays:
+                holiday_names = [ph.name or ph.date_from.strftime('%Y-%m-%d') for ph in public_holidays]
+                return return_Response(
+                    message=f"Cannot apply leave on public holidays: {', '.join(holiday_names)}",
+                    status=400
+                )
+
             # 3. Handle Leave Type (Holiday Status)
             holiday_status_id = jdata.get('holiday_status_id')
             if not holiday_status_id:
-                # Fallback to the first available leave type if not provided
                 leave_type = request.env['hr.leave.type'].sudo().search([], limit=1)
                 if not leave_type:
                     return return_Response(message="Configuration Error: No Time Off types found in Odoo.", status=400)
                 holiday_status_id = leave_type.id
 
+            leave_type_rec = request.env['hr.leave.type'].sudo().browse(holiday_status_id)
+
+            if employee.employee_state == 'probation':
+                if leave_type_rec and leave_type_rec.ethara_leave_code == 'cl':
+                    return return_Response(
+                        message='Casual Leave is not available during probation period.',
+                        status=400
+                    )
+
+                month_start = start.replace(day=1)
+                if start.month == 12:
+                    month_end = start.replace(month=12, day=31)
+                else:
+                    month_end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
+
+                existing_month_leaves = Leave.search_count([
+                    ('employee_id', '=', employee.id),
+                    ('request_date_from', '>=', month_start),
+                    ('request_date_from', '<=', month_end),
+                    ('state', 'not in', ['refuse']),
+                ])
+                if existing_month_leaves >= 1:
+                    return return_Response(
+                        message='Probation employees are limited to 1 leave request per month. '
+                                'Employee: %s already has a leave request for %s.' % (
+                                    employee.name, start.strftime('%B %Y')),
+                        status=400
+                    )
+
+            if leave_type_rec and leave_type_rec.ethara_leave_code == 'el':
+                advance_notice_days = leave_type_rec.advance_notice_days or 0
+                if advance_notice_days and start:
+                    from odoo.fields import Date as OdooDate
+                    days_until = (start - OdooDate.today()).days
+                    if days_until < advance_notice_days:
+                        return return_Response(
+                            message='Earned Leave requires at least %d days advance notice. '
+                                    'You are requesting leave starting %s (%d days from today).' % (
+                                        advance_notice_days, start, days_until),
+                            status=400
+                        )
+
+            if leave_type_rec.requires_allocation:
+                alloc_data = leave_type_rec.get_allocation_data(employee, start)
+                emp_alloc = alloc_data.get(employee, [])
+                max_leaves = 0
+                virtual_remaining = 0
+                for _name, data, *_rest in emp_alloc:
+                    max_leaves += data.get('max_leaves', 0)
+                    virtual_remaining += data.get('virtual_remaining_leaves', 0)
+
+                if not max_leaves:
+                    return return_Response(
+                        message='You do not have any allocation for %s. '
+                                'Please request an allocation before submitting your leave.' % leave_type_rec.name,
+                        status=400
+                    )
+
+                requested_days = 0
+                current = start
+                while current <= end:
+                    if current.weekday() not in (5, 6):
+                        requested_days += 1
+                    current += timedelta(days=1)
+
+                if not leave_type_rec.allows_negative and requested_days > virtual_remaining:
+                    return return_Response(
+                        message='Insufficient leave balance for %s. '
+                                'Requested: %g day(s), Available: %g day(s).' % (
+                                    leave_type_rec.name, requested_days, virtual_remaining),
+                        status=400
+                    )
+
             # 4. Attempt Creation
-            # We wrap this in a sub-try to catch Odoo's internal 'No Allocation' or 'Date Range' UserErrors
             try:
                 new_leave = Leave.create({
                     'employee_id': employee.id,
@@ -97,9 +202,6 @@ class TaskForgeLeaveController(http.Controller):
                     'name': reason,
                     'x_reason': reason,
                 })
-
-                # Optional: If your workflow requires immediate confirmation/approval
-                # new_leave.action_confirm()
 
                 return return_Response(
                     message="Leave request submitted successfully",
@@ -158,18 +260,42 @@ class TaskForgeLeaveController(http.Controller):
     def approve_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id,
-                                        request.env.ref('api_auth_gateway.role_pl_stem').id,
-                                        request.env.ref('api_auth_gateway.role_pl_non_stem').id, request.env.ref('api_auth_gateway.role_qc_technical').id,
-                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
-                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id, request.env.ref('api_auth_gateway.role_cto_technical').id]:
+            approver_employee = user.employee_id
+            if not approver_employee:
+                return return_Response(message="Employee profile not found", status=404)
 
-                return return_Response(message="Insufficient permissions", status=403)
+            approver_role = approver_employee._get_task_forge_role()
+
+            if approver_role not in ('admin', 'pl', 'qr', 'ql'):
+                return return_Response(message="Insufficient permissions to approve leaves", status=403)
 
             Leave = request.env['hr.leave'].sudo()
             leave = Leave.browse(jdata['leave_id'])
             if not leave.exists():
                 return return_Response(message="Leave not found", status=404)
+
+            requestor_employee = leave.employee_id
+            if not requestor_employee:
+                return return_Response(message="Leave has no linked employee", status=400)
+
+            requestor_role = requestor_employee._get_task_forge_role()
+
+            can_approve = False
+            if requestor_role == 'tasker':
+                can_approve = approver_role in ('qr', 'ql', 'pl', 'admin')
+            elif requestor_role in ('qr', 'ql'):
+                can_approve = approver_role in ('pl', 'admin')
+            elif requestor_role == 'pl':
+                can_approve = approver_role == 'admin'
+            elif requestor_role == 'admin':
+                can_approve = False
+
+            if not can_approve:
+                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'admin': 'CTO'}
+                return return_Response(
+                    message=f"A {role_labels.get(approver_role, approver_role)} cannot approve leave for a {role_labels.get(requestor_role, requestor_role)}. Only higher authorities can approve.",
+                    status=403
+                )
 
             leave.action_approve()
 
@@ -199,19 +325,42 @@ class TaskForgeLeaveController(http.Controller):
     def reject_leave(self, jdata=None, **kwargs):
         try:
             user = request.env.user
-            if user.user_role.id not in [request.env.ref('api_auth_gateway.role_pl_technical').id,
-                                     request.env.ref('api_auth_gateway.role_pl_stem').id,
-                                     request.env.ref('api_auth_gateway.role_pl_non_stem').id,
-                                     request.env.ref('api_auth_gateway.role_qc_technical').id,
-                                     request.env.ref('api_auth_gateway.role_qc_stem').id,
-                                     request.env.ref('api_auth_gateway.role_qc_non_stem').id,
-                                     request.env.ref('api_auth_gateway.role_cto_technical').id]:
-                return return_Response(message="Insufficient permissions", status=403)
+            approver_employee = user.employee_id
+            if not approver_employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            approver_role = approver_employee._get_task_forge_role()
+
+            if approver_role not in ('admin', 'pl', 'qr', 'ql'):
+                return return_Response(message="Insufficient permissions to reject leaves", status=403)
 
             Leave = request.env['hr.leave'].sudo()
             leave = Leave.browse(jdata['leave_id'])
             if not leave.exists():
                 return return_Response(message="Leave not found", status=404)
+
+            requestor_employee = leave.employee_id
+            if not requestor_employee:
+                return return_Response(message="Leave has no linked employee", status=400)
+
+            requestor_role = requestor_employee._get_task_forge_role()
+
+            can_reject = False
+            if requestor_role == 'tasker':
+                can_reject = approver_role in ('qr', 'ql', 'pl', 'admin')
+            elif requestor_role in ('qr', 'ql'):
+                can_reject = approver_role in ('pl', 'admin')
+            elif requestor_role == 'pl':
+                can_reject = approver_role == 'admin'
+            elif requestor_role == 'admin':
+                can_reject = False
+
+            if not can_reject:
+                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'admin': 'CTO'}
+                return return_Response(
+                    message=f"A {role_labels.get(approver_role, approver_role)} cannot reject leave for a {role_labels.get(requestor_role, requestor_role)}. Only higher authorities can reject.",
+                    status=403
+                )
 
             leave.action_refuse()
 

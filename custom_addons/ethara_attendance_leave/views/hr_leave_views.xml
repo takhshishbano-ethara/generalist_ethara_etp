@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Inherit Leave Form: Add Medical Certificate fields -->
+    <record id="view_leave_form_ethara" model="ir.ui.view">
+        <field name="name">hr.leave.form.ethara.attendance.leave</field>
+        <field name="model">hr.leave</field>
+        <field name="inherit_id" ref="hr_holidays.hr_leave_view_form"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='supported_attachment_ids']" position="before">
+                <field name="medical_cert_required" invisible="1"/>
+                <group string="Medical Certificate" invisible="not medical_cert_required">
+                    <field name="medical_certificate" filename="medical_certificate_filename"/>
+                    <field name="medical_certificate_filename" invisible="1"/>
+                    <field name="medical_cert_deadline"/>
+                </group>
+            </xpath>
+
+            <!-- Show sandwich days next to duration display -->
+            <xpath expr="//field[@name='duration_display']" position="after">
+                <field name="sandwich_days_added" invisible="sandwich_days_added == 0"
+                       string="Sandwich Days" readonly="1" class="w-auto"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Inherit Leave Type Form: Add Ethara policy fields -->
+    <record id="view_leave_type_form_ethara" model="ir.ui.view">
+        <field name="name">hr.leave.type.form.ethara.attendance.leave</field>
+        <field name="model">hr.leave.type</field>
+        <field name="inherit_id" ref="hr_holidays.edit_holiday_status_form"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='configuration']" position="after">
+                <group string="Ethara Policy" name="ethara_policy">
+                    <group string="General">
+                        <field name="ethara_leave_code"/>
+                        <field name="available_during_probation"/>
+                        <field name="allow_half_day"/>
+                        <field name="monthly_accrual_days"/>
+                    </group>
+                    <group string="Carry Forward &amp; Lapse">
+                        <field name="lapses_at_year_end"/>
+                        <field name="max_carry_forward_days"/>
+                    </group>
+                </group>
+                <group>
+                    <group string="Validation Rules">
+                        <field name="requires_medical_certificate"/>
+                        <field name="medical_cert_threshold_days"
+                               invisible="not requires_medical_certificate"/>
+                        <field name="advance_notice_days"/>
+                        <field name="apply_sandwich_rule"/>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

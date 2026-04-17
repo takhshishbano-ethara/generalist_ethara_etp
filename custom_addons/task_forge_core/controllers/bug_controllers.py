@@ -90,7 +90,7 @@ class TaskForgeBugController(http.Controller):
             video_file = request.httprequest.files.get('video')
             if video_file:
                 vid_data = base64.b64encode(video_file.read())
-                video_url = generate_s3_link(vid_data, prefix='taskforge/bug_videos', uid=employee.id)
+                video_url = generate_s3_link(vid_data, prefix='taskforge/bug_videos', uid=employee.id, filename=video_file.filename)
 
             TaskLog = request.env['task.forge.log'].sudo()
             task = TaskLog.browse(jdata['task_id'])

@@ -321,20 +321,26 @@ def safe_get_value(record, field_path, expected_type=str):
             return ""
         return expected_type()
 
-def generate_s3_link(img_data, prefix='profile', uid=None):
+def generate_s3_link(img_data, prefix='profile', uid=None, filename=None):
     ts = time.time_ns()
     unique_id = uuid.uuid4().hex[:12]
     s3_connector_id = request.env['s3.connector'].sudo().search([], limit=1)
 
     mime_type = "image/jpeg"
-    try:
-        mime_type = mimetypes.guess_type("dummy.jpg")[0] or "image/jpeg"
-    except:
-        pass
+    if filename:
+        try:
+            mime_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
+        except Exception:
+            pass
+    else:
+        try:
+            mime_type = mimetypes.guess_type("dummy.jpg")[0] or "image/jpeg"
+        except Exception:
+            pass
 
     extension = mimetypes.guess_extension(mime_type) or '.jpeg'
-    filename = secure_filename(f"{ts}_{uid}_{unique_id}_profile_image") if uid else secure_filename(f"{ts}_{unique_id}_profile_image")
-    images_name = f"{filename}{extension}"
+    safe_name = secure_filename(f"{ts}_{uid}_{unique_id}_profile_image") if uid else secure_filename(f"{ts}_{unique_id}_profile_image")
+    images_name = f"{safe_name}{extension}"
 
     img_req = request.env['s3.upload.wizard'].sudo().create({
         's3_connector_id': s3_connector_id.id,

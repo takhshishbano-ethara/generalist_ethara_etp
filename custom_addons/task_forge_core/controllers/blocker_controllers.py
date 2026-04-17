@@ -163,7 +163,7 @@ class TaskForgeBlockerController(http.Controller):
                 if video_file:
                     import base64
                     vid_data = base64.b64encode(video_file.read())
-                    video_url = generate_s3_link(vid_data, prefix='taskforge/blocker_videos', uid=user.employee_id.id)
+                    video_url = generate_s3_link(vid_data, prefix='taskforge/blocker_videos', uid=user.employee_id.id, filename=video_file.filename)
 
                 image_file = request.httprequest.files.get('image')
                 if image_file:
