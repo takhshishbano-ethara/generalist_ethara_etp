@@ -112,14 +112,17 @@ def _build_prestop_script(task_id, persona_name):
         persona_name,
     )
     return (
-        "echo '[talos] preStop: backing up session data to S3...' && "
-        "aws s3 sync /home/node/.openclaw/ %s "
+        "RUN_ID=$(cat /home/node/.openclaw/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
+        'echo "[talos] preStop: run=$RUN_ID backing up session data to S3..." && '
+        "aws s3 sync /home/node/.openclaw/ %(session)slatest/ "
         "--no-progress --quiet 2>/dev/null || true && "
-        "aws s3 sync /home/node/.openclaw/browser-profiles/ %s "
+        "aws s3 sync /home/node/.openclaw/ %(session)shistory/run-$RUN_ID/stop/ "
+        "--no-progress --quiet 2>/dev/null || true && "
+        "aws s3 sync /home/node/.openclaw/browser-profiles/ %(browser)s "
         "--no-progress --quiet 2>/dev/null || true && "
         "echo '[talos] preStop: backup complete, waiting for connections to drain...' && "
         "sleep 10"
-    ) % (session_path, browser_path)
+    ) % {"session": session_path, "browser": browser_path}
 
 
 def _build_openclaw_config(gateway_token, env, model_type="claude"):
@@ -572,6 +575,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         db_url = ""
 
+<<<<<<< Updated upstream
         prestop_script = (
             "RUN_ID=$(cat /home/node/.openclaw/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
             "echo '[talos] preStop: backing up session run-'$RUN_ID && "
@@ -584,6 +588,9 @@ class TalosSandboxK8s(models.AbstractModel):
             "echo '[talos] preStop: backup complete' && "
             "sleep 10"
         ) % (session_s3_path, session_s3_path, browser_s3_path)
+=======
+        prestop_script = _build_prestop_script(task_id, persona)
+>>>>>>> Stashed changes
 
         init_containers = [
             client.V1Container(
@@ -702,6 +709,48 @@ class TalosSandboxK8s(models.AbstractModel):
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
             ),
+            client.V1Container(
+                name="gog-install",
+                image=openclaw_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "which gog && cp $(which gog) /gog-bin/gog && "
+                    "chmod +x /gog-bin/gog && "
+                    "ls -la /gog-bin/ || "
+                    "echo '[talos] gog binary not found in image, skipping'",
+                ],
+                volume_mounts=[
+                    client.V1VolumeMount(
+                        name="gog-bin",
+                        mount_path="/gog-bin",
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
+            ),
+            client.V1Container(
+                name="snapshot-start",
+                image=aws_cli_image,
+                command=[
+                    "sh",
+                    "-c",
+                    "RUN_ID=$(cat /data/.talos-run-id 2>/dev/null || echo unknown) && "
+                    "aws s3 sync /data/ %shistory/run-$RUN_ID/start/ "
+                    "--no-progress --quiet 2>/dev/null || true" % session_s3_path,
+                ],
+                volume_mounts=[
+                    client.V1VolumeMount(
+                        name="openclaw-data",
+                        mount_path="/data",
+                        read_only=True,
+                    ),
+                ],
+                resources=client.V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "64Mi"},
+                ),
+            ),
         ]
 
         openclaw_container = client.V1Container(
@@ -765,6 +814,10 @@ class TalosSandboxK8s(models.AbstractModel):
                         ),
                     ),
                 ),
+                client.V1EnvVar(
+                    name="PATH",
+                    value="/gog-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                ),
             ],
             volume_mounts=[
                 client.V1VolumeMount(
@@ -789,6 +842,11 @@ class TalosSandboxK8s(models.AbstractModel):
                 client.V1VolumeMount(
                     name="gog-config",
                     mount_path="/home/node/.config",
+                ),
+                client.V1VolumeMount(
+                    name="gog-bin",
+                    mount_path="/gog-bin",
+                    read_only=True,
                 ),
             ],
             resources=client.V1ResourceRequirements(
@@ -973,6 +1031,10 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
             client.V1Volume(
                 name="gog-config",
+                empty_dir=client.V1EmptyDirVolumeSource(),
+            ),
+            client.V1Volume(
+                name="gog-bin",
                 empty_dir=client.V1EmptyDirVolumeSource(),
             ),
         ]

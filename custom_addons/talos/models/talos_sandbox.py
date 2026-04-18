@@ -75,11 +75,15 @@ def _mark_task_description_status(db_name, task_id, field_name, status, entry_in
     except Exception:
         _logger.exception(
             "Failed to mark task_description_status=%s for %s task %s",
-            status, field_name, task_id,
+            status,
+            field_name,
+            task_id,
         )
 
 
-def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messages, entry_index=-1):
+def _inject_task_description_bg(
+    db_name, task_id, field_name, seed_prompt, messages, entry_index=-1
+):
     """Background: generate task description via Kimi and inject into saved trajectory."""
     try:
         with Registry(db_name).cursor() as cr:
@@ -88,12 +92,22 @@ def _inject_task_description_bg(db_name, task_id, field_name, seed_prompt, messa
             if usage.get("input_tokens", 0) > 0 or usage.get("output_tokens", 0) > 0:
                 task_rec = env["talos.talos"].browse(task_id)
                 if task_rec.exists():
-                    task_rec.write({
-                        "taskdesc_input_tokens": (task_rec.taskdesc_input_tokens or 0) + usage.get("input_tokens", 0),
-                        "taskdesc_output_tokens": (task_rec.taskdesc_output_tokens or 0) + usage.get("output_tokens", 0),
-                    })
+                    task_rec.write(
+                        {
+                            "taskdesc_input_tokens": (
+                                task_rec.taskdesc_input_tokens or 0
+                            )
+                            + usage.get("input_tokens", 0),
+                            "taskdesc_output_tokens": (
+                                task_rec.taskdesc_output_tokens or 0
+                            )
+                            + usage.get("output_tokens", 0),
+                        }
+                    )
             if not desc:
-                _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
+                _mark_task_description_status(
+                    db_name, task_id, field_name, "done", entry_index
+                )
                 return
             task = env["talos.talos"].browse(task_id)
             if not task.exists():
@@ -451,7 +465,7 @@ class TalosSandbox(models.Model):
         except Exception:
             pass
 
-        task_id = self.talos_id.id if self.talos_id else self.id
+        task_id = self.id
         label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % task_id
         try:
             core_v1 = k8s_client.CoreV1Api()
@@ -532,7 +546,11 @@ class TalosSandbox(models.Model):
                     if isinstance(tcid, str) and "|" in tcid:
                         block["toolCallId"] = tcid.split("|", 1)[0]
                     tc_id = block.get("id", "")
-                    if block.get("type") == "tool_use" and isinstance(tc_id, str) and "|" in tc_id:
+                    if (
+                        block.get("type") == "tool_use"
+                        and isinstance(tc_id, str)
+                        and "|" in tc_id
+                    ):
                         block["id"] = tc_id.split("|", 1)[0]
                 cleaned.append(block)
             msg["content"] = cleaned
@@ -1066,29 +1084,42 @@ class TalosSandbox(models.Model):
 
                 turn_token_map = {
                     "claude": (
-                        "claude_input_tokens", "claude_output_tokens",
-                        "claude_input_tokens", "claude_output_tokens",
+                        "claude_input_tokens",
+                        "claude_output_tokens",
+                        "claude_input_tokens",
+                        "claude_output_tokens",
                     ),
                     "glm": (
-                        "glm_input_tokens", "glm_output_tokens",
-                        "glm_input_tokens", "glm_output_tokens",
+                        "glm_input_tokens",
+                        "glm_output_tokens",
+                        "glm_input_tokens",
+                        "glm_output_tokens",
                     ),
                 }
                 turn_fields = turn_token_map.get(self.model_type)
                 if turn_fields:
-                    turn_in_field, turn_out_field, task_in_field, task_out_field = turn_fields
+                    turn_in_field, turn_out_field, task_in_field, task_out_field = (
+                        turn_fields
+                    )
                     t_in = sum(getattr(t, turn_in_field, 0) or 0 for t in self.turn_ids)
-                    t_out = sum(getattr(t, turn_out_field, 0) or 0 for t in self.turn_ids)
+                    t_out = sum(
+                        getattr(t, turn_out_field, 0) or 0 for t in self.turn_ids
+                    )
                     if t_in > 0 or t_out > 0:
                         existing_in = getattr(self.talos_id, task_in_field, 0) or 0
                         existing_out = getattr(self.talos_id, task_out_field, 0) or 0
-                        self.talos_id.write({
-                            task_in_field: existing_in + t_in,
-                            task_out_field: existing_out + t_out,
-                        })
+                        self.talos_id.write(
+                            {
+                                task_in_field: existing_in + t_in,
+                                task_out_field: existing_out + t_out,
+                            }
+                        )
                         _logger.info(
                             "Aggregated %s turn tokens (in=%d, out=%d) to task %s",
-                            self.model_type, t_in, t_out, self.talos_id.id,
+                            self.model_type,
+                            t_in,
+                            t_out,
+                            self.talos_id.id,
                         )
 
             turn_count = len(self.turn_ids)
