@@ -217,7 +217,9 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         ],
     }
-    config_dict["agents"] = {"defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.6")}}
+    config_dict["agents"] = {
+        "defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.6")}
+    }
 
     return config_dict
 
@@ -303,7 +305,9 @@ class TalosSandboxK8s(models.AbstractModel):
             task_record,
         )
 
-        openclaw_config = _build_openclaw_config(gateway_token, env, sandbox_record.model_type)
+        openclaw_config = _build_openclaw_config(
+            gateway_token, env, sandbox_record.model_type
+        )
         self._create_openclaw_config_configmap(
             core_v1,
             task_id,
@@ -575,22 +579,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         db_url = ""
 
-<<<<<<< Updated upstream
-        prestop_script = (
-            "RUN_ID=$(cat /home/node/.openclaw/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
-            "echo '[talos] preStop: backing up session run-'$RUN_ID && "
-            "aws s3 sync /home/node/.openclaw/ %slatest/ "
-            "--no-progress --quiet --delete 2>/dev/null || true && "
-            "aws s3 sync /home/node/.openclaw/ %shistory/run-$RUN_ID/stop/ "
-            "--no-progress --quiet 2>/dev/null || true && "
-            "aws s3 sync /home/node/.openclaw/browser-profiles/ %s "
-            "--no-progress --quiet 2>/dev/null || true && "
-            "echo '[talos] preStop: backup complete' && "
-            "sleep 10"
-        ) % (session_s3_path, session_s3_path, browser_s3_path)
-=======
         prestop_script = _build_prestop_script(task_id, persona)
->>>>>>> Stashed changes
 
         init_containers = [
             client.V1Container(
@@ -659,10 +648,7 @@ class TalosSandboxK8s(models.AbstractModel):
                     "RUN_ID=$(cat /data/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
                     "echo '[talos] snapshot-start: saving fresh state as run-'$RUN_ID && "
                     "aws s3 sync /data/ %shistory/run-$RUN_ID/start/ "
-                    "--no-progress --quiet 2>/dev/null || true"
-                    % (
-                        session_s3_path,
-                    ),
+                    "--no-progress --quiet 2>/dev/null || true" % (session_s3_path,),
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(
