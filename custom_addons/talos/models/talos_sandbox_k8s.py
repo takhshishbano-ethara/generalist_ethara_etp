@@ -730,27 +730,6 @@ class TalosSandboxK8s(models.AbstractModel):
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
             ),
-            client.V1Container(
-                name="snapshot-start",
-                image=aws_cli_image,
-                command=[
-                    "sh",
-                    "-c",
-                    "RUN_ID=$(cat /data/.talos-run-id 2>/dev/null || echo unknown) && "
-                    "aws s3 sync /data/ %shistory/run-$RUN_ID/start/ "
-                    "--no-progress --quiet 2>/dev/null || true" % session_s3_path,
-                ],
-                volume_mounts=[
-                    client.V1VolumeMount(
-                        name="openclaw-data",
-                        mount_path="/data",
-                        read_only=True,
-                    ),
-                ],
-                resources=client.V1ResourceRequirements(
-                    requests={"cpu": "50m", "memory": "64Mi"},
-                ),
-            ),
         ]
 
         openclaw_container = client.V1Container(
