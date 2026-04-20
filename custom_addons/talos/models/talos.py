@@ -643,6 +643,7 @@ class Talos(models.Model):
         ],
         string="Safety Critical",
     )
+    system_prompt = fields.Text(string="System Prompt")
     seed_prompt = fields.Text(string="Seed Prompt")
     agent_md = fields.Text(string="Agent MD")
     soul_md = fields.Text(string="Soul MD")
