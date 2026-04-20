@@ -202,6 +202,10 @@ export class TalosJsonField extends Component {
         return this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0;
     }
 
+    get isGoldenField() {
+        return this.props.name === "golden_trajectory";
+    }
+
     onDeleteEntry(index) {
         this.dialog.add(ConfirmationDialog, {
             title: _t("Delete Trajectory Session"),
