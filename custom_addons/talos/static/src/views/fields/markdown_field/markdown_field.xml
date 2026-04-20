@@ -2,22 +2,9 @@
 <templates xml:space="preserve">
 
     <t t-name="talos.MarkdownField">
-        <t t-if="props.readonly">
-            <div class="o_field_talos_markdown o_field_widget o_field_talos_markdown_readonly">
-                <div class="o_talos_markdown_content o_readonly_content" t-out="renderedMarkup"/>
-            </div>
-        </t>
-        <t t-else="">
-            <div class="o_field_talos_markdown o_field_widget">
-                <textarea
-                    class="o_input o_field_text_input"
-                    t-att-id="props.id"
-                    t-att-placeholder="props.placeholder"
-                    t-ref="textarea"
-                    rows="10"
-                />
-            </div>
-        </t>
+        <div class="o_field_talos_markdown o_field_widget">
+            <div class="o_talos_markdown_content" t-out="renderedMarkup"/>
+        </div>
     </t>
 
 </templates>

@@ -10,6 +10,15 @@
         padding: 8px 12px;
         line-height: 1.6;
         word-wrap: break-word;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        background: #fafafa;
+
+        &:empty::before {
+            content: "No content";
+            color: #adb5bd;
+            font-style: italic;
+        }
 
         h1, h2, h3, h4, h5, h6 {
             margin-top: 0.75em;
@@ -64,5 +73,34 @@
         width: 100%;
         min-height: 80px;
         resize: vertical;
+    }
+}
+
+/* ── Scrollable equal-height row for side-by-side MD fields ─── */
+
+.o_talos_md_row {
+    align-items: stretch;
+
+    > div {
+        display: flex;
+        flex-direction: column;
+
+        .o_talos_md_scroll {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+
+            .o_field_talos_markdown {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .o_talos_markdown_content {
+                flex: 1;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+        }
     }
 }
