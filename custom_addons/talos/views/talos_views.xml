@@ -89,6 +89,9 @@
             <group string="Seed Prompt" colspan="2">
               <field name="seed_prompt" widget="talos_markdown" nolabel="1" readonly="not is_talos_admin" colspan="2"/>
             </group>
+            <group string="System Prompt" colspan="2">
+              <field name="system_prompt" widget="talos_markdown" nolabel="1" readonly="not is_talos_admin" colspan="2"/>
+            </group>
             <group string="Agent MD" colspan="2">
               <field name="agent_md" widget="talos_markdown" nolabel="1" readonly="not is_talos_admin" colspan="2"/>
             </group>
