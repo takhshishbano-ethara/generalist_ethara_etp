@@ -11,7 +11,10 @@ import { rpc } from "@web/core/network/rpc";
 const MODEL_TABS = [
     { type: "claude", label: "Claude 4.6", icon: "fa-microchip" },
     { type: "glm", label: "GLM 5", icon: "fa-cube" },
-    { type: "1p", label: "1P", icon: "fa-flask" },
+    { type: "1pa", label: "1PA", icon: "fa-flask" },
+    { type: "1pb", label: "1PB", icon: "fa-flask" },
+    { type: "1pc", label: "1PC", icon: "fa-flask" },
+    { type: "1pd", label: "1PD", icon: "fa-flask" },
 ];
 
 const STATUS_POLL_INTERVAL_MS = 5000;
@@ -85,9 +88,9 @@ export class TaskDashboard extends Component {
             ],
         );
 
-        if (sandboxes.length === 0) {
-            console.log("[talos-dashboard] No sandboxes found, creating...");
-            await this.orm.call("talos.talos", "_ensure_sandboxes", [[this.taskId]]);
+        await this.orm.call("talos.talos", "ensure_sandboxes", [[this.taskId]]);
+
+        if (sandboxes.length === 0 || sandboxes.length < 6) {
             sandboxes = await this.orm.searchRead(
                 "talos.sandbox",
                 [["talos_id", "=", this.taskId]],
@@ -245,6 +248,17 @@ export class TaskDashboard extends Component {
     async onStartSandbox(sandboxId) {
         if (!sandboxId) {
             this.notification.add("Sandbox not found. Save the task first.", { type: "warning" });
+            return;
+        }
+        const activeSandbox = Object.values(this.state.sandboxes).find(
+            (sb) => sb.id !== sandboxId && (sb.docker_status === "running" || sb.docker_status === "starting")
+        );
+        if (activeSandbox) {
+            const activeLabel = MODEL_TABS.find((t) => t.type === activeSandbox.model_type)?.label || activeSandbox.model_type;
+            this.notification.add(
+                `Cannot start: ${activeLabel} sandbox is already ${activeSandbox.docker_status}. Stop it first.`,
+                { type: "warning" },
+            );
             return;
         }
         this.state.loadingSandbox[sandboxId] = true;

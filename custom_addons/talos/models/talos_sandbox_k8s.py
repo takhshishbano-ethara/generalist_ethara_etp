@@ -59,6 +59,17 @@ server {
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
     }
+    location ~ ^/litellm/(\\d+)(?:/(.*))? {
+        set $task_id $1;
+        set $path $2;
+        set $backend talos-sandbox-$task_id.%(namespace)s.svc.cluster.local:4000;
+        proxy_pass http://$backend/$path$is_args$args;
+        proxy_http_version 1.1;
+        proxy_set_header Host localhost;
+        proxy_set_header Authorization $http_authorization;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
     location /healthz {
         return 200 'ok';
         add_header Content-Type text/plain;
@@ -889,7 +900,6 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
                 client.V1EnvVar(name="STORE_MODEL_IN_DB", value="False"),
                 client.V1EnvVar(name="DISABLE_SCHEMA_UPDATE", value="true"),
-                client.V1EnvVar(name="DISABLE_SPEND_LOGS", value="true"),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
                 client.V1EnvVar(
                     name="LLAMA_API_KEY",
@@ -1059,6 +1069,11 @@ class TalosSandboxK8s(models.AbstractModel):
                         name="gateway",
                         port=18789,
                         target_port=18789,
+                    ),
+                    client.V1ServicePort(
+                        name="litellm",
+                        port=4000,
+                        target_port=4000,
                     ),
                 ],
             ),

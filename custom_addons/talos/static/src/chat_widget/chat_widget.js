@@ -1038,8 +1038,9 @@ export class TalosChatWidget extends Component {
             if (result.turns) {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
-                    if (t.prompt) {
-                        this._session.messages.push({ role: "user", text: t.prompt, isHint: !!t.is_hint_turn });
+                    const userText = t.prompt || t.hints;
+                    if (userText) {
+                        this._session.messages.push({ role: "user", text: userText, isHint: !!t.is_hint_turn });
                     }
 
                     if (t.qc_severity) {

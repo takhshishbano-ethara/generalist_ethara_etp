@@ -23,11 +23,6 @@
                  decoration-danger="glm_status == 'error'"
                  decoration-info="glm_status == 'starting'"
                  decoration-muted="glm_status == 'stopped'"/>
-          <field name="oneP_status" widget="badge" string="1P"
-                 decoration-success="oneP_status == 'running'"
-                 decoration-danger="oneP_status == 'error'"
-                 decoration-info="oneP_status == 'starting'"
-                 decoration-muted="oneP_status == 'stopped'"/>
         </list>
       </field>
     </record>
@@ -109,7 +104,6 @@
             <field name="sandbox_ids" invisible="1"/>
             <field name="claude_session_status" invisible="1"/>
             <field name="glm_session_status" invisible="1"/>
-            <field name="oneP_session_status" invisible="1"/>
 
             <widget name="talos_task_dashboard"/>
 
@@ -118,8 +112,14 @@
               <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.6 Trajectory" colspan="2"/>
               <separator string="GLM 5 Trajectory" colspan="2"/>
               <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="GLM 5 Trajectory" colspan="2"/>
-              <separator string="1P Trajectory" colspan="2"/>
-              <field name="oneP_trajectory" widget="talos_json" nolabel="1" placeholder="1P Trajectory" colspan="2"/>
+              <separator string="1PA Trajectory" colspan="2"/>
+              <field name="onePA_trajectory" widget="talos_json" nolabel="1" placeholder="1PA Trajectory" colspan="2"/>
+              <separator string="1PB Trajectory" colspan="2"/>
+              <field name="onePB_trajectory" widget="talos_json" nolabel="1" placeholder="1PB Trajectory" colspan="2"/>
+              <separator string="1PC Trajectory" colspan="2"/>
+              <field name="onePC_trajectory" widget="talos_json" nolabel="1" placeholder="1PC Trajectory" colspan="2"/>
+              <separator string="1PD Trajectory" colspan="2"/>
+              <field name="onePD_trajectory" widget="talos_json" nolabel="1" placeholder="1PD Trajectory" colspan="2"/>
             </group>
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>

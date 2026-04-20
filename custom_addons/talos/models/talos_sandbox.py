@@ -39,13 +39,19 @@ _SANDBOX_LOCK = threading.Lock()
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.6"),
     ("glm", "GLM 5"),
-    ("1p", "1P"),
+    ("1pa", "1PA"),
+    ("1pb", "1PB"),
+    ("1pc", "1PC"),
+    ("1pd", "1PD"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.6",
     "glm": "litellm/glm-5",
-    "1p": "litellm/quiet_sand",
+    "1pa": "litellm/quiet_sand",
+    "1pb": "litellm/quiet_sand",
+    "1pc": "litellm/quiet_sand",
+    "1pd": "litellm/quiet_sand",
 }
 
 GATEWAY_PORT_BASE = 19000
@@ -55,7 +61,10 @@ DB_PORT_BASE = 15432
 TRAJECTORY_FIELD_MAP = {
     "claude": "claude_trajectory",
     "glm": "glm_trajectory",
-    "1p": "oneP_trajectory",
+    "1pa": "onePA_trajectory",
+    "1pb": "onePB_trajectory",
+    "1pc": "onePC_trajectory",
+    "1pd": "onePD_trajectory",
 }
 
 
@@ -536,7 +545,14 @@ class TalosSandbox(models.Model):
 
     # Fields that are internal to OpenClaw and must NOT appear in the
     # delivered trajectory JSON.
-    _INTERNAL_MSG_FIELDS = {"sender", "thinkingSignature", "api", "provider", "model", "usage"}
+    _INTERNAL_MSG_FIELDS = {
+        "sender",
+        "thinkingSignature",
+        "api",
+        "provider",
+        "model",
+        "usage",
+    }
     _INTERNAL_BLOCK_FIELDS = {"api", "provider", "model", "usage"}
 
     @staticmethod
@@ -620,10 +636,15 @@ class TalosSandbox(models.Model):
                 "timestamp": entry.get("timestamp", ""),
                 "message": msg,
             }
-            messages.append(
-                _wrap_trajectory_message(delivery_msg)
-            )
+            messages.append(delivery_msg)
             last_kept_id = entry_id
+
+        # Apply hint/feedback wrappers from Odoo turn data
+        all_turns = self.turn_ids.sorted("turn_number")
+        if all_turns:
+            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
+        else:
+            messages = [_wrap_trajectory_message(m) for m in messages]
 
         return {"meta_info": meta_info, "messages": messages}
 
@@ -645,6 +666,114 @@ class TalosSandbox(models.Model):
                 usage.get("output_tokens", 0) or usage.get("outputTokens", 0) or 0
             )
         return total_in, total_out
+
+    def _query_litellm_spend(self):
+        self.ensure_one()
+        import urllib.request
+        import urllib.error
+        import urllib.parse
+
+        mode = self._deployment_mode()
+        litellm_key = ""
+
+        if mode == "k8s":
+            ws_host = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("talos.ws_router_host", "")
+                .strip()
+            )
+            if not ws_host:
+                _logger.warning(
+                    "No ws_router_host configured, cannot query LiteLLM spend (sandbox=%s)",
+                    self.id,
+                )
+                return 0, 0
+            base_url = "https://%s/litellm/%s" % (ws_host, self.id)
+            dotenv = _load_dotenv()
+            litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+            if not litellm_key:
+                litellm_key = (
+                    "sk-talos-%s" % self.docker_gateway_token[:16]
+                    if self.docker_gateway_token
+                    else ""
+                )
+        else:
+            litellm_port = self.docker_litellm_port
+            if not litellm_port:
+                return 0, 0
+            base_url = "http://localhost:%d" % litellm_port
+            dotenv = _load_dotenv()
+            litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+
+        if not litellm_key:
+            _logger.warning(
+                "No LITELLM_MASTER_KEY, cannot query LiteLLM spend (sandbox=%s)",
+                self.id,
+            )
+            return 0, 0
+
+        try:
+            start_date = (
+                self.create_date.strftime("%Y-%m-%d") if self.create_date else ""
+            )
+            if not start_date:
+                return 0, 0
+
+            from datetime import datetime as dt, timedelta
+
+            end_date = (dt.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            params = urllib.parse.urlencode(
+                {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }
+            )
+            url = "%s/spend/logs?%s" % (base_url, params)
+
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": "Bearer %s" % litellm_key,
+                    "Accept": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+
+            logs = data if isinstance(data, list) else data.get("data", [])
+
+            total_in = 0
+            total_out = 0
+            for entry in logs:
+                total_in += int(entry.get("prompt_tokens", 0) or 0)
+                total_out += int(entry.get("completion_tokens", 0) or 0)
+
+            _logger.info(
+                "LiteLLM spend query returned %d logs (in=%d, out=%d) for sandbox %s",
+                len(logs),
+                total_in,
+                total_out,
+                self.id,
+            )
+            return total_in, total_out
+
+        except urllib.error.HTTPError as e:
+            _logger.warning(
+                "LiteLLM spend API error for sandbox %s: %s %s",
+                self.id,
+                e.code,
+                e.reason,
+            )
+            return 0, 0
+        except Exception as e:
+            _logger.warning(
+                "LiteLLM spend query failed for sandbox %s: %s",
+                self.id,
+                e,
+            )
+            return 0, 0
 
     # ------------------------------------------------------------------
     # Export
@@ -723,24 +852,23 @@ class TalosSandbox(models.Model):
         messages = []
         msg_counter = 0
         parent_id = None
-        prev_hint_text = None
 
         for t in turns:
             run_id = t.run_id or ""
-            if t.is_hint_turn and prev_hint_text:
+            user_text = (t.prompt or t.hints or "").strip()
+            if t.hints:
                 is_accepted = 1
-                hints = prev_hint_text
+                hints = t.hints.strip()
             else:
                 is_accepted = 0
                 hints = None
-            prev_hint_text = t.hint_text or None
 
             def _next_id():
                 nonlocal msg_counter
                 msg_counter += 1
                 return "%s:%d" % (run_id, msg_counter) if run_id else ""
 
-            if t.prompt:
+            if user_text:
                 user_id = _next_id()
                 messages.append(
                     {
@@ -751,7 +879,7 @@ class TalosSandbox(models.Model):
                         or (t.create_date.isoformat() if t.create_date else ""),
                         "message": {
                             "role": "user",
-                            "content": [{"type": "text", "text": t.prompt}],
+                            "content": [{"type": "text", "text": user_text}],
                         },
                     }
                 )
@@ -791,9 +919,7 @@ class TalosSandbox(models.Model):
                                 "id": call_id,
                                 "parentId": parent_id,
                                 "timestamp": t.response_timestamp
-                                or (
-                                    t.write_date.isoformat() if t.write_date else ""
-                                ),
+                                or (t.write_date.isoformat() if t.write_date else ""),
                                 "message": {
                                     "role": "assistant",
                                     "content": [
@@ -807,9 +933,7 @@ class TalosSandbox(models.Model):
                                 },
                             }
                             messages.append(
-                                _wrap_trajectory_message(
-                                    call_msg, is_accepted, hints
-                                )
+                                _wrap_trajectory_message(call_msg, is_accepted, hints)
                             )
                             parent_id = call_id
 
@@ -826,23 +950,17 @@ class TalosSandbox(models.Model):
                                 "id": result_id,
                                 "parentId": parent_id,
                                 "timestamp": t.response_timestamp
-                                or (
-                                    t.write_date.isoformat() if t.write_date else ""
-                                ),
+                                or (t.write_date.isoformat() if t.write_date else ""),
                                 "message": {
                                     "role": "toolResult",
                                     "toolCallId": tcid or call_id,
                                     "toolName": tc.get("name", "unknown"),
                                     "isError": tc.get("isError", False),
-                                    "content": [
-                                        {"type": "text", "text": result_text}
-                                    ],
+                                    "content": [{"type": "text", "text": result_text}],
                                 },
                             }
                             messages.append(
-                                _wrap_trajectory_message(
-                                    result_msg, is_accepted, hints
-                                )
+                                _wrap_trajectory_message(result_msg, is_accepted, hints)
                             )
                             parent_id = result_id
                 except (json.JSONDecodeError, TypeError):
@@ -862,9 +980,7 @@ class TalosSandbox(models.Model):
                         "model": t.model_name or "",
                     },
                 }
-                messages.append(
-                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
-                )
+                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
                 parent_id = asst_id
 
         return messages if messages else []
@@ -875,24 +991,23 @@ class TalosSandbox(models.Model):
         messages = []
         msg_counter = 0
         parent_id = None
-        prev_hint_text = None
 
         for t in turns:
             run_id = t.run_id or ""
-            if t.is_hint_turn and prev_hint_text:
+            user_text = (t.prompt or t.hints or "").strip()
+            if t.hints:
                 is_accepted = 1
-                hints = prev_hint_text
+                hints = t.hints.strip()
             else:
                 is_accepted = 0
                 hints = None
-            prev_hint_text = t.hint_text or None
 
             def _next_id():
                 nonlocal msg_counter
                 msg_counter += 1
                 return "%s:%d" % (run_id, msg_counter) if run_id else ""
 
-            if t.prompt:
+            if user_text:
                 user_id = _next_id()
                 messages.append(
                     {
@@ -903,7 +1018,7 @@ class TalosSandbox(models.Model):
                         or (t.create_date.isoformat() if t.create_date else ""),
                         "message": {
                             "role": "user",
-                            "content": [{"type": "text", "text": t.prompt}],
+                            "content": [{"type": "text", "text": user_text}],
                         },
                     }
                 )
@@ -923,9 +1038,7 @@ class TalosSandbox(models.Model):
                         "model": t.model_name or "",
                     },
                 }
-                messages.append(
-                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
-                )
+                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
                 parent_id = asst_id
 
         return messages
@@ -1026,6 +1139,12 @@ class TalosSandbox(models.Model):
 
         jsonl_entries = self._read_session_jsonl()
         if jsonl_entries:
+            _logger.info(
+                "[JSONL-RAW] sandbox=%s entries=%d\n%s",
+                self.id,
+                len(jsonl_entries),
+                json.dumps(jsonl_entries, indent=2, ensure_ascii=False)[:50000],
+            )
             trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
             _logger.info(
                 "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
@@ -1080,15 +1199,23 @@ class TalosSandbox(models.Model):
                     self.talos_id.id,
                 )
 
-        # Extract token usage and persist to task (survives turn deletion)
-        token_entries = jsonl_entries if jsonl_entries else []
-        if token_entries and self.talos_id:
-            total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
+        # Extract token usage: LiteLLM spend API (primary), JSONL (fallback)
+        if self.talos_id:
+            total_in, total_out = self._query_litellm_spend()
+            source = "litellm"
+            if total_in == 0 and total_out == 0:
+                token_entries = jsonl_entries if jsonl_entries else []
+                if token_entries:
+                    total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
+                    source = "jsonl"
             if total_in > 0 or total_out > 0:
                 token_field_map = {
                     "claude": ("claude_input_tokens", "claude_output_tokens"),
                     "glm": ("glm_input_tokens", "glm_output_tokens"),
-                    "1p": ("oneP_input_tokens", "oneP_output_tokens"),
+                    "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
+                    "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
+                    "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
+                    "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
                 }
                 fields_pair = token_field_map.get(self.model_type)
                 if fields_pair:
@@ -1099,7 +1226,8 @@ class TalosSandbox(models.Model):
                         }
                     )
                     _logger.info(
-                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        "Saved token usage from %s (in=%d, out=%d) to %s/%s for task %s",
+                        source,
                         total_in,
                         total_out,
                         fields_pair[0],

@@ -167,8 +167,12 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
                     g_in = usage.get("input_tokens", 0)
                     g_out = usage.get("output_tokens", 0)
                     if g_in > 0 or g_out > 0:
-                        write_vals["golden_input_tokens"] = (task.golden_input_tokens or 0) + g_in
-                        write_vals["golden_output_tokens"] = (task.golden_output_tokens or 0) + g_out
+                        write_vals["golden_input_tokens"] = (
+                            task.golden_input_tokens or 0
+                        ) + g_in
+                        write_vals["golden_output_tokens"] = (
+                            task.golden_output_tokens or 0
+                        ) + g_out
                     task.write(write_vals)
                     partner = None
                     if notify_partner_id:
@@ -300,8 +304,12 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
                     t_in = usage.get("input_tokens", 0)
                     t_out = usage.get("output_tokens", 0)
                     if t_in > 0 or t_out > 0:
-                        write_vals["taskdesc_input_tokens"] = (task.taskdesc_input_tokens or 0) + t_in
-                        write_vals["taskdesc_output_tokens"] = (task.taskdesc_output_tokens or 0) + t_out
+                        write_vals["taskdesc_input_tokens"] = (
+                            task.taskdesc_input_tokens or 0
+                        ) + t_in
+                        write_vals["taskdesc_output_tokens"] = (
+                            task.taskdesc_output_tokens or 0
+                        ) + t_out
                     task.write(write_vals)
                     partner = None
                     if notify_partner_id:
@@ -360,10 +368,11 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
 
 import re as _re
 
+
 def _is_degenerate_output(text):
     if not text or len(text) < 20:
         return True
-    repeated = _re.search(r'(.)\1{15,}', text)
+    repeated = _re.search(r"(.)\1{15,}", text)
     if repeated:
         return True
     unique_chars = len(set(text.lower()))
@@ -392,7 +401,9 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
 
         system_prompt = _get_taskdesc_prompt()
         if not system_prompt:
-            _logger.warning("generate_task_description_sync: no task_description_prompt.md")
+            _logger.warning(
+                "generate_task_description_sync: no task_description_prompt.md"
+            )
             return "", {}
 
         if isinstance(messages_json, list):
@@ -400,10 +411,10 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
         else:
             messages_text = str(messages_json)[:16000]
 
-        user_message = (
-            "## Seed Prompt\n%s\n\n"
-            "## Chat Messages\n%s"
-        ) % (seed_prompt or "", messages_text)
+        user_message = ("## Seed Prompt\n%s\n\n## Chat Messages\n%s") % (
+            seed_prompt or "",
+            messages_text,
+        )
 
         from ..controllers.llm_assisst_qc import _call_bedrock_converse
 
@@ -470,27 +481,23 @@ def _wrap_messages_with_turn_feedback(messages, turns):
     """Apply is_accepted / hints wrappers using per-turn feedback data.
 
     ``turns`` is an iterable of TalosTurn records (sorted by turn_number).
-    Hint text is placed on the **hint turn's** responses (the correction),
-    not on the original bad-response turn.  This matches the client schema
-    where ``is_accepted=1, hints="…"`` appear on the assistant messages
-    that follow the user's hint.
+    A turn with ``hints`` populated (and ``prompt`` empty) is a correction turn.
+    The hints text is applied to that turn's assistant responses.
     """
     turn_list = list(turns)
     if not turn_list:
         return [_wrap_trajectory_message(m) for m in messages]
 
     turn_feedback = []
-    prev_hint = None
     for t in turn_list:
-        prompt_text = (t.prompt or "").strip()
-        if t.is_hint_turn and prev_hint:
+        user_text = (t.prompt or t.hints or "").strip()
+        if t.hints:
             is_accepted = 1
-            hint = prev_hint
+            hint = (t.hints or "").strip()
         else:
             is_accepted = 0
             hint = None
-        prev_hint = t.hint_text or None
-        turn_feedback.append((prompt_text, is_accepted, hint))
+        turn_feedback.append((user_text, is_accepted, hint))
 
     wrapped = []
     current_accepted = 0
@@ -513,18 +520,23 @@ def _wrap_messages_with_turn_feedback(messages, turns):
                 user_text = content.strip()
 
             expected = turn_feedback[turn_idx][0]
-            if user_text and expected and user_text == expected:
+            matched = False
+            if user_text and expected:
+                if user_text == expected:
+                    matched = True
+                elif user_text in expected or expected in user_text:
+                    matched = True
+
+            if matched:
                 current_accepted = turn_feedback[turn_idx][1]
                 current_hints = turn_feedback[turn_idx][2]
                 turn_idx += 1
-            elif turn_idx == 0 and user_text:
+            elif user_text:
                 current_accepted = turn_feedback[turn_idx][1]
                 current_hints = turn_feedback[turn_idx][2]
                 turn_idx += 1
 
-        wrapped.append(
-            _wrap_trajectory_message(msg, current_accepted, current_hints)
-        )
+        wrapped.append(_wrap_trajectory_message(msg, current_accepted, current_hints))
 
     return wrapped
 
@@ -766,18 +778,31 @@ class Talos(models.Model):
     oneP_sandbox_id = fields.Many2one(
         "talos.sandbox", compute="_compute_sandbox_ids", string="1P Sandbox"
     )
+    onePA_sandbox_id = fields.Many2one(
+        "talos.sandbox", compute="_compute_sandbox_ids", string="1PA Sandbox"
+    )
+    onePB_sandbox_id = fields.Many2one(
+        "talos.sandbox", compute="_compute_sandbox_ids", string="1PB Sandbox"
+    )
+    onePC_sandbox_id = fields.Many2one(
+        "talos.sandbox", compute="_compute_sandbox_ids", string="1PC Sandbox"
+    )
+    onePD_sandbox_id = fields.Many2one(
+        "talos.sandbox", compute="_compute_sandbox_ids", string="1PD Sandbox"
+    )
 
     claude_status = fields.Selection(related="claude_sandbox_id.docker_status")
     glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
-    oneP_status = fields.Selection(related="oneP_sandbox_id.docker_status")
 
     claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
-    oneP_session_status = fields.Selection(related="oneP_sandbox_id.session_status")
 
     claude_trajectory = fields.Text(string="Claude 4.6 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
-    oneP_trajectory = fields.Text(string="1P Trajectory")
+    onePA_trajectory = fields.Text(string="1PA Trajectory")
+    onePB_trajectory = fields.Text(string="1PB Trajectory")
+    onePC_trajectory = fields.Text(string="1PC Trajectory")
+    onePD_trajectory = fields.Text(string="1PD Trajectory")
     golden_trajectory = fields.Text(string="Golden Trajectory")
     golden_status = fields.Selection(
         [
@@ -812,6 +837,14 @@ class Talos(models.Model):
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
     oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
     oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
+    onePA_input_tokens = fields.Integer(string="1PA Input Tokens", default=0)
+    onePA_output_tokens = fields.Integer(string="1PA Output Tokens", default=0)
+    onePB_input_tokens = fields.Integer(string="1PB Input Tokens", default=0)
+    onePB_output_tokens = fields.Integer(string="1PB Output Tokens", default=0)
+    onePC_input_tokens = fields.Integer(string="1PC Input Tokens", default=0)
+    onePC_output_tokens = fields.Integer(string="1PC Output Tokens", default=0)
+    onePD_input_tokens = fields.Integer(string="1PD Input Tokens", default=0)
+    onePD_output_tokens = fields.Integer(string="1PD Output Tokens", default=0)
     bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
     bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
 
@@ -832,6 +865,10 @@ class Talos(models.Model):
                 ("claude", "claude_sandbox_id"),
                 ("glm", "glm_sandbox_id"),
                 ("1p", "oneP_sandbox_id"),
+                ("1pa", "onePA_sandbox_id"),
+                ("1pb", "onePB_sandbox_id"),
+                ("1pc", "onePC_sandbox_id"),
+                ("1pd", "onePD_sandbox_id"),
             ]:
                 sandbox = rec.sandbox_ids.filtered(
                     lambda s, mt=mtype: s.model_type == mt
@@ -842,13 +879,13 @@ class Talos(models.Model):
     def create(self, vals_list):
         records = super().create(vals_list)
         for rec in records:
-            rec._ensure_sandboxes()
+            rec.ensure_sandboxes()
         return records
 
-    def _ensure_sandboxes(self):
+    def ensure_sandboxes(self):
         for rec in self:
             existing = rec.sandbox_ids.mapped("model_type")
-            for mtype in ("claude", "glm", "1p"):
+            for mtype in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
                 if mtype not in existing:
                     self.env["talos.sandbox"].create(
                         {"talos_id": rec.id, "model_type": mtype}
@@ -943,11 +980,13 @@ class Talos(models.Model):
                 raise UserError("Golden trajectory generation is already in progress.")
             _GOLDEN_GENERATING.add(self.id)
 
-        self.write({
-            "golden_status": "generating",
-            "golden_error": False,
-            "golden_started_at": fields.Datetime.now(),
-        })
+        self.write(
+            {
+                "golden_status": "generating",
+                "golden_error": False,
+                "golden_started_at": fields.Datetime.now(),
+            }
+        )
 
         task_id = self.id
         db_name = self.env.cr.dbname
@@ -975,7 +1014,9 @@ class Talos(models.Model):
                 raise UserError("Task description generation is already in progress.")
             _TASKDESC_GENERATING.add(self.id)
 
-        self.write({"task_description_status": "generating", "task_description_error": False})
+        self.write(
+            {"task_description_status": "generating", "task_description_error": False}
+        )
 
         task_id = self.id
         db_name = self.env.cr.dbname
@@ -1109,9 +1150,7 @@ class Talos(models.Model):
                                 "id": call_id,
                                 "parentId": parent_id,
                                 "timestamp": t.response_timestamp
-                                or (
-                                    t.write_date.isoformat() if t.write_date else ""
-                                ),
+                                or (t.write_date.isoformat() if t.write_date else ""),
                                 "message": {
                                     "role": "assistant",
                                     "content": [
@@ -1125,9 +1164,7 @@ class Talos(models.Model):
                                 },
                             }
                             messages.append(
-                                _wrap_trajectory_message(
-                                    call_msg, is_accepted, hints
-                                )
+                                _wrap_trajectory_message(call_msg, is_accepted, hints)
                             )
                             parent_id = call_id
 
@@ -1137,9 +1174,7 @@ class Talos(models.Model):
                                 "id": result_id,
                                 "parentId": parent_id,
                                 "timestamp": t.response_timestamp
-                                or (
-                                    t.write_date.isoformat() if t.write_date else ""
-                                ),
+                                or (t.write_date.isoformat() if t.write_date else ""),
                                 "message": {
                                     "role": "toolResult",
                                     "toolCallId": tcid or call_id,
@@ -1156,9 +1191,7 @@ class Talos(models.Model):
                                 },
                             }
                             messages.append(
-                                _wrap_trajectory_message(
-                                    result_msg, is_accepted, hints
-                                )
+                                _wrap_trajectory_message(result_msg, is_accepted, hints)
                             )
                             parent_id = result_id
                 except (json.JSONDecodeError, TypeError):
@@ -1178,9 +1211,7 @@ class Talos(models.Model):
                         "model": t.model_name or "",
                     },
                 }
-                messages.append(
-                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
-                )
+                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
                 parent_id = asst_id
 
         return messages
@@ -1428,6 +1459,7 @@ class TalosTurn(models.Model):
         [("satisfied", "Satisfied"), ("unsatisfied", "Unsatisfied")],
         string="Feedback",
     )
+    hints = fields.Text(string="Hints")
     hint_text = fields.Text(string="Hint Text")
     is_hint_turn = fields.Boolean(string="Is Hint Turn", default=False)
 

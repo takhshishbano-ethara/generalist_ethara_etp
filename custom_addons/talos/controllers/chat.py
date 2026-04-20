@@ -12,7 +12,9 @@ _logger = logging.getLogger(__name__)
 
 class TalosChatController(http.Controller):
     @http.route("/talos/chat/create_turn", type="json", auth="user")
-    def create_turn(self, sandbox_id=0, message="", model=None, timestamp="", is_hint=False, **kw):
+    def create_turn(
+        self, sandbox_id=0, message="", model=None, timestamp="", is_hint=False, **kw
+    ):
         sandbox_id = int(sandbox_id or 0)
         message = (message or "").strip()
 
@@ -27,14 +29,18 @@ class TalosChatController(http.Controller):
             model = MODEL_DEFAULTS.get(sandbox.model_type, "unknown")
 
         next_num = len(sandbox.turn_ids) + 1
+        is_hint_turn = bool(is_hint)
         vals = {
             "sandbox_id": sandbox.id,
             "turn_number": next_num,
-            "prompt": message,
             "model_name": model,
             "turn_status": "Pending",
-            "is_hint_turn": bool(is_hint),
+            "is_hint_turn": is_hint_turn,
         }
+        if is_hint_turn:
+            vals["hints"] = message
+        else:
+            vals["prompt"] = message
         if timestamp:
             vals["prompt_timestamp"] = timestamp
 
@@ -186,13 +192,9 @@ class TalosChatController(http.Controller):
                     vals["tool_calls"] = json.dumps(extracted)
 
             # Extract token usage from trajectory messages
-            token_usage = self._extract_token_usage_from_trajectory(
-                trajectory_messages
-            )
+            token_usage = self._extract_token_usage_from_trajectory(trajectory_messages)
             if token_usage["input_tokens"] > 0 or token_usage["output_tokens"] > 0:
-                model_type = (
-                    turn.sandbox_id.model_type if turn.sandbox_id else ""
-                )
+                model_type = turn.sandbox_id.model_type if turn.sandbox_id else ""
                 if model_type == "claude":
                     vals["claude_input_tokens"] = token_usage["input_tokens"]
                     vals["claude_output_tokens"] = token_usage["output_tokens"]
@@ -330,6 +332,7 @@ class TalosChatController(http.Controller):
                     "qc_response": t.qc_response or "",
                     "qc_dismiss_reason": t.qc_dismiss_reason or "",
                     "feedback": t.feedback or "",
+                    "hints": t.hints or "",
                     "hint_text": t.hint_text or "",
                     "is_hint_turn": t.is_hint_turn or False,
                 }
