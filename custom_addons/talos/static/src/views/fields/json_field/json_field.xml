@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
 
     <t t-name="talos.JsonField">
-        <div class="o_field_talos_json o_field_widget" t-att-class="{'o_field_talos_json_readonly': props.readonly}">
+        <div class="o_field_talos_json o_field_widget" t-ref="root" t-att-class="{'o_field_talos_json_readonly': props.readonly}">
             <t t-if="hasEntries">
                 <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
                     <div class="talos-json-entry">
@@ -35,6 +35,13 @@
                                                 <i class="fa fa-magic"/> Describe
                                             </t>
                                         </button>
+                                        <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
+                                            <button class="talos-json-abort-btn"
+                                                    t-on-click="() => this.onAbortTaskDesc(entry.index)"
+                                                    title="Abort description generation">
+                                                <i class="fa fa-stop"/> Stop
+                                            </button>
+                                        </t>
                                     </t>
                                     <t t-if="!isGoldenField">
                                         <button class="talos-json-qc-btn"
@@ -57,6 +64,13 @@
                                                 QC
                                             </t>
                                         </button>
+                                        <t t-if="state.qcRunning === entry.index or entry.qcStatus === 'pending'">
+                                            <button class="talos-json-abort-btn"
+                                                    t-on-click="() => this.onAbortQc(entry.index)"
+                                                    title="Abort QC check">
+                                                <i class="fa fa-stop"/> Stop
+                                            </button>
+                                        </t>
                                     </t>
                                     <t t-if="isEditable and state.editingIndex !== entry.index">
                                         <button class="talos-json-edit-btn"

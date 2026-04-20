@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -445,6 +446,87 @@ def _format_tool_result(result):
         return json.dumps(result, indent=2, ensure_ascii=False)
     except (TypeError, ValueError):
         return str(result)
+
+
+def _wrap_trajectory_message(msg, is_accepted=0, hints=None):
+    """Wrap an assistant or toolResult message with is_accepted/hints.
+
+    User messages are returned as-is (no wrapper per client spec).
+    """
+    role = ""
+    inner = msg.get("message", {})
+    if isinstance(inner, dict):
+        role = inner.get("role", "")
+    if role in ("assistant", "toolResult"):
+        return {
+            "is_accepted": is_accepted,
+            "hints": hints,
+            "message": msg,
+        }
+    return msg
+
+
+def _wrap_messages_with_turn_feedback(messages, turns):
+    """Apply is_accepted / hints wrappers using per-turn feedback data.
+
+    ``turns`` is an iterable of TalosTurn records (sorted by turn_number).
+    Hint text is placed on the **hint turn's** responses (the correction),
+    not on the original bad-response turn.  This matches the client schema
+    where ``is_accepted=1, hints="…"`` appear on the assistant messages
+    that follow the user's hint.
+    """
+    turn_list = list(turns)
+    if not turn_list:
+        return [_wrap_trajectory_message(m) for m in messages]
+
+    turn_feedback = []
+    prev_hint = None
+    for t in turn_list:
+        prompt_text = (t.prompt or "").strip()
+        if t.is_hint_turn and prev_hint:
+            is_accepted = 1
+            hint = prev_hint
+        else:
+            is_accepted = 0
+            hint = None
+        prev_hint = t.hint_text or None
+        turn_feedback.append((prompt_text, is_accepted, hint))
+
+    wrapped = []
+    current_accepted = 0
+    current_hints = None
+    turn_idx = 0
+
+    for msg in messages:
+        inner = msg.get("message", {})
+        role = inner.get("role", "") if isinstance(inner, dict) else ""
+
+        if role == "user" and turn_idx < len(turn_feedback):
+            content = inner.get("content", [])
+            user_text = ""
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        user_text = (block.get("text") or "").strip()
+                        break
+            elif isinstance(content, str):
+                user_text = content.strip()
+
+            expected = turn_feedback[turn_idx][0]
+            if user_text and expected and user_text == expected:
+                current_accepted = turn_feedback[turn_idx][1]
+                current_hints = turn_feedback[turn_idx][2]
+                turn_idx += 1
+            elif turn_idx == 0 and user_text:
+                current_accepted = turn_feedback[turn_idx][1]
+                current_hints = turn_feedback[turn_idx][2]
+                turn_idx += 1
+
+        wrapped.append(
+            _wrap_trajectory_message(msg, current_accepted, current_hints)
+        )
+
+    return wrapped
 
 
 def _load_dotenv():
@@ -913,7 +995,8 @@ class Talos(models.Model):
     def build_trajectory_json(self):
         self.ensure_one()
         model_name = ""
-        for t in self._get_all_turns().sorted("turn_number", reverse=True):
+        all_turns = self._get_all_turns().sorted("turn_number")
+        for t in reversed(all_turns):
             if t.model_name:
                 model_name = t.model_name
                 break
@@ -922,15 +1005,18 @@ class Talos(models.Model):
             "task_type": self.task_type or "",
             "task_description": self.task_id or "",
             "task_completion_status": "success",
-            "system_prompt": self.seed_prompt or "",
+            "system_prompt": self.system_prompt or "",
             "platform": "macOS",
             "persona": self.persona_id.name if self.persona_id else "",
             "model": model_name,
             "difficulty": self.difficulty or "",
+            "conv_id": str(uuid.uuid4()),
         }
 
         messages = self._trajectory_from_ws()
-        if not messages:
+        if messages:
+            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
+        else:
             messages = self._build_trajectory_fallback()
 
         return {"meta_info": meta_info, "messages": messages}
@@ -955,9 +1041,17 @@ class Talos(models.Model):
         messages = []
         msg_counter = 0
         parent_id = None
+        prev_hint_text = None
 
         for t in self._get_all_turns():
             run_id = t.run_id or ""
+            if t.is_hint_turn and prev_hint_text:
+                is_accepted = 1
+                hints = prev_hint_text
+            else:
+                is_accepted = 0
+                hints = None
+            prev_hint_text = t.hint_text or None
 
             def _next_id():
                 nonlocal msg_counter
@@ -985,6 +1079,7 @@ class Talos(models.Model):
                 try:
                     events = json.loads(t.raw_events)
                     if isinstance(events, list) and events:
+                        pre_count = len(messages)
                         messages, msg_counter, parent_id = (
                             self._build_trajectory_from_events(
                                 events,
@@ -994,6 +1089,10 @@ class Talos(models.Model):
                                 t.model_name or "",
                             )
                         )
+                        for idx in range(pre_count, len(messages)):
+                            messages[idx] = _wrap_trajectory_message(
+                                messages[idx], is_accepted, hints
+                            )
                         continue
                 except (json.JSONDecodeError, TypeError):
                     pass
@@ -1005,55 +1104,61 @@ class Talos(models.Model):
                         for tc in calls:
                             tcid = tc.get("toolCallId", "")
                             call_id = tcid or _next_id()
+                            call_msg = {
+                                "type": "message",
+                                "id": call_id,
+                                "parentId": parent_id,
+                                "timestamp": t.response_timestamp
+                                or (
+                                    t.write_date.isoformat() if t.write_date else ""
+                                ),
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "toolCall",
+                                            "id": tcid or call_id,
+                                            "name": tc.get("name", "unknown"),
+                                            "arguments": tc.get("args", {}),
+                                        }
+                                    ],
+                                },
+                            }
                             messages.append(
-                                {
-                                    "type": "message",
-                                    "id": call_id,
-                                    "parentId": parent_id,
-                                    "timestamp": t.response_timestamp
-                                    or (
-                                        t.write_date.isoformat() if t.write_date else ""
-                                    ),
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": [
-                                            {
-                                                "type": "toolCall",
-                                                "id": tcid or call_id,
-                                                "name": tc.get("name", "unknown"),
-                                                "arguments": tc.get("args", {}),
-                                            }
-                                        ],
-                                    },
-                                }
+                                _wrap_trajectory_message(
+                                    call_msg, is_accepted, hints
+                                )
                             )
                             parent_id = call_id
 
                             result_id = ("%s:result" % tcid) if tcid else _next_id()
+                            result_msg = {
+                                "type": "message",
+                                "id": result_id,
+                                "parentId": parent_id,
+                                "timestamp": t.response_timestamp
+                                or (
+                                    t.write_date.isoformat() if t.write_date else ""
+                                ),
+                                "message": {
+                                    "role": "toolResult",
+                                    "toolCallId": tcid or call_id,
+                                    "toolName": tc.get("name", "unknown"),
+                                    "isError": tc.get("isError", False),
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": _format_tool_result(
+                                                tc.get("result")
+                                            ),
+                                        }
+                                    ],
+                                },
+                            }
                             messages.append(
-                                {
-                                    "type": "message",
-                                    "id": result_id,
-                                    "parentId": parent_id,
-                                    "timestamp": t.response_timestamp
-                                    or (
-                                        t.write_date.isoformat() if t.write_date else ""
-                                    ),
-                                    "message": {
-                                        "role": "toolResult",
-                                        "toolCallId": tcid or call_id,
-                                        "toolName": tc.get("name", "unknown"),
-                                        "isError": tc.get("isError", False),
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": _format_tool_result(
-                                                    tc.get("result")
-                                                ),
-                                            }
-                                        ],
-                                    },
-                                }
+                                _wrap_trajectory_message(
+                                    result_msg, is_accepted, hints
+                                )
                             )
                             parent_id = result_id
                 except (json.JSONDecodeError, TypeError):
@@ -1061,19 +1166,20 @@ class Talos(models.Model):
 
             if t.response:
                 asst_id = _next_id()
+                asst_msg = {
+                    "type": "message",
+                    "id": asst_id,
+                    "parentId": parent_id,
+                    "timestamp": t.response_timestamp
+                    or (t.write_date.isoformat() if t.write_date else ""),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": t.response}],
+                        "model": t.model_name or "",
+                    },
+                }
                 messages.append(
-                    {
-                        "type": "message",
-                        "id": asst_id,
-                        "parentId": parent_id,
-                        "timestamp": t.response_timestamp
-                        or (t.write_date.isoformat() if t.write_date else ""),
-                        "message": {
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": t.response}],
-                            "model": t.model_name or "",
-                        },
-                    }
+                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
                 )
                 parent_id = asst_id
 
@@ -1323,6 +1429,7 @@ class TalosTurn(models.Model):
         string="Feedback",
     )
     hint_text = fields.Text(string="Hint Text")
+    is_hint_turn = fields.Boolean(string="Is Hint Turn", default=False)
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):

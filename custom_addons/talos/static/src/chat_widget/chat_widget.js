@@ -252,6 +252,7 @@ export class TalosChatWidget extends Component {
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
+        this._pendingHint = false;
 
         onMounted(() => {
             console.log(LOG_PREFIX, "Widget mounted. sandboxId:", this.props.sandboxId,
@@ -1038,7 +1039,7 @@ export class TalosChatWidget extends Component {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
                     if (t.prompt) {
-                        this._session.messages.push({ role: "user", text: t.prompt });
+                        this._session.messages.push({ role: "user", text: t.prompt, isHint: !!t.is_hint_turn });
                     }
 
                     if (t.qc_severity) {
@@ -1403,11 +1404,14 @@ export class TalosChatWidget extends Component {
             return;
         }
 
-        console.log(LOG_PREFIX, "onSend:", { text: text.substring(0, 100) });
+        const isHint = !!this._pendingHint;
+        this._pendingHint = false;
+
+        console.log(LOG_PREFIX, "onSend:", { text: text.substring(0, 100), isHint });
 
         this.state.inputText = "";
         this.state.sending = true;
-        this._session.messages.push({ role: "user", text });
+        this._session.messages.push({ role: "user", text, isHint });
         this._scrollToBottom();
         requestAnimationFrame(() => {
             const el = this.mainTextareaRef.el;
@@ -1417,11 +1421,13 @@ export class TalosChatWidget extends Component {
         this.state.activityText = "Running QC check…";
         let turnId = null;
         try {
-            const r = await rpc("/talos/chat/create_turn", {
+            const createParams = {
                 sandbox_id: this.props.sandboxId,
                 message: text,
                 timestamp: new Date().toISOString(),
-            });
+            };
+            if (isHint) createParams.is_hint = true;
+            const r = await rpc("/talos/chat/create_turn", createParams);
             turnId = r.turn_id;
             console.log(LOG_PREFIX, "Turn created:", turnId);
         } catch (e) {
@@ -1791,8 +1797,10 @@ export class TalosChatWidget extends Component {
         }
         this.state.hintPopupVisible = false;
         this.state.hintTargetMsgIndex = -1;
-        this.state.inputText = hint;
         this.state.hintText = "";
+
+        this._pendingHint = true;
+        this.state.inputText = hint;
         this._autoResizeMainTextarea();
         this.onSend();
     }

@@ -234,6 +234,8 @@ def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_resu
         entries = data if isinstance(data, list) else [data]
         if entry_index < 0 or entry_index >= len(entries):
             return
+        if entries[entry_index].get("qc_status") == "aborted":
+            return
         entries[entry_index]["qc_status"] = qc_status
         if qc_result:
             entries[entry_index]["qc_result"] = qc_result
@@ -494,6 +496,47 @@ class LlmAssistQc(http.Controller):
             )
 
         request.env.cr.postcommit.add(_submit)
+
+        return {"success": True}
+
+    @http.route("/talos/abort_trajectory_action", type="json", auth="user")
+    def abort_trajectory_action(self, record_id=0, field_name="", entry_index=-1, action_type="", **kw):
+        """Abort a running QC or task-description generation by flipping status to 'aborted'."""
+        record_id = int(record_id or 0)
+        entry_index = int(entry_index if entry_index is not None else -1)
+        if not record_id or not field_name or not action_type:
+            return {"error": "record_id, field_name, and action_type are required"}
+
+        status_key = {
+            "qc": "qc_status",
+            "task_description": "task_description_status",
+        }.get(action_type)
+        if not status_key:
+            return {"error": "action_type must be 'qc' or 'task_description'"}
+
+        task = request.env["talos.talos"].browse(record_id)
+        if not task.exists():
+            return {"error": "Task not found"}
+
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return {"error": "No trajectory data"}
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Could not parse trajectory JSON"}
+
+        entries = data if isinstance(data, list) else [data]
+        if entry_index < 0 or entry_index >= len(entries):
+            return {"error": "Invalid entry index"}
+
+        current_status = entries[entry_index].get(status_key)
+        if current_status != "pending":
+            return {"error": "Action is not currently running"}
+
+        entries[entry_index][status_key] = "aborted"
+        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
 
         return {"success": True}
 

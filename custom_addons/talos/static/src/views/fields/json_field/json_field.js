@@ -8,7 +8,7 @@ import { useRecordObserver } from "@web/model/relational_model/utils";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 
-import { Component, markup, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
+import { Component, markup, useRef, useState, onMounted, onPatched, onWillPatch, onWillUnmount } from "@odoo/owl";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 function escapeHtml(s) {
@@ -86,18 +86,43 @@ export class TalosJsonField extends Component {
         this.dialog = useService("dialog");
         this.notification = useService("notification");
         this.editTextareaRef = useRef("editTextarea");
+        this.rootRef = useRef("root");
+        this._savedScrollPositions = null;
+        this._lastRawValue = null;
 
         useRecordObserver((record) => {
             this._updateEntries(formatText(record.data[this.props.name]));
         });
         this._updateEntries(formatText(this.props.record.data[this.props.name]));
 
+        this._onGoldenStatusChanged = (ev) => {
+            this._handleGoldenStatusChanged(ev.detail);
+        };
+        if (this.isGoldenField) {
+            this.env.bus.addEventListener(
+                "TALOS:GOLDEN_STATUS_CHANGED",
+                this._onGoldenStatusChanged,
+            );
+        }
+
         onMounted(() => {
             this._autoResizeEditTextarea();
             this._resumePendingQc();
         });
-        onPatched(() => this._autoResizeEditTextarea());
-        onWillUnmount(() => this._clearAllPolling());
+        onWillPatch(() => this._saveScrollPositions());
+        onPatched(() => {
+            this._restoreScrollPositions();
+            this._autoResizeEditTextarea();
+        });
+        onWillUnmount(() => {
+            this._clearAllPolling();
+            if (this.isGoldenField) {
+                this.env.bus.removeEventListener(
+                    "TALOS:GOLDEN_STATUS_CHANGED",
+                    this._onGoldenStatusChanged,
+                );
+            }
+        });
     }
 
     _autoResizeEditTextarea() {
@@ -105,6 +130,41 @@ export class TalosJsonField extends Component {
         if (el) {
             el.style.height = "auto";
             el.style.height = Math.min(el.scrollHeight, 800) + "px";
+        }
+    }
+
+    _saveScrollPositions() {
+        const root = this.rootRef.el;
+        if (!root) return;
+        const positions = [];
+        const bodies = root.querySelectorAll(".talos-json-entry-body");
+        for (const body of bodies) {
+            positions.push(body.scrollTop);
+        }
+        const scrollParent = root.closest(".o_field_widget") || root;
+        this._savedScrollPositions = {
+            bodies: positions,
+            rootTop: scrollParent.scrollTop,
+        };
+    }
+
+    _restoreScrollPositions() {
+        const saved = this._savedScrollPositions;
+        if (!saved) return;
+        this._savedScrollPositions = null;
+
+        const root = this.rootRef.el;
+        if (!root) return;
+
+        const bodies = root.querySelectorAll(".talos-json-entry-body");
+        for (let i = 0; i < bodies.length && i < saved.bodies.length; i++) {
+            if (saved.bodies[i]) {
+                bodies[i].scrollTop = saved.bodies[i];
+            }
+        }
+        const scrollParent = root.closest(".o_field_widget") || root;
+        if (saved.rootTop) {
+            scrollParent.scrollTop = saved.rootTop;
         }
     }
 
@@ -129,6 +189,16 @@ export class TalosJsonField extends Component {
             clearInterval(this._taskDescPollingTimers[key]);
         }
         this._taskDescPollingTimers = {};
+    }
+
+    async _handleGoldenStatusChanged(payload) {
+        if (!payload || !payload.task_id) return;
+        if (payload.task_id !== this.props.record.resId) return;
+        try {
+            await this.props.record.load();
+        } catch (e) {
+            console.warn("[TalosJsonField] Failed to reload after golden status change:", e);
+        }
     }
 
     _startQcPolling(index) {
@@ -177,6 +247,8 @@ export class TalosJsonField extends Component {
     }
 
     _updateEntries(raw) {
+        if (raw === this._lastRawValue) return;
+        this._lastRawValue = raw;
         const parsed = parseEntries(raw);
         this.state.entries = parsed.map((entry, idx) => ({
             index: idx,
@@ -348,6 +420,62 @@ export class TalosJsonField extends Component {
             );
             this.state.taskDescGenerating = -1;
         }
+    }
+
+    async onAbortQc(index) {
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) return;
+
+        try {
+            await rpc("/talos/abort_trajectory_action", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: index,
+                action_type: "qc",
+            });
+        } catch (_e) { /* best-effort */ }
+
+        if (this._qcPollingTimers[index]) {
+            clearInterval(this._qcPollingTimers[index]);
+            delete this._qcPollingTimers[index];
+        }
+        this.state.qcRunning = -1;
+        // Reset local entry status so buttons return to initial state immediately
+        if (this.state.entries[index]) {
+            this.state.entries[index].qcStatus = "aborted";
+        }
+        this.notification.add(_t("QC aborted"), { type: "info" });
+        // Reload record to sync DB state
+        try { await this.props.record.load(); } catch (_e) { /* ignore */ }
+    }
+
+    async onAbortTaskDesc(index) {
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) return;
+
+        try {
+            await rpc("/talos/abort_trajectory_action", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: index,
+                action_type: "task_description",
+            });
+        } catch (_e) { /* best-effort */ }
+
+        if (this._taskDescPollingTimers[index]) {
+            clearInterval(this._taskDescPollingTimers[index]);
+            delete this._taskDescPollingTimers[index];
+        }
+        this.state.taskDescGenerating = -1;
+        // Reset local entry status so buttons return to initial state immediately
+        if (this.state.entries[index]) {
+            this.state.entries[index].taskDescriptionStatus = "aborted";
+        }
+        this.notification.add(_t("Description generation aborted"), { type: "info" });
+        // Reload record to sync DB state
+        try { await this.props.record.load(); } catch (_e) { /* ignore */ }
     }
 
     onToggleQcChecks(index) {

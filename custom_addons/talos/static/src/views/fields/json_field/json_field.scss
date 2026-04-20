@@ -44,7 +44,8 @@
     .talos-json-edit-btn,
     .talos-json-delete-btn,
     .talos-json-qc-btn,
-    .talos-json-taskdesc-btn {
+    .talos-json-taskdesc-btn,
+    .talos-json-abort-btn {
         background: none;
         border: 1px solid transparent;
         color: #6c7086;
@@ -83,6 +84,15 @@
         color: #cba6f7;
         border-color: #cba6f7;
         background: rgba(203, 166, 247, 0.1);
+    }
+
+    .talos-json-abort-btn {
+        color: #f38ba8;
+        border-color: #f38ba8;
+
+        &:hover {
+            background: rgba(243, 139, 168, 0.15);
+        }
     }
 
     .talos-json-entry-body {

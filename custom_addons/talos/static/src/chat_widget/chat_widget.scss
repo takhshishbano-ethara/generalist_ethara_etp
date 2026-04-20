@@ -148,6 +148,24 @@
     border-bottom-right-radius: 4px;
 }
 
+.o_talos_msg_hint .o_talos_msg_bubble {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px dashed #f59e0b;
+    border-bottom-right-radius: 4px;
+}
+
+.o_talos_hint_badge {
+    display: inline-block;
+    background: #f59e0b;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+
 .o_talos_msg_assistant .o_talos_msg_bubble {
     background: var(--o-gray-200, #e9ecef);
     color: var(--o-text-color, #212529);

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from odoo import models, fields, api, SUPERUSER_ID
@@ -22,6 +23,8 @@ from .talos import (
     _HEALTH_WAIT_TIMEOUT,
     _HEALTH_POLL_INTERVAL,
     generate_task_description_sync,
+    _wrap_trajectory_message,
+    _wrap_messages_with_turn_feedback,
 )
 
 _logger = logging.getLogger(__name__)
@@ -70,6 +73,8 @@ def _mark_task_description_status(db_name, task_id, field_name, status, entry_in
             data = json.loads(raw)
             if isinstance(data, list) and data:
                 idx = entry_index if 0 <= entry_index < len(data) else -1
+                if data[idx].get("task_description_status") == "aborted":
+                    return
                 data[idx]["task_description_status"] = status
                 task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
     except Exception:
@@ -118,6 +123,8 @@ def _inject_task_description_bg(
             data = json.loads(raw)
             if isinstance(data, list) and data:
                 idx = entry_index if 0 <= entry_index < len(data) else -1
+                if data[idx].get("task_description_status") == "aborted":
+                    return
                 mi = data[idx].setdefault("trajectory", {}).setdefault("meta_info", {})
                 mi["task_description"] = desc
                 mi["task_completion_status"] = "success"
@@ -527,21 +534,28 @@ class TalosSandbox(models.Model):
             _logger.warning("kubectl exec failed for sandbox %s: %s", self.id, e)
             return []
 
+    # Fields that are internal to OpenClaw and must NOT appear in the
+    # delivered trajectory JSON.
+    _INTERNAL_MSG_FIELDS = {"sender", "thinkingSignature", "api", "provider", "model", "usage"}
+    _INTERNAL_BLOCK_FIELDS = {"api", "provider", "model", "usage"}
+
     @staticmethod
     def _sanitize_jsonl_message(msg):
         """Strip internal OpenClaw metadata from a JSONL message before export."""
         msg = dict(msg)
 
-        msg.pop("sender", None)
-        msg.pop("thinkingSignature", None)
+        for key in TalosSandbox._INTERNAL_MSG_FIELDS:
+            msg.pop(key, None)
 
-        # Clean pipe-separated toolCallIds (e.g. "tooluse_abc|123" → "tooluse_abc")
+        # Clean pipe-separated toolCallIds and strip internal fields from content blocks
         content = msg.get("content")
         if isinstance(content, list):
             cleaned = []
             for block in content:
                 if isinstance(block, dict):
                     block = dict(block)
+                    for key in TalosSandbox._INTERNAL_BLOCK_FIELDS:
+                        block.pop(key, None)
                     tcid = block.get("toolCallId", "")
                     if isinstance(tcid, str) and "|" in tcid:
                         block["toolCallId"] = tcid.split("|", 1)[0]
@@ -569,8 +583,9 @@ class TalosSandbox(models.Model):
             "task_type": task.task_type or "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
-            "system_prompt": task.seed_prompt or "",
+            "system_prompt": task.system_prompt or "",
             "platform": "macOS",
+            "conv_id": str(uuid.uuid4()),
         }
 
         messages = []
@@ -605,7 +620,9 @@ class TalosSandbox(models.Model):
                 "timestamp": entry.get("timestamp", ""),
                 "message": msg,
             }
-            messages.append(delivery_msg)
+            messages.append(
+                _wrap_trajectory_message(delivery_msg)
+            )
             last_kept_id = entry_id
 
         return {"meta_info": meta_info, "messages": messages}
@@ -645,7 +662,8 @@ class TalosSandbox(models.Model):
         self.ensure_one()
         task = self.talos_id
         model_name = ""
-        for t in self.turn_ids.sorted("turn_number", reverse=True):
+        all_turns = self.turn_ids.sorted("turn_number")
+        for t in reversed(all_turns):
             if t.model_name:
                 model_name = t.model_name
                 break
@@ -658,15 +676,18 @@ class TalosSandbox(models.Model):
             "task_type": task.task_type or "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
-            "system_prompt": task.seed_prompt or "",
+            "system_prompt": task.system_prompt or "",
             "platform": "macOS",
             "persona": task.persona_id.name if task.persona_id else "",
             "model": model_name,
             "difficulty": task.difficulty or "",
+            "conv_id": str(uuid.uuid4()),
         }
 
         messages = self._trajectory_from_ws()
-        if not messages:
+        if messages:
+            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
+        else:
             messages = self._trajectory_from_events()
         if not messages:
             messages = self._trajectory_from_turns()
@@ -702,9 +723,17 @@ class TalosSandbox(models.Model):
         messages = []
         msg_counter = 0
         parent_id = None
+        prev_hint_text = None
 
         for t in turns:
             run_id = t.run_id or ""
+            if t.is_hint_turn and prev_hint_text:
+                is_accepted = 1
+                hints = prev_hint_text
+            else:
+                is_accepted = 0
+                hints = None
+            prev_hint_text = t.hint_text or None
 
             def _next_id():
                 nonlocal msg_counter
@@ -732,6 +761,7 @@ class TalosSandbox(models.Model):
                 try:
                     events = json.loads(t.raw_events)
                     if isinstance(events, list) and events:
+                        pre_count = len(messages)
                         messages, msg_counter, parent_id = (
                             self.talos_id._build_trajectory_from_events(
                                 events,
@@ -741,6 +771,10 @@ class TalosSandbox(models.Model):
                                 t.model_name or "",
                             )
                         )
+                        for idx in range(pre_count, len(messages)):
+                            messages[idx] = _wrap_trajectory_message(
+                                messages[idx], is_accepted, hints
+                            )
                         continue
                 except (json.JSONDecodeError, TypeError):
                     pass
@@ -752,27 +786,30 @@ class TalosSandbox(models.Model):
                         for tc in calls:
                             tcid = tc.get("toolCallId", "")
                             call_id = tcid or _next_id()
+                            call_msg = {
+                                "type": "message",
+                                "id": call_id,
+                                "parentId": parent_id,
+                                "timestamp": t.response_timestamp
+                                or (
+                                    t.write_date.isoformat() if t.write_date else ""
+                                ),
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {
+                                            "type": "toolCall",
+                                            "id": tcid or call_id,
+                                            "name": tc.get("name", "unknown"),
+                                            "arguments": tc.get("args", {}),
+                                        }
+                                    ],
+                                },
+                            }
                             messages.append(
-                                {
-                                    "type": "message",
-                                    "id": call_id,
-                                    "parentId": parent_id,
-                                    "timestamp": t.response_timestamp
-                                    or (
-                                        t.write_date.isoformat() if t.write_date else ""
-                                    ),
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": [
-                                            {
-                                                "type": "toolCall",
-                                                "id": tcid or call_id,
-                                                "name": tc.get("name", "unknown"),
-                                                "arguments": tc.get("args", {}),
-                                            }
-                                        ],
-                                    },
-                                }
+                                _wrap_trajectory_message(
+                                    call_msg, is_accepted, hints
+                                )
                             )
                             parent_id = call_id
 
@@ -784,25 +821,28 @@ class TalosSandbox(models.Model):
                                 result_text = ""
                             else:
                                 result_text = str(result_text)
+                            result_msg = {
+                                "type": "message",
+                                "id": result_id,
+                                "parentId": parent_id,
+                                "timestamp": t.response_timestamp
+                                or (
+                                    t.write_date.isoformat() if t.write_date else ""
+                                ),
+                                "message": {
+                                    "role": "toolResult",
+                                    "toolCallId": tcid or call_id,
+                                    "toolName": tc.get("name", "unknown"),
+                                    "isError": tc.get("isError", False),
+                                    "content": [
+                                        {"type": "text", "text": result_text}
+                                    ],
+                                },
+                            }
                             messages.append(
-                                {
-                                    "type": "message",
-                                    "id": result_id,
-                                    "parentId": parent_id,
-                                    "timestamp": t.response_timestamp
-                                    or (
-                                        t.write_date.isoformat() if t.write_date else ""
-                                    ),
-                                    "message": {
-                                        "role": "toolResult",
-                                        "toolCallId": tcid or call_id,
-                                        "toolName": tc.get("name", "unknown"),
-                                        "isError": tc.get("isError", False),
-                                        "content": [
-                                            {"type": "text", "text": result_text}
-                                        ],
-                                    },
-                                }
+                                _wrap_trajectory_message(
+                                    result_msg, is_accepted, hints
+                                )
                             )
                             parent_id = result_id
                 except (json.JSONDecodeError, TypeError):
@@ -810,19 +850,20 @@ class TalosSandbox(models.Model):
 
             if t.response:
                 asst_id = _next_id()
+                asst_msg = {
+                    "type": "message",
+                    "id": asst_id,
+                    "parentId": parent_id,
+                    "timestamp": t.response_timestamp
+                    or (t.write_date.isoformat() if t.write_date else ""),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": t.response}],
+                        "model": t.model_name or "",
+                    },
+                }
                 messages.append(
-                    {
-                        "type": "message",
-                        "id": asst_id,
-                        "parentId": parent_id,
-                        "timestamp": t.response_timestamp
-                        or (t.write_date.isoformat() if t.write_date else ""),
-                        "message": {
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": t.response}],
-                            "model": t.model_name or "",
-                        },
-                    }
+                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
                 )
                 parent_id = asst_id
 
@@ -834,9 +875,17 @@ class TalosSandbox(models.Model):
         messages = []
         msg_counter = 0
         parent_id = None
+        prev_hint_text = None
 
         for t in turns:
             run_id = t.run_id or ""
+            if t.is_hint_turn and prev_hint_text:
+                is_accepted = 1
+                hints = prev_hint_text
+            else:
+                is_accepted = 0
+                hints = None
+            prev_hint_text = t.hint_text or None
 
             def _next_id():
                 nonlocal msg_counter
@@ -862,19 +911,20 @@ class TalosSandbox(models.Model):
 
             if t.response:
                 asst_id = _next_id()
+                asst_msg = {
+                    "type": "message",
+                    "id": asst_id,
+                    "parentId": parent_id,
+                    "timestamp": t.response_timestamp
+                    or (t.write_date.isoformat() if t.write_date else ""),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": t.response}],
+                        "model": t.model_name or "",
+                    },
+                }
                 messages.append(
-                    {
-                        "type": "message",
-                        "id": asst_id,
-                        "parentId": parent_id,
-                        "timestamp": t.response_timestamp
-                        or (t.write_date.isoformat() if t.write_date else ""),
-                        "message": {
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": t.response}],
-                            "model": t.model_name or "",
-                        },
-                    }
+                    _wrap_trajectory_message(asst_msg, is_accepted, hints)
                 )
                 parent_id = asst_id
 

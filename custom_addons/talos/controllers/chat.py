@@ -12,7 +12,7 @@ _logger = logging.getLogger(__name__)
 
 class TalosChatController(http.Controller):
     @http.route("/talos/chat/create_turn", type="json", auth="user")
-    def create_turn(self, sandbox_id=0, message="", model=None, timestamp="", **kw):
+    def create_turn(self, sandbox_id=0, message="", model=None, timestamp="", is_hint=False, **kw):
         sandbox_id = int(sandbox_id or 0)
         message = (message or "").strip()
 
@@ -33,6 +33,7 @@ class TalosChatController(http.Controller):
             "prompt": message,
             "model_name": model,
             "turn_status": "Pending",
+            "is_hint_turn": bool(is_hint),
         }
         if timestamp:
             vals["prompt_timestamp"] = timestamp
@@ -330,6 +331,7 @@ class TalosChatController(http.Controller):
                     "qc_dismiss_reason": t.qc_dismiss_reason or "",
                     "feedback": t.feedback or "",
                     "hint_text": t.hint_text or "",
+                    "is_hint_turn": t.is_hint_turn or False,
                 }
             )
 

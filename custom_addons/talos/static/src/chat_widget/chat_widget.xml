@@ -20,10 +20,13 @@
                 <div class="o_talos_chat_messages">
                     <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
                         <t t-if="!msg.pending or msg.text">
-                            <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role}">
+                            <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role} #{msg.isHint ? 'o_talos_msg_hint' : ''}">
                                 <div class="o_talos_msg_meta">
                                     <span class="o_talos_msg_role">
-                                        <t t-if="msg.role === 'user'">You</t>
+                                        <t t-if="msg.isHint">
+                                            <span class="o_talos_hint_badge">HINT</span>
+                                        </t>
+                                        <t t-elif="msg.role === 'user'">You</t>
                                         <t t-else="">Assistant</t>
                                     </span>
                                 </div>
