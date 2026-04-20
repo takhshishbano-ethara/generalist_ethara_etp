@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Google (gog) OAuth controller — runs gog CLI inside the K8s sandbox pod.
+"""Google (gog) OAuth controller — runs gog CLI locally on the Odoo pod.
 
-The gog binary lives in the openclaw container image, not on the Odoo host.
-All gog commands are executed via ``kubectl exec`` against the running sandbox
-pod for the given task.
+Auth is decoupled from sandbox — users can authenticate before starting a
+sandbox. Auth tokens are stored in the Odoo database (gog_auth_token field)
+and copied to sandbox pods via the gog-setup init container.
 """
 import json
 import logging
+import os
 import subprocess
+import tempfile
 
 from odoo import http
 from odoo.http import request
@@ -17,104 +19,32 @@ _logger = logging.getLogger(__name__)
 _GOG_TIMEOUT = 45
 _GOG_SERVICES = "gmail,calendar,drive,contacts,sheets,docs"
 _GOG_BIN = "/usr/local/bin/gog"
-_GOG_CONFIG_DIR = "/home/node/.config"
-
-try:
-    from kubernetes import client as k8s_client, config as k8s_config
-
-    K8S_AVAILABLE = True
-except ImportError:
-    K8S_AVAILABLE = False
 
 
-def _k8s_namespace():
-    """Read the namespace from Odoo system parameters, default 'talos'."""
-    try:
-        ns = (
-            request.env["ir.config_parameter"]
-            .sudo()
-            .get_param("talos.k8s_namespace", "talos")
-            .strip()
-        )
-        return ns or "talos"
-    except Exception:
-        return "talos"
+def _gog_config_dir(task_id):
+    """Per-task gog config directory on the Odoo pod."""
+    base = os.path.join(tempfile.gettempdir(), ".talos-gog-config")
+    d = os.path.join(base, str(task_id))
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-def _find_pod_for_sandbox(sandbox_id):
-    """Find the running K8s pod name for a sandbox.
-
-    Uses the same label selector as talos_sandbox.py — looks for pods with
-    ``app.kubernetes.io/name=talos-sandbox,task-id={sandbox_id}``.
-    Returns (pod_name, namespace) or (None, namespace).
-    """
-    if not K8S_AVAILABLE:
-        return None, "talos"
-
-    try:
-        k8s_config.load_incluster_config()
-    except Exception:
-        _logger.warning("[GogAuth] Could not load in-cluster K8s config")
-        return None, "talos"
-
-    namespace = _k8s_namespace()
-    label_selector = "app.kubernetes.io/name=talos-sandbox,task-id=%s" % sandbox_id
-
-    try:
-        core_v1 = k8s_client.CoreV1Api()
-        pods = core_v1.list_namespaced_pod(
-            namespace=namespace, label_selector=label_selector
-        )
-        for pod in pods.items:
-            phase = (pod.status.phase or "").lower()
-            if phase not in ("failed", "unknown", "succeeded"):
-                return pod.metadata.name, namespace
-    except Exception as e:
-        _logger.warning(
-            "[GogAuth] Failed to find K8s pod for sandbox %s: %s", sandbox_id, e
-        )
-
-    return None, namespace
-
-
-def _kubectl_exec(pod_name, namespace, command, timeout=_GOG_TIMEOUT):
-    """Run a shell command inside the openclaw container via kubectl exec.
-
-    Returns (stdout, stderr, returncode).
-    """
-    cmd = [
-        "kubectl", "exec",
-        "-n", namespace,
-        pod_name,
-        "-c", "openclaw",
-        "--",
-        "sh", "-c", command,
-    ]
-    _logger.debug("[GogAuth] kubectl exec: %s", command[:200])
+def _local_exec(command, config_dir, keyring_pw="", timeout=_GOG_TIMEOUT):
+    """Run a shell command locally with gog environment set up."""
+    env = os.environ.copy()
+    env["XDG_CONFIG_HOME"] = config_dir
+    env["GOG_KEYRING_PASSWORD"] = keyring_pw
+    _logger.debug("[GogAuth] local exec: %s", command[:200])
 
     result = subprocess.run(
-        cmd,
+        ["sh", "-c", command],
         capture_output=True,
         text=True,
         timeout=timeout,
         check=False,
+        env=env,
     )
     return result.stdout, result.stderr, result.returncode
-
-
-def _find_running_sandbox(task):
-    """Find a running sandbox for this task. Returns (sandbox, error_dict).
-
-    Prefers the claude sandbox, falls back to any running sandbox.
-    """
-    sandboxes = task.sandbox_ids.filtered(lambda s: s.docker_status == "running")
-    if not sandboxes:
-        return None, {
-            "error": "No running sandbox found for this task. "
-            "Please start a sandbox first, then try Google auth."
-        }
-    claude = sandboxes.filtered(lambda s: s.model_type == "claude")
-    return (claude[0] if claude else sandboxes[0]), None
 
 
 class TalosGogAuthController(http.Controller):
@@ -163,23 +93,6 @@ class TalosGogAuthController(http.Controller):
             "Expected JSON with an 'installed' or 'web' key."
         }
 
-    def _resolve_pod(self, task):
-        """Find the running sandbox pod for a task.
-
-        Returns (pod_name, namespace, sandbox, error_dict).
-        """
-        sandbox, err = _find_running_sandbox(task)
-        if err:
-            return None, None, None, err
-
-        pod_name, namespace = _find_pod_for_sandbox(sandbox.id)
-        if not pod_name:
-            return None, None, None, {
-                "error": "Could not find a running pod for sandbox %s. "
-                "The sandbox may still be starting — please wait and retry." % sandbox.id
-            }
-        return pod_name, namespace, sandbox, None
-
     @http.route("/talos/gog/start_auth", type="json", auth="user")
     def start_auth(self, task_id=0, **kw):
         _logger.info("[GogAuth] start_auth called task_id=%s", task_id)
@@ -198,35 +111,28 @@ class TalosGogAuthController(http.Controller):
             _logger.warning("[GogAuth] client_secret extraction failed: %s", cs_err)
             return cs_err
 
-        pod_name, namespace, sandbox, pod_err = self._resolve_pod(task)
-        if pod_err:
-            _logger.warning("[GogAuth] pod resolution failed: %s", pod_err)
-            return pod_err
+        config_dir = _gog_config_dir(task.id)
+        keyring_pw = task.password or ""
 
         _logger.info(
-            "[GogAuth] start_auth task=%s email=%s pod=%s ns=%s",
-            task_id, email, pod_name, namespace,
+            "[GogAuth] start_auth task=%s email=%s config_dir=%s",
+            task_id, email, config_dir,
         )
-
-        keyring_pw = task.password or ""
 
         escaped_secret = client_secret.replace("'", "'\\''")
         setup_cmd = (
             "mkdir -p {config}/gogcli && "
             "echo '{secret}' > {config}/gogcli/client_secret.json && "
-            "export GOG_KEYRING_PASSWORD='{keyring_pw}' && "
-            "export XDG_CONFIG_HOME={config} && "
             "{gog} auth keyring file 2>&1 && "
             "{gog} auth credentials set {config}/gogcli/client_secret.json 2>&1"
         ).format(
-            config=_GOG_CONFIG_DIR,
+            config=config_dir,
             secret=escaped_secret,
-            keyring_pw=keyring_pw.replace("'", "'\\''"),
             gog=_GOG_BIN,
         )
 
         try:
-            stdout, stderr, rc = _kubectl_exec(pod_name, namespace, setup_cmd)
+            stdout, stderr, rc = _local_exec(setup_cmd, config_dir, keyring_pw)
             _logger.info(
                 "[GogAuth] credentials setup: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:300], stderr.strip()[:300],
@@ -238,22 +144,18 @@ class TalosGogAuthController(http.Controller):
             return {"error": "Failed to set credentials: %s" % exc}
 
         step1_cmd = (
-            "export GOG_KEYRING_PASSWORD='{keyring_pw}' && "
-            "export XDG_CONFIG_HOME={config} && "
             "{gog} auth add {email} "
             "--services {services} "
             "--remote --step 1 --force-consent "
             "--redirect-uri http://localhost --json 2>&1"
         ).format(
-            keyring_pw=keyring_pw.replace("'", "'\\''"),
-            config=_GOG_CONFIG_DIR,
             gog=_GOG_BIN,
             email=email,
             services=_GOG_SERVICES,
         )
 
         try:
-            stdout, stderr, rc = _kubectl_exec(pod_name, namespace, step1_cmd)
+            stdout, stderr, rc = _local_exec(step1_cmd, config_dir, keyring_pw)
             _logger.info(
                 "[GogAuth] step 1: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:500], stderr.strip()[:500],
@@ -267,14 +169,17 @@ class TalosGogAuthController(http.Controller):
                 return {"error": "gog auth step 1 failed: %s" % (stderr.strip() or stdout.strip())}
 
             data = None
-            for line in stdout.splitlines():
-                line = line.strip()
-                if line.startswith("{"):
-                    try:
-                        data = json.loads(line)
-                        break
-                    except json.JSONDecodeError:
-                        continue
+            try:
+                data = json.loads(stdout)
+            except (json.JSONDecodeError, TypeError):
+                for line in stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("{"):
+                        try:
+                            data = json.loads(line)
+                            break
+                        except json.JSONDecodeError:
+                            continue
 
             if not data:
                 return {
@@ -319,30 +224,22 @@ class TalosGogAuthController(http.Controller):
         if not redirect_url:
             return {"error": "redirect_url is required (the localhost URL after auth)"}
 
-        pod_name, namespace, sandbox, pod_err = self._resolve_pod(task)
-        if pod_err:
-            _logger.warning("[GogAuth] pod resolution failed: %s", pod_err)
-            return pod_err
-
+        config_dir = _gog_config_dir(task.id)
         keyring_pw = task.password or ""
 
         _logger.info(
-            "[GogAuth] exchange_token pod=%s ns=%s email=%s",
-            pod_name, namespace, email,
+            "[GogAuth] exchange_token task=%s email=%s config_dir=%s",
+            task_id, email, config_dir,
         )
 
         escaped_url = redirect_url.replace("'", "'\\''")
         step2_cmd = (
-            "export GOG_KEYRING_PASSWORD='{keyring_pw}' && "
-            "export XDG_CONFIG_HOME={config} && "
             "{gog} auth add {email} "
             "--services {services} "
             "--remote --step 2 --force-consent "
             "--redirect-uri http://localhost "
             "--auth-url '{auth_url}' 2>&1"
         ).format(
-            keyring_pw=keyring_pw.replace("'", "'\\''"),
-            config=_GOG_CONFIG_DIR,
             gog=_GOG_BIN,
             email=email,
             services=_GOG_SERVICES,
@@ -350,7 +247,7 @@ class TalosGogAuthController(http.Controller):
         )
 
         try:
-            stdout, stderr, rc = _kubectl_exec(pod_name, namespace, step2_cmd)
+            stdout, stderr, rc = _local_exec(step2_cmd, config_dir, keyring_pw)
             _logger.info(
                 "[GogAuth] step 2: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:500], stderr.strip()[:500],
@@ -370,9 +267,9 @@ class TalosGogAuthController(http.Controller):
                 '  echo "---FILE:$rel"; '
                 '  cat "$f"; '
                 "done"
-            ).format(config=_GOG_CONFIG_DIR)
+            ).format(config=config_dir)
 
-            file_stdout, _, file_rc = _kubectl_exec(pod_name, namespace, collect_cmd)
+            file_stdout, _, file_rc = _local_exec(collect_cmd, config_dir, keyring_pw)
 
             gog_auth_data = {}
             if file_rc == 0 and file_stdout.strip():
@@ -429,28 +326,16 @@ class TalosGogAuthController(http.Controller):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        pod_name, namespace, sandbox, pod_err = self._resolve_pod(task)
-        if pod_err:
-            return {
-                "authenticated": False,
-                "email": task.email or "",
-                "gog_available": False,
-                "detail": "No running sandbox to check gog status",
-            }
-
+        config_dir = _gog_config_dir(task.id)
         keyring_pw = task.password or ""
         list_cmd = (
-            "export GOG_KEYRING_PASSWORD='{keyring_pw}' && "
-            "export XDG_CONFIG_HOME={config} && "
             "{gog} auth list 2>&1"
         ).format(
-            keyring_pw=keyring_pw.replace("'", "'\\''"),
-            config=_GOG_CONFIG_DIR,
             gog=_GOG_BIN,
         )
 
         try:
-            stdout, stderr, rc = _kubectl_exec(pod_name, namespace, list_cmd)
+            stdout, stderr, rc = _local_exec(list_cmd, config_dir, keyring_pw)
             email = task.email or ""
             if email and email in stdout:
                 return {"authenticated": True, "email": email, "gog_available": True}
