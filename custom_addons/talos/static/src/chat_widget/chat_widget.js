@@ -217,6 +217,8 @@ export class TalosChatWidget extends Component {
 
     setup() {
         this.messagesEndRef = useRef("messagesEnd");
+        this.mainTextareaRef = useRef("mainTextarea");
+        this.hintTextareaRef = useRef("hintTextarea");
 
         this._currentSandboxId = this.props.sandboxId;
         this._session = _getSession(this.props.sandboxId);
@@ -244,6 +246,9 @@ export class TalosChatWidget extends Component {
             browserAuthCookieInput: "",
             browserAuthStatus: "",   // "waiting" | "injecting" | "done" | "error"
             browserAuthError: "",
+            hintPopupVisible: false,
+            hintText: "",
+            hintTargetMsgIndex: -1,
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
@@ -735,7 +740,7 @@ export class TalosChatWidget extends Component {
             if (widget) widget.state.activityText = "";
             let msg = messages.findLast(m => m.pending);
             if (!msg) {
-                msg = { role: "assistant", text: "", html: markup(""), pending: true };
+                msg = { role: "assistant", text: "", html: markup(""), pending: true, isModelResponse: true, turnId: session.currentTurnId };
                 messages.push(msg);
                 session._lastFlushedWordCount = 0;
             }
@@ -960,7 +965,7 @@ export class TalosChatWidget extends Component {
         if (session._toolCallMap.size === 0) return;
         let msg = messages.findLast(m => m.pending);
         if (!msg) {
-            msg = { role: "assistant", text: "", html: markup(""), pending: true };
+            msg = { role: "assistant", text: "", html: markup(""), pending: true, isModelResponse: true, turnId: session.currentTurnId };
             messages.push(msg);
             session._lastFlushedWordCount = 0;
         }
@@ -1071,6 +1076,9 @@ export class TalosChatWidget extends Component {
                             text: t.response,
                             html: markup(renderMarkdown(t.response + (isPartial ? "\n\n*(partial — response was interrupted)*" : ""))),
                             pending: false,
+                            isModelResponse: true,
+                            turnId: t.id,
+                            feedback: t.feedback || null,
                         };
                         if (t.tool_calls) {
                             try {
@@ -1164,6 +1172,8 @@ export class TalosChatWidget extends Component {
                         text: lastAssistantText,
                         html: markup(renderMarkdown(lastAssistantText)),
                         pending: false,
+                        isModelResponse: true,
+                        turnId: this._session.currentTurnId,
                     };
                     const tcArr = Object.values(toolCalls);
                     if (tcArr.length > 0) newMsg.toolCalls = tcArr;
@@ -1399,6 +1409,10 @@ export class TalosChatWidget extends Component {
         this.state.sending = true;
         this._session.messages.push({ role: "user", text });
         this._scrollToBottom();
+        requestAnimationFrame(() => {
+            const el = this.mainTextareaRef.el;
+            if (el) el.style.height = "auto";
+        });
 
         this.state.activityText = "Running QC check…";
         let turnId = null;
@@ -1572,7 +1586,7 @@ export class TalosChatWidget extends Component {
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
         this._session.currentRunId = runId;
-        this._session.messages.push({ role: "assistant", text: "", pending: true });
+        this._session.messages.push({ role: "assistant", text: "", pending: true, isModelResponse: true, turnId: this._session.currentTurnId });
         this.state.activityText = "Waiting for model…";
         this._session.streaming = true;
         this.state.streaming = true;
@@ -1733,5 +1747,98 @@ export class TalosChatWidget extends Component {
         this.state.browserAuthCookieInput = "";
         this.state.browserAuthStatus = "";
         this.state.browserAuthError = "";
+    }
+
+    onFeedbackSatisfied(msgIndex) {
+        const msg = this.state.messages[msgIndex];
+        if (!msg || msg.feedback) return;
+        msg.feedback = "satisfied";
+        if (msg.turnId) {
+            rpc("/talos/chat/save_feedback", { turn_id: msg.turnId, feedback: "satisfied" })
+                .catch(e => console.warn(LOG_PREFIX, "save_feedback failed:", e));
+        }
+    }
+
+    onFeedbackUnsatisfied(msgIndex) {
+        const msg = this.state.messages[msgIndex];
+        if (!msg || msg.feedback) return;
+        msg.feedback = "unsatisfied";
+        this.state.hintPopupVisible = true;
+        this.state.hintText = "HINT: ";
+        this.state.hintTargetMsgIndex = msgIndex;
+        requestAnimationFrame(() => {
+            const el = this.hintTextareaRef.el;
+            if (el) {
+                el.focus();
+                el.setSelectionRange(el.value.length, el.value.length);
+                this._autoResizeEl(el);
+            }
+        });
+    }
+
+    onHintSend() {
+        let hint = this.state.hintText.trim();
+        if (!hint) return;
+        if (hint.toUpperCase().startsWith("HINT:")) {
+            hint = hint.substring(5).trim();
+        }
+        if (!hint) return;
+        const msgIndex = this.state.hintTargetMsgIndex;
+        const msg = msgIndex >= 0 ? this.state.messages[msgIndex] : null;
+        if (msg && msg.turnId) {
+            rpc("/talos/chat/save_feedback", { turn_id: msg.turnId, feedback: "unsatisfied", hint_text: hint })
+                .catch(e => console.warn(LOG_PREFIX, "save_feedback failed:", e));
+        }
+        this.state.hintPopupVisible = false;
+        this.state.hintTargetMsgIndex = -1;
+        this.state.inputText = hint;
+        this.state.hintText = "";
+        this._autoResizeMainTextarea();
+        this.onSend();
+    }
+
+    onHintCancel() {
+        const idx = this.state.hintTargetMsgIndex;
+        if (idx >= 0 && this.state.messages[idx]) {
+            this.state.messages[idx].feedback = undefined;
+        }
+        this.state.hintPopupVisible = false;
+        this.state.hintText = "";
+        this.state.hintTargetMsgIndex = -1;
+    }
+
+    onHintOverlayClick() {
+        this.onHintCancel();
+    }
+
+    onHintKeydown(ev) {
+        if (ev.key === "Enter" && !ev.shiftKey) {
+            ev.preventDefault();
+            this.onHintSend();
+        }
+        if (ev.key === "Escape") {
+            this.onHintCancel();
+        }
+    }
+
+    onHintTextareaInput(ev) {
+        this._autoResizeEl(ev.target);
+    }
+
+    onMainTextareaInput(ev) {
+        this._autoResizeEl(ev.target);
+    }
+
+    _autoResizeEl(el) {
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 150) + "px";
+    }
+
+    _autoResizeMainTextarea() {
+        requestAnimationFrame(() => {
+            const el = this.mainTextareaRef.el;
+            if (el) this._autoResizeEl(el);
+        });
     }
 }

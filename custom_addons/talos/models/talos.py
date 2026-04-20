@@ -1317,6 +1317,11 @@ class TalosTurn(models.Model):
     tool_names = fields.Char(
         string="Tools Used", compute="_compute_tool_names", store=True
     )
+    feedback = fields.Selection(
+        [("satisfied", "Satisfied"), ("unsatisfied", "Unsatisfied")],
+        string="Feedback",
+    )
+    hint_text = fields.Text(string="Hint Text")
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):

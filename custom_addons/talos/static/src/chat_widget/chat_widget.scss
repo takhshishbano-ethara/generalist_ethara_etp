@@ -6,6 +6,7 @@
     border-radius: 8px;
     overflow: hidden;
     background: var(--o-view-background-color, #fff);
+    position: relative;
 }
 
 .o_talos_chat_placeholder {
@@ -436,9 +437,10 @@
     padding: 6px 10px;
     font-size: 13px;
     line-height: 1.4;
-    max-height: 100px;
+    max-height: 150px;
     overflow-y: auto;
     outline: none;
+    transition: height 0.1s ease;
 
     &:focus {
         border-color: var(--o-brand-primary, #714B67);
@@ -567,4 +569,129 @@
     &:disabled {
         opacity: 0.5;
     }
+}
+
+/* Satisfaction feedback tags */
+.o_talos_feedback_row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.o_talos_feedback_tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: none;
+    transition: all 0.2s ease;
+    line-height: 1.4;
+
+    &.o_talos_feedback_satisfied {
+        color: #059669;
+        border-color: #a7f3d0;
+        background: #ecfdf5;
+
+        &:hover:not(.active) {
+            background: #d1fae5;
+            border-color: #6ee7b7;
+        }
+
+        &.active {
+            background: #059669;
+            color: #fff;
+            border-color: #059669;
+            cursor: default;
+        }
+    }
+
+    &.o_talos_feedback_unsatisfied {
+        color: #dc2626;
+        border-color: #fecaca;
+        background: #fef2f2;
+
+        &:hover:not(.active) {
+            background: #fee2e2;
+            border-color: #fca5a5;
+        }
+
+        &.active {
+            background: #dc2626;
+            color: #fff;
+            border-color: #dc2626;
+            cursor: default;
+        }
+    }
+}
+
+/* Hint popup overlay */
+.o_talos_hint_overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    backdrop-filter: blur(2px);
+}
+
+.o_talos_hint_popup {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+    padding: 16px 20px;
+    width: 90%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.o_talos_hint_header {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    color: var(--o-brand-primary, #714B67);
+
+    .fa-lightbulb-o {
+        font-size: 16px;
+    }
+}
+
+.o_talos_hint_desc {
+    margin: 0;
+}
+
+.o_talos_hint_textarea {
+    width: 100%;
+    resize: none;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.45;
+    min-height: 42px;
+    max-height: 150px;
+    overflow-y: auto;
+    outline: none;
+    transition: border-color 0.15s;
+
+    &:focus {
+        border-color: var(--o-brand-primary, #714B67);
+        box-shadow: 0 0 0 1px var(--o-brand-primary, #714B67);
+    }
+}
+
+.o_talos_hint_actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
 }

@@ -103,6 +103,30 @@
                                             </t>
                                         </div>
                                     </t>
+                                    <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
+                                        <div class="o_talos_feedback_row">
+                                            <t t-if="msg.feedback === 'satisfied'">
+                                                <span class="o_talos_feedback_tag o_talos_feedback_satisfied active">
+                                                    <i class="fa fa-check-circle me-1"/>Satisfied
+                                                </span>
+                                            </t>
+                                            <t t-elif="msg.feedback === 'unsatisfied'">
+                                                <span class="o_talos_feedback_tag o_talos_feedback_unsatisfied active">
+                                                    <i class="fa fa-times-circle me-1"/>Unsatisfied
+                                                </span>
+                                            </t>
+                                            <t t-else="">
+                                                <button class="o_talos_feedback_tag o_talos_feedback_satisfied"
+                                                        t-on-click="() => this.onFeedbackSatisfied(msg_index)">
+                                                    <i class="fa fa-thumbs-up me-1"/>Satisfied
+                                                </button>
+                                                <button class="o_talos_feedback_tag o_talos_feedback_unsatisfied"
+                                                        t-on-click="() => this.onFeedbackUnsatisfied(msg_index)">
+                                                    <i class="fa fa-thumbs-down me-1"/>Unsatisfied
+                                                </button>
+                                            </t>
+                                        </div>
+                                    </t>
                                 </div>
                             </div>
                         </t>
@@ -244,15 +268,55 @@
                     </div>
                 </t>
 
+                <t t-if="state.hintPopupVisible">
+                    <div class="o_talos_hint_overlay" t-on-click="onHintOverlayClick">
+                        <div class="o_talos_hint_popup" t-on-click.stop="">
+                            <div class="o_talos_hint_header">
+                                <i class="fa fa-lightbulb-o me-1"/>
+                                <span class="fw-bold">Provide a Hint</span>
+                                <button class="btn btn-link btn-sm ms-auto p-0"
+                                        t-on-click="onHintCancel"
+                                        title="Cancel">
+                                    <i class="fa fa-times"/>
+                                </button>
+                            </div>
+                            <p class="o_talos_hint_desc text-muted small mb-2">
+                                Describe what was wrong or what you expected. This hint will guide the assistant's next response.
+                            </p>
+                            <textarea
+                                class="o_talos_hint_textarea"
+                                t-model="state.hintText"
+                                t-on-input="onHintTextareaInput"
+                                t-on-keydown="onHintKeydown"
+                                placeholder="e.g. The code should use async/await instead..."
+                                rows="2"
+                                t-ref="hintTextarea"
+                            />
+                            <div class="o_talos_hint_actions">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onHintCancel">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-primary btn-sm"
+                                        t-on-click="onHintSend"
+                                        t-att-disabled="!state.hintText.trim()">
+                                    <i class="fa fa-paper-plane me-1"/>Send Hint
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
                 <div class="o_talos_chat_input">
                     <div class="o_talos_chat_input_row">
                         <textarea
                             t-model="state.inputText"
                             t-on-keydown="onKeydown"
+                            t-on-input="onMainTextareaInput"
                             placeholder="Type a message..."
                             t-att-disabled="state.sending or state.streaming or state.qcPending"
                             rows="1"
                             class="o_talos_chat_textarea"
+                            t-ref="mainTextarea"
                         />
                         <t t-if="state.streaming">
                             <button class="btn btn-outline-danger btn-sm o_talos_btn"

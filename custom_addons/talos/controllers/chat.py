@@ -127,6 +127,27 @@ class TalosChatController(http.Controller):
         turn.write(vals)
         return {"success": True}
 
+    @http.route("/talos/chat/save_feedback", type="json", auth="user")
+    def save_feedback(self, turn_id=0, feedback="", hint_text="", **kw):
+        turn_id = int(turn_id or 0)
+        if not turn_id:
+            return {"error": "turn_id is required"}
+
+        turn = request.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        feedback = (feedback or "").strip().lower()
+        if feedback not in ("satisfied", "unsatisfied"):
+            return {"error": "Invalid feedback: %s" % feedback}
+
+        vals = {"feedback": feedback}
+        if hint_text:
+            vals["hint_text"] = hint_text
+
+        turn.write(vals)
+        return {"success": True}
+
     @http.route("/talos/chat/save_trajectory", type="json", auth="user")
     def save_trajectory(self, turn_id=0, trajectory_messages="", **kw):
         turn_id = int(turn_id or 0)
@@ -307,6 +328,8 @@ class TalosChatController(http.Controller):
                     "qc_severity": t.qc_severity or "",
                     "qc_response": t.qc_response or "",
                     "qc_dismiss_reason": t.qc_dismiss_reason or "",
+                    "feedback": t.feedback or "",
+                    "hint_text": t.hint_text or "",
                 }
             )
 
