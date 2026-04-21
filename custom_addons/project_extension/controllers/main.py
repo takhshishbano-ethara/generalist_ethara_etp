@@ -1068,6 +1068,41 @@ class ProjectController(http.Controller):
             return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
 
     @validate_token
+    @http.route('/api/v1/action_start_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_request({
+        "project_id": {"type": "integer", "required": True}
+    })
+    def action_start_project(self, **kwargs):
+        try:
+            project = request.env['project.project'].sudo().browse(int(kwargs['project_id']))
+            if not project.exists():
+                return return_Response(message="Project Not Found", status=404)
+            project.sudo().write({
+                'stage_id': request.env.ref('project_extension.project_project_stage_ethara_10').id,
+                'non_stemp_project_status': 'production'
+            })
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Start',
+                    'message': f'Project "{project.name}" has been Started.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
+            return return_Response(
+                message="Success",
+                status=200)
+
+        except Exception as e:
+            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+
+    @validate_token
     @http.route('/api/v1/action_pause_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_request({
         "project_id": {"type": "integer", "required": True}

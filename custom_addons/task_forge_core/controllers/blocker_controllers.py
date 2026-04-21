@@ -124,11 +124,15 @@ class TaskForgeBlockerController(http.Controller):
     def qr_action(self, **kwargs):
         try:
             user = request.env.user
-            if not user.has_group('etp_user_roles.group_quality_reviewer') and not user.user_role.id in [
-                request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id,
-                request.env.ref('api_auth_gateway.role_qc_non_stem').id] and not user.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+            if not user.user_role.id in [request.env.ref('api_auth_gateway.role_cto_technical').id,
+                                         request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                         request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                         request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
 
-                return return_Response(message="QR Or PL role required", status=403)
+                return return_Response(message="CTO, QR Or PL role required", status=403)
 
             Blocker = request.env['task.forge.blocker'].sudo()
             blocker = Blocker.browse(int(kwargs.get('blocker_id')))
@@ -273,19 +277,25 @@ class TaskForgeBlockerController(http.Controller):
 
     @http.route('/api/v2/get_blocker_assignee_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({'project_id': {'type': 'str', 'required': True}})
+    @validate_request({})
     def get_blocker_assignee_list(self, **kwargs):
         temp = []
         try:
-            project_id = int(kwargs.get('project_id'))
-            project = request.env['project.project'].sudo().browse(project_id)
-            if not project.exists():
-                return return_Response(message="Project not found", status=404)
-            for emp in project.project_lead | project.project_qc_reviewer:
-                temp.append({
-                    'id': emp.id,
-                    'name': emp.name
-                })
+            if kwargs.get('project_id'):
+                project_id = int(kwargs.get('project_id'))
+                projects = request.env['project.project'].sudo().browse(project_id)
+                if not projects.exists():
+                    return return_Response(message="Project not found", status=404)
+            else:
+                projects = request.env['project.project'].sudo().search([])
+                if not projects:
+                    return return_Response(message="Project not found", status=404)
+            for project in projects:
+                for emp in project.project_lead | project.project_qc_reviewer:
+                    temp.append({
+                        'id': emp.id,
+                        'name': emp.name
+                    })
             return return_Response(
                 message="success",
                 status=200,

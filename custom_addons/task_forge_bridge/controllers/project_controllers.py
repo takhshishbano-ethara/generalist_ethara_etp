@@ -641,3 +641,126 @@ class TaskForgeProjectController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/offboard_member', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'int', 'required': True},
+        'employee_id': {'type': 'int', 'required': True},
+        'reason_id': {'type': 'int', 'required': True},
+    })
+    def offboard_project_member(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            project_id = int(jdata.get('project_id'))
+            employee_id = int(jdata.get('employee_id'))
+            role = jdata.get('role', '')
+            reason = jdata.get('reason', '')
+            reason_id = int(jdata.get('reason_id')) if jdata.get('reason_id') else False
+            notes = jdata.get('notes', '')
+            end_date = jdata.get('end_date') or False
+
+            project = request.env['project.project'].sudo().browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            employee = request.env['hr.employee'].sudo().browse(employee_id)
+            if not employee.exists():
+                return return_Response(message="Employee not found", status=404)
+
+            History = request.env['project.member.history'].sudo()
+            domain = [
+                ('project_id', '=', project_id),
+                ('employee_id', '=', employee_id),
+                ('state', '=', 'active'),
+            ]
+            if role:
+                domain.append(('role', '=', role))
+
+            active_records = History.search(domain)
+            if not active_records:
+                return return_Response(message="No active assignment found for this employee on the project", status=404)
+
+            role_to_field = {
+                'lead': 'project_lead',
+                'qc_reviewer': 'project_qc_reviewer',
+                'tasker': 'project_tasker',
+                'aire': 'project_aire',
+                'swe': 'project_swe',
+            }
+
+            from odoo import fields as odoo_fields
+            for rec in active_records:
+                rec.write({
+                    'state': 'offboarded',
+                    'end_date': end_date or odoo_fields.Date.today(),
+                    'offboard_reason': reason,
+                    'reason_id': reason_id,
+                    'notes': notes,
+                })
+
+                field_name = role_to_field.get(rec.role)
+                if field_name and employee_id in project[field_name].ids:
+                    project.write({field_name: [(3, employee_id)]})
+
+            return return_Response(
+                message="Employee offboarded from project successfully",
+                status=200,
+                data={
+                    'project_id': project_id,
+                    'employee_id': employee_id,
+                    'offboarded_roles': [r.role for r in active_records],
+                    'end_date': str(end_date or odoo_fields.Date.today()),
+                }
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/member_history', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def project_member_history(self, **kwargs):
+        try:
+            project_id = kwargs.get('project_id')
+            if not project_id:
+                return return_Response(message="project_id is required", status=400)
+
+            project = request.env['project.project'].sudo().browse(int(project_id))
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            History = request.env['project.member.history'].sudo()
+            domain = [('project_id', '=', int(project_id))]
+
+            if kwargs.get('state'):
+                domain.append(('state', '=', kwargs.get('state')))
+            if kwargs.get('role'):
+                domain.append(('role', '=', kwargs.get('role')))
+            if kwargs.get('employee_id'):
+                domain.append(('employee_id', '=', int(kwargs.get('employee_id'))))
+
+            records = History.search(domain, order='start_date desc')
+            data = []
+            for r in records:
+                data.append({
+                    'id': r.id,
+                    'project_id': r.project_id.id,
+                    'project_name': r.project_id.name or '',
+                    'employee_id': r.employee_id.id,
+                    'employee_name': r.employee_id.name or '',
+                    'role': r.role,
+                    'start_date': str(r.start_date) if r.start_date else '',
+                    'end_date': str(r.end_date) if r.end_date else '',
+                    'state': r.state,
+                    'offboard_reason': r.offboard_reason or '',
+                    'reason_id': r.reason_id.id if r.reason_id else 0,
+                    'reason_name': r.reason_id.name if r.reason_id else '',
+                    'notes': r.notes or '',
+                })
+
+            return return_Response(
+                message="Project member history",
+                status=200,
+                data={'data': data}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
