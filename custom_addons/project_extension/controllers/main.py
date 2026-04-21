@@ -368,20 +368,37 @@ class ProjectController(http.Controller):
                 parsed_ids = parse_ids(field)
                 if parsed_ids is not None:
                     vals[field] = [(6, 0, parsed_ids)]
+
+            if kwargs.get('project_qc_reviewer'):
+                vals['project_qc_reviewer'] = [(6, 0, parse_ids('project_qc_reviewer') or [])]
+            if kwargs.get('project_tasker'):
+                vals['project_tasker'] = [(6, 0, parse_ids('project_tasker') or [])]
+
             if kwargs.get('whatsapp_group_members'):
-                wgm_list = []
-                for rec in kwargs.get('whatsapp_group_members'):
-                    whatsapp_gm = request.env['whatsapp.group.members'].sudo().search([('phone_number', '=', rec.get('mobile'))], limit=1)
-                    if not whatsapp_gm:
-                        whatsapp_gm = request.env['whatsapp.group.members'].sudo().create({
-                            'name': rec.get('name'),
-                            'email': rec.get('email'),
-                            'country_code': "+91",
-                            'phone_number': rec.get('mobile'),
-                        })
-                    wgm_list.append(whatsapp_gm.id)
-                if wgm_list:
-                    vals['whatsapp_group_members'] = [(6, 0, wgm_list)]
+                raw_wgm = kwargs.get('whatsapp_group_members')
+                wgm_data = raw_wgm
+                if isinstance(raw_wgm, str):
+                    try:
+                        import json as _json
+                        wgm_data = _json.loads(raw_wgm)
+                    except (ValueError, TypeError):
+                        wgm_data = []
+                if isinstance(wgm_data, list) and wgm_data:
+                    wgm_list = []
+                    for rec in wgm_data:
+                        if not isinstance(rec, dict):
+                            continue
+                        whatsapp_gm = request.env['whatsapp.group.members'].sudo().search([('phone_number', '=', rec.get('mobile'))], limit=1)
+                        if not whatsapp_gm:
+                            whatsapp_gm = request.env['whatsapp.group.members'].sudo().create({
+                                'name': rec.get('name'),
+                                'email': rec.get('email'),
+                                'country_code': "+91",
+                                'phone_number': rec.get('mobile'),
+                            })
+                        wgm_list.append(whatsapp_gm.id)
+                    if wgm_list:
+                        vals['whatsapp_group_members'] = [(6, 0, wgm_list)]
 
             if project.stage_id.id == request.env.ref('project_extension.project_project_stage_ethara_14').id and not kwargs.get('stage_id'):
                 vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_4').id
@@ -406,12 +423,6 @@ class ProjectController(http.Controller):
                     attachment_ids.append(attachment.id)
                 if attachment_ids:
                     vals['project_attachments'] = [(4, aid) for aid in attachment_ids]
-
-                # '''''''''''''''''''''''''''''''''''''''
-                if kwargs.get('project_qc_reviewer'):
-                    vals['project_qc_reviewer'] = [(6, 0, kwargs.get('project_qc_reviewer'))]
-                if kwargs.get('project_tasker'):
-                    vals['project_tasker'] = [(6, 0, kwargs.get('project_tasker'))]
 
                 # Schedule Meeting
                 if kwargs.get('meeting_date'):
