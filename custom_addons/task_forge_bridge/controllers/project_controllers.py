@@ -778,11 +778,16 @@ class TaskForgeProjectController(http.Controller):
 
             projects = Project.search(domain)
             result = []
+            emp_list = []
 
+            unassigned_employee = []
             for proj in projects:
                 pl_employees = proj.project_lead
                 qr_employees = proj.project_qc_reviewer
                 tasker_employees = proj.project_tasker
+                emp_list.extend(pl_employees.ids)
+                emp_list.extend(qr_employees.ids)
+                emp_list.extend(tasker_employees.ids)
 
                 qr_ids_set = set(qr_employees.ids)
                 tasker_ids_set = set(tasker_employees.ids)
@@ -809,53 +814,24 @@ class TaskForgeProjectController(http.Controller):
                         qr_data.append({
                             'id': qr.id,
                             'name': qr.name or '',
-                            'role': 'qc_reviewer',
+                            'role': qr.user_id.user_role.name,
                             'tasker_count': len(qr_taskers),
                             'taskers': [{
                                 'id': t.id,
                                 'name': t.name or '',
-                                'role': 'tasker',
+                                'role': t.user_id.user_role.name or '',
                             } for t in qr_taskers],
                         })
 
                     pl_data.append({
                         'id': pl.id,
                         'name': pl.name or '',
-                        'role': 'lead',
+                        'role': pl.user_id.user_role.name or '',
                         'qr_count': len(pl_qrs),
                         'tasker_count': sum(q['tasker_count'] for q in qr_data),
                         'qrs': qr_data,
                     })
 
-                # unassigned_qrs = qr_employees.filtered(lambda q: q.id not in assigned_qr_ids)
-                # unassigned_taskers = tasker_employees.filtered(lambda t: t.id not in assigned_tasker_ids)
-                #
-                # unassigned_qr_data = []
-                # for qr in unassigned_qrs:
-                #     qr_taskers = Employee.search([
-                #         ('task_forge_qr_id', '=', qr.id),
-                #         ('id', 'in', list(tasker_ids_set)),
-                #     ])
-                #     assigned_tasker_ids.update(qr_taskers.ids)
-                #     unassigned_qr_data.append({
-                #         'id': qr.id,
-                #         'name': qr.name or '',
-                #         'role': 'qc_reviewer',
-                #         'tasker_count': len(qr_taskers),
-                #         'taskers': [{
-                #             'id': t.id,
-                #             'name': t.name or '',
-                #             'role': 'tasker',
-                #         } for t in qr_taskers],
-                #     })
-                #
-                # unassigned_taskers = tasker_employees.filtered(lambda t: t.id not in assigned_tasker_ids)
-                # unassigned_tasker_data = [{
-                #     'id': t.id,
-                #     'name': t.name or '',
-                #     'role': 'tasker',
-                # } for t in unassigned_taskers]
-                #
                 result.append({
                     'project_id': proj.id,
                     'project_name': proj.name or '',
@@ -863,15 +839,20 @@ class TaskForgeProjectController(http.Controller):
                     'pl_count': len(pl_employees),
                     'qr_count': len(qr_employees),
                     'tasker_count': len(tasker_employees),
-                    'pls': pl_data,
-                    # 'unassigned_qrs': unassigned_qr_data,
-                    # 'unassigned_taskers': unassigned_tasker_data,
+                    'pls': pl_data
                 })
+            employee_list = request.env['hr.employee'].sudo().search([('id', 'not in', emp_list), ('user_id.user_role.project_type', '=', request.env.user.user_role.project_type)])
+            for el in employee_list:
+                unassigned_employee.append({
+                        'id': el.id,
+                        'name': el.name or '',
+                        'role': el.user_id.user_role.name or '',
+                    })
 
             return return_Response(
                 message="Project hierarchy",
                 status=200,
-                data={'data': result}
+                data={'data': result, 'unassigned_employee': unassigned_employee}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)

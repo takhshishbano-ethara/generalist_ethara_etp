@@ -165,9 +165,9 @@ class TaskForgeUserController(http.Controller):
                     if not name or not email:
                         errors.append(f"Row {idx}: name and email required")
                         continue
-                    if not email.endswith('@ethara.ai'):
-                        errors.append(f"Row {idx}: email must be @ethara.ai")
-                        continue
+                    # if not email.endswith('@ethara.ai'):
+                    #     errors.append(f"Row {idx}: email must be @ethara.ai")
+                    #     continue
 
                     existing = ResUsers.search([('login', '=', email)], limit=1)
                     if existing:

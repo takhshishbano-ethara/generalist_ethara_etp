@@ -36,11 +36,11 @@ class HrEmployee(models.Model):
         default='permanent',
     )
 
-    @api.constrains('work_email')
-    def _check_ethara_email(self):
-        for rec in self:
-            if rec.work_email and not rec.work_email.endswith('@ethara.ai'):
-                raise ValidationError('Work email must be an @ethara.ai address.')
+    # @api.constrains('work_email')
+    # def _check_ethara_email(self):
+    #     for rec in self:
+    #         if rec.work_email and not rec.work_email.endswith('@ethara.ai'):
+    #             raise ValidationError('Work email must be an @ethara.ai address.')
 
     @api.model_create_multi
     def create(self, vals_list):

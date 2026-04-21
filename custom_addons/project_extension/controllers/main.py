@@ -400,11 +400,16 @@ class ProjectController(http.Controller):
                     if wgm_list:
                         vals['whatsapp_group_members'] = [(6, 0, wgm_list)]
 
-            if project.stage_id.id == request.env.ref('project_extension.project_project_stage_ethara_14').id and not kwargs.get('stage_id'):
-                vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_4').id
-                vals['non_stemp_project_status'] = 'not_started'
-            elif kwargs.get('stage_id'):
-                vals['stage_id'] = int(kwargs.get('stage_id'))
+            # if project.stage_id.id == request.env.ref('project_extension.project_project_stage_ethara_14').id and not kwargs.get('stage_id'):
+            #     vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_4').id
+            #     vals['non_stemp_project_status'] = 'not_started'
+            # elif kwargs.get('stage_id'):
+            #     vals['stage_id'] = int(kwargs.get('stage_id'))
+            stage_xml = 'project_extension.project_project_stage_ethara_14' if kwargs.get(
+                'save_as_draft') == '1' else 'project_extension.project_project_stage_ethara_4'
+            vals['stage_id'] = request.env.ref(stage_xml).id
+            vals['non_stemp_project_status'] = "draft" if kwargs.get('save_as_draft') == '1' else "not_started"
+
             files = request.httprequest.files.getlist('files')
             if files:
                 attachment_ids = []
