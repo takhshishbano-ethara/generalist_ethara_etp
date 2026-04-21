@@ -847,95 +847,29 @@ class JaegerRepository(models.Model):
             )
 
     def _read_jsonl_preview(self, file_path, max_lines=20):
+        """Read the first N lines of a JSONL file for UI preview."""
         import json as json_mod
         from pathlib import Path
 
         if not file_path:
             return ""
         p = Path(file_path)
-        if p.exists():
-            content = p.read_text(encoding="utf-8")
-        else:
-            content = self._download_from_s3(file_path)
-            if content is None:
-                return f"File not found: {file_path}"
-
+        if not p.exists():
+            return f"File not found: {file_path}"
         lines = []
         total_lines = 0
-        for i, line in enumerate(content.splitlines()):
-            if not line.strip():
-                continue
-            total_lines = i + 1
-            if len(lines) < max_lines:
-                try:
-                    obj = json_mod.loads(line)
-                    lines.append(json_mod.dumps(obj, indent=2, ensure_ascii=False))
-                except json_mod.JSONDecodeError:
-                    lines.append(line.rstrip())
+        with open(p, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                total_lines = i + 1
+                if i < max_lines:
+                    try:
+                        obj = json_mod.loads(line)
+                        lines.append(json_mod.dumps(obj, indent=2, ensure_ascii=False))
+                    except json_mod.JSONDecodeError:
+                        lines.append(line.rstrip())
         if total_lines > max_lines:
             lines.append(f"\n... ({total_lines - max_lines} more lines)")
         return "\n".join(lines)
-
-    def _download_from_s3(self, file_path):
-        ICP = self.env["ir.config_parameter"].sudo()
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
-        if not s3_bucket:
-            return None
-
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
-        filename = os.path.basename(file_path)
-        s3_key = f"{s3_prefix}/{self.id}/{filename}"
-
-        try:
-            import boto3
-            from botocore.config import Config as BotoConfig
-            import io
-
-            client = boto3.client(
-                "s3",
-                region_name=s3_region,
-                endpoint_url=os.environ.get(
-                    "JAEGER_S3_ENDPOINT",
-                    f"https://s3.{s3_region}.amazonaws.com",
-                ),
-                config=BotoConfig(connect_timeout=10, read_timeout=30),
-            )
-            response = client.get_object(Bucket=s3_bucket, Key=s3_key)
-            return response["Body"].read().decode("utf-8")
-        except Exception:
-            _logger.debug("S3 download failed for %s/%s", s3_bucket, s3_key)
-            return None
-
-    def _download_from_s3_bytes(self, file_path):
-        ICP = self.env["ir.config_parameter"].sudo()
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
-        if not s3_bucket:
-            return None
-
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
-        filename = os.path.basename(file_path)
-        s3_key = f"{s3_prefix}/{self.id}/{filename}"
-
-        try:
-            import boto3
-            from botocore.config import Config as BotoConfig
-
-            client = boto3.client(
-                "s3",
-                region_name=s3_region,
-                endpoint_url=os.environ.get(
-                    "JAEGER_S3_ENDPOINT",
-                    f"https://s3.{s3_region}.amazonaws.com",
-                ),
-                config=BotoConfig(connect_timeout=10, read_timeout=60),
-            )
-            response = client.get_object(Bucket=s3_bucket, Key=s3_key)
-            return response["Body"].read()
-        except Exception:
-            _logger.debug("S3 download failed for %s/%s", s3_bucket, s3_key)
-            return None
 
     # ── Sequence ──────────────────────────────────────────────────────────
 
@@ -1198,9 +1132,7 @@ class JaegerRepository(models.Model):
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
-            k8s_config.load_kube_config(
-                config_file=os.environ.get("KUBECONFIG", None)
-            )
+            k8s_config.load_kube_config()
         batch_v1 = client.BatchV1Api()
 
         ICP = self.env["ir.config_parameter"].sudo()
@@ -1220,49 +1152,19 @@ class JaegerRepository(models.Model):
             client.V1EnvVar(name="JAEGER_S3_PREFIX", value=s3_prefix),
         ]
 
-        sandbox = ICP.get_param("jaeger.sandbox_mode", "") == "1"
-        if sandbox:
-            s3_endpoint = ICP.get_param("jaeger.s3_endpoint", "")
-            env_vars += [
-                client.V1EnvVar(name="JAEGER_S3_ENDPOINT", value=s3_endpoint),
-                client.V1EnvVar(name="AWS_ACCESS_KEY_ID", value="minioadmin"),
-                client.V1EnvVar(name="AWS_SECRET_ACCESS_KEY", value="minioadmin"),
-                client.V1EnvVar(name="ODOO_CONF", value="/etc/odoo/odoo.conf"),
-            ]
-
-        job_labels = {
-            "app.kubernetes.io/name": "jaeger-scrape",
-            "app.kubernetes.io/component": "pipeline",
-            "repo-id": str(self.id),
-            "platform": "jaeger",
-        }
-        if not sandbox:
-            job_labels["kueue.x-k8s.io/queue-name"] = "jaeger-scraping"
-
-        volume_mounts = []
-        volumes = []
-        if sandbox:
-            volume_mounts.append(
-                client.V1VolumeMount(
-                    name="odoo-conf",
-                    mount_path="/etc/odoo",
-                    read_only=True,
-                )
-            )
-            volumes.append(
-                client.V1Volume(
-                    name="odoo-conf",
-                    config_map=client.V1ConfigMapVolumeSource(name="odoo-worker-conf"),
-                )
-            )
-
         job = client.V1Job(
             api_version="batch/v1",
             kind="Job",
             metadata=client.V1ObjectMeta(
                 name=job_name,
                 namespace=namespace,
-                labels=job_labels,
+                labels={
+                    "app.kubernetes.io/name": "jaeger-scrape",
+                    "app.kubernetes.io/component": "pipeline",
+                    "repo-id": str(self.id),
+                    "platform": "jaeger",
+                    "kueue.x-k8s.io/queue-name": "jaeger-scraping",
+                },
             ),
             spec=client.V1JobSpec(
                 ttl_seconds_after_finished=3600,
@@ -1279,27 +1181,20 @@ class JaegerRepository(models.Model):
                     spec=client.V1PodSpec(
                         restart_policy="Never",
                         service_account_name="jaeger-pipeline-runner",
-                        host_network=sandbox,
-                        dns_policy="None" if sandbox else None,
-                        dns_config=client.V1PodDNSConfig(
-                            nameservers=["127.0.0.11"],
-                        ) if sandbox else None,
-                        node_selector=None if sandbox else {
+                        node_selector={
                             "kubernetes.io/arch": "amd64",
                             "ethara.ai/node-pool": "general-purpose",
                         },
-                        volumes=volumes or None,
                         containers=[
                             client.V1Container(
                                 name="pipeline",
                                 image=job_image,
-                                image_pull_policy="Always" if not sandbox else "IfNotPresent",
+                                image_pull_policy="Always",
                                 command=[
                                     "python",
                                     "custom_addons/jaeger/worker/run_pipeline.py",
                                 ],
                                 env=env_vars,
-                                volume_mounts=volume_mounts or None,
                                 resources=client.V1ResourceRequirements(
                                     requests={
                                         "cpu": "500m",
@@ -2496,7 +2391,7 @@ LABEL jaeger.instance="{instance.name}"
             from kubernetes import client
             from kubernetes import config as k8s_config
 
-            k8s_config.load_kube_config(config_file=os.environ.get("KUBECONFIG", None))
+            k8s_config.load_kube_config()
             batch_v1 = client.BatchV1Api()
         except ImportError:
             _logger.warning("kubernetes Python client not installed. Skipping EKS dispatch.")
@@ -2894,7 +2789,7 @@ LABEL jaeger.instance="{instance.name}"
             from kubernetes import client
             from kubernetes import config as k8s_config
 
-            k8s_config.load_kube_config(config_file=os.environ.get("KUBECONFIG", None))
+            k8s_config.load_kube_config()
             batch_v1 = client.BatchV1Api()
         except (ImportError, Exception) as e:
             _logger.warning("Cannot connect to K8s for polling: %s", e)
@@ -3096,7 +2991,7 @@ LABEL jaeger.instance="{instance.name}"
             try:
                 k8s_config.load_incluster_config()
             except k8s_config.ConfigException:
-                k8s_config.load_kube_config(config_file=os.environ.get("KUBECONFIG", None))
+                k8s_config.load_kube_config()
             batch_v1 = client.BatchV1Api()
         except ImportError:
             return

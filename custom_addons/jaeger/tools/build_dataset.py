@@ -51,7 +51,7 @@ def extract_patches(pull, token):
     fix_patch = ""
     for hunk in PatchSet(patch_text):
         if any(
-            word in hunk.path
+            word in hunk.path.lower()
             for word in ["test", "tests", "e2e", "testing"]
         ):
             test_patch += str(hunk)

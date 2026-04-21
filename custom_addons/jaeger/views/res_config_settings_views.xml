@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_jaeger_config_settings" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.jaeger</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Jaeger" string="Jaeger" name="jaeger" groups="jaeger.group_jaeger_admin">
+                    <block title="GitHub" name="jaeger_github">
+                        <setting string="GitHub Tokens" help="Comma-separated GitHub tokens for API access">
+                            <div class="content-group">
+                                <field name="jaeger_github_tokens"/>
+                            </div>
+                        </setting>
+                        <setting string="Output Directory">
+                            <field name="jaeger_output_dir"/>
+                        </setting>
+                        <setting string="Retry Configuration">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_retry_attempts" class="col-lg-3"/>
+                                    <field name="jaeger_retry_attempts"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_delay_on_error" class="col-lg-3"/>
+                                    <field name="jaeger_delay_on_error"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="K8s Dispatch" name="jaeger_k8s_dispatch">
+                        <setting string="Pipeline Dispatch Mode">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_dispatch_mode" class="col-lg-3"/>
+                                    <field name="jaeger_dispatch_mode"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_k8s_job_image" class="col-lg-3"/>
+                                    <field name="jaeger_k8s_job_image"
+                                           placeholder="e.g. 426628337772.dkr.ecr.ap-south-1.amazonaws.com/ethara-prod:latest"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="S3 Storage" name="jaeger_s3">
+                        <setting string="S3 Configuration">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_s3_bucket" class="col-lg-3"/>
+                                    <field name="jaeger_s3_bucket"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_s3_region" class="col-lg-3"/>
+                                    <field name="jaeger_s3_region"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_s3_prefix" class="col-lg-3"/>
+                                    <field name="jaeger_s3_prefix"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="Docker / ECR" name="jaeger_docker">
+                        <setting string="Build Configuration">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_docker_build_mode" class="col-lg-3"/>
+                                    <field name="jaeger_docker_build_mode"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_docker_workdir" class="col-lg-3"/>
+                                    <field name="jaeger_docker_workdir"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_docker_platform" class="col-lg-3"/>
+                                    <field name="jaeger_docker_platform"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_max_build_workers" class="col-lg-3"/>
+                                    <field name="jaeger_max_build_workers"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_ecr_prefix" class="col-lg-3"/>
+                                    <field name="jaeger_ecr_prefix"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Test Execution">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_human_mode" class="col-lg-3"/>
+                                    <field name="jaeger_human_mode"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_agent_timeout" class="col-lg-3"/>
+                                    <field name="jaeger_agent_timeout"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_max_run_workers" class="col-lg-3"/>
+                                    <field name="jaeger_max_run_workers"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="EKS / Trajectory" name="jaeger_eks">
+                        <setting string="EKS Cluster">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_eks_cluster" class="col-lg-3"/>
+                                    <field name="jaeger_eks_cluster"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_eks_namespace" class="col-lg-3"/>
+                                    <field name="jaeger_eks_namespace"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="LLM Configuration">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="jaeger_default_model" class="col-lg-3"/>
+                                    <field name="jaeger_default_model"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_default_k" class="col-lg-3"/>
+                                    <field name="jaeger_default_k"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_temperature" class="col-lg-3"/>
+                                    <field name="jaeger_temperature"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_conversation_timeout" class="col-lg-3"/>
+                                    <field name="jaeger_conversation_timeout"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_jaeger_config_settings" model="ir.actions.act_window">
+        <field name="name">Jaeger Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">main</field>
+        <field name="context">{'module': 'jaeger'}</field>
+    </record>
+</odoo>

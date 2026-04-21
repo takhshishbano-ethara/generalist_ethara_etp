@@ -1,0 +1,348 @@
+.jgr-log-viewer {
+    border: 1px solid var(--jgr-border, #e2e6ea);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 500px;
+    max-height: 700px;
+}
+
+.jgr-log-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    flex-shrink: 0;
+    gap: 8px;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.jgr-log-toolbar-left,
+.jgr-log-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jgr-log-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.jgr-log-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.jgr-log-badge-live {
+    animation: jgr-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes jgr-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.jgr-log-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    line-height: 1;
+
+    &:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+}
+
+.jgr-log-body {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+}
+
+.jgr-log-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    opacity: 0.5;
+    font-size: 13px;
+}
+
+.jgr-log-empty-hint {
+    font-size: 11px;
+    margin-top: 4px;
+    opacity: 0.7;
+}
+
+.jgr-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "Consolas", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    table-layout: fixed;
+}
+
+.jgr-log-row {
+    border: none;
+}
+
+.jgr-log-gutter {
+    width: 52px;
+    min-width: 52px;
+    text-align: right;
+    padding: 0 12px 0 8px;
+    user-select: none;
+    font-size: 11px;
+    vertical-align: top;
+    opacity: 0.35;
+}
+
+.jgr-log-content {
+    padding: 0 12px 0 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+
+    pre {
+        margin: 0;
+        padding: 0;
+        font: inherit;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+}
+
+.jgr-log-statusbar {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 11px;
+    flex-shrink: 0;
+    gap: 12px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.jgr-log-status-item {
+    display: inline-flex;
+    align-items: center;
+}
+
+.jgr-log-status-scroll {
+    cursor: pointer;
+    opacity: 0.7;
+
+    &:hover {
+        opacity: 1;
+    }
+}
+
+.jgr-log-status-right {
+    margin-left: auto;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.jgr-log-dark {
+    background: #0d1117;
+    color: #c9d1d9;
+
+    .jgr-log-toolbar {
+        background: #161b22;
+        border-bottom-color: #30363d;
+    }
+
+    .jgr-log-title {
+        color: #e6edf3;
+    }
+
+    .jgr-log-badge {
+        background: #1f2937;
+        color: #8b949e;
+        border: 1px solid #30363d;
+    }
+
+    .jgr-log-badge-live {
+        background: #1c2d1f;
+        color: #3fb950;
+        border-color: #238636;
+
+        .fa-circle {
+            color: #3fb950;
+            font-size: 7px;
+        }
+    }
+
+    .jgr-log-btn {
+        background: transparent;
+        color: #8b949e;
+
+        &:hover:not(:disabled) {
+            background: #21262d;
+            color: #e6edf3;
+        }
+    }
+
+    .jgr-log-body {
+        background: #0d1117;
+    }
+
+    .jgr-log-gutter {
+        color: #484f58;
+        border-right: 1px solid #21262d;
+    }
+
+    .jgr-log-content {
+        color: #c9d1d9;
+    }
+
+    .jgr-log-line-error {
+        background: rgba(248, 81, 73, 0.1);
+
+        .jgr-log-content { color: #f85149; }
+        .jgr-log-gutter { color: #f8514980; }
+    }
+
+    .jgr-log-line-warn {
+        background: rgba(210, 153, 34, 0.08);
+
+        .jgr-log-content { color: #d29922; }
+        .jgr-log-gutter { color: #d2992280; }
+    }
+
+    .jgr-log-line-success {
+        background: rgba(63, 185, 80, 0.08);
+
+        .jgr-log-content { color: #3fb950; }
+        .jgr-log-gutter { color: #3fb95080; }
+    }
+
+    .jgr-log-line-step {
+        background: rgba(56, 139, 253, 0.08);
+
+        .jgr-log-content {
+            color: #58a6ff;
+            font-weight: 600;
+        }
+    }
+
+    .jgr-log-statusbar {
+        background: #161b22;
+        color: #8b949e;
+        border-top-color: #30363d;
+    }
+
+    .jgr-log-empty {
+        color: #484f58;
+    }
+}
+
+.jgr-log-light {
+    background: #ffffff;
+    color: #1f2328;
+
+    .jgr-log-toolbar {
+        background: #f6f8fa;
+        border-bottom-color: #d0d7de;
+    }
+
+    .jgr-log-title {
+        color: #1f2328;
+    }
+
+    .jgr-log-badge {
+        background: #eef1f4;
+        color: #656d76;
+        border: 1px solid #d0d7de;
+    }
+
+    .jgr-log-badge-live {
+        background: #dafbe1;
+        color: #1a7f37;
+        border-color: #82e596;
+
+        .fa-circle {
+            color: #1a7f37;
+            font-size: 7px;
+        }
+    }
+
+    .jgr-log-btn {
+        background: transparent;
+        color: #656d76;
+
+        &:hover:not(:disabled) {
+            background: #eef1f4;
+            color: #1f2328;
+        }
+    }
+
+    .jgr-log-body {
+        background: #ffffff;
+    }
+
+    .jgr-log-gutter {
+        color: #afb8c1;
+        border-right: 1px solid #eef1f4;
+    }
+
+    .jgr-log-content {
+        color: #1f2328;
+    }
+
+    .jgr-log-line-error {
+        background: #fff0ee;
+
+        .jgr-log-content { color: #cf222e; }
+        .jgr-log-gutter { color: #cf222e80; }
+    }
+
+    .jgr-log-line-warn {
+        background: #fff8e1;
+
+        .jgr-log-content { color: #9a6700; }
+        .jgr-log-gutter { color: #9a670080; }
+    }
+
+    .jgr-log-line-success {
+        background: #dafbe1;
+
+        .jgr-log-content { color: #116329; }
+        .jgr-log-gutter { color: #11632980; }
+    }
+
+    .jgr-log-line-step {
+        background: #ddf4ff;
+
+        .jgr-log-content {
+            color: #0550ae;
+            font-weight: 600;
+        }
+    }
+
+    .jgr-log-statusbar {
+        background: #f6f8fa;
+        color: #656d76;
+        border-top-color: #d0d7de;
+    }
+
+    .jgr-log-empty {
+        color: #afb8c1;
+    }
+}

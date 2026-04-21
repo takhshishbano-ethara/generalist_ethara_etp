@@ -1,0 +1,28 @@
+/* Jaeger form styling */
+.o_jaeger_form {
+    .o_group.jaeger_stage_header {
+        .o_field_widget.o_field_statusbar {
+            .o_arrow_button {
+                font-weight: 600;
+            }
+        }
+    }
+
+    .jaeger_log_output {
+        .o_field_text {
+            textarea {
+                font-family: monospace;
+                font-size: 12px;
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                min-height: 200px;
+            }
+        }
+    }
+
+    .jaeger_progress_section {
+        .o_progressbar {
+            height: 24px;
+        }
+    }
+}

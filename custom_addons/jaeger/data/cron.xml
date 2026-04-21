@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Batch Scrape: publish pending repos to jaeger_scrape queue -->
+        <!-- Phase 2-7: disabled. Re-enable when RabbitMQ consumer is deployed. -->
+        <record id="jaeger_cron_batch_scrape" model="ir.cron">
+            <field name="name">Jaeger: Batch Scrape Repos</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_batch_scrape()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+
+            <field name="active" eval="False"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Batch Docker: publish repos ready for Docker build -->
+        <!-- Phase 2-7: disabled -->
+        <record id="jaeger_cron_batch_docker" model="ir.cron">
+            <field name="name">Jaeger: Batch Docker Builds</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_batch_docker()</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+
+            <field name="active" eval="False"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Poll EKS: check trajectory job status -->
+        <!-- Phase 2-7: disabled -->
+        <record id="jaeger_cron_poll_eks" model="ir.cron">
+            <field name="name">Jaeger: Poll EKS Trajectories</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_poll_eks_trajectories()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+
+            <field name="active" eval="False"/>
+            <field name="priority">10</field>
+        </record>
+
+        <!-- Auto-advance: check stage gates and advance repos -->
+        <!-- Phase 2-7: disabled (would auto-advance past stage2 into disabled stages) -->
+        <record id="jaeger_cron_auto_advance" model="ir.cron">
+            <field name="name">Jaeger: Auto-advance Stages</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_auto_advance_stages()</field>
+            <field name="interval_number">10</field>
+            <field name="interval_type">minutes</field>
+
+            <field name="active" eval="False"/>
+            <field name="priority">15</field>
+        </record>
+
+        <!-- Watchdog: mark stale scrape jobs (running >60min) as failed -->
+        <record id="jaeger_cron_watchdog_stale_scrapes" model="ir.cron">
+            <field name="name">Jaeger: Watchdog Stale Scrapes</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_watchdog_stale_scrapes()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Reconcile K8s Job status for running scrape pipelines -->
+        <record id="jaeger_cron_reconcile_scrape_jobs" model="ir.cron">
+            <field name="name">Jaeger: Reconcile Scrape Jobs (K8s)</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_reconcile_scrape_jobs()</field>
+            <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+    </data>
+</odoo>

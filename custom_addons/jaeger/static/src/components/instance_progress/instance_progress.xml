@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="jaeger.InstanceProgressWidget">
+        <div class="o_jaeger_progress_widget">
+            <div class="o_jaeger_progress_track">
+                <t t-foreach="stages" t-as="step" t-key="step.key">
+                    <!-- Connector line before this step (skip first) -->
+                    <t t-if="step_index > 0">
+                        <div t-att-class="connectorClass(connectors[step_index - 1])"/>
+                    </t>
+                    <!-- Step node -->
+                    <div t-att-class="stepClass(step)" t-att-title="step.label">
+                        <div class="o_jaeger_progress_number">
+                            <!-- SVG circular progress ring for active stages -->
+                            <svg t-if="step.state === 'active'" class="o_jaeger_ring" viewBox="0 0 40 40">
+                                <circle class="o_jaeger_ring_bg" cx="20" cy="20" r="18"/>
+                                <circle class="o_jaeger_ring_fill" cx="20" cy="20" r="18"
+                                        t-att-style="ringStyle(step)"/>
+                            </svg>
+                            <!-- Icon inside -->
+                            <t t-if="step.state === 'done'">
+                                <i class="fa fa-check"/>
+                            </t>
+                            <t t-elif="step.state === 'failed'">
+                                <i class="fa fa-times"/>
+                            </t>
+                            <t t-elif="step.state === 'active'">
+                                <i class="fa fa-spinner fa-spin"/>
+                            </t>
+                            <t t-else="">
+                                <t t-out="step.number"/>
+                            </t>
+                        </div>
+                        <span class="o_jaeger_progress_label">
+                            <t t-out="step.label"/>
+                            <t t-if="step.state === 'active' and step.progress > 0 and step.progress &lt; 100">
+                                <br/><small class="o_jaeger_progress_pct"><t t-out="step.progress"/>%</small>
+                            </t>
+                        </span>
+                    </div>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Tree View -->
+    <record id="view_jaeger_repository_tree" model="ir.ui.view">
+        <field name="name">jaeger.repository.tree</field>
+        <field name="model">jaeger.repository</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="repo_url" widget="url"/>
+                <field name="org"/>
+                <field name="repo_name"/>
+                <field name="language"/>
+                <field name="pipeline_mode"/>
+                <field name="current_stage" widget="badge"
+                       decoration-info="current_stage in ('stage1','stage2','stage3')"
+                       decoration-warning="current_stage in ('stage4','stage5','stage6')"
+                       decoration-success="current_stage in ('stage7','done')"
+                       decoration-danger="current_stage == 'failed'"/>
+                <field name="user_id" widget="many2one_avatar"/>
+                <field name="stars"/>
+                <field name="raw_dataset_count"/>
+                <field name="images_built_count" column_invisible="1"/>
+                <field name="instances_valid_count" column_invisible="1"/>
+                <field name="pass_at_k" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_jaeger_repository_form" model="ir.ui.view">
+        <field name="name">jaeger.repository.form</field>
+        <field name="model">jaeger.repository</field>
+        <field name="arch" type="xml">
+            <form class="o_jaeger_form">
+                <header>
+                    <!-- Stage-specific buttons: Queue (RabbitMQ) + Direct (local) -->
+                    <button name="action_validate_repo" type="object" string="Validate Repo"
+                            class="btn-primary" invisible="current_stage != 'stage1'"/>
+
+                    <button name="action_collect_prs" type="object" string="Collect PRs"
+                            class="btn-primary" invisible="current_stage != 'stage2' or pr_collection_status in ('running', 'queued')"/>
+                    <button name="action_collect_prs_direct" type="object" string="Collect PRs (Local)"
+                            class="btn-warning" invisible="current_stage != 'stage2' or pr_collection_status in ('running', 'queued')"/>
+
+                    <button name="action_cancel_pipeline" type="object" string="Cancel Pipeline"
+                            class="btn-danger"
+                            invisible="pr_collection_status not in ('running', 'queued')"
+                            confirm="Are you sure you want to cancel the running pipeline?"/>
+
+                    <!-- Phase 2-7 buttons: hidden until infra ready -->
+                    <button name="action_build_docker_images" type="object" string="Build Images (Queue)"
+                            class="btn-primary" invisible="1"/>
+                    <button name="action_build_docker_direct" type="object" string="Build Images (Direct)"
+                            class="btn-warning" invisible="1"/>
+
+                    <button name="action_run_tests" type="object" string="Run Tests (Queue)"
+                            class="btn-primary" invisible="1"/>
+                    <button name="action_run_tests_direct" type="object" string="Run Tests (Direct)"
+                            class="btn-warning" invisible="1"/>
+
+                    <button name="action_finalize_dataset" type="object" string="Finalize Dataset (Queue)"
+                            class="btn-primary" invisible="1"/>
+                    <button name="action_finalize_dataset_direct" type="object" string="Finalize (Direct)"
+                            class="btn-warning" invisible="1"/>
+
+                    <button name="action_dispatch_trajectories" type="object" string="Generate Trajectories"
+                            class="btn-primary" invisible="1"/>
+
+                    <button name="action_export_meta" type="object" string="Export to Meta (Queue)"
+                            class="btn-primary" invisible="1"/>
+                    <button name="action_export_meta_direct" type="object" string="Export (Direct)"
+                            class="btn-warning" invisible="1"/>
+
+                    <button name="action_advance_stage" type="object" string="Advance Stage"
+                            class="btn-secondary"/>
+                    <field name="current_stage" widget="statusbar"
+                           statusbar_visible="stage1,stage2,done"/>
+                </header>
+                <sheet>
+                    <!-- Pipeline Progress Widget -->
+                    <widget name="jaeger_instance_progress"/>
+
+                    <field name="pr_collection_status" widget="jaeger_auto_refresh" nolabel="1"/>
+
+                    <div class="oe_button_box" name="button_box">
+                        <button name="%(action_jaeger_instance)d" type="action"
+                                class="oe_stat_button" icon="fa-puzzle-piece"
+                                context="{'default_repository_id': id, 'search_default_repository_id': id}">
+                            <field name="raw_dataset_count" widget="statinfo" string="Instances"/>
+                        </button>
+                        <button name="%(action_jaeger_instance)d" type="action"
+                                class="oe_stat_button" icon="fa-cube"
+                                invisible="1"
+                                context="{'search_default_built': 1, 'search_default_repository_id': id}">
+                            <field name="images_built_count" widget="statinfo" string="Images Built"/>
+                        </button>
+                        <button name="%(action_jaeger_instance)d" type="action"
+                                class="oe_stat_button" icon="fa-check-circle"
+                                invisible="1"
+                                context="{'search_default_valid': 1, 'search_default_repository_id': id}">
+                            <field name="instances_valid_count" widget="statinfo" string="Valid"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="repo_url" widget="url"/>
+                            <field name="org" readonly="1"/>
+                            <field name="repo_name" readonly="1"/>
+                            <field name="language"/>
+                            <field name="pipeline_mode"/>
+                        </group>
+                        <group>
+                            <field name="user_id"/>
+                            <field name="terminal_state"/>
+                            <field name="task_category"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <!-- Stage 1: Validation -->
+                        <page string="1 - Validation" name="stage1">
+                            <div class="alert alert-info" role="status" invisible="crawl_status != 'running'">
+                                <i class="fa fa-spinner fa-spin me-2"/>Validating repository...
+                            </div>
+                            <group>
+                                <group>
+                                    <field name="crawl_status" widget="badge"/>
+                                    <field name="stars"/>
+                                    <field name="forks"/>
+                                    <field name="has_ci"/>
+                                </group>
+                                <group>
+                                    <field name="is_maintained"/>
+                                    <field name="is_fork"/>
+                                    <field name="repo_description"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <!-- Stage 2: PR Collection -->
+                        <page string="2 - PR Collection" name="stage2">
+                            <div class="alert alert-info" role="status" invisible="pr_collection_status != 'running'">
+                                <i class="fa fa-spinner fa-spin me-2"/>
+                                <strong>PR Collection in progress</strong>
+                                <br/>
+                                <field name="pr_collection_step" readonly="1" nolabel="1"
+                                       invisible="not pr_collection_step" class="mt-1 d-block text-primary fw-semibold"/>
+                            </div>
+                            <group>
+                                <group>
+                                    <field name="pr_collection_status" widget="badge"/>
+                                    <field name="pr_collection_progress" widget="progressbar"/>
+                                    <field name="pr_collection_step" readonly="1"
+                                           invisible="not pr_collection_step"/>
+                                    <field name="last_heartbeat" readonly="1"
+                                           invisible="pr_collection_status != 'running'"/>
+                                    <field name="total_prs_fetched"/>
+                                    <field name="filtered_prs_count"/>
+                                </group>
+                                <group>
+                                    <field name="issues_fetched_count"/>
+                                    <field name="raw_dataset_count"/>
+                                    <field name="prs_jsonl_path" readonly="1"/>
+                                    <field name="raw_dataset_jsonl_path" readonly="1"/>
+                                </group>
+                            </group>
+                            <!-- LHT fields -->
+                            <group string="LHT Settings" invisible="pipeline_mode != 'lht'">
+                                <group>
+                                    <field name="max_tags"/>
+                                    <field name="window_days"/>
+                                </group>
+                                <group>
+                                    <field name="tags_fetched_count"/>
+                                    <field name="tag_groups_count"/>
+                                </group>
+                            </group>
+                            <group string="Raw Dataset Preview" invisible="not raw_dataset_preview">
+                                <field name="raw_dataset_preview" readonly="1" nolabel="1"/>
+                            </group>
+                            <button name="action_download_raw_dataset" type="object"
+                                    string="Download Raw Dataset JSONL" icon="fa-download"
+                                    class="btn-primary mt-3"
+                                    invisible="not raw_dataset_jsonl_path or pr_collection_status != 'done'"/>
+                        </page>
+
+                        <!-- Stage 3: Docker Build (Phase 2-7: hidden) -->
+                        <page string="3 - Docker Build" name="stage3" invisible="1">
+                            <div class="alert alert-info" role="status" invisible="docker_build_status not in ('building', 'queued')">
+                                <i class="fa fa-spinner fa-spin me-2"/>Building Docker images...
+                            </div>
+                            <div class="alert alert-warning" role="status" invisible="base_image_status != 'building'">
+                                <i class="fa fa-spinner fa-spin me-2"/>
+                                <strong>Building repo base image (first time for this repo)...</strong>
+                            </div>
+                            <group string="Base Image">
+                                <group>
+                                    <field name="base_image_status" widget="badge"
+                                           decoration-success="base_image_status == 'built'"
+                                           decoration-danger="base_image_status == 'failed'"
+                                           decoration-warning="base_image_status == 'building'"
+                                           decoration-muted="base_image_status == 'none'"/>
+                                    <field name="base_image_name"/>
+                                </group>
+                            </group>
+                            <group string="Instance Builds">
+                                <group>
+                                    <field name="docker_build_status" widget="badge"/>
+                                    <field name="docker_build_progress" widget="progressbar"/>
+                                    <field name="images_built_count"/>
+                                    <field name="images_failed_count"/>
+                                </group>
+                                <group>
+                                    <field name="docker_platform"/>
+                                    <field name="force_build"/>
+                                </group>
+                            </group>
+                            <field name="instance_ids" string="Instance Docker Status">
+                                <list create="0" delete="0">
+                                    <field name="name"/>
+                                    <field name="docker_build_status" widget="badge"
+                                           decoration-success="docker_build_status == 'built'"
+                                           decoration-danger="docker_build_status == 'failed'"
+                                           decoration-warning="docker_build_status == 'building'"/>
+                                    <field name="docker_image_name"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- Stage 4: Test Execution (Phase 2-7: hidden) -->
+                        <page string="4 - Test Execution" name="stage4" invisible="1">
+                            <div class="alert alert-info" role="status" invisible="test_execution_status not in ('running', 'queued')">
+                                <i class="fa fa-spinner fa-spin me-2"/>Running test execution (3 Docker runs per instance)...
+                            </div>
+                            <group>
+                                <group>
+                                    <field name="test_execution_status" widget="badge"/>
+                                    <field name="test_execution_progress" widget="progressbar"/>
+                                    <field name="instances_tested_count"/>
+                                </group>
+                                <group>
+                                    <field name="instances_valid_count"/>
+                                    <field name="instances_invalid_count"/>
+                                    <field name="instances_error_count"/>
+                                    <field name="human_mode"/>
+                                    <field name="agent_timeout"/>
+                                </group>
+                            </group>
+                            <field name="instance_ids" string="Instance Test Results">
+                                <list create="0" delete="0">
+                                    <field name="name"/>
+                                    <field name="run_passed_count" string="Base P"/>
+                                    <field name="run_failed_count" string="Base F"/>
+                                    <field name="test_patch_passed_count" string="Test P"/>
+                                    <field name="test_patch_failed_count" string="Test F"/>
+                                    <field name="fix_patch_passed_count" string="Fix P"/>
+                                    <field name="fix_patch_failed_count" string="Fix F"/>
+                                    <field name="f2p_count"/>
+                                    <field name="p2p_count"/>
+                                    <field name="is_valid"/>
+                                    <field name="has_regressions"/>
+                                    <field name="validation_error"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- Stage 5: Dataset Finalization (Phase 2-7: hidden) -->
+                        <page string="5 - Dataset" name="stage5" invisible="1">
+                            <div class="alert alert-info" role="status" invisible="dataset_status != 'generating'">
+                                <i class="fa fa-spinner fa-spin me-2"/>Generating final dataset...
+                            </div>
+                            <group>
+                                <group>
+                                    <field name="dataset_status" widget="badge"/>
+                                    <field name="final_dataset_count"/>
+                                    <field name="final_dataset_jsonl_path" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="total_instances"/>
+                                    <field name="resolved_instances"/>
+                                    <field name="unresolved_instances"/>
+                                    <field name="empty_patch_instances"/>
+                                    <field name="error_instances"/>
+                                </group>
+                            </group>
+                            <group string="Final Report" invisible="not final_report_json">
+                                <field name="final_report_json" readonly="1" nolabel="1"/>
+                            </group>
+                            <group string="Final Dataset Preview" invisible="not final_dataset_preview">
+                                <field name="final_dataset_preview" readonly="1" nolabel="1"/>
+                            </group>
+                        </page>
+
+                        <!-- Stage 6: Trajectory (Phase 2-7: hidden) -->
+                        <page string="6 - Trajectory" name="stage6" invisible="1">
+                            <!-- Trajectory Dashboard -->
+                            <widget name="jaeger_run_dashboard"/>
+                            <group>
+                                <group>
+                                    <field name="trajectory_status" widget="badge"/>
+                                    <field name="eks_job_id"/>
+                                    <field name="model_name"/>
+                                    <field name="k_runs"/>
+                                    <field name="num_workers"/>
+                                </group>
+                                <group>
+                                    <field name="pass_at_k"/>
+                                    <field name="total_api_cost"/>
+                                    <field name="total_api_calls"/>
+                                    <field name="temperature"/>
+                                    <field name="conversation_timeout"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <!-- Stage 7: Delivery (Phase 2-7: hidden) -->
+                        <page string="7 - Delivery" name="stage7" invisible="1">
+                            <group>
+                                <group>
+                                    <field name="delivery_status" widget="badge"/>
+                                    <field name="delivered_count"/>
+                                    <field name="meta_delivery_jsonl_path"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <!-- Logs -->
+                        <page string="Logs" name="logs">
+                            <group>
+                                <field name="error_message" readonly="1"/>
+                            </group>
+                            <field name="log_output" widget="jaeger_log_viewer" readonly="1" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_jaeger_repository_search" model="ir.ui.view">
+        <field name="name">jaeger.repository.search</field>
+        <field name="model">jaeger.repository</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="repo_url"/>
+                <field name="org"/>
+                <field name="repo_name"/>
+                <field name="user_id"/>
+                <filter name="my_repos" string="My Repos"
+                        domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="stage1" string="Stage 1" domain="[('current_stage', '=', 'stage1')]"/>
+                <filter name="stage2" string="Stage 2" domain="[('current_stage', '=', 'stage2')]"/>
+                <filter name="stage3" string="Stage 3" domain="[('current_stage', '=', 'stage3')]"/>
+                <filter name="stage4" string="Stage 4" domain="[('current_stage', '=', 'stage4')]"/>
+                <filter name="stage5" string="Stage 5" domain="[('current_stage', '=', 'stage5')]"/>
+                <filter name="stage6" string="Stage 6" domain="[('current_stage', '=', 'stage6')]"/>
+                <filter name="stage7" string="Stage 7" domain="[('current_stage', '=', 'stage7')]"/>
+                <filter name="done" string="Done" domain="[('current_stage', '=', 'done')]"/>
+                <filter name="failed" string="Failed" domain="[('terminal_state', '!=', 'none')]"/>
+                <separator/>
+                <group>
+                    <filter name="group_stage" string="Stage" context="{'group_by': 'current_stage'}"/>
+                    <filter name="group_language" string="Language" context="{'group_by': 'language'}"/>
+                    <filter name="group_user" string="Assigned To" context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_jaeger_repository" model="ir.actions.act_window">
+        <field name="name">Repositories</field>
+        <field name="res_model">jaeger.repository</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_jaeger_repository_search"/>
+        <field name="context">{'search_default_my_repos': 1}</field>
+    </record>
+</odoo>
