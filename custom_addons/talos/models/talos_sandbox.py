@@ -37,7 +37,7 @@ _SANDBOX_STARTING = set()
 _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
-    ("claude", "Claude Opus 4.6"),
+    ("claude", "Claude Opus 4.7"),
     ("glm", "GLM 5"),
     ("1pa", "1PA"),
     ("1pb", "1PB"),
@@ -46,7 +46,7 @@ MODEL_TYPES = [
 ]
 
 MODEL_DEFAULTS = {
-    "claude": "litellm/claude-opus-4.6",
+    "claude": "litellm/claude-opus-4.7",
     "glm": "litellm/glm-5",
     "1pa": "litellm/quiet_sand",
     "1pb": "litellm/quiet_sand",
@@ -1869,8 +1869,8 @@ class TalosSandbox(models.Model):
             "api": "openai-completions",
             "models": [
                 {
-                    "id": "claude-opus-4.6",
-                    "name": "claude-opus-4.6",
+                    "id": "claude-opus-4.7",
+                    "name": "claude-opus-4.7",
                     "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {

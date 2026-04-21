@@ -571,11 +571,11 @@ def _load_dotenv():
 
 _DEFAULT_LITELLM_CONFIG = """\
 model_list:
-  - model_name: claude-opus-4.6
+  - model_name: claude-opus-4.7
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      reasoning_effort: "high"
+      thinking: {{"type": "adaptive", "budget_tokens": 10000}}
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
@@ -797,7 +797,7 @@ class Talos(models.Model):
     claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
 
-    claude_trajectory = fields.Text(string="Claude 4.6 Trajectory")
+    claude_trajectory = fields.Text(string="Claude 4.7 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
     onePA_trajectory = fields.Text(string="1PA Trajectory")
     onePB_trajectory = fields.Text(string="1PB Trajectory")

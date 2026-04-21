@@ -9,7 +9,7 @@ import { clearChatSession } from "../chat_widget/chat_widget";
 import { rpc } from "@web/core/network/rpc";
 
 const MODEL_TABS = [
-    { type: "claude", label: "Claude 4.6", icon: "fa-microchip" },
+    { type: "claude", label: "Claude 4.7", icon: "fa-microchip" },
     { type: "glm", label: "GLM 5", icon: "fa-cube" },
     { type: "1pa", label: "1PA", icon: "fa-flask" },
     { type: "1pb", label: "1PB", icon: "fa-flask" },

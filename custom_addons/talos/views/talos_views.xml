@@ -108,8 +108,8 @@
             <widget name="talos_task_dashboard"/>
 
             <group string="Trajectories" colspan="2">
-              <separator string="Claude 4.6 Trajectory" colspan="2"/>
-              <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.6 Trajectory" colspan="2"/>
+              <separator string="Claude 4.7 Trajectory" colspan="2"/>
+              <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
               <separator string="GLM 5 Trajectory" colspan="2"/>
               <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="GLM 5 Trajectory" colspan="2"/>
               <separator string="1PA Trajectory" colspan="2"/>
