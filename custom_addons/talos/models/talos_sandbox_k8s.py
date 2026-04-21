@@ -826,8 +826,8 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "250m", "memory": "512Mi"},
-                limits={"memory": "8Gi"},
+                requests={"cpu": "50m", "memory": "1536Mi"},
+                limits={"memory": "3Gi"},
             ),
             lifecycle=client.V1Lifecycle(
                 pre_stop=client.V1LifecycleHandler(
@@ -919,7 +919,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "100m", "memory": "512Mi"},
+                requests={"cpu": "25m", "memory": "512Mi"},
             ),
             startup_probe=client.V1Probe(
                 tcp_socket=client.V1TCPSocketAction(port=4000),

@@ -16,15 +16,14 @@
                                 <div class="talos-json-entry-actions">
                                     <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
                                     <t t-set="isQcCollapsed" t-value="state.qcCollapsed[entry.index]"/>
-                                    <t t-if="!isGoldenField and hasQcResult and isQcCollapsed">
+                                    <t t-if="hasQcResult and isQcCollapsed">
                                         <button class="talos-json-qc-btn talos-json-qc-btn-show"
                                                 t-on-click="() => this.onShowQc(entry.index)"
                                                 title="Show QC result">
                                             <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
                                         </button>
                                     </t>
-                                    <t t-if="!isGoldenField">
-                                        <button class="talos-json-taskdesc-btn"
+                                    <button class="talos-json-taskdesc-btn"
                                                 t-att-disabled="isAnyActionRunning or entry.taskDescriptionStatus === 'pending'"
                                                 t-on-click="() => this.onGenerateTaskDesc(entry.index)"
                                                 title="Generate task description via AI">
@@ -42,9 +41,7 @@
                                                 <i class="fa fa-stop"/> Stop
                                             </button>
                                         </t>
-                                    </t>
-                                    <t t-if="!isGoldenField">
-                                        <button class="talos-json-qc-btn"
+                                    <button class="talos-json-qc-btn"
                                                 t-att-disabled="isAnyActionRunning or entry.qcStatus === 'pending'"
                                                 t-on-click="() => this.onQcEntry(entry.index)"
                                                 t-att-title="hasQcResult ? 'Re-run QC' : 'Run QC on this trajectory'">
@@ -71,7 +68,6 @@
                                                 <i class="fa fa-stop"/> Stop
                                             </button>
                                         </t>
-                                    </t>
                                     <t t-if="isEditable and state.editingIndex !== entry.index">
                                         <button class="talos-json-edit-btn"
                                                 t-att-disabled="isAnyActionRunning"

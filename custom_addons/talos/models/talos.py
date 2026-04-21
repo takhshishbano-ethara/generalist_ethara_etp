@@ -575,7 +575,7 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      thinking: {{"type": "adaptive", "budget_tokens": 10000}}
+      reasoning_effort: "high"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
