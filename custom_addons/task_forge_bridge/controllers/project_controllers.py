@@ -764,3 +764,114 @@ class TaskForgeProjectController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/project/hierarchy', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def project_hierarchy(self, **kwargs):
+        try:
+            Employee = request.env['hr.employee'].sudo()
+            Project = request.env['project.project'].sudo()
+
+            domain = []
+            if kwargs.get('project_id'):
+                domain.append(('id', '=', int(kwargs.get('project_id'))))
+
+            projects = Project.search(domain)
+            result = []
+
+            for proj in projects:
+                pl_employees = proj.project_lead
+                qr_employees = proj.project_qc_reviewer
+                tasker_employees = proj.project_tasker
+
+                qr_ids_set = set(qr_employees.ids)
+                tasker_ids_set = set(tasker_employees.ids)
+
+                pl_data = []
+                assigned_qr_ids = set()
+                assigned_tasker_ids = set()
+
+                for pl in pl_employees:
+                    pl_qrs = Employee.search([
+                        ('task_forge_pl_id', '=', pl.id),
+                        ('id', 'in', list(qr_ids_set)),
+                    ])
+                    assigned_qr_ids.update(pl_qrs.ids)
+
+                    qr_data = []
+                    for qr in pl_qrs:
+                        qr_taskers = Employee.search([
+                            ('task_forge_qr_id', '=', qr.id),
+                            ('id', 'in', list(tasker_ids_set)),
+                        ])
+                        assigned_tasker_ids.update(qr_taskers.ids)
+
+                        qr_data.append({
+                            'id': qr.id,
+                            'name': qr.name or '',
+                            'role': 'qc_reviewer',
+                            'tasker_count': len(qr_taskers),
+                            'taskers': [{
+                                'id': t.id,
+                                'name': t.name or '',
+                                'role': 'tasker',
+                            } for t in qr_taskers],
+                        })
+
+                    pl_data.append({
+                        'id': pl.id,
+                        'name': pl.name or '',
+                        'role': 'lead',
+                        'qr_count': len(pl_qrs),
+                        'tasker_count': sum(q['tasker_count'] for q in qr_data),
+                        'qrs': qr_data,
+                    })
+
+                # unassigned_qrs = qr_employees.filtered(lambda q: q.id not in assigned_qr_ids)
+                # unassigned_taskers = tasker_employees.filtered(lambda t: t.id not in assigned_tasker_ids)
+                #
+                # unassigned_qr_data = []
+                # for qr in unassigned_qrs:
+                #     qr_taskers = Employee.search([
+                #         ('task_forge_qr_id', '=', qr.id),
+                #         ('id', 'in', list(tasker_ids_set)),
+                #     ])
+                #     assigned_tasker_ids.update(qr_taskers.ids)
+                #     unassigned_qr_data.append({
+                #         'id': qr.id,
+                #         'name': qr.name or '',
+                #         'role': 'qc_reviewer',
+                #         'tasker_count': len(qr_taskers),
+                #         'taskers': [{
+                #             'id': t.id,
+                #             'name': t.name or '',
+                #             'role': 'tasker',
+                #         } for t in qr_taskers],
+                #     })
+                #
+                # unassigned_taskers = tasker_employees.filtered(lambda t: t.id not in assigned_tasker_ids)
+                # unassigned_tasker_data = [{
+                #     'id': t.id,
+                #     'name': t.name or '',
+                #     'role': 'tasker',
+                # } for t in unassigned_taskers]
+                #
+                result.append({
+                    'project_id': proj.id,
+                    'project_name': proj.name or '',
+                    'project_seq': proj.project_seq or '',
+                    'pl_count': len(pl_employees),
+                    'qr_count': len(qr_employees),
+                    'tasker_count': len(tasker_employees),
+                    'pls': pl_data,
+                    # 'unassigned_qrs': unassigned_qr_data,
+                    # 'unassigned_taskers': unassigned_tasker_data,
+                })
+
+            return return_Response(
+                message="Project hierarchy",
+                status=200,
+                data={'data': result}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
