@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.berserker</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Berserker" string="Berserker" name="berserker" groups="berserker.group_berserker_admin">
+                    <block title="Bedrock Configuration (Kimi &amp; Claude)" help="Configure AWS Bedrock ARNs and regions for Kimi and Claude models.">
+                        <setting string="Kimi Bedrock ARN" help="The AWS Bedrock inference profile ARN for Kimi K2.5.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_kimi_arn" class="col-lg-3"/>
+                                    <field name="berserker_kimi_arn" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Kimi Bedrock Region" help="The AWS region for the Kimi Bedrock endpoint.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_kimi_region" class="col-lg-3"/>
+                                    <field name="berserker_kimi_region" class="col-lg-3"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Claude Bedrock ARN" help="The AWS Bedrock inference profile ARN for Claude 4.7.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_claude_arn" class="col-lg-3"/>
+                                    <field name="berserker_claude_arn" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Claude Bedrock Region" help="The AWS region for the Claude Bedrock endpoint.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_claude_region" class="col-lg-3"/>
+                                    <field name="berserker_claude_region" class="col-lg-3"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Model Names" help="Configure model identifiers for Gemini and OpenAI.">
+                        <setting string="Gemini Model" help="The Gemini model name used in Google AI Studio API calls.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_gemini_model" class="col-lg-3"/>
+                                    <field name="berserker_gemini_model" class="col-lg-4"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="OpenAI Model" help="The OpenAI model name used in Responses API calls.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="berserker_openai_model" class="col-lg-3"/>
+                                    <field name="berserker_openai_model" class="col-lg-4"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

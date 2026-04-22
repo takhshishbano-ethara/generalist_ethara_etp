@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="berserker.RankingDragDropField">
+        <div class="o_ranking_container" t-ref="container">
+            <t t-foreach="state.items" t-as="model" t-key="model">
+                <div class="o_ranking_card"
+                     t-att-class="isReadonly ? '' : 'o_ranking_draggable'"
+                     t-att-draggable="isReadonly ? 'false' : 'true'"
+                     t-on-dragstart="(ev) => this.onDragStart(ev, model_index)"
+                     t-on-dragend="onDragEnd"
+                     t-on-dragover="(ev) => this.onDragOver(ev, model_index)"
+                     t-on-dragenter="(ev) => this.onDragEnter(ev, model_index)"
+                     t-on-dragleave="onDragLeave"
+                     t-on-drop="(ev) => this.onDrop(ev, model_index)"
+                     t-att-style="'border-left: 4px solid ' + (colors[model] || '#999') + ';'">
+                    <span class="o_ranking_position" t-esc="rankLabel(model_index)"/>
+                    <span class="o_ranking_model_name" t-esc="labels[model] || model"/>
+                    <span class="o_ranking_grip" t-if="!isReadonly">⠿</span>
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

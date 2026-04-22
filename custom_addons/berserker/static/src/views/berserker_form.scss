@@ -1,0 +1,25 @@
+.o_action[data-res-model="berserker"] {
+    .o-mail-ChatterContainer,
+    .o-mail-Chatter,
+    .o_FormRenderer_chatterContainer,
+    .o_form_view_container > aside,
+    .o_cp_action_menus .o_dropdown_container:has(.o_menu_properties) {
+        display: none !important;
+    }
+
+    .o_form_view_container {
+        max-width: 100% !important;
+    }
+
+    .o_form_sheet_bg {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    .o_form_sheet {
+        max-width: 100% !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 24px 32px !important;
+    }
+}
