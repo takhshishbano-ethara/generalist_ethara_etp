@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_jaeger_repository_user,jaeger.repository.user,model_jaeger_repository,group_jaeger_user,1,1,1,0
+access_jaeger_repository_admin,jaeger.repository.admin,model_jaeger_repository,group_jaeger_admin,1,1,1,1
+access_jaeger_instance_user,jaeger.instance.user,model_jaeger_instance,group_jaeger_user,1,1,0,0
+access_jaeger_instance_admin,jaeger.instance.admin,model_jaeger_instance,group_jaeger_admin,1,1,1,1
+access_jaeger_resolved_issue_user,jaeger.resolved.issue.user,model_jaeger_resolved_issue,group_jaeger_user,1,0,0,0
+access_jaeger_resolved_issue_admin,jaeger.resolved.issue.admin,model_jaeger_resolved_issue,group_jaeger_admin,1,1,1,1
+access_jaeger_trajectory_run_user,jaeger.trajectory.run.user,model_jaeger_trajectory_run,group_jaeger_user,1,0,0,0
+access_jaeger_trajectory_run_admin,jaeger.trajectory.run.admin,model_jaeger_trajectory_run,group_jaeger_admin,1,1,1,1

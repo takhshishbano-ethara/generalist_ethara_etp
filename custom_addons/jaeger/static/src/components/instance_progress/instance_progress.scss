@@ -1,0 +1,145 @@
+/* Jaeger Pipeline Progress Widget */
+.o_jaeger_progress_widget {
+    padding: 8px 0;
+
+    .o_jaeger_progress_track {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+    }
+
+    .o_jaeger_progress_step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 70px;
+
+        .o_jaeger_progress_number {
+            position: relative;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 13px;
+            border: 2px solid #dee2e6;
+            background: #fff;
+            color: #6c757d;
+            transition: all 0.2s ease;
+        }
+
+        .o_jaeger_progress_label {
+            font-size: 11px;
+            margin-top: 4px;
+            color: #6c757d;
+            white-space: nowrap;
+            text-align: center;
+        }
+
+        .o_jaeger_progress_pct {
+            font-size: 10px;
+            font-weight: 600;
+            color: #007bff;
+        }
+
+        &.o_jaeger_progress_step_done {
+            .o_jaeger_progress_number {
+                background: #28a745;
+                border-color: #28a745;
+                color: #fff;
+            }
+            .o_jaeger_progress_label {
+                color: #28a745;
+                font-weight: 500;
+            }
+        }
+
+        &.o_jaeger_progress_step_active {
+            .o_jaeger_progress_number {
+                background: #007bff;
+                border-color: transparent;
+                color: #fff;
+            }
+            .o_jaeger_progress_label {
+                color: #007bff;
+                font-weight: 600;
+            }
+        }
+
+        &.o_jaeger_progress_step_queued {
+            .o_jaeger_progress_number {
+                background: #ffc107;
+                border-color: #ffc107;
+                color: #212529;
+            }
+            .o_jaeger_progress_label {
+                color: #856404;
+            }
+        }
+
+        &.o_jaeger_progress_step_current {
+            .o_jaeger_progress_number {
+                border-color: #007bff;
+                color: #007bff;
+            }
+            .o_jaeger_progress_label {
+                color: #007bff;
+                font-weight: 500;
+            }
+        }
+
+        &.o_jaeger_progress_step_failed {
+            .o_jaeger_progress_number {
+                background: #dc3545;
+                border-color: transparent;
+                color: #fff;
+            }
+            .o_jaeger_progress_label {
+                color: #dc3545;
+                font-weight: 500;
+            }
+        }
+    }
+
+    .o_jaeger_progress_connector {
+        width: 32px;
+        height: 2px;
+        background: #dee2e6;
+        margin-bottom: 20px;
+        transition: background 0.2s ease;
+
+        &.o_jaeger_progress_connector_filled {
+            background: #28a745;
+        }
+    }
+
+    /* SVG circular progress ring */
+    .o_jaeger_ring {
+        position: absolute;
+        top: -4px;
+        left: -4px;
+        width: 40px;
+        height: 40px;
+        transform: rotate(-90deg);
+        pointer-events: none;
+    }
+
+    .o_jaeger_ring_bg {
+        fill: none;
+        stroke: rgba(0, 123, 255, 0.15);
+        stroke-width: 2.5;
+    }
+
+    .o_jaeger_ring_fill {
+        fill: none;
+        stroke: #007bff;
+        stroke-width: 2.5;
+        stroke-dasharray: 113.1;
+        stroke-dashoffset: 113.1;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.5s ease;
+    }
+}

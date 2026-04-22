@@ -25,7 +25,6 @@ sys.path.insert(0, "/opt/ethara/app")
 sys.path.insert(0, "/opt/ethara/app/custom_addons")
 
 import odoo  # noqa: E402
-import odoo.tools.config  # noqa: E402
 
 odoo.tools.config.parse_config([
     "--config", os.environ.get("ODOO_CONF", "/opt/ethara/app/odoo.conf"),

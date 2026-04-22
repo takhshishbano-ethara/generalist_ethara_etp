@@ -22,18 +22,12 @@ class JaegerController(http.Controller):
             "filtered_prs": repo.filtered_prs_jsonl_path,
         }
         file_path = path_map.get(filetype)
-        if not file_path:
+        if not file_path or not os.path.isfile(file_path):
             return request.not_found()
 
         filename = os.path.basename(file_path)
-
-        if os.path.isfile(file_path):
-            with open(file_path, "rb") as f:
-                content = f.read()
-        else:
-            content = repo._download_from_s3_bytes(file_path)
-            if content is None:
-                return request.not_found()
+        with open(file_path, "rb") as f:
+            content = f.read()
 
         return request.make_response(
             content,

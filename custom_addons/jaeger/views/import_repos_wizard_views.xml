@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_import_repos_wizard_form" model="ir.ui.view">
+        <field name="name">jaeger.import.repos.wizard.form</field>
+        <field name="model">jaeger.import.repos.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Repositories">
+                <group>
+                    <field name="csv_file" filename="csv_filename"/>
+                    <field name="csv_filename" invisible="1"/>
+                    <field name="default_language"/>
+                    <field name="default_pipeline_mode"/>
+                    <field name="auto_validate"/>
+                </group>
+                <separator string="CSV Format"/>
+                <p>CSV must have headers: <strong>url</strong>, <strong>language</strong> (optional), <strong>pipeline_mode</strong> (optional)</p>
+                <footer>
+                    <button name="action_import" type="object" string="Import" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_import_repos_wizard" model="ir.actions.act_window">
+        <field name="name">Import Repositories</field>
+        <field name="res_model">jaeger.import.repos.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Add to Jaeger menu -->
+    <menuitem id="menu_import_repos_wizard" name="Import Repos (CSV)" parent="menu_jaeger_pipeline"
+              action="action_import_repos_wizard" sequence="50"/>
+</odoo>

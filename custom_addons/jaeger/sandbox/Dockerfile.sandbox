@@ -1,0 +1,66 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget gnupg git \
+    postgresql-client \
+    build-essential gcc g++ \
+    libffi-dev libssl-dev libpq-dev \
+    libxml2-dev libxslt1-dev \
+    libldap2-dev libsasl2-dev \
+    zlib1g-dev libjpeg-dev \
+    libmagic1 libglib2.0-0 \
+    libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 libharfbuzz0b \
+    libx11-6 libxext6 libxrender1 \
+    libjpeg62-turbo libpng16-16 \
+    fontconfig libfreetype6 fonts-liberation \
+    xfonts-75dpi xfonts-base \
+    nodejs npm \
+    && npm install -g rtlcss \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+WORKDIR /opt/ethara/app
+
+COPY src/requirements.txt ./requirements.txt
+
+RUN sed -i \
+    -e '/^--extra-index-url/d' \
+    -e '/^torch/d' \
+    -e '/^playwright/d' \
+    -e '/^pyee/d' \
+    -e '/^gevent/d' \
+    -e '/^bert-score/d' \
+    -e '/^transformers/d' \
+    -e '/^tokenizers/d' \
+    -e '/^safetensors/d' \
+    -e '/^datasets/d' \
+    -e '/^evaluate/d' \
+    -e '/^pyarrow/d' \
+    requirements.txt \
+    && pip install --upgrade pip setuptools wheel \
+    && pip install Babel>=2.9.1 \
+    && pip install -r requirements.txt \
+    && pip install "httpx[http2]" \
+    && pip install gevent \
+    && apt-get purge -y \
+        build-essential gcc g++ \
+        libffi-dev libssl-dev libpq-dev \
+        libxml2-dev libxslt1-dev \
+        libldap2-dev libsasl2-dev \
+        zlib1g-dev libjpeg-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+COPY src/ .
+COPY . .
+
+RUN chmod +x odoo-bin
+
+EXPOSE 8069 8072
+
+CMD ["./odoo-bin", "-c", "/etc/odoo/odoo.conf", "-d", "jaeger_dev"]

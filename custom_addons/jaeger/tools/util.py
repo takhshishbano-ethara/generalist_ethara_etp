@@ -14,8 +14,14 @@ def datetime_serializer(obj):
 
 
 def extract_resolved_issues(pull):
-    """Extract issue numbers referenced by fix/close/resolve keywords."""
-    # Define 1. issue number regex pattern 2. comment regex pattern 3. keywords
+    """Extract issue numbers referenced by fix/close/resolve keywords in PR.
+
+    Args:
+        pull: dict with 'title', 'body', 'commits' keys.
+
+    Returns:
+        list[int]: Deduplicated issue numbers.
+    """
     issues_pat = re.compile(r"(\w+)\s+\#(\d+)")
     comments_pat = re.compile(r"(?s)<!--.*?-->")
     keywords = {
@@ -24,22 +30,15 @@ def extract_resolved_issues(pull):
         "resolve", "resolves", "resolved",
     }
 
-    # Construct text to search over for issue numbers from PR body and commit messages
-    text = pull["title"] if pull["title"] else ""
-    text += "\n" + (pull["body"] if pull["body"] else "")
-    text += "\n" + "\n".join([commit["message"] for commit in pull["commits"]])
+    text = pull.get("title") or ""
+    text += "\n" + (pull.get("body") or "")
+    text += "\n" + "\n".join(c.get("message", "") for c in pull.get("commits", []))
 
-    # Remove comments from text
     text = comments_pat.sub("", text)
-    # Look for issue numbers in text via scraping <keyword, number> patterns
-    references = dict(issues_pat.findall(text))
-    resolved_issues = set()
-    if references:
-        for word, issue_num in references.items():
-            if word.lower() in keywords:
-                resolved_issues.add(int(issue_num))
-
-    if 0 in resolved_issues:
-        resolved_issues.remove(0)
-
-    return list(resolved_issues)
+    resolved = set()
+    for word, issue_num in issues_pat.findall(text):
+        if word.lower() in keywords:
+            num = int(issue_num)
+            if num > 0:
+                resolved.add(num)
+    return sorted(resolved)
