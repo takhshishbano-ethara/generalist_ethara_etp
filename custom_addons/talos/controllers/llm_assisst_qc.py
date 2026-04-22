@@ -186,148 +186,33 @@ _QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="traj_qc")
 def _run_trajectory_qc_background(
     db_name, record_id, field_name, entry_index, trajectory_str
 ):
-    """Background worker: run QC via Bedrock and write result into trajectory entry in DB."""
+    from .trajectory_qc_validator import validate_trajectory, build_report
+
     try:
+        t0 = time.monotonic()
+        label = f"record={record_id}/field={field_name}/entry={entry_index}"
+        _logger.info("QC bg: running deterministic validation for %s", label)
+
+        checks = validate_trajectory(label, trajectory_str)
+        qc_verdict = build_report(label, checks)
+        elapsed = time.monotonic() - t0
+
+        _logger.info(
+            "QC bg: deterministic validation done for %s "
+            "elapsed=%.2fs severity=%s fails=%d warns=%d passes=%d",
+            label,
+            elapsed,
+            qc_verdict.get("severity"),
+            qc_verdict.get("total_fails", 0),
+            qc_verdict.get("total_warns", 0),
+            qc_verdict.get("total_passes", 0),
+        )
+
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
-
-            from ..models.talos import _load_dotenv as _ld
-
-            dotenv = _ld()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-            if not api_key or not inference_arn:
-                _logger.warning("QC bg: missing credentials")
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                return
-
-            if field_name == "golden_trajectory":
-                system_prompt = _get_golden_trajectory_qc_prompt()
-            else:
-                system_prompt = _get_trajectory_qc_prompt()
-            if not system_prompt:
-                _logger.warning("QC bg: no trajectory_qc_prompt.md")
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                return
-
-            if len(trajectory_str) > 50000:
-                trajectory_str = (
-                    trajectory_str[:50000] + "\n\n[... truncated for length ...]"
-                )
-
-            total_usage = {"input_tokens": 0, "output_tokens": 0}
-            try:
-                _logger.info(
-                    "QC bg: calling Kimi record=%s field=%s entry=%s "
-                    "arn=%s region=%s prompt_len=%d",
-                    record_id,
-                    field_name,
-                    entry_index,
-                    inference_arn,
-                    region,
-                    len(trajectory_str),
-                )
-                t0 = time.monotonic()
-                response_text, usage = _call_bedrock_converse(
-                    api_key=api_key,
-                    inference_arn=inference_arn,
-                    region=region,
-                    system_prompt=system_prompt,
-                    user_message=trajectory_str,
-                    max_tokens=4096,
-                    temperature=0.3,
-                )
-                elapsed = time.monotonic() - t0
-                total_usage["input_tokens"] += usage.get("input_tokens", 0)
-                total_usage["output_tokens"] += usage.get("output_tokens", 0)
-                _logger.info(
-                    "QC bg: Kimi response record=%s field=%s entry=%s "
-                    "elapsed=%.2fs in_tokens=%d out_tokens=%d "
-                    "response_len=%d raw_output=%.500s",
-                    record_id,
-                    field_name,
-                    entry_index,
-                    elapsed,
-                    usage.get("input_tokens", 0),
-                    usage.get("output_tokens", 0),
-                    len(response_text),
-                    response_text,
-                )
-                if _is_degenerate(response_text):
-                    _logger.warning(
-                        "QC bg: degenerate response (%d chars), retrying temp=0.1: %.200s",
-                        len(response_text),
-                        response_text,
-                    )
-                    t0 = time.monotonic()
-                    response_text, usage = _call_bedrock_converse(
-                        api_key=api_key,
-                        inference_arn=inference_arn,
-                        region=region,
-                        system_prompt=system_prompt,
-                        user_message=trajectory_str,
-                        max_tokens=4096,
-                        temperature=0.1,
-                        top_p=0.7,
-                    )
-                    elapsed = time.monotonic() - t0
-                    total_usage["input_tokens"] += usage.get("input_tokens", 0)
-                    total_usage["output_tokens"] += usage.get("output_tokens", 0)
-                    _logger.info(
-                        "QC bg: Kimi retry response record=%s field=%s entry=%s "
-                        "elapsed=%.2fs in_tokens=%d out_tokens=%d "
-                        "response_len=%d raw_output=%.500s",
-                        record_id,
-                        field_name,
-                        entry_index,
-                        elapsed,
-                        usage.get("input_tokens", 0),
-                        usage.get("output_tokens", 0),
-                        len(response_text),
-                        response_text,
-                    )
-            except Exception as e:
-                _logger.exception(
-                    "QC bg: Bedrock call failed record=%s field=%s entry=%s",
-                    record_id,
-                    field_name,
-                    entry_index,
-                )
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                _accumulate_tokens(
-                    env,
-                    record_id,
-                    "traj_qc_input_tokens",
-                    "traj_qc_output_tokens",
-                    total_usage,
-                )
-                return
-
-            _accumulate_tokens(
-                env,
-                record_id,
-                "traj_qc_input_tokens",
-                "traj_qc_output_tokens",
-                total_usage,
+            _update_qc_entry(
+                env, record_id, field_name, entry_index, "done", qc_verdict
             )
-
-            qc_verdict = _parse_qc_verdict(response_text)
-            if qc_verdict:
-                _update_qc_entry(
-                    env, record_id, field_name, entry_index, "done", qc_verdict
-                )
-                _logger.info(
-                    "QC bg: done for record=%s field=%s entry=%s",
-                    record_id,
-                    field_name,
-                    entry_index,
-                )
-            else:
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                _logger.warning("QC bg: no parseable verdict for record=%s", record_id)
     except Exception:
         _logger.exception(
             "QC bg: unhandled error for record=%s field=%s entry=%s",
@@ -335,6 +220,12 @@ def _run_trajectory_qc_background(
             field_name,
             entry_index,
         )
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+        except Exception:
+            _logger.exception("QC bg: failed to write error status")
 
 
 def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):

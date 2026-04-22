@@ -32,7 +32,7 @@
                                                 <i class="fa fa-spinner fa-spin"/> Describing…
                                             </t>
                                             <t t-else="">
-                                                <i class="fa fa-magic"/> Describe
+                                                <i class="fa fa-magic"/> Describe 
                                             </t>
                                         </button>
                                         <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">

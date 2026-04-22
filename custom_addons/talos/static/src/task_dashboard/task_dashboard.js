@@ -17,6 +17,15 @@ const MODEL_TABS = [
     { type: "1pd", label: "1PD", icon: "fa-flask" },
 ];
 
+const TRAJECTORY_FIELD_MAP = {
+    claude: "claude_trajectory",
+    glm: "glm_trajectory",
+    "1pa": "onePA_trajectory",
+    "1pb": "onePB_trajectory",
+    "1pc": "onePC_trajectory",
+    "1pd": "onePD_trajectory",
+};
+
 const STATUS_POLL_INTERVAL_MS = 5000;
 
 export class TaskDashboard extends Component {
@@ -59,11 +68,19 @@ export class TaskDashboard extends Component {
         });
     }
 
-    _handleSandboxStatusChanged(payload) {
+    async _handleSandboxStatusChanged(payload) {
         const sandboxId = payload.sandbox_id;
         delete this.state.loadingSandbox[sandboxId];
-        this._loadSandboxes();
-        this.props.record.load();
+        await this._loadSandboxes();
+        await this.props.record.load();
+
+        const status = payload.docker_status || payload.status;
+        if (status === "stopped" || status === "exited") {
+            const modelType = payload.model_type;
+            if (modelType) {
+                await this._autoTriggerTaskDescription(modelType);
+            }
+        }
     }
 
     get taskId() {
@@ -285,11 +302,16 @@ export class TaskDashboard extends Component {
     async onStopSandbox(sandboxId) {
         if (!sandboxId) return;
         this.state.loadingSandbox[sandboxId] = true;
+
+        const sandbox = Object.values(this.state.sandboxes).find((sb) => sb.id === sandboxId);
+        const modelType = sandbox?.model_type;
+
         try {
             await clearChatSession(sandboxId);
             await this.orm.call("talos.sandbox", "action_stop_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
             await this.props.record.load();
+            await this._autoTriggerTaskDescription(modelType);
         } catch (e) {
             this.notification.add(
                 e.data?.message || e.message || "Failed to stop sandbox",
@@ -298,6 +320,82 @@ export class TaskDashboard extends Component {
         } finally {
             delete this.state.loadingSandbox[sandboxId];
         }
+    }
+
+    async _autoTriggerTaskDescription(modelType) {
+        if (!modelType) return;
+
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return;
+
+        const recordId = this.taskId;
+        if (!recordId) return;
+
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return;
+
+        let entries;
+        try {
+            const parsed = JSON.parse(raw);
+            entries = Array.isArray(parsed) ? parsed : [parsed];
+        } catch (_e) {
+            return;
+        }
+
+        if (entries.length === 0) return;
+
+        const entryIndex = entries.length - 1;
+        const entry = entries[entryIndex];
+
+        if (entry.task_description_status === "pending" || entry.task_description_status === "done") {
+            return;
+        }
+
+        try {
+            await rpc("/talos/generate_task_description", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: entryIndex,
+            });
+            this.env.bus.trigger("TALOS:TASK_DESC_TRIGGERED", {
+                field_name: fieldName,
+                entry_index: entryIndex,
+            });
+            this._pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex);
+        } catch (e) {
+            console.warn("[talos-dashboard] Auto task description trigger failed:", e);
+        }
+    }
+
+    _pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex) {
+        const poll = setInterval(async () => {
+            try {
+                await this.props.record.load();
+                const raw = this.props.record.data[fieldName];
+                if (!raw || !raw.trim()) return;
+                const parsed = JSON.parse(raw);
+                const entries = Array.isArray(parsed) ? parsed : [parsed];
+                if (entryIndex >= entries.length) return;
+                const status = entries[entryIndex].task_description_status;
+                if (!status || status === "pending") return;
+                clearInterval(poll);
+                if (status !== "done") return;
+                const qcStatus = entries[entryIndex].qc_status;
+                if (qcStatus === "pending" || qcStatus === "done") return;
+                await rpc("/talos/trajectory_qc", {
+                    record_id: recordId,
+                    field_name: fieldName,
+                    entry_index: entryIndex,
+                });
+                this.env.bus.trigger("TALOS:QC_TRIGGERED", {
+                    field_name: fieldName,
+                    entry_index: entryIndex,
+                });
+            } catch (e) {
+                clearInterval(poll);
+                console.warn("[talos-dashboard] Auto QC trigger failed:", e);
+            }
+        }, 5000);
     }
 
     get hasAnySandboxRunning() {

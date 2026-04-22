@@ -105,6 +105,22 @@ export class TalosJsonField extends Component {
             );
         }
 
+        this._onTaskDescTriggered = (ev) => {
+            this._handleTaskDescTriggered(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "TALOS:TASK_DESC_TRIGGERED",
+            this._onTaskDescTriggered,
+        );
+
+        this._onQcTriggered = (ev) => {
+            this._handleQcTriggered(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "TALOS:QC_TRIGGERED",
+            this._onQcTriggered,
+        );
+
         onMounted(() => {
             this._autoResizeEditTextarea();
             this._resumePendingQc();
@@ -122,6 +138,14 @@ export class TalosJsonField extends Component {
                     this._onGoldenStatusChanged,
                 );
             }
+            this.env.bus.removeEventListener(
+                "TALOS:TASK_DESC_TRIGGERED",
+                this._onTaskDescTriggered,
+            );
+            this.env.bus.removeEventListener(
+                "TALOS:QC_TRIGGERED",
+                this._onQcTriggered,
+            );
         });
     }
 
@@ -201,6 +225,26 @@ export class TalosJsonField extends Component {
         }
     }
 
+    _handleTaskDescTriggered(payload) {
+        if (!payload) return;
+        const { field_name, entry_index } = payload;
+        if (field_name !== this.props.name) return;
+        if (this.state.taskDescGenerating >= 0) return;
+        this.state.taskDescGenerating = entry_index;
+        this._startTaskDescPolling(entry_index);
+    }
+
+    _handleQcTriggered(payload) {
+        if (!payload) return;
+        const { field_name, entry_index } = payload;
+        if (field_name !== this.props.name) return;
+        if (this.state.qcRunning >= 0) return;
+        this.state.qcRunning = entry_index;
+        this.state.qcCollapsed[entry_index] = false;
+        delete this.state.qcResults[entry_index];
+        this._startQcPolling(entry_index);
+    }
+
     _startQcPolling(index) {
         if (this._qcPollingTimers[index]) return;
         this._qcPollingTimers[index] = setInterval(async () => {
@@ -239,6 +283,9 @@ export class TalosJsonField extends Component {
                         clearInterval(this._taskDescPollingTimers[index]);
                         delete this._taskDescPollingTimers[index];
                         this.state.taskDescGenerating = -1;
+                        if (status === "done") {
+                            this.onQcEntry(index);
+                        }
                     }
                 }
             } catch (_e) {
