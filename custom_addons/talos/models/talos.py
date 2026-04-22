@@ -654,6 +654,7 @@ model_list:
 
 litellm_settings:
   drop_params: true
+  modify_params: true
   telemetry: false
   num_retries: 1
   request_timeout: 900
@@ -915,6 +916,21 @@ class Talos(models.Model):
     kimi_eval_output_tokens = fields.Integer(
         string="Kimi Eval Output Tokens", default=0
     )
+
+    # Auto-process (RabbitMQ batch processing)
+    auto_process_status = fields.Selection(
+        [
+            ("none", "None"),
+            ("queued", "Queued"),
+            ("processing", "Processing"),
+            ("done", "Done"),
+            ("failed", "Failed"),
+        ],
+        default="none",
+        string="Auto Process Status",
+        index=True,
+    )
+    auto_process_error = fields.Text(string="Auto Process Error")
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -1465,6 +1481,88 @@ class Talos(models.Model):
     @api.model
     def _cron_reconcile_sandboxes(self):
         self.env["talos.sandbox"]._cron_reconcile()
+
+    # ── Auto-process (RabbitMQ batch processing) ──────────────────────
+
+    def action_publish_auto_process(self):
+        """Publish selected tasks to the RabbitMQ auto_process queue."""
+        from ..services.rabbitmq_service import batch_publish_auto_process_tasks
+
+        eligible = self.filtered(
+            lambda t: (
+                t.auto_process_status in ("none", "failed")
+                and (t.initial_prompt or "").strip()
+            )
+        )
+        if not eligible:
+            return
+
+        eligible.write({"auto_process_status": "queued", "auto_process_error": False})
+        batch_publish_auto_process_tasks(eligible.ids)
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Auto Process",
+                "message": "%d task(s) queued for auto-processing." % len(eligible),
+                "type": "success",
+                "sticky": False,
+            },
+        }
+
+    @api.model
+    def auto_process_claim_task(self, task_id):
+        """Atomically claim a task for auto-processing. Called via XML-RPC."""
+        task = self.browse(task_id)
+        if not task.exists():
+            return {"skip": True, "reason": "not_found"}
+
+        if task.auto_process_status != "queued":
+            return {"skip": True, "reason": "status_%s" % task.auto_process_status}
+
+        # Atomic claim via SQL to prevent race conditions
+        self.env.cr.execute(
+            "UPDATE talos_talos SET auto_process_status = 'processing' "
+            "WHERE id = %s AND auto_process_status = 'queued' RETURNING id",
+            [task_id],
+        )
+        claimed = self.env.cr.fetchone()
+        if not claimed:
+            return {"skip": True, "reason": "already_claimed"}
+
+        task.invalidate_recordset()
+
+        # Find Claude sandbox
+        claude_sandbox = self.env["talos.sandbox"].search(
+            [("talos_id", "=", task_id), ("model_type", "=", "claude")], limit=1
+        )
+        if not claude_sandbox:
+            return {"skip": True, "reason": "no_claude_sandbox"}
+
+        # Check if sandbox already has turns
+        if claude_sandbox.turn_ids:
+            return {"skip": True, "reason": "has_turns"}
+
+        return {
+            "task_id": task_id,
+            "sandbox_id": claude_sandbox.id,
+            "docker_status": claude_sandbox.docker_status or "stopped",
+            "initial_prompt": task.initial_prompt or "",
+            "system_prompt": task.system_prompt or "",
+        }
+
+    @api.model
+    def auto_process_mark_done(self, task_id, status="done", error=""):
+        """Mark a task as done or failed after auto-processing."""
+        task = self.browse(task_id)
+        if not task.exists():
+            return False
+        vals = {"auto_process_status": status}
+        if error:
+            vals["auto_process_error"] = str(error)[:2000]
+        task.write(vals)
+        return True
 
 
 class TalosTurn(models.Model):
