@@ -23,7 +23,7 @@ NAMESPACE = "talos"
 WS_ROUTER_NAME = "talos-ws-router"
 
 NODE_SELECTOR = {
-    "kubernetes.io/arch": "amd64",
+    "kubernetes.io/arch": "amd64", 
     "ethara.ai/node-pool": "general-purpose",
 }
 
@@ -530,7 +530,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name="talos-sandbox-openclaw-config-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=cm,
+                )
+            else:
                 raise
 
     def _create_litellm_configmap(self, core_v1, task_id, labels, litellm_yaml):
@@ -827,7 +833,7 @@ class TalosSandboxK8s(models.AbstractModel):
             ],
             resources=client.V1ResourceRequirements(
                 requests={"cpu": "50m", "memory": "1536Mi"},
-                limits={"memory": "3Gi"},
+                limits={"memory": "4Gi"},
             ),
             lifecycle=client.V1Lifecycle(
                 pre_stop=client.V1LifecycleHandler(
@@ -919,7 +925,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "25m", "memory": "512Mi"},
+                requests={"cpu": "25m", "memory": "1Gi"},
             ),
             startup_probe=client.V1Probe(
                 tcp_socket=client.V1TCPSocketAction(port=4000),

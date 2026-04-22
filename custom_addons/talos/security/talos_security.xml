@@ -36,5 +36,71 @@
             <field name="comment">Full access: manage apps, builds, and configuration.</field>
         </record>
 
+        <!-- ===== Record Rules: Talos Task ===== -->
+        <record id="talos_task_rule_tasker" model="ir.rule">
+            <field name="name">Talos Task: Tasker sees own</field>
+            <field name="model_id" ref="model_talos_talos"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="talos_task_rule_ql" model="ir.rule">
+            <field name="name">Talos Task: QL sees all</field>
+            <field name="model_id" ref="model_talos_talos"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="talos_task_rule_admin" model="ir.rule">
+            <field name="name">Talos Task: Admin sees all</field>
+            <field name="model_id" ref="model_talos_talos"/>
+            <field name="groups" eval="[(4, ref('group_talos_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== Record Rules: Talos Turn ===== -->
+        <record id="talos_turn_rule_tasker" model="ir.rule">
+            <field name="name">Talos Turn: Tasker sees own</field>
+            <field name="model_id" ref="model_talos_turn"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="talos_turn_rule_ql" model="ir.rule">
+            <field name="name">Talos Turn: QL sees all</field>
+            <field name="model_id" ref="model_talos_turn"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="talos_turn_rule_admin" model="ir.rule">
+            <field name="name">Talos Turn: Admin sees all</field>
+            <field name="model_id" ref="model_talos_turn"/>
+            <field name="groups" eval="[(4, ref('group_talos_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== Record Rules: Talos Sandbox ===== -->
+        <record id="talos_sandbox_rule_tasker" model="ir.rule">
+            <field name="name">Talos Sandbox: Tasker sees own</field>
+            <field name="model_id" ref="model_talos_sandbox"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="talos_sandbox_rule_ql" model="ir.rule">
+            <field name="name">Talos Sandbox: QL sees all</field>
+            <field name="model_id" ref="model_talos_sandbox"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="talos_sandbox_rule_admin" model="ir.rule">
+            <field name="name">Talos Sandbox: Admin sees all</field>
+            <field name="model_id" ref="model_talos_sandbox"/>
+            <field name="groups" eval="[(4, ref('group_talos_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
     </data>
 </odoo>

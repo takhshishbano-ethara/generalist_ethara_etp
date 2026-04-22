@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import os
@@ -6,16 +5,11 @@ import secrets
 import shutil
 import subprocess
 import tempfile
-import threading
 import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
-from odoo import models, fields, api, SUPERUSER_ID
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 from odoo.modules.module import get_module_path
-from odoo.modules.registry import Registry
 from odoo.tools import config as odoo_config
 
 _logger = logging.getLogger(__name__)
@@ -27,523 +21,22 @@ DB_PORT_BASE = 15432
 _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
 
-_GOLDEN_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="talos-golden")
-_GOLDEN_GENERATING = set()
-_GOLDEN_LOCK = threading.Lock()
-
-_TASKDESC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="talos-taskdesc")
-_TASKDESC_GENERATING = set()
-_TASKDESC_LOCK = threading.Lock()
-
-_golden_prompt_cache = None
-_taskdesc_prompt_cache = None
-
-
-def _get_golden_prompt():
-    global _golden_prompt_cache
-    if _golden_prompt_cache is not None:
-        return _golden_prompt_cache
-    mod_path = get_module_path("talos")
-    if not mod_path:
-        return ""
-    path = os.path.join(mod_path, "golden_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _golden_prompt_cache = f.read().strip()
-    else:
-        _golden_prompt_cache = ""
-    return _golden_prompt_cache
-
-
-def _get_taskdesc_prompt():
-    global _taskdesc_prompt_cache
-    if _taskdesc_prompt_cache is not None:
-        return _taskdesc_prompt_cache
-    mod_path = get_module_path("talos")
-    if not mod_path:
-        return ""
-    path = os.path.join(mod_path, "task_description_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _taskdesc_prompt_cache = f.read().strip()
-    else:
-        _taskdesc_prompt_cache = ""
-    return _taskdesc_prompt_cache
-
-
-def _run_golden_generation_background(db_name, task_id, notify_partner_id):
-    try:
-        # Phase 1: read all inputs
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            task = env["talos.talos"].browse(task_id)
-            if not task.exists():
-                _logger.error("Golden gen: task %s does not exist", task_id)
-                return
-
-            claude_traj = task.claude_trajectory or ""
-            glm_traj = task.glm_trajectory or ""
-            persona = task.persona_id
-            soul_md = persona.soul_md or "" if persona else ""
-            memory_md = persona.memory_md or "" if persona else ""
-            agents_md = persona.agents_md or "" if persona else ""
-
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
-
-            dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
-        if not inference_arn:
-            raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Talos"
-            )
-
-        system_prompt = _get_golden_prompt()
-
-        delivery_schema = ""
-        schema_path = os.path.join(
-            get_module_path("talos") or "", "Delivery_Schema.json"
-        )
-        if os.path.isfile(schema_path):
-            with open(schema_path, "r") as f:
-                delivery_schema = f.read().strip()
-
-        user_message = (
-            "## Current Date\n%s\n\n"
-            "## Delivery Schema\n```json\n%s\n```\n\n"
-            "## SOUL.md\n%s\n\n"
-            "## MEMORY.md\n%s\n\n"
-            "## AGENTS.md\n%s\n\n"
-            "## Model Trajectory 1 (Claude)\n%s\n\n"
-            "## Model Trajectory 2 (GLM)\n%s"
-        ) % (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
-            delivery_schema,
-            soul_md,
-            memory_md,
-            agents_md,
-            claude_traj,
-            glm_traj,
-        )
-
-        # Phase 2: call Bedrock (long-running, no cursor held)
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=65536,
-            temperature=0.7,
-            timeout=1200.0,
-        )
-        _logger.info(
-            "Golden trajectory generated for task %s (%d chars, tokens: %s)",
-            task_id,
-            len(response_text),
-            usage,
-        )
-
-        # Phase 3: write result + notify
-        for attempt in range(3):
-            try:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    task = env["talos.talos"].browse(task_id)
-                    if not task.exists():
-                        return
-                    write_vals = {
-                        "golden_trajectory": response_text,
-                        "golden_status": "done",
-                        "golden_error": False,
-                        "golden_started_at": False,
-                    }
-                    g_in = usage.get("input_tokens", 0)
-                    g_out = usage.get("output_tokens", 0)
-                    if g_in > 0 or g_out > 0:
-                        write_vals["golden_input_tokens"] = (
-                            task.golden_input_tokens or 0
-                        ) + g_in
-                        write_vals["golden_output_tokens"] = (
-                            task.golden_output_tokens or 0
-                        ) + g_out
-                    task.write(write_vals)
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "talos/golden_ready",
-                            {"task_id": task_id, "status": "done"},
-                        )
-                break
-            except Exception as e:
-                if "serialize" in str(e).lower() and attempt < 2:
-                    time.sleep(1 + attempt)
-                    continue
-                raise
-
-    except Exception as e:
-        _logger.exception("Golden trajectory generation failed for task %s", task_id)
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                task = env["talos.talos"].browse(task_id)
-                if task.exists():
-                    task.write(
-                        {
-                            "golden_status": "error",
-                            "golden_error": str(e)[:1000],
-                            "golden_started_at": False,
-                        }
-                    )
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "talos/golden_ready",
-                            {
-                                "task_id": task_id,
-                                "status": "error",
-                                "error": str(e)[:500],
-                            },
-                        )
-        except Exception:
-            _logger.exception(
-                "Failed to write golden error status for task %s", task_id
-            )
-    finally:
-        with _GOLDEN_LOCK:
-            _GOLDEN_GENERATING.discard(task_id)
-
-
-def _run_task_description_background(db_name, task_id, notify_partner_id):
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            task = env["talos.talos"].browse(task_id)
-            if not task.exists():
-                _logger.error("Task desc gen: task %s does not exist", task_id)
-                return
-
-            claude_traj = task.claude_trajectory or ""
-            glm_traj = task.glm_trajectory or ""
-            oneP_traj = task.oneP_trajectory or ""
-            seed_prompt = task.seed_prompt or ""
-            persona = task.persona_id
-            soul_md = persona.soul_md or "" if persona else ""
-
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
-
-            dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
-        if not inference_arn:
-            raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Talos"
-            )
-
-        system_prompt = _get_taskdesc_prompt()
-
-        user_message = (
-            "## Seed Prompt\n%s\n\n"
-            "## Persona (SOUL.md)\n%s\n\n"
-            "## Claude Trajectory\n%s\n\n"
-            "## GLM Trajectory\n%s\n\n"
-            "## 1P Trajectory\n%s"
-        ) % (seed_prompt, soul_md, claude_traj, glm_traj, oneP_traj)
-
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=4096,
-            temperature=0.5,
-            timeout=300.0,
-        )
-        _logger.info(
-            "Task description generated for task %s (%d chars, tokens: %s)",
-            task_id,
-            len(response_text),
-            usage,
-        )
-
-        for attempt in range(3):
-            try:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    task = env["talos.talos"].browse(task_id)
-                    if not task.exists():
-                        return
-                    write_vals = {
-                        "task_description": response_text,
-                        "task_description_status": "done",
-                        "task_description_error": False,
-                    }
-                    t_in = usage.get("input_tokens", 0)
-                    t_out = usage.get("output_tokens", 0)
-                    if t_in > 0 or t_out > 0:
-                        write_vals["taskdesc_input_tokens"] = (
-                            task.taskdesc_input_tokens or 0
-                        ) + t_in
-                        write_vals["taskdesc_output_tokens"] = (
-                            task.taskdesc_output_tokens or 0
-                        ) + t_out
-                    task.write(write_vals)
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "talos/taskdesc_ready",
-                            {"task_id": task_id, "status": "done"},
-                        )
-                break
-            except Exception as e:
-                if "serialize" in str(e).lower() and attempt < 2:
-                    time.sleep(1 + attempt)
-                    continue
-                raise
-
-    except Exception as e:
-        _logger.exception("Task description generation failed for task %s", task_id)
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                task = env["talos.talos"].browse(task_id)
-                if task.exists():
-                    task.write(
-                        {
-                            "task_description_status": "error",
-                            "task_description_error": str(e)[:1000],
-                        }
-                    )
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "talos/taskdesc_ready",
-                            {
-                                "task_id": task_id,
-                                "status": "error",
-                                "error": str(e)[:500],
-                            },
-                        )
-        except Exception:
-            _logger.exception(
-                "Failed to write task desc error status for task %s", task_id
-            )
-    finally:
-        with _TASKDESC_LOCK:
-            _TASKDESC_GENERATING.discard(task_id)
-
-
-import re as _re
-
-
-def _is_degenerate_output(text):
-    if not text or len(text) < 20:
-        return True
-    repeated = _re.search(r"(.)\1{15,}", text)
-    if repeated:
-        return True
-    unique_chars = len(set(text.lower()))
-    if unique_chars < 8 and len(text) > 30:
-        return True
-    return False
-
-
-def generate_task_description_sync(env, seed_prompt, messages_json):
-    """Call Kimi/Bedrock to generate a single-line task description.
-
-    Returns:
-        Tuple of (description_string, usage_dict).
-    """
-    try:
-        ICP = env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
-
-        dotenv = _load_dotenv()
-        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key or not inference_arn:
-            _logger.warning("generate_task_description_sync: missing credentials")
-            return "", {}
-
-        system_prompt = _get_taskdesc_prompt()
-        if not system_prompt:
-            _logger.warning(
-                "generate_task_description_sync: no task_description_prompt.md"
-            )
-            return "", {}
-
-        if isinstance(messages_json, list):
-            messages_text = json.dumps(messages_json, ensure_ascii=False)[:16000]
-        else:
-            messages_text = str(messages_json)[:16000]
-
-        user_message = ("## Seed Prompt\n%s\n\n## Chat Messages\n%s") % (
-            seed_prompt or "",
-            messages_text,
-        )
-
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=1024,
-            temperature=0.3,
-            timeout=90.0,
-        )
-        desc = response_text.strip().replace("\n", " ")
-
-        if _is_degenerate_output(desc):
-            _logger.warning(
-                "generate_task_description_sync: degenerate output detected (%d chars), discarding",
-                len(desc),
-            )
-            return "", usage
-
-        _logger.info(
-            "generate_task_description_sync: generated %d chars, tokens=%s",
-            len(desc),
-            usage,
-        )
-        return desc, usage
-    except Exception as e:
-        _logger.warning("generate_task_description_sync failed: %s", e)
-        return "", {}
-
-
-def _format_tool_result(result):
-    if result is None:
-        return ""
-    if isinstance(result, str):
-        return result
-    try:
-        return json.dumps(result, indent=2, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(result)
-
-
-def _wrap_trajectory_message(msg, is_accepted=0, hints=None):
-    """Wrap an assistant or toolResult message with is_accepted/hints.
-
-    User messages are returned as-is (no wrapper per client spec).
-    """
-    role = ""
-    inner = msg.get("message", {})
-    if isinstance(inner, dict):
-        role = inner.get("role", "")
-    if role in ("assistant", "toolResult"):
-        return {
-            "is_accepted": is_accepted,
-            "hints": hints,
-            "message": msg,
-        }
-    return msg
-
-
-def _wrap_messages_with_turn_feedback(messages, turns):
-    """Apply is_accepted / hints wrappers using per-turn feedback data.
-
-    ``turns`` is an iterable of TalosTurn records (sorted by turn_number).
-    A turn with ``hints`` populated (and ``prompt`` empty) is a correction turn.
-    The hints text is applied to that turn's assistant responses.
-    """
-    turn_list = list(turns)
-    if not turn_list:
-        return [_wrap_trajectory_message(m) for m in messages]
-
-    turn_feedback = []
-    for t in turn_list:
-        user_text = (t.prompt or t.hints or "").strip()
-        if t.hints:
-            is_accepted = 1
-            hint = (t.hints or "").strip()
-        else:
-            is_accepted = 0
-            hint = None
-        turn_feedback.append((user_text, is_accepted, hint))
-
-    wrapped = []
-    current_accepted = 0
-    current_hints = None
-    turn_idx = 0
-
-    for msg in messages:
-        inner = msg.get("message", {})
-        role = inner.get("role", "") if isinstance(inner, dict) else ""
-
-        if role == "user" and turn_idx < len(turn_feedback):
-            content = inner.get("content", [])
-            user_text = ""
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        user_text = (block.get("text") or "").strip()
-                        break
-            elif isinstance(content, str):
-                user_text = content.strip()
-
-            expected = turn_feedback[turn_idx][0]
-            matched = False
-            if user_text and expected:
-                if user_text == expected:
-                    matched = True
-                elif user_text in expected or expected in user_text:
-                    matched = True
-
-            if matched:
-                current_accepted = turn_feedback[turn_idx][1]
-                current_hints = turn_feedback[turn_idx][2]
-                turn_idx += 1
-            elif user_text:
-                current_accepted = turn_feedback[turn_idx][1]
-                current_hints = turn_feedback[turn_idx][2]
-                turn_idx += 1
-
-        wrapped.append(_wrap_trajectory_message(msg, current_accepted, current_hints))
-
-    return wrapped
+_env_cache = None
 
 
 def _load_dotenv():
+    """Load KEY=VALUE pairs from the project-root .env file.
+
+    Merges on top of ``os.environ`` so that process-level env vars
+    still take precedence (set in shell > .env file).
+    """
+    global _env_cache
+    if _env_cache is not None:
+        return _env_cache
+
     env = os.environ.copy()
 
+    # Walk up from the odoo config file (or addons path) to find .env
     root = None
     conf_path = odoo_config.rcfile
     if conf_path:
@@ -563,56 +56,41 @@ def _load_dotenv():
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
-                env[key] = value
+                # Don't override vars already set in the process environment
+                if key not in os.environ:
+                    env[key] = value
         _logger.debug("Loaded .env from %s", dotenv_path)
+    else:
+        _logger.debug("No .env file found at %s", dotenv_path)
 
+    _env_cache = env
     return env
 
 
 _DEFAULT_LITELLM_CONFIG = """\
 model_list:
-  - model_name: claude-opus-4.7
+  - model_name: claude-opus-4.6
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      reasoning_effort: "high"
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
-
   - model_name: kimi-k2.5
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
-
-  - model_name: glm-5
-    litellm_params:
-      model: bedrock/converse/{glm_bedrock_arn}
-      aws_region_name: {glm_aws_region}
-      reasoning_effort: "high"
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
-
-  - model_name: kimi-k2.5
-    litellm_params:
-      model: bedrock/invoke/{kimi_bedrock_arn}
-      aws_region_name: {kimi_aws_region}
-      input_cost_per_token: 0.0000006
-      output_cost_per_token: 0.000003
-
-  - model_name: quiet_sand
-    litellm_params:
-      model: openai/quiet_sand
-      api_base: https://api.llama.com/v1alpha
-      api_key: os.environ/LLAMA_API_KEY
+      extra_headers:
+        Authorization: "Bearer os.environ/AWS_BEARER_TOKEN_BEDROCK"
+      input_cost_per_token: 0.000003
+      output_cost_per_token: 0.000015
 
 litellm_settings:
   drop_params: true
   telemetry: false
-  num_retries: 1
-  request_timeout: 900
-  stream_timeout: 60
+  num_retries: 2
+  request_timeout: 600
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -661,740 +139,45 @@ class Talos(models.Model):
     _name = "talos.talos"
     _description = "Talos"
 
-    is_talos_admin = fields.Boolean(
-        compute="_compute_is_talos_admin",
-        search="_search_is_talos_admin",
-    )
-
-    @api.depends_context("uid")
-    def _compute_is_talos_admin(self):
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
-        for rec in self:
-            rec.is_talos_admin = is_admin
-
-    def _search_is_talos_admin(self, operator, value):
-        if operator not in ("=", "!="):
-            raise ValueError("Unsupported operator")
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
-        if (operator == "=" and value) or (operator == "!=" and not value):
-            return [] if is_admin else [("id", "=", False)]
-        return [("id", "=", False)] if is_admin else []
-
     task_id = fields.Char(string="Task ID", readonly=True, copy=False)
     parsona = fields.Many2one("talos.domain", string="Parsona")
     task_status = fields.Selection(
         [("Submitted", "Submitted"), ("NotSubmitted", "Not Submitted")]
     )
-    employee_id = fields.Many2one(
-        "hr.employee",
-        default=lambda self: self.env.user.employee_id,
-    )
+    employee_id = fields.Many2one("hr.employee")
     user_id = fields.Many2one(related="employee_id.user_id")
+    turn_ids = fields.One2many("talos.turn", "talos_id", string="Turns")
 
     persona_id = fields.Many2one(
         "talos.persona", string="Persona", required=True, ondelete="restrict"
     )
-    heart_taxonomy = fields.Many2many("talos.taxonomy", string="HEART Taxonomy")
-    task_type = fields.Selection(
+    docker_compose_project = fields.Char(
+        string="Compose Project", readonly=True, copy=False
+    )
+    docker_status = fields.Selection(
         [
-            ("home_and_organization", "home_and_organization"),
-            ("customer_service", "customer_service"),
-            ("research_and_analysis", "research_and_analysis"),
-            ("creative_writing", "creative_writing"),
-            ("technical_support", "technical_support"),
-            ("education_and_learning", "education_and_learning"),
-            ("health_and_wellness", "health_and_wellness"),
-            ("finance_and_budgeting", "finance_and_budgeting"),
-            ("sustainable_planning", "sustainable_planning"),
-            ("historical_archiving", "historical_archiving"),
-        ],
-        string="Task Type",
-    )
-    difficulty = fields.Selection(
-        [
-            ("single_app", "Single App"),
-            ("multi_app_light", "Multi App Light"),
-            ("multi_app_complex", "Multi App Complex"),
-        ],
-        string="Difficulty",
-    )
-    trajectory_modifier = fields.Selection(
-        [
-            ("memory_usage", "Memory Usage"),
-            ("long_horizon_context", "Long Horizon Context"),
-            ("skill_discovery", "Skill Discovery"),
-            ("claw_native_tools", "Claw Native Tools"),
-            ("skill_gap_self_extension", "Skill Gap / Self-Extension"),
-        ],
-        string="Trajectory Modifier",
-    )
-    safety_critical = fields.Selection(
-        [
-            ("high_stakes_actions", "high_stakes_actions"),
-            ("borderline_requests", "borderline_requests"),
-            ("private_data_usage", "private_data_usage"),
-            ("N/A", "N/A"),
-        ],
-        string="Safety Critical",
-    )
-    system_prompt = fields.Text(string="System Prompt")
-    seed_prompt = fields.Text(string="Seed Prompt")
-    agent_md = fields.Text(string="Agent MD")
-    soul_md = fields.Text(string="Soul MD")
-    memory_md = fields.Text(string="Memory MD")
-    email = fields.Char(string="Email")
-    password = fields.Char(string="Password")
-    gog_auth = fields.Text(string="Google Auth")
-    gog_auth_token = fields.Text(string="Google Auth Token")
-    outlook_username = fields.Char(string="Outlook Username")
-    outlook_password = fields.Char(string="Outlook Password")
-    eventbrite_username = fields.Char(string="Eventbrite Username")
-    eventbrite_password = fields.Char(string="Eventbrite Password")
-    strava_username = fields.Char(string="Strava Username")
-    strava_password = fields.Char(string="Strava Password")
-    oura_username = fields.Char(string="Oura Username")
-    oura_password = fields.Char(string="Oura Password")
-    instagram_username = fields.Char(string="Instagram Username")
-    instagram_password = fields.Char(string="Instagram Password")
-    facebook_username = fields.Char(string="Facebook Username")
-    facebook_password = fields.Char(string="Facebook Password")
-    threads_username = fields.Char(string="Threads Username")
-    threads_password = fields.Char(string="Threads Password")
-
-    # Sandboxes
-    sandbox_ids = fields.One2many("talos.sandbox", "talos_id", string="Sandboxes")
-    qc_status = fields.Selection(
-        [("pending", "Pending"), ("passed", "Passed"), ("failed", "Failed")],
-        default="pending",
-    )
-
-    # Computed convenience fields — one shortcut per model type
-    claude_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="Claude Sandbox"
-    )
-    glm_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="GLM Sandbox"
-    )
-    oneP_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="1P Sandbox"
-    )
-    onePA_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="1PA Sandbox"
-    )
-    onePB_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="1PB Sandbox"
-    )
-    onePC_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="1PC Sandbox"
-    )
-    onePD_sandbox_id = fields.Many2one(
-        "talos.sandbox", compute="_compute_sandbox_ids", string="1PD Sandbox"
-    )
-
-    claude_status = fields.Selection(related="claude_sandbox_id.docker_status")
-    glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
-
-    claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
-    glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
-
-    claude_trajectory = fields.Text(string="Claude 4.7 Trajectory")
-    glm_trajectory = fields.Text(string="GLM 5 Trajectory")
-    onePA_trajectory = fields.Text(string="1PA Trajectory")
-    onePB_trajectory = fields.Text(string="1PB Trajectory")
-    onePC_trajectory = fields.Text(string="1PC Trajectory")
-    onePD_trajectory = fields.Text(string="1PD Trajectory")
-    golden_trajectory = fields.Text(string="Golden Trajectory")
-    golden_status = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("generating", "Generating"),
-            ("done", "Done"),
+            ("stopped", "Stopped"),
+            ("starting", "Starting"),
+            ("running", "Running"),
             ("error", "Error"),
         ],
-        string="Golden Status",
-        default="idle",
+        string="Docker Status",
+        default="stopped",
+        readonly=True,
     )
-    golden_error = fields.Text(string="Golden Error")
-    golden_started_at = fields.Datetime(string="Golden Started At")
-
-    task_description = fields.Text(string="Task Description")
-    task_description_status = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("generating", "Generating"),
-            ("done", "Done"),
-            ("error", "Error"),
-        ],
-        string="Task Description Status",
-        default="idle",
+    docker_port = fields.Integer(string="Gateway Port", readonly=True)
+    docker_litellm_port = fields.Integer(string="LiteLLM Port", readonly=True)
+    docker_gateway_token = fields.Char(
+        string="Gateway Token", readonly=True, copy=False
     )
-    task_description_error = fields.Text(string="Task Description Error")
-
-    # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
-    claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
-    claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
-    glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
-    glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
-    oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
-    oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
-    onePA_input_tokens = fields.Integer(string="1PA Input Tokens", default=0)
-    onePA_output_tokens = fields.Integer(string="1PA Output Tokens", default=0)
-    onePB_input_tokens = fields.Integer(string="1PB Input Tokens", default=0)
-    onePB_output_tokens = fields.Integer(string="1PB Output Tokens", default=0)
-    onePC_input_tokens = fields.Integer(string="1PC Input Tokens", default=0)
-    onePC_output_tokens = fields.Integer(string="1PC Output Tokens", default=0)
-    onePD_input_tokens = fields.Integer(string="1PD Input Tokens", default=0)
-    onePD_output_tokens = fields.Integer(string="1PD Output Tokens", default=0)
-    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
-    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
-
-    # Trajectory QC tokens (from trajectory_qc endpoint, Bedrock calls per-entry)
-    traj_qc_input_tokens = fields.Integer(string="Traj QC Input Tokens", default=0)
-    traj_qc_output_tokens = fields.Integer(string="Traj QC Output Tokens", default=0)
-    # Task description generation tokens (trajectory-level + task-level)
-    taskdesc_input_tokens = fields.Integer(string="Task Desc Input Tokens", default=0)
-    taskdesc_output_tokens = fields.Integer(string="Task Desc Output Tokens", default=0)
-    # Golden trajectory generation tokens
-    golden_input_tokens = fields.Integer(string="Golden Gen Input Tokens", default=0)
-    golden_output_tokens = fields.Integer(string="Golden Gen Output Tokens", default=0)
-
-    @api.depends("sandbox_ids", "sandbox_ids.model_type")
-    def _compute_sandbox_ids(self):
-        for rec in self:
-            for mtype, field in [
-                ("claude", "claude_sandbox_id"),
-                ("glm", "glm_sandbox_id"),
-                ("1p", "oneP_sandbox_id"),
-                ("1pa", "onePA_sandbox_id"),
-                ("1pb", "onePB_sandbox_id"),
-                ("1pc", "onePC_sandbox_id"),
-                ("1pd", "onePD_sandbox_id"),
-            ]:
-                sandbox = rec.sandbox_ids.filtered(
-                    lambda s, mt=mtype: s.model_type == mt
-                )[:1]
-                setattr(rec, field, sandbox.id if sandbox else False)
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        records = super().create(vals_list)
-        for rec in records:
-            rec.ensure_sandboxes()
-        return records
-
-    def ensure_sandboxes(self):
-        for rec in self:
-            existing = rec.sandbox_ids.mapped("model_type")
-            for mtype in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
-                if mtype not in existing:
-                    self.env["talos.sandbox"].create(
-                        {"talos_id": rec.id, "model_type": mtype}
-                    )
-
-    # ── Turns helper (aggregates across all sandboxes) ──────────
-
-    def _get_all_turns(self):
-        self.ensure_one()
-        turns = self.env["talos.turn"]
-        for sandbox in self.sandbox_ids:
-            turns |= sandbox.turn_ids
-        return turns.sorted("turn_number")
-
-    # ── Actions ─────────────────────────────────────────────────
-
-    def action_view_turns(self):
-        self.ensure_one()
-        return {
-            "type": "ir.actions.act_window",
-            "name": "Turns",
-            "res_model": "talos.turn",
-            "view_mode": "list,form",
-            "domain": [("sandbox_id", "in", self.sandbox_ids.ids)],
-            "context": {"default_talos_id": self.id},
-        }
-
-    def action_export_session(self):
-        self.ensure_one()
-        return {
-            "type": "ir.actions.act_url",
-            "url": f"/talos/chat/export_session?task_id={self.id}",
-            "target": "self",
-        }
-
-    def action_delete_trajectory_entry(self, field_name, entry_index):
-        self.ensure_one()
-        valid_fields = {
-            "claude_trajectory",
-            "glm_trajectory",
-            "onePA_trajectory",
-            "onePB_trajectory",
-            "onePC_trajectory",
-            "onePD_trajectory",
-            "golden_trajectory",
-        }
-        if field_name not in valid_fields:
-            raise UserError(f"Invalid trajectory field: {field_name}")
-
-        raw = self[field_name] or ""
-        if not raw.strip():
-            return False
-
-        try:
-            entries = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            raise UserError("Trajectory data is corrupted.")
-
-        if not isinstance(entries, list):
-            raise UserError("Trajectory data is not in multi-session format.")
-
-        if entry_index < 0 or entry_index >= len(entries):
-            raise UserError(f"Invalid entry index: {entry_index}")
-
-        entries.pop(entry_index)
-        self.write(
-            {
-                field_name: json.dumps(entries, indent=2, ensure_ascii=False)
-                if entries
-                else ""
-            }
-        )
-        return True
-
-    def action_clear_turns(self):
-        self.ensure_one()
-        turns = self._get_all_turns()
-        count = len(turns)
-        turns.unlink()
-        _logger.info("Cleared %d turns for task %s", count, self.id)
-
-    def action_generate_golden_trajectory(self):
-        self.ensure_one()
-        if not self.claude_trajectory:
-            raise UserError(
-                "Claude trajectory is empty. Stop the Claude sandbox first."
-            )
-        if not self.glm_trajectory:
-            raise UserError("GLM trajectory is empty. Stop the GLM sandbox first.")
-        if not self.persona_id:
-            raise UserError("No persona selected.")
-
-        with _GOLDEN_LOCK:
-            if self.id in _GOLDEN_GENERATING:
-                raise UserError("Golden trajectory generation is already in progress.")
-            _GOLDEN_GENERATING.add(self.id)
-
-        self.write(
-            {
-                "golden_status": "generating",
-                "golden_error": False,
-                "golden_started_at": fields.Datetime.now(),
-            }
-        )
-
-        task_id = self.id
-        db_name = self.env.cr.dbname
-        notify_partner_id = self.env.user.partner_id.id
-
-        @self.env.cr.postcommit.add
-        def _queue():
-            _GOLDEN_POOL.submit(
-                _run_golden_generation_background,
-                db_name,
-                task_id,
-                notify_partner_id,
-            )
-
-    def action_generate_task_description(self):
-        self.ensure_one()
-        has_any = self.claude_trajectory or self.glm_trajectory or self.oneP_trajectory
-        if not has_any:
-            raise UserError(
-                "At least one model trajectory is required to generate a task description."
-            )
-
-        with _TASKDESC_LOCK:
-            if self.id in _TASKDESC_GENERATING:
-                raise UserError("Task description generation is already in progress.")
-            _TASKDESC_GENERATING.add(self.id)
-
-        self.write(
-            {"task_description_status": "generating", "task_description_error": False}
-        )
-
-        task_id = self.id
-        db_name = self.env.cr.dbname
-        notify_partner_id = self.env.user.partner_id.id
-
-        @self.env.cr.postcommit.add
-        def _queue_taskdesc():
-            _TASKDESC_POOL.submit(
-                _run_task_description_background,
-                db_name,
-                task_id,
-                notify_partner_id,
-            )
-
-    # ── Trajectory export ───────────────────────────────────────
-
-    def build_trajectory_json(self):
-        self.ensure_one()
-        model_name = ""
-        all_turns = self._get_all_turns().sorted("turn_number")
-        for t in reversed(all_turns):
-            if t.model_name:
-                model_name = t.model_name
-                break
-
-        meta_info = {
-            "task_type": self.task_type or "",
-            "task_description": self.task_id or "",
-            "task_completion_status": "success",
-            "system_prompt": self.system_prompt or "",
-            "platform": "macOS",
-            "persona": self.persona_id.name if self.persona_id else "",
-            "model": model_name,
-            "difficulty": self.difficulty or "",
-            "conv_id": str(uuid.uuid4()),
-        }
-
-        messages = self._trajectory_from_ws()
-        if messages:
-            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
-        else:
-            messages = self._build_trajectory_fallback()
-
-        return {"meta_info": meta_info, "messages": messages}
-
-    def _trajectory_from_ws(self):
-        self.ensure_one()
-        best_messages = []
-        best_count = 0
-        for t in self._get_all_turns().sorted("turn_number", reverse=True):
-            if t.trajectory_messages:
-                try:
-                    ws_messages = json.loads(t.trajectory_messages)
-                    if isinstance(ws_messages, list) and len(ws_messages) > best_count:
-                        best_messages = ws_messages
-                        best_count = len(ws_messages)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-        return best_messages
-
-    def _build_trajectory_fallback(self):
-        self.ensure_one()
-        messages = []
-        msg_counter = 0
-        parent_id = None
-        prev_hint_text = None
-
-        for t in self._get_all_turns():
-            run_id = t.run_id or ""
-            if t.is_hint_turn and prev_hint_text:
-                is_accepted = 1
-                hints = prev_hint_text
-            else:
-                is_accepted = 0
-                hints = None
-            prev_hint_text = t.hint_text or None
-
-            def _next_id():
-                nonlocal msg_counter
-                msg_counter += 1
-                return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-            if t.prompt:
-                user_id = _next_id()
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": user_id,
-                        "parentId": parent_id,
-                        "timestamp": t.prompt_timestamp
-                        or (t.create_date.isoformat() if t.create_date else ""),
-                        "message": {
-                            "role": "user",
-                            "content": [{"type": "text", "text": t.prompt}],
-                        },
-                    }
-                )
-                parent_id = user_id
-
-            if t.raw_events:
-                try:
-                    events = json.loads(t.raw_events)
-                    if isinstance(events, list) and events:
-                        pre_count = len(messages)
-                        messages, msg_counter, parent_id = (
-                            self._build_trajectory_from_events(
-                                events,
-                                messages,
-                                msg_counter,
-                                parent_id,
-                                t.model_name or "",
-                            )
-                        )
-                        for idx in range(pre_count, len(messages)):
-                            messages[idx] = _wrap_trajectory_message(
-                                messages[idx], is_accepted, hints
-                            )
-                        continue
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.tool_calls:
-                try:
-                    calls = json.loads(t.tool_calls)
-                    if isinstance(calls, list):
-                        for tc in calls:
-                            tcid = tc.get("toolCallId", "")
-                            call_id = tcid or _next_id()
-                            call_msg = {
-                                "type": "message",
-                                "id": call_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "toolCall",
-                                            "id": tcid or call_id,
-                                            "name": tc.get("name", "unknown"),
-                                            "arguments": tc.get("args", {}),
-                                        }
-                                    ],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(call_msg, is_accepted, hints)
-                            )
-                            parent_id = call_id
-
-                            result_id = ("%s:result" % tcid) if tcid else _next_id()
-                            result_msg = {
-                                "type": "message",
-                                "id": result_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "toolResult",
-                                    "toolCallId": tcid or call_id,
-                                    "toolName": tc.get("name", "unknown"),
-                                    "isError": tc.get("isError", False),
-                                    "content": [
-                                        {
-                                            "type": "text",
-                                            "text": _format_tool_result(
-                                                tc.get("result")
-                                            ),
-                                        }
-                                    ],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(result_msg, is_accepted, hints)
-                            )
-                            parent_id = result_id
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.response:
-                asst_id = _next_id()
-                asst_msg = {
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.response_timestamp
-                    or (t.write_date.isoformat() if t.write_date else ""),
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                }
-                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
-                parent_id = asst_id
-
-        return messages
-
-    @staticmethod
-    def _build_trajectory_from_events(
-        events, messages, msg_counter, parent_id, model_name
-    ):
-        pending_tool_calls = {}
-        last_text = ""
-        run_id = ""
-
-        for ev in events:
-            rid = ev.get("runId", "")
-            if rid:
-                run_id = rid
-                break
-
-        def _next_id():
-            nonlocal msg_counter
-            msg_counter += 1
-            return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-        for ev in events:
-            stream = ev.get("stream", "")
-            data = ev.get("data", {})
-            ts = ev.get("ts", "")
-
-            if stream == "assistant" and data.get("text"):
-                last_text = data["text"]
-
-            elif stream == "tool":
-                phase = data.get("phase", "")
-                tcid = data.get("toolCallId", "")
-
-                if phase == "start" and tcid:
-                    if last_text:
-                        mid = _next_id()
-                        messages.append(
-                            {
-                                "type": "message",
-                                "id": mid,
-                                "parentId": parent_id,
-                                "timestamp": ts,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": last_text}],
-                                    "model": model_name,
-                                },
-                            }
-                        )
-                        parent_id = mid
-                        last_text = ""
-
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": tcid,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "toolCall",
-                                        "id": tcid,
-                                        "name": data.get("name", "unknown"),
-                                        "arguments": data.get("args", {}),
-                                    }
-                                ],
-                            },
-                        }
-                    )
-                    parent_id = tcid
-                    pending_tool_calls[tcid] = {
-                        "name": data.get("name", "unknown"),
-                    }
-
-                elif phase == "end" and tcid:
-                    tc_info = pending_tool_calls.pop(tcid, {})
-                    result_id = "%s:result" % tcid
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": result_id,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "toolResult",
-                                "toolCallId": tcid,
-                                "toolName": tc_info.get(
-                                    "name", data.get("name", "unknown")
-                                ),
-                                "isError": bool(data.get("isError")),
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": _format_tool_result(
-                                            data.get(
-                                                "result", data.get("partialResult")
-                                            )
-                                        ),
-                                    }
-                                ],
-                            },
-                        }
-                    )
-                    parent_id = result_id
-
-            elif stream == "lifecycle" and data.get("phase") == "end":
-                if last_text:
-                    mid = _next_id()
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": mid,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "assistant",
-                                "content": [{"type": "text", "text": last_text}],
-                                "model": model_name,
-                            },
-                        }
-                    )
-                    parent_id = mid
-                    last_text = ""
-
-        if last_text:
-            mid = _next_id()
-            messages.append(
-                {
-                    "type": "message",
-                    "id": mid,
-                    "parentId": parent_id,
-                    "timestamp": "",
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": last_text}],
-                        "model": model_name,
-                    },
-                }
-            )
-            parent_id = mid
-
-        return messages, msg_counter, parent_id
-
-    def _export_and_clear_turns(self):
-        """Export trajectory as ir.attachment, clear turns, return attachment."""
-        self.ensure_one()
-        all_turns = self._get_all_turns()
-        if not all_turns:
-            return self.env["ir.attachment"]
-
-        trajectory = self.build_trajectory_json()
-        content = json.dumps(trajectory, indent=2, ensure_ascii=False)
-        filename = "session-%s.json" % self.id
-
-        attachment = self.env["ir.attachment"].create(
-            {
-                "name": filename,
-                "type": "binary",
-                "datas": base64.b64encode(content.encode("utf-8")),
-                "res_model": self._name,
-                "res_id": self.id,
-                "mimetype": "application/json",
-            }
-        )
-        _logger.info(
-            "Auto-exported trajectory (%d bytes, %d messages) for task %s",
-            len(content),
-            len(trajectory.get("messages", [])),
-            self.id,
-        )
-
-        turn_count = len(all_turns)
-        all_turns.unlink()
-        _logger.info("Cleared %d turns for task %s", turn_count, self.id)
-
-        return attachment
+    docker_dashboard_url = fields.Char(
+        string="Dashboard URL", compute="_compute_dashboard_url"
+    )
+    docker_ws_url = fields.Char(
+        string="Gateway WS URL", compute="_compute_docker_ws_url"
+    )
+    docker_error = fields.Text(string="Docker Error", readonly=True)
+    docker_workdir = fields.Char(string="Working Directory", readonly=True, copy=False)
 
     def _deployment_mode(self):
         return (
@@ -1404,9 +187,681 @@ class Talos(models.Model):
             .strip()
         )
 
+    @api.depends(
+        "docker_port", "docker_gateway_token", "docker_status", "docker_compose_project"
+    )
+    def _compute_dashboard_url(self):
+        for rec in self:
+            if rec.docker_status != "running" or not rec.docker_gateway_token:
+                rec.docker_dashboard_url = False
+                continue
+
+            mode = rec._deployment_mode()
+            if mode == "k8s":
+                ws_host = (
+                    rec.env["ir.config_parameter"]
+                    .sudo()
+                    .get_param("talos.ws_router_host", "")
+                    .strip()
+                )
+                if ws_host:
+                    rec.docker_dashboard_url = (
+                        "https://%s/sandbox/%s/#token=%s"
+                        % (ws_host, rec.id, rec.docker_gateway_token)
+                    )
+                else:
+                    svc_name = "talos-sandbox-%s" % rec.id
+                    rec.docker_dashboard_url = (
+                        "http://%s.talos.svc.cluster.local:18789/#token=%s"
+                        % (svc_name, rec.docker_gateway_token)
+                    )
+            else:
+                if rec.docker_port:
+                    rec.docker_dashboard_url = "http://localhost:%d/#token=%s" % (
+                        rec.docker_port,
+                        rec.docker_gateway_token,
+                    )
+                else:
+                    rec.docker_dashboard_url = False
+
+    @api.depends("docker_port", "docker_status")
+    def _compute_docker_ws_url(self):
+        for rec in self:
+            if rec.docker_status != "running" or not rec.docker_port:
+                rec.docker_ws_url = False
+                continue
+
+            mode = rec._deployment_mode()
+            if mode == "k8s":
+                ws_host = (
+                    self.env["ir.config_parameter"]
+                    .sudo()
+                    .get_param("talos.ws_router_host", "")
+                    .strip()
+                )
+                if ws_host:
+                    rec.docker_ws_url = "wss://%s/sandbox/%s/" % (ws_host, rec.id)
+                else:
+                    rec.docker_ws_url = False
+            else:
+                rec.docker_ws_url = "ws://localhost:%d" % rec.docker_port
+
+    def _get_gateway_ws_url(self):
+        self.ensure_one()
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            svc_name = "talos-sandbox-%s" % self.id
+            return "ws://%s.talos.svc.cluster.local:18789" % svc_name
+        else:
+            if not self.docker_port:
+                return False
+            return "ws://localhost:%d" % self.docker_port
+
+    def action_start_sandbox(self):
+        self.ensure_one()
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            self._start_k8s()
+        else:
+            self._start_local()
+
+    def action_stop_sandbox(self):
+        self.ensure_one()
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            self._stop_k8s()
+        else:
+            self._stop_local()
+
     @api.model
     def _cron_reconcile_sandboxes(self):
-        self.env["talos.sandbox"]._cron_reconcile()
+        mode = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("talos.deployment_mode", "local")
+            .strip()
+        )
+        if mode == "k8s":
+            self.env["talos.sandbox.k8s"].reconcile_sandboxes()
+
+    # ------------------------------------------------------------------
+    # K8s methods (unchanged)
+    # ------------------------------------------------------------------
+
+    def _start_k8s(self):
+        if self.docker_status == "running":
+            raise UserError("Sandbox is already running for this task.")
+
+        gateway_token = secrets.token_hex(32)
+        self.write(
+            {
+                "docker_status": "starting",
+                "docker_gateway_token": gateway_token,
+                "docker_error": False,
+            }
+        )
+
+        try:
+            self.env["talos.sandbox.k8s"].deploy_sandbox(self)
+            svc_name = "talos-sandbox-%s" % self.id
+            self.write(
+                {
+                    "docker_compose_project": svc_name,
+                    "docker_status": "starting",
+                    "docker_port": 18789,
+                }
+            )
+            _logger.info(
+                "Deployed K8s sandbox %s for task %s (persona=%s)",
+                svc_name,
+                self.id,
+                self.persona_id.name,
+            )
+        except Exception as e:
+            _logger.error("K8s sandbox deploy failed for task %s: %s", self.id, e)
+            self.write({"docker_status": "error", "docker_error": str(e)[:1000]})
+
+    def _stop_k8s(self):
+        if self.docker_status == "stopped":
+            return
+
+        try:
+            self.env["talos.sandbox.k8s"].destroy_sandbox(self)
+            _logger.info("Destroyed K8s sandbox for task %s", self.id)
+        except Exception as e:
+            _logger.warning("K8s sandbox destroy failed for task %s: %s", self.id, e)
+
+        self.write(
+            {
+                "docker_compose_project": False,
+                "docker_status": "stopped",
+                "docker_port": 0,
+                "docker_litellm_port": 0,
+                "docker_gateway_token": False,
+                "docker_error": False,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Local (Docker Compose) methods
+    # ------------------------------------------------------------------
+
+    def _allocate_ports(self):
+        self.ensure_one()
+        offset = self.id % 1000
+        return (
+            GATEWAY_PORT_BASE + offset,
+            LITELLM_PORT_BASE + offset,
+            DB_PORT_BASE + offset,
+        )
+
+    def _prepare_workdir(
+        self, persona, gateway_token, gateway_port, litellm_port, db_port
+    ):
+        env = _load_dotenv()
+        source_dir = _module_sandbox_dir()
+        if not source_dir or not os.path.isdir(source_dir):
+            raise UserError(
+                "Bundled sandbox_docker directory not found in talos module."
+            )
+
+        workdir = os.path.join(
+            tempfile.gettempdir(), "talos-sandbox", "talos-%d" % self.id
+        )
+        if os.path.exists(workdir):
+            shutil.rmtree(workdir)
+        os.makedirs(workdir)
+
+        for filename in ("Dockerfile", "litellm-patch-entrypoint.sh"):
+            src = os.path.join(source_dir, filename)
+            dst = os.path.join(workdir, filename)
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+
+        if persona.docker_compose_yaml:
+            with open(os.path.join(workdir, "docker-compose.yml"), "w") as f:
+                f.write(persona.docker_compose_yaml)
+        else:
+            src = os.path.join(source_dir, "docker-compose.yml")
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(workdir, "docker-compose.yml"))
+
+        persona_dir = os.path.join(workdir, "personas", persona.name)
+        os.makedirs(persona_dir)
+        for fname, content in [
+            ("SOUL.md", persona.soul_md),
+            ("MEMORY.md", persona.memory_md),
+            ("AGENTS.md", persona.agents_md),
+        ]:
+            if content:
+                with open(os.path.join(persona_dir, fname), "w") as f:
+                    f.write(content)
+
+        data_dir = os.path.join(workdir, "data", persona.name)
+        os.makedirs(data_dir, exist_ok=True)
+        ws_dir = os.path.join(data_dir, "workspace")
+        os.makedirs(os.path.join(ws_dir, "memory"), exist_ok=True)
+        os.makedirs(os.path.join(ws_dir, "skills"), exist_ok=True)
+
+        for fname, content in [
+            ("SOUL.md", persona.soul_md),
+            ("MEMORY.md", persona.memory_md),
+            ("AGENTS.md", persona.agents_md),
+        ]:
+            if content:
+                with open(os.path.join(ws_dir, fname), "w") as f:
+                    f.write(content)
+
+        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
+        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
+        if not litellm_key:
+            litellm_key = "sk-talos-%s" % secrets.token_hex(8)
+
+        origins = [
+            "http://localhost:18789",
+            "http://127.0.0.1:18789",
+            "http://0.0.0.0:18789",
+            "http://localhost:8069",
+            "http://127.0.0.1:8069",
+        ]
+        if gateway_port != 18789:
+            origins.append("http://localhost:%d" % gateway_port)
+            origins.append("http://127.0.0.1:%d" % gateway_port)
+
+        config = {
+            "gateway": {
+                "bind": "lan",
+                "auth": {"mode": "token", "token": gateway_token},
+                "trustedProxies": [
+                    "172.16.0.0/12",
+                    "192.168.0.0/16",
+                    "10.0.0.0/8",
+                ],
+                "controlUi": {
+                    "allowedOrigins": origins,
+                    "dangerouslyDisableDeviceAuth": True,
+                },
+            },
+            "browser": {
+                "enabled": True,
+                "headless": True,
+                "noSandbox": True,
+                "defaultProfile": "openclaw",
+            },
+            "models": {"providers": {}},
+        }
+
+        providers = config["models"]["providers"]
+
+        if aws_bearer and bedrock_arn:
+            providers["talos-bedrock"] = {
+                "baseUrl": "https://bedrock-runtime.%s.amazonaws.com" % aws_region,
+                "apiKey": aws_bearer,
+                "auth": "api-key",
+                "api": "bedrock-converse-stream",
+                "models": [
+                    {
+                        "id": bedrock_arn,
+                        "name": "claude-inference",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 200000,
+                        "maxTokens": 8192,
+                    }
+                ],
+            }
+            providers["litellm"] = {
+                "baseUrl": "http://litellm:4000/v1",
+                "apiKey": litellm_key,
+                "auth": "api-key",
+                "api": "openai-responses",
+                "models": [
+                    {
+                        "id": "claude-opus-4.6",
+                        "name": "claude-opus-4.6",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 200000,
+                        "maxTokens": 8192,
+                    },
+                    {
+                        "id": "kimi-k2.5",
+                        "name": "kimi-k2.5",
+                        "reasoning": True,
+                        "input": ["text", "image"],
+                        "cost": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                        },
+                        "contextWindow": 131072,
+                        "maxTokens": 8192,
+                    },
+                ],
+            }
+            config["agents"] = {"defaults": {"model": "litellm/claude-opus-4.6"}}
+
+        with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
+            json.dump(config, f)
+
+        litellm_yaml = persona.litellm_config_yaml
+        if not litellm_yaml:
+            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
+            litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
+                bedrock_arn=bedrock_arn or "PLACEHOLDER",
+                aws_region=aws_region,
+                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
+                kimi_aws_region=kimi_region,
+            )
+        with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
+            f.write(litellm_yaml)
+
+        nginx_conf = (
+            "map $http_upgrade $connection_upgrade {\n"
+            "    default upgrade;\n"
+            "    ''      close;\n"
+            "}\n"
+            "server {\n"
+            "    listen 80;\n"
+            "    server_name _;\n"
+            "    proxy_buffering off;\n"
+            "    location / {\n"
+            "        proxy_pass http://openclaw:18789;\n"
+            "        proxy_http_version 1.1;\n"
+            "        proxy_set_header Upgrade $http_upgrade;\n"
+            "        proxy_set_header Connection $connection_upgrade;\n"
+            "        proxy_set_header Host localhost;\n"
+            "        proxy_set_header Origin $http_origin;\n"
+            "        proxy_set_header User-Agent $http_user_agent;\n"
+            "        proxy_hide_header X-Frame-Options;\n"
+            "        proxy_hide_header Content-Security-Policy;\n"
+            "        proxy_read_timeout 600s;\n"
+            "        proxy_send_timeout 600s;\n"
+            "    }\n"
+            "}\n"
+        )
+        with open(os.path.join(workdir, "nginx.conf"), "w") as f:
+            f.write(nginx_conf)
+
+        override = (
+            "services:\n"
+            "  openclaw:\n"
+            '    entrypoint: ["node", "openclaw.mjs", "gateway",'
+            ' "--allow-unconfigured", "--token", "%s"]\n'
+            "    command: []\n"
+            "    ports: !override []\n"
+            "  nginx:\n"
+            "    image: nginx:alpine\n"
+            "    depends_on:\n"
+            "      - openclaw\n"
+            "    volumes:\n"
+            "      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro\n"
+            "    ports:\n"
+            '      - "%d:80"\n'
+            "    networks:\n"
+            "      - frontend\n"
+            "  litellm:\n"
+            "    ports:\n"
+            '      - "%d:4000"\n'
+            "  db:\n"
+            "    ports:\n"
+            '      - "%d:5432"\n'
+        ) % (gateway_token, gateway_port, litellm_port, db_port)
+        with open(os.path.join(workdir, "docker-compose.override.yml"), "w") as f:
+            f.write(override)
+
+        return workdir
+
+    def _build_compose_env(self, gateway_token):
+        self.ensure_one()
+        persona = self.persona_id
+
+        env = _load_dotenv().copy()
+        env["PERSONA"] = persona.name
+        env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
+
+        if not env.get("LITELLM_MASTER_KEY"):
+            env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
+
+        return env
+
+    def _wait_for_health(self, compose_bin, project_name, workdir):
+        deadline = time.monotonic() + _HEALTH_WAIT_TIMEOUT
+        while time.monotonic() < deadline:
+            try:
+                result = subprocess.run(
+                    compose_bin
+                    + ["-p", project_name, "ps", "--format", "json", "openclaw"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                    cwd=workdir,
+                )
+                output = result.stdout.strip()
+                if not output:
+                    time.sleep(_HEALTH_POLL_INTERVAL)
+                    continue
+
+                try:
+                    data = json.loads(output)
+                except json.JSONDecodeError:
+                    data = json.loads(output.splitlines()[0])
+
+                if isinstance(data, list):
+                    data = data[0] if data else {}
+
+                state = (data.get("State") or "").lower()
+                health = (data.get("Health") or "").lower()
+
+                if state in ("exited", "dead"):
+                    _logger.warning(
+                        "openclaw container exited (project=%s, state=%s)",
+                        project_name,
+                        state,
+                    )
+                    return False
+
+                if health == "healthy" or state == "running":
+                    try:
+                        import urllib.request
+
+                        urllib.request.urlopen(
+                            "http://localhost:%d/healthz" % self.docker_port,
+                            timeout=5,
+                        )
+                        return True
+                    except Exception:
+                        pass
+
+            except (subprocess.TimeoutExpired, Exception) as e:
+                _logger.debug("Health poll error: %s", e)
+
+            time.sleep(_HEALTH_POLL_INTERVAL)
+
+        return False
+
+    def _capture_container_logs(self, compose_bin, project_name, workdir):
+        try:
+            result = subprocess.run(
+                compose_bin + ["-p", project_name, "logs", "--tail", "30", "openclaw"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                cwd=workdir,
+            )
+            return result.stdout.strip() or result.stderr.strip()
+        except Exception:
+            return ""
+
+    def _start_local(self):
+        if not self.env.user.has_group("talos.group_talos_admin"):
+            raise UserError("Local mode is restricted to Talos administrators.")
+
+        if self.docker_status == "running" and self.docker_compose_project:
+            raise UserError("Docker stack is already running for this task.")
+
+        if not _docker_available():
+            raise UserError(
+                "Docker is not available on this server. "
+                "Please ensure the Docker daemon is running."
+            )
+
+        compose_bin = _compose_cmd()
+        if not compose_bin:
+            raise UserError("docker compose (or docker-compose) not found.")
+
+        persona = self.persona_id
+        if not persona:
+            raise UserError("No persona selected for this task.")
+
+        gateway_token = secrets.token_hex(32)
+        project_name = "talos-%d" % self.id
+        gateway_port, litellm_port, db_port = self._allocate_ports()
+
+        self.write({"docker_status": "starting", "docker_error": False})
+
+        try:
+            workdir = self._prepare_workdir(
+                persona, gateway_token, gateway_port, litellm_port, db_port
+            )
+        except Exception as e:
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": "Failed to prepare sandbox: %s" % str(e)[:500],
+                }
+            )
+            return
+
+        compose_env = self._build_compose_env(gateway_token)
+
+        cmd = compose_bin + [
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.override.yml",
+            "-p",
+            project_name,
+            "up",
+            "-d",
+            "--build",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=900,
+                check=False,
+                cwd=workdir,
+                env=compose_env,
+            )
+
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                self.write(
+                    {
+                        "docker_status": "error",
+                        "docker_error": "Compose up failed: %s" % error_msg[:1000],
+                    }
+                )
+                return
+
+            self.write(
+                {
+                    "docker_compose_project": project_name,
+                    "docker_status": "starting",
+                    "docker_port": gateway_port,
+                    "docker_litellm_port": litellm_port,
+                    "docker_gateway_token": gateway_token,
+                    "docker_workdir": workdir,
+                    "docker_error": False,
+                }
+            )
+
+            healthy = self._wait_for_health(compose_bin, project_name, workdir)
+
+            if healthy:
+                self.write({"docker_status": "running"})
+                _logger.info(
+                    "Started sandbox (project=%s) task=%s persona=%s",
+                    project_name,
+                    self.id,
+                    persona.name,
+                )
+            else:
+                logs = self._capture_container_logs(compose_bin, project_name, workdir)
+                error_detail = (
+                    "Sandbox containers started but the gateway never became "
+                    "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
+                )
+                if logs:
+                    error_detail += (
+                        "\n\nContainer logs (last 30 lines):\n%s" % logs[:2000]
+                    )
+                self.write(
+                    {
+                        "docker_status": "error",
+                        "docker_error": error_detail[:4000],
+                    }
+                )
+                _logger.error(
+                    "Gateway health-check failed for project %s (task %s)",
+                    project_name,
+                    self.id,
+                )
+
+        except subprocess.TimeoutExpired:
+            self.write(
+                {
+                    "docker_status": "error",
+                    "docker_error": "docker compose up timed out after 900 seconds",
+                }
+            )
+        except Exception as e:
+            self.write({"docker_status": "error", "docker_error": str(e)[:500]})
+
+    def _stop_local(self):
+        if self.docker_status == "stopped":
+            return
+
+        compose_bin = _compose_cmd()
+        project_name = self.docker_compose_project
+        workdir = self.docker_workdir
+
+        if compose_bin and project_name and workdir and os.path.isdir(workdir):
+            try:
+                cmd = compose_bin + ["-p", project_name]
+                cmd += ["-f", "docker-compose.yml"]
+                override = os.path.join(workdir, "docker-compose.override.yml")
+                if os.path.isfile(override):
+                    cmd += ["-f", "docker-compose.override.yml"]
+                cmd += ["down", "--volumes", "--remove-orphans"]
+
+                subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                    cwd=workdir,
+                )
+                _logger.info(
+                    "Stopped sandbox (project=%s) task=%s", project_name, self.id
+                )
+            except Exception as e:
+                _logger.warning(
+                    "Failed to stop compose project %s: %s", project_name, e
+                )
+        elif compose_bin and project_name:
+            try:
+                subprocess.run(
+                    compose_bin
+                    + ["-p", project_name, "down", "--volumes", "--remove-orphans"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+            except Exception as e:
+                _logger.warning("Force stop failed: %s", e)
+
+        if workdir and os.path.isdir(workdir):
+            try:
+                shutil.rmtree(workdir)
+            except Exception as e:
+                _logger.warning("Could not clean workdir %s: %s", workdir, e)
+
+        self.write(
+            {
+                "docker_compose_project": False,
+                "docker_status": "stopped",
+                "docker_port": 0,
+                "docker_litellm_port": 0,
+                "docker_gateway_token": False,
+                "docker_workdir": False,
+                "docker_error": False,
+            }
+        )
 
 
 class TalosTurn(models.Model):
@@ -1414,77 +869,10 @@ class TalosTurn(models.Model):
     _description = "Talos Turn"
     _order = "turn_number asc, id asc"
 
-    sandbox_id = fields.Many2one(
-        "talos.sandbox", string="Sandbox", ondelete="cascade", index=True
-    )
-    talos_id = fields.Many2one(related="sandbox_id.talos_id", store=True, readonly=True)
-    employee_id = fields.Many2one(
-        related="talos_id.employee_id", store=True, readonly=True
-    )
+    talos_id = fields.Many2one("talos.talos", string="Talos", ondelete="cascade")
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
     prompt = fields.Text(string="Prompt")
     response = fields.Text(string="Response")
     run_id = fields.Char(string="Run ID", index=True)
     model_name = fields.Char(string="Model")
-    prompt_timestamp = fields.Char(string="Prompt Timestamp (ISO)")
-    response_timestamp = fields.Char(string="Response Timestamp (ISO)")
-    tool_calls = fields.Text(string="Tool Calls (JSON)")
-    raw_events = fields.Text(string="Raw WS Events (JSON)")
-    trajectory_messages = fields.Text(string="Trajectory Messages (JSON)")
-    qc_severity = fields.Selection(
-        [
-            ("low", "Low"),
-            ("medium", "Medium"),
-            ("high", "High"),
-            ("critical", "Critical"),
-        ],
-        string="QC Severity",
-    )
-    qc_response = fields.Text(string="QC Response (JSON)")
-    qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
-    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
-    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
-    trajectory_input_tokens = fields.Integer(
-        string="Trajectory Input Tokens", default=0
-    )
-    trajectory_output_tokens = fields.Integer(
-        string="Trajectory Output Tokens", default=0
-    )
-    claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
-    claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
-    glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
-    glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
-    tool_names = fields.Char(
-        string="Tools Used", compute="_compute_tool_names", store=True
-    )
-    feedback = fields.Selection(
-        [("satisfied", "Satisfied"), ("unsatisfied", "Unsatisfied")],
-        string="Feedback",
-    )
-    hints = fields.Text(string="Hints")
-    hint_text = fields.Text(string="Hint Text")
-    is_hint_turn = fields.Boolean(string="Is Hint Turn", default=False)
-
-    @api.depends("tool_calls")
-    def _compute_tool_names(self):
-        for rec in self:
-            names = []
-            if rec.tool_calls:
-                try:
-                    calls = json.loads(rec.tool_calls)
-                    if isinstance(calls, list):
-                        for c in calls:
-                            n = c.get("name", "")
-                            if n and n not in names:
-                                names.append(n)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            rec.tool_names = ", ".join(names) if names else False
-
-
-class TalosTaxonomy(models.Model):
-    _name = "talos.taxonomy"
-    _description = "Talos Taxonomy"
-
-    name = fields.Char(string="Name", required=True, unique=True)
