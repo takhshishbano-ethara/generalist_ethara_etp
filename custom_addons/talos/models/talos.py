@@ -926,7 +926,10 @@ class Talos(models.Model):
         valid_fields = {
             "claude_trajectory",
             "glm_trajectory",
-            "oneP_trajectory",
+            "onePA_trajectory",
+            "onePB_trajectory",
+            "onePC_trajectory",
+            "onePD_trajectory",
             "golden_trajectory",
         }
         if field_name not in valid_fields:
