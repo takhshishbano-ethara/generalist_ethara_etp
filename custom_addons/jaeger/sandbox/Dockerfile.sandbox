@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -47,6 +47,7 @@ RUN sed -i \
     && pip install -r requirements.txt \
     && pip install "httpx[http2]" \
     && pip install gevent \
+    && pip install PyGithub boto3 kubernetes unidiff \
     && apt-get purge -y \
         build-essential gcc g++ \
         libffi-dev libssl-dev libpq-dev \
@@ -60,6 +61,9 @@ COPY src/ .
 COPY . .
 
 RUN chmod +x odoo-bin
+
+RUN mkdir -p /etc/odoo \
+    && cp custom_addons/jaeger/sandbox/odoo.conf /etc/odoo/odoo.conf
 
 EXPOSE 8069 8072
 

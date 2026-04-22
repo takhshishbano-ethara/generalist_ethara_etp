@@ -354,6 +354,7 @@ def _upload_outputs_to_s3(db_name, repo_id, out_dir, org, repo_name):
             retries={"mode": "standard", "max_attempts": 5},
             connect_timeout=30,
             read_timeout=60,
+            **({"s3": {"addressing_style": "path"}} if os.environ.get("JAEGER_S3_ENDPOINT") else {}),
         ),
     )
 
@@ -847,29 +848,86 @@ class JaegerRepository(models.Model):
             )
 
     def _read_jsonl_preview(self, file_path, max_lines=20):
-        """Read the first N lines of a JSONL file for UI preview."""
+        """Read the first N lines of a JSONL file for UI preview.
+
+        If the local file doesn't exist, attempt to stream the first
+        ``max_lines`` from S3 using the configured bucket/prefix.
+        """
         import json as json_mod
         from pathlib import Path
 
         if not file_path:
             return ""
         p = Path(file_path)
-        if not p.exists():
-            return f"File not found: {file_path}"
+
+        raw_lines = None
+
+        # Try local file first
+        if p.exists():
+            with open(p, encoding="utf-8") as f:
+                raw_lines = f.readlines()
+        else:
+            # Fallback: fetch from S3
+            raw_lines = self._fetch_lines_from_s3(file_path)
+
+        if raw_lines is None:
+            return f"File not available locally or on S3: {file_path}"
+
         lines = []
-        total_lines = 0
-        with open(p, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                total_lines = i + 1
-                if i < max_lines:
-                    try:
-                        obj = json_mod.loads(line)
-                        lines.append(json_mod.dumps(obj, indent=2, ensure_ascii=False))
-                    except json_mod.JSONDecodeError:
-                        lines.append(line.rstrip())
+        total_lines = len(raw_lines)
+        for i, line in enumerate(raw_lines):
+            if i >= max_lines:
+                break
+            try:
+                obj = json_mod.loads(line)
+                lines.append(json_mod.dumps(obj, indent=2, ensure_ascii=False))
+            except json_mod.JSONDecodeError:
+                lines.append(line.rstrip())
         if total_lines > max_lines:
             lines.append(f"\n... ({total_lines - max_lines} more lines)")
         return "\n".join(lines)
+
+    def _fetch_lines_from_s3(self, file_path):
+        """Try to read a JSONL file from S3 given its local path.
+
+        Extracts the filename from *file_path*, builds the S3 key using
+        the repo id, and streams the object content.  Returns a list of
+        lines on success, or ``None`` on failure.
+        """
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            return None
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
+        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
+        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        if not s3_bucket:
+            return None
+
+        filename = os.path.basename(file_path)
+        s3_key = f"{s3_prefix}/{self.id}/{filename}"
+        try:
+            config_kwargs = {"connect_timeout": 10, "read_timeout": 30}
+            if os.environ.get("JAEGER_S3_ENDPOINT"):
+                config_kwargs["s3"] = {"addressing_style": "path"}
+            client = boto3.client(
+                "s3",
+                region_name=s3_region,
+                endpoint_url=os.environ.get(
+                    "JAEGER_S3_ENDPOINT",
+                    f"https://s3.{s3_region}.amazonaws.com",
+                ),
+                config=BotoConfig(**config_kwargs),
+            )
+            resp = client.get_object(Bucket=s3_bucket, Key=s3_key)
+            body = resp["Body"].read().decode("utf-8", errors="replace")
+            return body.splitlines(keepends=True)
+        except Exception:
+            _logger.debug("S3 preview fallback failed for %s", s3_key, exc_info=True)
+            return None
 
     # ── Sequence ──────────────────────────────────────────────────────────
 
@@ -1116,7 +1174,10 @@ class JaegerRepository(models.Model):
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
-            k8s_config.load_kube_config()
+            config_file = os.environ.get("KUBECONFIG")
+            k8s_config.load_kube_config(
+                config_file=config_file if config_file else None,
+            )
         batch_v1 = client.BatchV1Api()
 
         ICP = self.env["ir.config_parameter"].sudo()
@@ -1126,6 +1187,7 @@ class JaegerRepository(models.Model):
         s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
         s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
         db_name = self.env.cr.dbname
+        sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
         job_name = "jaeger-scrape-%s" % self.id
         env_vars = [
@@ -1136,19 +1198,69 @@ class JaegerRepository(models.Model):
             client.V1EnvVar(name="JAEGER_S3_PREFIX", value=s3_prefix),
         ]
 
+        if sandbox:
+            s3_endpoint = ICP.get_param("jaeger.s3_endpoint", "")
+            if s3_endpoint:
+                env_vars.append(
+                    client.V1EnvVar(name="JAEGER_S3_ENDPOINT", value=s3_endpoint),
+                )
+
+        pod_spec_kwargs = {
+            "restart_policy": "Never",
+            "containers": [
+                client.V1Container(
+                    name="pipeline",
+                    image=job_image,
+                    image_pull_policy="Always",
+                    command=[
+                        "python",
+                        "custom_addons/jaeger/worker/run_pipeline.py",
+                    ],
+                    env=env_vars,
+                    resources=client.V1ResourceRequirements(
+                        requests={
+                            "cpu": "500m",
+                            "memory": "1Gi",
+                            "ephemeral-storage": "5Gi",
+                        },
+                        limits={
+                            "memory": "2Gi",
+                            "ephemeral-storage": "10Gi",
+                        },
+                    ),
+                ),
+            ],
+        }
+
+        if sandbox:
+            pod_spec_kwargs["host_network"] = True
+            pod_spec_kwargs["dns_policy"] = "None"
+            pod_spec_kwargs["dns_config"] = client.V1PodDNSConfig(
+                nameservers=["127.0.0.11"],
+            )
+        else:
+            pod_spec_kwargs["service_account_name"] = "jaeger-pipeline-runner"
+            pod_spec_kwargs["node_selector"] = {
+                "kubernetes.io/arch": "amd64",
+                "ethara.ai/node-pool": "general-purpose",
+            }
+
+        labels = {
+            "app.kubernetes.io/name": "jaeger-scrape",
+            "app.kubernetes.io/component": "pipeline",
+            "repo-id": str(self.id),
+            "platform": "jaeger",
+        }
+        if not sandbox:
+            labels["kueue.x-k8s.io/queue-name"] = "jaeger-scraping"
+
         job = client.V1Job(
             api_version="batch/v1",
             kind="Job",
             metadata=client.V1ObjectMeta(
                 name=job_name,
                 namespace=namespace,
-                labels={
-                    "app.kubernetes.io/name": "jaeger-scrape",
-                    "app.kubernetes.io/component": "pipeline",
-                    "repo-id": str(self.id),
-                    "platform": "jaeger",
-                    "kueue.x-k8s.io/queue-name": "jaeger-scraping",
-                },
+                labels=labels,
             ),
             spec=client.V1JobSpec(
                 ttl_seconds_after_finished=3600,
@@ -1162,37 +1274,7 @@ class JaegerRepository(models.Model):
                             "platform": "jaeger",
                         },
                     ),
-                    spec=client.V1PodSpec(
-                        restart_policy="Never",
-                        service_account_name="jaeger-pipeline-runner",
-                        node_selector={
-                            "kubernetes.io/arch": "amd64",
-                            "ethara.ai/node-pool": "general-purpose",
-                        },
-                        containers=[
-                            client.V1Container(
-                                name="pipeline",
-                                image=job_image,
-                                image_pull_policy="Always",
-                                command=[
-                                    "python",
-                                    "custom_addons/jaeger/worker/run_pipeline.py",
-                                ],
-                                env=env_vars,
-                                resources=client.V1ResourceRequirements(
-                                    requests={
-                                        "cpu": "500m",
-                                        "memory": "1Gi",
-                                        "ephemeral-storage": "5Gi",
-                                    },
-                                    limits={
-                                        "memory": "2Gi",
-                                        "ephemeral-storage": "10Gi",
-                                    },
-                                ),
-                            ),
-                        ],
-                    ),
+                    spec=client.V1PodSpec(**pod_spec_kwargs),
                 ),
             ),
         )
@@ -2687,7 +2769,9 @@ echo '>>>>> End Test Output'
             from kubernetes import client
             from kubernetes import config as k8s_config
 
-            k8s_config.load_kube_config()
+            k8s_config.load_kube_config(
+                config_file=os.environ.get("KUBECONFIG") or None,
+            )
             batch_v1 = client.BatchV1Api()
         except ImportError:
             _logger.warning("kubernetes Python client not installed. Skipping EKS dispatch.")
@@ -3090,7 +3174,9 @@ echo '>>>>> End Test Output'
             from kubernetes import client
             from kubernetes import config as k8s_config
 
-            k8s_config.load_kube_config()
+            k8s_config.load_kube_config(
+                config_file=os.environ.get("KUBECONFIG") or None,
+            )
             batch_v1 = client.BatchV1Api()
         except (ImportError, Exception) as e:
             _logger.warning("Cannot connect to K8s for polling: %s", e)
@@ -3318,7 +3404,9 @@ echo '>>>>> End Test Output'
             try:
                 k8s_config.load_incluster_config()
             except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+                k8s_config.load_kube_config(
+                    config_file=os.environ.get("KUBECONFIG") or None,
+                )
             batch_v1 = client.BatchV1Api()
         except ImportError:
             return

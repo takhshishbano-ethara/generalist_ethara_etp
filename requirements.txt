@@ -147,6 +147,7 @@ jsonschema-specifications==2024.10.1
 keyring==25.7.0
 kiwisolver==1.4.9
 kombu==5.6.2
+kubernetes==32.0.1
 langchain-core==1.1.0
 langgraph==1.0.4
 langgraph-checkpoint==3.0.1
@@ -308,6 +309,7 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.2
 tzlocal==5.3.1
+unidiff==0.7.5
 uritemplate==4.2.0
 urllib3==2.5.0
 uvicorn==0.38.0

@@ -10,7 +10,21 @@ from unidiff import PatchSet
 _logger = logging.getLogger(__name__)
 
 
-def extract_patches(pull, token):
+_TEST_PATH_KEYWORDS = ["test", "tests", "e2e", "testing", "spec", "__tests__"]
+
+
+def _split_patch_text(patch_text):
+    test_patch = ""
+    fix_patch = ""
+    for hunk in PatchSet(patch_text):
+        if any(kw in hunk.path.lower() for kw in _TEST_PATH_KEYWORDS):
+            test_patch += str(hunk)
+        else:
+            fix_patch += str(hunk)
+    return fix_patch, test_patch
+
+
+def _fetch_via_compare_api(pull, token):
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3.diff",
@@ -34,7 +48,7 @@ def extract_patches(pull, token):
     response = requests.get(compare_url, headers=headers, timeout=60)
     if response.status_code != 200:
         raise Exception(
-            f"Failed to fetch patch: {response.status_code} - {response.text[:300]}",
+            f"Compare API failed: {response.status_code} - {response.text[:300]}",
         )
 
     patch_text = response.text
@@ -47,17 +61,53 @@ def extract_patches(pull, token):
     remaining = response.headers.get("X-RateLimit-Remaining")
     reset_at = response.headers.get("X-RateLimit-Reset")
 
-    test_patch = ""
-    fix_patch = ""
-    for hunk in PatchSet(patch_text):
-        if any(
-            word in hunk.path.lower()
-            for word in ["test", "tests", "e2e", "testing"]
-        ):
-            test_patch += str(hunk)
-        else:
-            fix_patch += str(hunk)
+    fix_patch, test_patch = _split_patch_text(patch_text)
     return fix_patch, test_patch, remaining, reset_at
+
+
+def _fetch_via_diff_url(pull, token):
+    diff_url = pull.get("diff_url")
+    if not diff_url:
+        return "", "", None, None
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(diff_url, headers=headers, timeout=60)
+    if response.status_code != 200:
+        raise Exception(
+            f"diff_url fetch failed: {response.status_code} - {response.text[:300]}",
+        )
+
+    patch_text = response.text
+    if (
+        "exceeded a secondary rate limit" in patch_text
+        or "Access to this site has been restricted" in patch_text
+    ):
+        raise Exception("GitHub API rate limit exceeded.")
+
+    fix_patch, test_patch = _split_patch_text(patch_text)
+    return fix_patch, test_patch, None, None
+
+
+def extract_patches(pull, token):
+    try:
+        return _fetch_via_compare_api(pull, token)
+    except Exception as compare_err:
+        error_msg = str(compare_err)
+        if "rate limit" in error_msg.lower():
+            raise
+
+        _logger.info(
+            "PR #%s compare API failed (%s), trying diff_url fallback...",
+            pull.get("number", "?"), error_msg[:120],
+        )
+        try:
+            return _fetch_via_diff_url(pull, token)
+        except Exception as fallback_err:
+            _logger.debug(
+                "PR #%s diff_url fallback also failed: %s",
+                pull.get("number", "?"), fallback_err,
+            )
+            raise compare_err
 
 
 def main(pool, out_dir, filtered_prs_with_issues_file,

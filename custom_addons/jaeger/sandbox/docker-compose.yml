@@ -54,7 +54,7 @@ services:
   # ── K3s (lightweight Kubernetes) ──────────────────────────────────────
   k3s:
     image: rancher/k3s:latest
-    command: server --disable=traefik,servicelb,metrics-server --write-kubeconfig-mode=644
+    command: server --disable=traefik,servicelb,metrics-server --write-kubeconfig-mode=644 --tls-san=k3s
     privileged: true
     environment:
       K3S_KUBECONFIG_MODE: "644"
@@ -80,26 +80,27 @@ services:
     build:
       context: ../../..
       dockerfile: custom_addons/jaeger/sandbox/Dockerfile.sandbox
-    command:
-      - ./odoo-bin
+    entrypoint:
+      - /bin/sh
       - -c
-      - /etc/odoo/odoo.conf
-      - -d
-      - jaeger_dev
+      - |
+        cp /etc/rancher/k3s/k3s.yaml /tmp/k3s.yaml
+        sed -i 's|server: https://127.0.0.1:6443|server: https://k3s:6443|' /tmp/k3s.yaml
+        exec ./odoo-bin -c /etc/odoo/odoo.conf -d jaeger_dev
     depends_on:
       db:
         condition: service_healthy
       minio:
         condition: service_healthy
+      k3s:
+        condition: service_healthy
     environment:
-      # S3 / MinIO
       JAEGER_S3_BUCKET: jaeger-local
       JAEGER_S3_REGION: us-east-1
       JAEGER_S3_ENDPOINT: "http://minio:9000"
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
-      # K3s kubeconfig
-      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      KUBECONFIG: /tmp/k3s.yaml
     ports:
       - "8069:8069"
       - "8072:8072"

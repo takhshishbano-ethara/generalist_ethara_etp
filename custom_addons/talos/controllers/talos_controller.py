@@ -114,6 +114,7 @@ class Talos(http.Controller):
                     'trajectory_modifier': (item.get('trajectory_modifier') or '').strip() or False,
                     'safety_critical': (item.get('safety_critical') or '').strip() or False,
                     'seed_prompt': item.get('seed_prompt', ''),
+                    'initial_prompt': item.get('initial_prompt', ''),
                     'system_prompt': item.get('system_prompt', ''),
                     'agent_md': item.get('agent.md', ''),
                     'soul_md': item.get('soul.md', ''),
