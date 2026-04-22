@@ -85,25 +85,25 @@ WS_ROUTER_LABELS = {
 }
 
 
-def _sandbox_labels(task_record):
+def _sandbox_labels(sandbox_record):
     return {
         "platform": "talos",
         "component": "sandbox",
-        "task-id": str(task_record.id),
+        "task-id": str(sandbox_record.id),
         "app.kubernetes.io/name": "talos-sandbox",
         "app.kubernetes.io/managed-by": "talos-odoo",
     }
 
 
-def _resource_name(task_record):
-    return "talos-sandbox-%s" % task_record.id
+def _resource_name(sandbox_record):
+    return "talos-sandbox-%s" % sandbox_record.id
 
 
-def _s3_session_path(task_record):
+def _s3_session_path(sandbox_record):
     return "s3://%s/%s/tasks/%s/sessions/" % (
         S3_BUCKET,
         S3_TALOS_PREFIX,
-        task_record.id,
+        sandbox_record.id,
     )
 
 
@@ -117,10 +117,11 @@ def _s3_browser_path(persona_name):
 
 def _build_prestop_script(task_id, persona_name):
     session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_TALOS_PREFIX, task_id)
-    browser_path = "s3://%s/%s/browser-profiles/%s/" % (
+    browser_path = "s3://%s/%s/browser-profiles/%s/%s/" % (
         S3_BUCKET,
         S3_TALOS_PREFIX,
         persona_name,
+        task_id,
     )
     return (
         "RUN_ID=$(cat /home/node/.openclaw/.talos-run-id 2>/dev/null || TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
@@ -246,7 +247,6 @@ class TalosSandboxK8s(models.AbstractModel):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes package is not installed on this server.")
 
-        task_record = sandbox_record
         config.load_incluster_config()
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
@@ -313,7 +313,7 @@ class TalosSandboxK8s(models.AbstractModel):
             core_v1,
             task_id,
             labels,
-            task_record,
+            sandbox_record,
         )
 
         openclaw_config = _build_openclaw_config(
@@ -344,7 +344,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         self._create_deployment(
             apps_v1,
-            task_record,
+            sandbox_record,
             labels,
             persona_name,
             name,
@@ -362,7 +362,7 @@ class TalosSandboxK8s(models.AbstractModel):
             gateway_token,
         )
 
-        self._create_service(core_v1, task_record, labels, name)
+        self._create_service(core_v1, sandbox_record, labels, name)
 
         networking_v1 = client.NetworkingV1Api()
         talos_ws_host = self._get_config_param("talos.ws_router_host", "")
@@ -429,11 +429,10 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_gog_secret(self, core_v1, task_id, labels, task_record):
+    def _create_gog_secret(self, core_v1, task_id, labels, sandbox_record):
         string_data = {}
 
-        # Extract client_secret.json from gog_auth
-        gog_auth_raw = task_record.talos_id.gog_auth or ""
+        gog_auth_raw = sandbox_record.talos_id.gog_auth or ""
         if gog_auth_raw:
             try:
                 gog_data = json.loads(gog_auth_raw)
@@ -455,7 +454,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 )
 
         # Extract token files from gog_auth_token
-        gog_auth_token_raw = task_record.talos_id.gog_auth_token or ""
+        gog_auth_token_raw = sandbox_record.talos_id.gog_auth_token or ""
         if gog_auth_token_raw:
             try:
                 token_data = json.loads(gog_auth_token_raw)
@@ -486,8 +485,8 @@ class TalosSandboxK8s(models.AbstractModel):
             string_data["config.json"] = json.dumps({"keyring_backend": "file"})
 
         # Store GOG_KEYRING_PASSWORD and GOG_ACCOUNT in the secret too
-        gog_kp = task_record.talos_id.password or ""
-        gog_account = task_record.talos_id.email or ""
+        gog_kp = sandbox_record.talos_id.password or ""
+        gog_account = sandbox_record.talos_id.email or ""
         string_data["_GOG_KEYRING_PASSWORD"] = gog_kp
         string_data["_GOG_ACCOUNT"] = gog_account
 
@@ -559,7 +558,7 @@ class TalosSandboxK8s(models.AbstractModel):
     def _create_deployment(
         self,
         apps_v1,
-        task_record,
+        sandbox_record,
         labels,
         persona,
         name,
@@ -576,7 +575,7 @@ class TalosSandboxK8s(models.AbstractModel):
         bedrock_arn,
         gateway_token,
     ):
-        task_id = task_record.id
+        task_id = sandbox_record.id
         secret_name = "talos-sandbox-creds-%s" % task_id
         gog_secret_name = "talos-sandbox-gog-%s" % task_id
         persona_cm = "talos-sandbox-persona-%s" % task_id
@@ -588,10 +587,11 @@ class TalosSandboxK8s(models.AbstractModel):
             s3_prefix,
             task_id,
         )
-        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/" % (
+        browser_s3_path = "s3://%s/%s/tasks/browser-profiles/%s/%s/" % (
             s3_bucket,
             s3_prefix,
             persona,
+            task_id,
         )
 
         db_url = ""
@@ -1055,7 +1055,7 @@ class TalosSandboxK8s(models.AbstractModel):
             if e.status != 409:
                 raise
 
-    def _create_service(self, core_v1, task_record, labels, name):
+    def _create_service(self, core_v1, sandbox_record, labels, name):
         svc = client.V1Service(
             api_version="v1",
             kind="Service",
@@ -1067,7 +1067,7 @@ class TalosSandboxK8s(models.AbstractModel):
             spec=client.V1ServiceSpec(
                 type="ClusterIP",
                 selector={
-                    "task-id": str(task_record.id),
+                    "task-id": str(sandbox_record.id),
                     "component": "sandbox",
                 },
                 ports=[
@@ -1236,7 +1236,7 @@ class TalosSandboxK8s(models.AbstractModel):
 
         _logger.info("WS router created (host=%s)", ws_host or "no-ingress")
 
-    def destroy_sandbox(self, task_record):
+    def destroy_sandbox(self, sandbox_record):
         if not K8S_AVAILABLE:
             return
 
@@ -1244,8 +1244,8 @@ class TalosSandboxK8s(models.AbstractModel):
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
-        task_id = task_record.id
-        name = _resource_name(task_record)
+        task_id = sandbox_record.id
+        name = _resource_name(sandbox_record)
 
         self._delete_resource(
             apps_v1.delete_namespaced_deployment,
@@ -1294,21 +1294,21 @@ class TalosSandboxK8s(models.AbstractModel):
                     e,
                 )
 
-    def get_sandbox_status(self, task_record):
+    def get_sandbox_status(self, sandbox_record):
         if not K8S_AVAILABLE:
             return "stopped"
 
         config.load_incluster_config()
         apps_v1 = client.AppsV1Api()
-        name = _resource_name(task_record)
+        name = _resource_name(sandbox_record)
 
         try:
             dep = apps_v1.read_namespaced_deployment(name=name, namespace=NAMESPACE)
         except ApiException as e:
             if e.status == 404:
-                if task_record.docker_status == "starting" and task_record.write_date:
+                if sandbox_record.docker_status == "starting" and sandbox_record.write_date:
                     elapsed = (
-                        fields.Datetime.now() - task_record.write_date
+                        fields.Datetime.now() - sandbox_record.write_date
                     ).total_seconds()
                     if elapsed > 300:
                         return "error"
@@ -1324,12 +1324,19 @@ class TalosSandboxK8s(models.AbstractModel):
 
     @api.model
     def reconcile_sandboxes(self):
+        """Reconcile K8s sandbox deployments with DB state.
+
+        NOTE: Prefer using talos.sandbox._cron_reconcile() (called via the
+        ir.cron job) which is the canonical reconciliation entry-point.
+        This method is kept for backward-compatibility and delegates to the
+        same per-sandbox logic.
+        """
         if not K8S_AVAILABLE:
             _logger.warning("kubernetes not available, skipping sandbox reconciliation")
             return
 
-        tasks = (
-            self.env["talos.talos"]
+        sandboxes = (
+            self.env["talos.sandbox"]
             .sudo()
             .search(
                 [
@@ -1337,23 +1344,23 @@ class TalosSandboxK8s(models.AbstractModel):
                 ]
             )
         )
-        if not tasks:
+        if not sandboxes:
             return
 
-        for task in tasks:
+        for sandbox in sandboxes:
             try:
-                status = self.get_sandbox_status(task)
-                if status != task.docker_status:
-                    task.write({"docker_status": status})
+                status = self.get_sandbox_status(sandbox)
+                if status != sandbox.docker_status:
+                    sandbox.write({"docker_status": status})
                     if status == "error":
-                        task.write(
+                        sandbox.write(
                             {
                                 "docker_error": "Sandbox deployment not found after timeout",
                             }
                         )
             except Exception as e:
                 _logger.error(
-                    "Reconciliation error for task %s: %s",
-                    task.id,
+                    "Reconciliation error for sandbox %s: %s",
+                    sandbox.id,
                     e,
                 )

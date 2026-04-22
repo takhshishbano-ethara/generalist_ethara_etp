@@ -269,13 +269,16 @@ export class TaskDashboard extends Component {
             await this.orm.call("talos.sandbox", "action_start_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
         } catch (e) {
-            delete this.state.loadingSandbox[sandboxId];
-            this._setSandboxStatus(sandboxId, "error");
-            delete this.state.loadingSandbox[sandboxId];
-            this.notification.add(
-                e.data?.message || e.message || "Failed to start sandbox",
-                { type: "danger" }
-            );
+            const msg = e.data?.message || e.message || "";
+            const isAlreadyActive = msg.includes("already") && (msg.includes("starting") || msg.includes("running") || msg.includes("progress"));
+            if (isAlreadyActive) {
+                await this._loadSandboxes();
+                this.notification.add(msg, { type: "warning" });
+            } else {
+                delete this.state.loadingSandbox[sandboxId];
+                this._setSandboxStatus(sandboxId, "error");
+                this.notification.add(msg || "Failed to start sandbox", { type: "danger" });
+            }
         }
     }
 

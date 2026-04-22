@@ -2190,9 +2190,6 @@ class TalosSandbox(models.Model):
                 self.write({"docker_status": "stopped"})
             return
 
-        if self.docker_status == "running":
-            return
-
         compose_bin = _compose_cmd()
         if not compose_bin:
             return
@@ -2319,10 +2316,11 @@ class TalosSandbox(models.Model):
     def action_check_status(self):
         """Public action: reconcile DB docker_status with actual Docker state.
 
-        Called by the frontend on page load to fix stale statuses.
-        Returns a dict mapping sandbox_id → current docker_status for the caller.
+        Called by the frontend on page load and during polling to fix stale
+        statuses.  Returns a dict mapping sandbox_id → current docker_status.
         """
         mode = self._deployment_mode()
+        k8s = self.env["talos.sandbox.k8s"] if mode == "k8s" else None
         result = {}
         for sandbox in self:
             if (
@@ -2332,9 +2330,32 @@ class TalosSandbox(models.Model):
                 result[sandbox.id] = sandbox.docker_status
                 continue
 
+            # Skip sandboxes that are actively being started in a background
+            # thread — the thread will set the final status itself.
+            with _SANDBOX_LOCK:
+                if sandbox.id in _SANDBOX_STARTING:
+                    result[sandbox.id] = sandbox.docker_status
+                    continue
+
             if mode == "local":
                 sandbox._check_local_status()
-            # k8s reconciliation is handled by cron
+            elif mode == "k8s" and sandbox.docker_status in ("starting", "running"):
+                try:
+                    k8s_status = k8s.get_sandbox_status(sandbox)
+                    if k8s_status != sandbox.docker_status:
+                        vals = {"docker_status": k8s_status}
+                        if k8s_status == "error":
+                            vals["docker_error"] = (
+                                "Sandbox deployment not found after timeout"
+                            )
+                        sandbox.write(vals)
+                except Exception:
+                    _logger.debug(
+                        "[action_check_status] K8s status check failed for "
+                        "sandbox %s, returning DB value",
+                        sandbox.id,
+                        exc_info=True,
+                    )
 
             result[sandbox.id] = sandbox.docker_status
         return result
