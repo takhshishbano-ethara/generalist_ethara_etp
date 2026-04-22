@@ -39,11 +39,11 @@ class ProjectController(http.Controller):
                 elif jdata.get('designation') == 'aire':
                     domain = [('designation_id', '=', request.env.ref('project_extension.designation_ai_research_engineer').id)]
                 elif jdata.get('designation') == 'pl':
-                    domain = [('designation_id', '=', request.env.ref('project_extension.designation_team_lead').id)]
+                    domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id])]
                 elif jdata.get('designation') == 'qc_review':
-                    domain = [('designation_id', '=', request.env.ref('project_extension.designation_jr_software_engineer').id), ('is_qc_review', '=', True)]
+                    domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id])]
                 elif jdata.get('designation') == 'tasker':
-                    domain = [('designation_id', '=', request.env.ref('project_extension.designation_jr_software_engineer').id), ('is_tasker', '=', True)]
+                    domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id])]
                 else:
                     domain = [('designation_id.name', 'ilike', jdata.get('designation'))]
             if jdata.get('search'):
