@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="berserker_menu_root"
+              name="Berserker"
+              sequence="100"/>
+
+    <menuitem id="berserker_menu_tasks"
+              name="Tasks"
+              parent="berserker_menu_root"
+              action="berserker_action"
+              sequence="10"/>
+
+    <menuitem id="berserker_menu_my_tasks"
+              name="My Tasks"
+              parent="berserker_menu_root"
+              action="berserker_action_my_tasks"
+              sequence="20"/>
+
+    <menuitem id="berserker_menu_dashboard"
+              name="Dashboard"
+              parent="berserker_menu_root"
+              sequence="50"
+              groups="berserker.group_berserker_admin"/>
+
+    <menuitem id="berserker_menu_usage"
+              name="Usage Log"
+              parent="berserker_menu_dashboard"
+              action="berserker_usage_log_action"
+              sequence="10"
+              groups="berserker.group_berserker_admin"/>
+
+    <menuitem id="berserker_menu_configuration"
+              name="Configuration"
+              parent="berserker_menu_root"
+              sequence="100"
+              groups="berserker.group_berserker_admin"/>
+
+    <menuitem id="berserker_menu_settings"
+              name="Settings"
+              parent="berserker_menu_configuration"
+              action="base_setup.action_general_configuration"
+              sequence="10"
+              groups="berserker.group_berserker_admin"/>
+
+    <menuitem id="berserker_menu_grant_access"
+              name="Grant User Access"
+              parent="berserker_menu_configuration"
+              action="action_berserker_mass_assign_access"
+              sequence="20"
+              groups="berserker.group_berserker_admin"/>
+
+</odoo>

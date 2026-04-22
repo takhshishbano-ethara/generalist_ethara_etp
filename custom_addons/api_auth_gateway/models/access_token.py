@@ -62,9 +62,9 @@ class APIAccessToken(models.Model):
     collapse_sidebar = fields.Boolean(default=False)
 
     def update_access_token(self):
-        expires = datetime.now() + timedelta(seconds=360000)
+        expires = fields.Datetime.now() + timedelta(seconds=360000)
         vals = {
-            'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),
+            'expiry': expires,
             'access_token': nonce()
         }
         self.sudo().write(vals)
@@ -80,10 +80,10 @@ class APIAccessToken(models.Model):
             if access_token.has_expired():
                 access_token = None
         if create:
-            expires = datetime.now() + timedelta(seconds=360000)
+            expires = fields.Datetime.now() + timedelta(seconds=360000)
             vals = {
                 'user_id': user_id,
-                'expiry': expires.strftime(DEFAULT_SERVER_DATETIME_FORMAT),
+                'expiry': expires,
                 'access_token': nonce(),
                 'refresh_token': nonce(),
             }
@@ -95,7 +95,9 @@ class APIAccessToken(models.Model):
 
     def has_expired(self):
         self.ensure_one()
-        return datetime.now() > fields.Datetime.from_string(self.expiry)
+        if not self.expiry:
+            return True
+        return fields.Datetime.now() > self.expiry
 
     # def has_expired(self):
     #     self.ensure_one()

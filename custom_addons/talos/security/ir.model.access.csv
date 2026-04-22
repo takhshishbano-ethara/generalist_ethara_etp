@@ -8,3 +8,9 @@ access_talos_domain_tasker,talos.domain.tasker,model_talos_domain,etp_user_roles
 access_talos_persona_ql,talos.persona.ql,model_talos_persona,etp_user_roles.group_quality_lead,1,1,1,1
 access_talos_taxonomy_ql,talos.taxonomy.ql,model_talos_taxonomy,etp_user_roles.group_quality_lead,1,1,1,1
 access_talos_domain_ql,talos.domain.ql,model_talos_domain,etp_user_roles.group_quality_lead,1,1,1,1
+access_talos_talos_admin,talos.talos.admin,model_talos_talos,group_talos_admin,1,1,1,1
+access_talos_turn_admin,talos.turn.admin,model_talos_turn,group_talos_admin,1,1,1,1
+access_talos_sandbox_admin,talos.sandbox.admin,model_talos_sandbox,group_talos_admin,1,1,1,1
+access_talos_persona_admin,talos.persona.admin,model_talos_persona,group_talos_admin,1,1,1,1
+access_talos_taxonomy_admin,talos.taxonomy.admin,model_talos_taxonomy,group_talos_admin,1,1,1,1
+access_talos_domain_admin,talos.domain.admin,model_talos_domain,group_talos_admin,1,1,1,1

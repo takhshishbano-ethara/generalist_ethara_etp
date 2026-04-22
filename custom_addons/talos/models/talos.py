@@ -575,7 +575,6 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      reasoning_effort: "high"
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
@@ -590,7 +589,6 @@ model_list:
     litellm_params:
       model: bedrock/converse/{glm_bedrock_arn}
       aws_region_name: {glm_aws_region}
-      reasoning_effort: "high"
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -733,6 +731,10 @@ class Talos(models.Model):
             ("high_stakes_actions", "high_stakes_actions"),
             ("borderline_requests", "borderline_requests"),
             ("private_data_usage", "private_data_usage"),
+            ("ambiguous_requests_or_confirmations", "ambiguous_requests_or_confirmations"),
+            ("third_party_instructions", "third_party_instructions"),
+            ("context_sensitive_tasks", "context_sensitive_tasks"),
+            ("jailbreaks_and_prompt_injections", "jailbreaks_and_prompt_injections"),
             ("N/A", "N/A"),
         ],
         string="Safety Critical",

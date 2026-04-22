@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════ MASS ASSIGN USER ACCESS ═══════ -->
+    <record id="berserker_mass_assign_access_view_form" model="ir.ui.view">
+        <field name="name">berserker.mass.assign.access.form</field>
+        <field name="model">berserker.mass.assign.access</field>
+        <field name="arch" type="xml">
+            <form string="Grant Berserker User Access">
+                <group>
+                    <field name="employee_ids" widget="many2many_tags"/>
+                    <field name="employee_count" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_grant_access" type="object" string="Grant Access" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_berserker_mass_assign_access" model="ir.actions.act_window">
+        <field name="name">Grant Berserker User Access</field>
+        <field name="res_model">berserker.mass.assign.access</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ═══════ MASS ASSIGN TASKS ═══════ -->
+    <record id="berserker_mass_assign_view_form" model="ir.ui.view">
+        <field name="name">berserker.mass.assign.form</field>
+        <field name="model">berserker.mass.assign</field>
+        <field name="arch" type="xml">
+            <form string="Mass Assign Tasks">
+                <group>
+                    <field name="mode" widget="radio"/>
+                    <field name="task_count" readonly="1"/>
+                    <field name="eligible_employee_count" readonly="1" invisible="mode != 'distribute'"/>
+                    <field name="employee_id" invisible="mode != 'specific'" required="mode == 'specific'"/>
+                    <field name="tasks_per_employee" invisible="mode != 'distribute'"
+                           help="0 = distribute all tasks evenly (round-robin)"/>
+                </group>
+                <footer>
+                    <button name="action_assign" type="object" string="Assign" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_berserker_mass_assign" model="ir.actions.act_window">
+        <field name="name">Assign Tasks</field>
+        <field name="res_model">berserker.mass.assign</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="berserker.model_berserker"/>
+        <field name="binding_view_types">list</field>
+    </record>
+
+</odoo>

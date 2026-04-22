@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════
+         MODULE CATEGORY
+    ══════════════════════════════════════════════════ -->
+    <record id="module_category_berserker" model="ir.module.category">
+        <field name="name">Berserker</field>
+        <field name="sequence">50</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         PRIVILEGE
+    ══════════════════════════════════════════════════ -->
+    <record id="privilege_berserker" model="res.groups.privilege">
+        <field name="name">Berserker</field>
+        <field name="category_id" ref="module_category_berserker"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         GROUP: BERSERKER USER
+         - Base level access
+    ══════════════════════════════════════════════════ -->
+    <record id="group_berserker_user" model="res.groups">
+        <field name="name">Berserker User</field>
+        <field name="privilege_id" ref="berserker.privilege_berserker"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         GROUP: BERSERKER ADMIN
+         - Full access: read, write, create, delete
+         - Inherits all User permissions
+    ══════════════════════════════════════════════════ -->
+    <record id="group_berserker_admin" model="res.groups">
+        <field name="name">Berserker Admin</field>
+        <field name="privilege_id" ref="berserker.privilege_berserker"/>
+        <field name="implied_ids" eval="[(4, ref('berserker.group_berserker_user'))]"/>
+    </record>
+
+</odoo>

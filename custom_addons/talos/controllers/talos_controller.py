@@ -70,6 +70,7 @@ class Talos(http.Controller):
             TalosModel = request.env['talos.talos'].sudo()
             PersonaModel = request.env['talos.persona'].sudo()
             DomainModel = request.env['talos.domain'].sudo()
+            TaxonomyModel = request.env['talos.taxonomy'].sudo()
 
             created_ids = []
             for item in data:
@@ -121,6 +122,17 @@ class Talos(http.Controller):
                     'password': gmail_creds.get('password', ''),
                     'gog_auth': gog_auth_str,
                 }
+
+                domain_name = (item.get('domain') or '').strip()
+                if domain_name:
+                    taxonomy_ids = []
+                    for tag in [t.strip() for t in domain_name.split(',') if t.strip()]:
+                        tax = TaxonomyModel.search([('name', '=ilike', tag)], limit=1)
+                        if not tax:
+                            tax = TaxonomyModel.create({'name': tag})
+                        taxonomy_ids.append(tax.id)
+                    if taxonomy_ids:
+                        vals['heart_taxonomy'] = [(6, 0, taxonomy_ids)]
 
                 for service in ('outlook', 'eventbrite', 'strava', 'oura', 'instagram', 'facebook', 'threads'):
                     svc_creds = creds.get(service, {})

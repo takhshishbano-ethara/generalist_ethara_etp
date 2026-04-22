@@ -134,3 +134,27 @@ class HrAttendance(models.Model):
                 })
             except Exception as e:
                 _logger.error("Failed to create daily status for %s: %s", emp.name, str(e))
+
+    # --- Automation Logic ---
+    @api.model
+    def close_open_attendance_record(self):
+        now = fields.Datetime.now()
+        today_date = fields.Date.today()
+        today_start = datetime.datetime.combine(today_date, datetime.time.min)
+        open_past_attendances = self.sudo().search([
+            ('check_out', '=', False),
+            ('check_in', '<', today_start)
+        ])
+        for att in open_past_attendances:
+            try:
+                calculated_checkout = att.check_in + datetime.timedelta(hours=8, minutes=30)
+                next_attendance = self.sudo().search([
+                    ('employee_id', '=', att.employee_id.id),
+                    ('check_in', '>', att.check_in),
+                    ('id', '!=', att.id)
+                ], order='check_in asc', limit=1)
+                if next_attendance and calculated_checkout > next_attendance.check_in:
+                    calculated_checkout = next_attendance.check_in - datetime.timedelta(minutes=1)
+                att.write({'check_out': calculated_checkout})
+            except Exception as e:
+                _logger.error("Auto-close failed for Attendance ID %s: %s", att.id, str(e))
