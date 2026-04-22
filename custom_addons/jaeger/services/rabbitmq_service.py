@@ -10,10 +10,12 @@ import os
 import threading
 import time
 
-import pika
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    import pika
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pika = None
 
 _logger = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ _channel = None
 
 def _get_channel():
     """Return a reusable channel, reconnecting if the connection dropped."""
+    if pika is None:
+        raise RuntimeError(
+            "pika is not installed. RabbitMQ dispatch requires: pip install pika"
+        )
     global _connection, _channel
     with _conn_lock:
         if _connection and _connection.is_open and _channel and _channel.is_open:

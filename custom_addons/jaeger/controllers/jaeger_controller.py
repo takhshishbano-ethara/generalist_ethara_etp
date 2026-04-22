@@ -22,12 +22,18 @@ class JaegerController(http.Controller):
             "filtered_prs": repo.filtered_prs_jsonl_path,
         }
         file_path = path_map.get(filetype)
-        if not file_path or not os.path.isfile(file_path):
+        if not file_path:
             return request.not_found()
 
         filename = os.path.basename(file_path)
-        with open(file_path, "rb") as f:
-            content = f.read()
+
+        if os.path.isfile(file_path):
+            with open(file_path, "rb") as f:
+                content = f.read()
+        else:
+            content = self._download_from_s3(repo, file_path)
+            if content is None:
+                return request.not_found()
 
         return request.make_response(
             content,
@@ -36,6 +42,42 @@ class JaegerController(http.Controller):
                 ("Content-Disposition", content_disposition(filename)),
             ],
         )
+
+    @staticmethod
+    def _download_from_s3(repo, file_path):
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            return None
+
+        ICP = request.env["ir.config_parameter"].sudo()
+        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
+        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
+        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        if not s3_bucket:
+            return None
+
+        filename = os.path.basename(file_path)
+        s3_key = f"{s3_prefix}/{repo.id}/{filename}"
+        try:
+            config_kwargs = {"connect_timeout": 10, "read_timeout": 60}
+            if os.environ.get("JAEGER_S3_ENDPOINT"):
+                config_kwargs["s3"] = {"addressing_style": "path"}
+            client = boto3.client(
+                "s3",
+                region_name=s3_region,
+                endpoint_url=os.environ.get(
+                    "JAEGER_S3_ENDPOINT",
+                    f"https://s3.{s3_region}.amazonaws.com",
+                ),
+                config=BotoConfig(**config_kwargs),
+            )
+            resp = client.get_object(Bucket=s3_bucket, Key=s3_key)
+            return resp["Body"].read()
+        except Exception:
+            _logger.debug("S3 download fallback failed for %s", s3_key, exc_info=True)
+            return None
 
     @http.route("/jaeger/webhook/trajectory", type="json", auth="public", csrf=False)
     def trajectory_webhook(self, **kwargs):

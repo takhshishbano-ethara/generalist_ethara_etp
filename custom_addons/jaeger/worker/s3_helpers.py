@@ -21,16 +21,20 @@ def _get_client():
     from botocore.config import Config
 
     region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+    endpoint = os.environ.get("JAEGER_S3_ENDPOINT", f"https://s3.{region}.amazonaws.com")
+    config_kwargs = {
+        "retries": {"mode": "standard", "max_attempts": 5},
+        "connect_timeout": 30,
+        "read_timeout": 60,
+        "max_pool_connections": 10,
+    }
+    if os.environ.get("JAEGER_S3_ENDPOINT"):
+        config_kwargs["s3"] = {"addressing_style": "path"}
     return boto3.client(
         "s3",
         region_name=region,
-        endpoint_url=os.environ.get("JAEGER_S3_ENDPOINT", f"https://s3.{region}.amazonaws.com"),
-        config=Config(
-            retries={"mode": "standard", "max_attempts": 5},
-            connect_timeout=30,
-            read_timeout=60,
-            max_pool_connections=10,
-        ),
+        endpoint_url=endpoint,
+        config=Config(**config_kwargs),
     )
 
 

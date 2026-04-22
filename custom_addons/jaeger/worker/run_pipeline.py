@@ -21,13 +21,15 @@ _logger = logging.getLogger("jaeger.worker")
 REPO_ID = int(os.environ["REPO_ID"])
 DB_NAME = os.environ["ODOO_DB"]
 
-sys.path.insert(0, "/opt/ethara/app")
+sys.path.insert(0, "/opt/ethara/app/src")       # production layout: COPY src/ ./src/
+sys.path.insert(0, "/opt/ethara/app")            # sandbox layout:    COPY src/ .
 sys.path.insert(0, "/opt/ethara/app/custom_addons")
 
 import odoo  # noqa: E402
+import odoo.tools.config  # noqa: E402  — Odoo 19 namespace pkg needs explicit submodule import
 
 odoo.tools.config.parse_config([
-    "--config", os.environ.get("ODOO_CONF", "/opt/ethara/app/odoo.conf"),
+    "--config", os.environ.get("ODOO_CONF", "/etc/odoo/odoo.conf"),
     "--no-http",
 ])
 
