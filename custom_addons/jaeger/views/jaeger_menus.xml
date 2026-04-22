@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Root Menu -->
+    <menuitem id="menu_jaeger_root" name="Jaeger" web_icon="jaeger,static/description/icon.png" sequence="100"/>
+
+    <!-- Pipeline Menu -->
+    <menuitem id="menu_jaeger_pipeline" name="Pipeline" parent="menu_jaeger_root" sequence="10"/>
+    <menuitem id="menu_jaeger_repositories" name="Repositories" parent="menu_jaeger_pipeline"
+              action="action_jaeger_repository" sequence="10"/>
+    <menuitem id="menu_jaeger_instances" name="Instances" parent="menu_jaeger_pipeline"
+              action="action_jaeger_instance" sequence="20"/>
+    <menuitem id="menu_jaeger_runs" name="Trajectory Runs" parent="menu_jaeger_pipeline"
+              action="action_jaeger_trajectory_run" sequence="30"/>
+
+    <!-- Configuration Menu -->
+    <menuitem id="menu_jaeger_config" name="Configuration" parent="menu_jaeger_root" sequence="90"
+              groups="jaeger.group_jaeger_admin"/>
+    <menuitem id="menu_jaeger_settings" name="Settings" parent="menu_jaeger_config"
+              action="action_jaeger_config_settings" sequence="10"/>
+</odoo>

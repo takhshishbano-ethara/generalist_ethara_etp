@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Tree View -->
+    <record id="view_jaeger_instance_tree" model="ir.ui.view">
+        <field name="name">jaeger.instance.tree</field>
+        <field name="model">jaeger.instance</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="repository_id"/>
+                <field name="org"/>
+                <field name="repo"/>
+                <field name="pr_number"/>
+                <field name="language"/>
+                <field name="docker_build_status" widget="badge"
+                       decoration-success="docker_build_status == 'built'"
+                       decoration-danger="docker_build_status == 'failed'"
+                       decoration-warning="docker_build_status == 'building'"/>
+                <field name="is_valid"/>
+                <field name="f2p_count"/>
+                <field name="p2p_count"/>
+                <field name="delivery_status" widget="badge"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_jaeger_instance_form" model="ir.ui.view">
+        <field name="name">jaeger.instance.form</field>
+        <field name="model">jaeger.instance</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="repository_id"/>
+                            <field name="org"/>
+                            <field name="repo"/>
+                            <field name="pr_number"/>
+                            <field name="pr_url" widget="url"/>
+                            <field name="language"/>
+                        </group>
+                        <group>
+                            <field name="state"/>
+                            <field name="title"/>
+                            <field name="tag"/>
+                            <field name="base_ref"/>
+                            <field name="base_sha"/>
+                            <field name="is_valid"/>
+                            <field name="validation_error"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <!-- PR Details -->
+                        <page string="PR Details" name="pr_details">
+                            <group>
+                                <field name="body"/>
+                            </group>
+                            <field name="resolved_issue_ids">
+                                <list editable="bottom">
+                                    <field name="issue_number"/>
+                                    <field name="issue_title"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- Patches -->
+                        <page string="Patches" name="patches">
+                            <group>
+                                <field name="fix_patch"/>
+                                <field name="test_patch"/>
+                            </group>
+                        </page>
+
+                        <!-- Docker -->
+                        <page string="Docker" name="docker">
+                            <group>
+                                <group>
+                                    <field name="docker_build_status" widget="badge"/>
+                                    <field name="docker_image_name" readonly="1"/>
+                                </group>
+                            </group>
+                            <group string="Dockerfile">
+                                <field name="dockerfile_content" readonly="1" nolabel="1"/>
+                            </group>
+                            <group string="Build Log">
+                                <field name="docker_build_log" readonly="1" nolabel="1"/>
+                            </group>
+                        </page>
+
+                        <!-- Test Results -->
+                        <page string="Test Results" name="test_results">
+                            <group>
+                                <group string="Baseline (Run 1)">
+                                    <field name="run_passed_count"/>
+                                    <field name="run_failed_count"/>
+                                    <field name="run_skipped_count"/>
+                                </group>
+                                <group string="Test Patch Only (Run 2)">
+                                    <field name="test_patch_passed_count"/>
+                                    <field name="test_patch_failed_count"/>
+                                    <field name="test_patch_skipped_count"/>
+                                </group>
+                                <group string="Fix + Test Patch (Run 3)">
+                                    <field name="fix_patch_passed_count"/>
+                                    <field name="fix_patch_failed_count"/>
+                                    <field name="fix_patch_skipped_count"/>
+                                </group>
+                            </group>
+                            <group string="State Transitions">
+                                <group>
+                                    <field name="f2p_count"/>
+                                    <field name="p2p_count"/>
+                                    <field name="has_fix_signal"/>
+                                    <field name="has_regressions"/>
+                                </group>
+                            </group>
+                            <group string="Report">
+                                <field name="report_json" readonly="1" nolabel="1"/>
+                            </group>
+                            <group string="Run Logs">
+                                <field name="run_log" readonly="1" string="Baseline Run Log"/>
+                                <field name="test_patch_run_log" readonly="1" string="Test Patch Run Log"/>
+                                <field name="fix_patch_run_log" readonly="1" string="Fix + Test Run Log"/>
+                            </group>
+                        </page>
+
+                        <!-- Delivery -->
+                        <page string="Delivery" name="delivery">
+                            <group>
+                                <group>
+                                    <field name="delivery_status" widget="badge"/>
+                                    <field name="task_category"/>
+                                    <field name="difficulty"/>
+                                </group>
+                                <group>
+                                    <field name="problem_statement"/>
+                                    <field name="version"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <!-- Trajectories -->
+                        <page string="Trajectories" name="trajectories">
+                            <field name="trajectory_run_ids">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="run_number"/>
+                                    <field name="model"/>
+                                    <field name="status" widget="badge"/>
+                                    <field name="resolved"/>
+                                    <field name="api_cost"/>
+                                    <field name="duration_seconds"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_jaeger_instance_search" model="ir.ui.view">
+        <field name="name">jaeger.instance.search</field>
+        <field name="model">jaeger.instance</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="repository_id"/>
+                <field name="org"/>
+                <field name="repo"/>
+                <filter name="valid" string="Valid" domain="[('is_valid', '=', True)]"/>
+                <filter name="invalid" string="Invalid" domain="[('is_valid', '=', False)]"/>
+                <filter name="has_fix_signal" string="Has Fix Signal" domain="[('has_fix_signal', '=', True)]"/>
+                <filter name="tested" string="Tested" domain="[('run_result_json', '!=', False)]"/>
+                <separator/>
+                <filter name="built" string="Docker Built" domain="[('docker_build_status', '=', 'built')]"/>
+                <filter name="build_failed" string="Build Failed" domain="[('docker_build_status', '=', 'failed')]"/>
+                <group>
+                    <filter name="group_repo" string="Repository" context="{'group_by': 'repository_id'}"/>
+                    <filter name="group_language" string="Language" context="{'group_by': 'language'}"/>
+                    <filter name="group_docker" string="Docker Status" context="{'group_by': 'docker_build_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_jaeger_instance" model="ir.actions.act_window">
+        <field name="name">Instances</field>
+        <field name="res_model">jaeger.instance</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_jaeger_instance_search"/>
+    </record>
+</odoo>

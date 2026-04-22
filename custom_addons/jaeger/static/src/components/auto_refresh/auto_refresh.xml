@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="jaeger.AutoRefresh">
+        <div t-if="state.active" class="o_jaeger_polling_indicator">
+            <i class="fa fa-refresh fa-spin me-1"/>
+            <span class="text-muted small">Auto-refreshing</span>
+        </div>
+    </t>
+</templates>

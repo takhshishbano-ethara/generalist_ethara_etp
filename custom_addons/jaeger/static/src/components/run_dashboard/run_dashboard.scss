@@ -1,0 +1,40 @@
+/* Jaeger Run Dashboard Widget */
+.o_jaeger_run_dashboard {
+    padding: 12px 0;
+
+    .o_jaeger_run_dashboard_grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    .o_jaeger_dash_card {
+        text-align: center;
+        padding: 12px;
+        border-radius: 8px;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+    }
+
+    .o_jaeger_dash_value {
+        font-size: 22px;
+        font-weight: 700;
+        color: #212529;
+        line-height: 1.2;
+    }
+
+    .o_jaeger_dash_label {
+        font-size: 11px;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 4px;
+    }
+
+    .o_jaeger_dash_footer {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid #e9ecef;
+        font-size: 12px;
+    }
+}

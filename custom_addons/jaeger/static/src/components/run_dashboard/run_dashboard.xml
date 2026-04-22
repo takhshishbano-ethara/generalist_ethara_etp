@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="jaeger.RunDashboardWidget">
+        <div class="o_jaeger_run_dashboard">
+            <div class="o_jaeger_run_dashboard_grid">
+                <!-- pass@k -->
+                <div class="o_jaeger_dash_card">
+                    <div class="o_jaeger_dash_value">
+                        <t t-out="stats.passAtK"/>
+                        <t t-if="stats.passAtK !== 'N/A'">%</t>
+                    </div>
+                    <div class="o_jaeger_dash_label">
+                        pass@<t t-out="stats.kRuns"/>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div class="o_jaeger_dash_card">
+                    <div t-att-class="'o_jaeger_dash_value ' + statusClass">
+                        <t t-out="stats.trajectoryStatus"/>
+                    </div>
+                    <div class="o_jaeger_dash_label">Status</div>
+                </div>
+
+                <!-- Cost -->
+                <div class="o_jaeger_dash_card">
+                    <div class="o_jaeger_dash_value">
+                        <t t-out="stats.totalCost"/>
+                    </div>
+                    <div class="o_jaeger_dash_label">Total Cost</div>
+                </div>
+
+                <!-- API Calls -->
+                <div class="o_jaeger_dash_card">
+                    <div class="o_jaeger_dash_value">
+                        <t t-out="stats.totalCalls"/>
+                    </div>
+                    <div class="o_jaeger_dash_label">API Calls</div>
+                </div>
+
+                <!-- Tokens -->
+                <div class="o_jaeger_dash_card">
+                    <div class="o_jaeger_dash_value">
+                        <t t-out="stats.promptTokens"/>
+                    </div>
+                    <div class="o_jaeger_dash_label">Prompt Tokens</div>
+                </div>
+
+                <div class="o_jaeger_dash_card">
+                    <div class="o_jaeger_dash_value">
+                        <t t-out="stats.completionTokens"/>
+                    </div>
+                    <div class="o_jaeger_dash_label">Completion Tokens</div>
+                </div>
+            </div>
+
+            <!-- Model and Job ID -->
+            <div class="o_jaeger_dash_footer" t-if="stats.eksJobId">
+                <span class="text-muted">
+                    <i class="fa fa-microchip me-1"/>
+                    <t t-out="stats.modelName"/>
+                </span>
+                <span class="text-muted ms-3">
+                    <i class="fa fa-cloud me-1"/>
+                    <t t-out="stats.eksJobId"/>
+                </span>
+            </div>
+        </div>
+    </t>
+</templates>

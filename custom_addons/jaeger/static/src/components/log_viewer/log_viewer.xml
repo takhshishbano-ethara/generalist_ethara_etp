@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="jaeger.JaegerLogViewer">
+        <div t-att-class="'jgr-log-viewer ' + themeClass">
+            <div class="jgr-log-toolbar">
+                <div class="jgr-log-toolbar-left">
+                    <span class="jgr-log-title">
+                        <i class="fa fa-terminal me-1"/>Pipeline Logs
+                    </span>
+                    <span t-if="state.lineCount > 0" class="jgr-log-badge">
+                        <t t-esc="state.lineCount"/> lines
+                    </span>
+                    <span t-if="state.refreshing" class="jgr-log-badge jgr-log-badge-live">
+                        <i class="fa fa-circle me-1"/>LIVE
+                    </span>
+                </div>
+                <div class="jgr-log-toolbar-right">
+                    <button t-on-click="scrollToTop" class="jgr-log-btn" title="Scroll to top"
+                            t-att-disabled="isEmpty">
+                        <i class="fa fa-arrow-up"/>
+                    </button>
+                    <button t-on-click="scrollToBottomClick" class="jgr-log-btn" title="Scroll to bottom"
+                            t-att-disabled="isEmpty">
+                        <i class="fa fa-arrow-down"/>
+                    </button>
+                    <button t-on-click="onCopy" class="jgr-log-btn" title="Copy logs"
+                            t-att-disabled="isEmpty">
+                        <i t-att-class="state.copied ? 'fa fa-check' : 'fa fa-clipboard'"/>
+                        <span t-if="state.copied" class="ms-1">Copied!</span>
+                    </button>
+                    <button t-on-click="toggleTheme" class="jgr-log-btn" title="Toggle theme">
+                        <i t-att-class="state.darkTheme ? 'fa fa-sun-o' : 'fa fa-moon-o'"/>
+                    </button>
+                </div>
+            </div>
+
+            <div class="jgr-log-body" t-ref="logContainer">
+                <t t-if="isEmpty">
+                    <div class="jgr-log-empty">
+                        <i class="fa fa-file-text-o fa-2x mb-2"/>
+                        <div>No pipeline logs yet.</div>
+                        <div class="jgr-log-empty-hint">
+                            Logs will appear here once the pipeline starts.
+                        </div>
+                    </div>
+                </t>
+                <t t-else="">
+                    <table class="jgr-log-table">
+                        <tbody>
+                            <t t-foreach="lines" t-as="line" t-key="line_index">
+                                <tr t-att-class="'jgr-log-row ' + lineClass(line)">
+                                    <td class="jgr-log-gutter">
+                                        <t t-esc="line_index + 1"/>
+                                    </td>
+                                    <td class="jgr-log-content">
+                                        <pre><t t-esc="line"/></pre>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </t>
+            </div>
+
+            <div class="jgr-log-statusbar">
+                <span t-if="state.refreshing" class="jgr-log-status-item">
+                    <i class="fa fa-refresh fa-spin me-1"/>Auto-refreshing…
+                </span>
+                <span t-if="!state.autoScroll and !isEmpty" class="jgr-log-status-item jgr-log-status-scroll"
+                      t-on-click="scrollToBottomClick">
+                    <i class="fa fa-angle-double-down me-1"/>Scroll locked — click to follow
+                </span>
+                <span class="jgr-log-status-right">
+                    <t t-esc="collectionStatus"/>
+                </span>
+            </div>
+        </div>
+    </t>
+</templates>

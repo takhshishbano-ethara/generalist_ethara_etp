@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Sequence for Repository records -->
+        <record id="seq_jaeger_repository" model="ir.sequence">
+            <field name="name">Jaeger Repository</field>
+            <field name="code">jaeger.repository</field>
+            <field name="prefix">JAE-</field>
+            <field name="padding">4</field>
+        </record>
+    </data>
+</odoo>
