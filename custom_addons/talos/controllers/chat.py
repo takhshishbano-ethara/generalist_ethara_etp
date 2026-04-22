@@ -92,8 +92,13 @@ class TalosChatController(http.Controller):
 
         vals = {
             "response": response or "",
-            "turn_status": "Streaming" if partial else "Completed",
         }
+        # Never downgrade Completed → Streaming (late incremental save race)
+        if partial:
+            if turn.turn_status != "Completed":
+                vals["turn_status"] = "Streaming"
+        else:
+            vals["turn_status"] = "Completed"
         if run_id:
             vals["run_id"] = run_id
         if timestamp:

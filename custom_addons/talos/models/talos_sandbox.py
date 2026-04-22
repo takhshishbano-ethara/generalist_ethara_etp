@@ -1113,6 +1113,10 @@ class TalosSandbox(models.Model):
             "docker_status": "starting",
             "docker_error": False,
             "docker_gateway_token": gateway_token,
+            # Reset auto-hint state from previous sessions
+            "auto_hint_status": "idle",
+            "auto_hint_iteration": 0,
+            "auto_hint_group_id": False,
         }
         if mode != "k8s":
             gateway_port, litellm_port, db_port = self._allocate_ports()

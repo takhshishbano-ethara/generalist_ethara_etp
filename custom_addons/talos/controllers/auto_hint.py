@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -229,6 +230,15 @@ def _extract_last_prompt_and_response(turn, sandbox):
 def _auto_hint_eval_bg(
     db_name, sandbox_id, turn_id, group_id, iteration, notify_partner_id
 ):
+    _logger.info(
+        "auto_hint bg: STARTED sandbox=%s turn=%s iter=%d thread=%s",
+        sandbox_id,
+        turn_id,
+        iteration,
+        threading.current_thread().name,
+    )
+
+    # ── Phase 1: Read context (short-lived cursor) ────────────────
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -251,7 +261,9 @@ def _auto_hint_eval_bg(
                 _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
-            # ── Load persona files ────────────────────────────────
+            task_id = task.id
+
+            # Load persona files
             persona = task.persona_id
             soul_md = ""
             memory_md = ""
@@ -260,12 +272,12 @@ def _auto_hint_eval_bg(
                 memory_md = (persona.memory_md or "")[:5000]
             agent_md = (task.agent_md or "")[:5000]
 
-            # ── Extract prompt + response from this turn ──────────
+            # Extract prompt + response from this turn
             prompt_text, response_text_raw = _extract_last_prompt_and_response(
                 turn, sandbox
             )
 
-            # ── Build conversation history (prior turns) ──────────
+            # Build conversation history
             conversation_str = ""
             if turn.trajectory_messages:
                 try:
@@ -311,7 +323,7 @@ def _auto_hint_eval_bg(
             if len(conversation_str) > 30000:
                 conversation_str = conversation_str[-30000:]
 
-            # ── Credentials ───────────────────────────────────────
+            # Credentials
             ICP = env["ir.config_parameter"].sudo()
             inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
             region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
@@ -323,127 +335,129 @@ def _auto_hint_eval_bg(
                 _logger.warning("auto_hint bg: missing Bedrock credentials")
                 _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
+        # cursor closed — read phase done
+    except Exception:
+        _logger.exception(
+            "auto_hint bg: read phase failed sandbox=%s turn=%s iter=%d",
+            sandbox_id,
+            turn_id,
+            iteration,
+        )
+        return
 
-            total_usage = {"input_tokens": 0, "output_tokens": 0}
+    # ── Phase 2: Call Kimi (no DB cursor needed) ──────────────────
+    total_usage = {"input_tokens": 0, "output_tokens": 0}
 
-            # ══════════════════════════════════════════════════════
-            # CALL 1: Satisfactory / Unsatisfactory evaluation
-            # ══════════════════════════════════════════════════════
-            sat_template = _get_satisfactory_prompt()
-            if not sat_template:
-                _logger.warning("auto_hint bg: no auto_hint_satisfactory.md")
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
-
-            sat_message = (
-                sat_template.replace("{prompt}", prompt_text)
-                .replace("{response}", response_text_raw[:15000])
-                .replace("{conversation}", conversation_str)
-                .replace("{soul_md}", soul_md or "(not provided)")
-                .replace("{agent_md}", agent_md or "(not provided)")
-                .replace("{memory_md}", memory_md or "(not provided)")
-            )
-
-            try:
-                eval_response = _call_kimi_with_retry(
-                    api_key,
-                    inference_arn,
-                    region,
-                    sat_message,
-                    "auto_hint eval",
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                    total_usage,
-                )
-            except Exception:
-                _logger.exception(
-                    "auto_hint eval: Bedrock call failed sandbox=%s turn=%s iter=%d",
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
-
-            eval_parsed = _parse_json_response(eval_response)
-            if not eval_parsed or not isinstance(eval_parsed, dict):
-                _logger.warning(
-                    "auto_hint eval: failed to parse JSON (%d chars) "
-                    "sandbox=%s turn=%s iter=%d raw=%.500s",
-                    len(eval_response),
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                    eval_response,
-                )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
-
-            satisfied = eval_parsed.get("satisfied", False)
-            reasoning = eval_parsed.get("reasoning", "")
-            persona_flag = eval_parsed.get("persona_flag", False)
-
-            _logger.info(
-                "auto_hint eval: verdict sandbox=%s turn=%s iter=%d "
-                "satisfied=%s persona_flag=%s reasoning=%.200s",
+    try:
+        # CALL 1: Satisfactory / Unsatisfactory evaluation
+        sat_template = _get_satisfactory_prompt()
+        if not sat_template:
+            _logger.warning("auto_hint bg: no auto_hint_satisfactory.md")
+            _write_phase_error(
+                db_name,
                 sandbox_id,
                 turn_id,
+                task_id,
                 iteration,
-                satisfied,
-                persona_flag,
-                reasoning,
+                notify_partner_id,
+                total_usage,
             )
+            return
 
-            sandbox = env["talos.sandbox"].browse(sandbox_id)
-            turn = env["talos.turn"].browse(turn_id)
+        sat_message = (
+            sat_template.replace("{prompt}", prompt_text)
+            .replace("{response}", response_text_raw[:15000])
+            .replace("{conversation}", conversation_str)
+            .replace("{soul_md}", soul_md or "(not provided)")
+            .replace("{agent_md}", agent_md or "(not provided)")
+            .replace("{memory_md}", memory_md or "(not provided)")
+        )
 
-            if satisfied:
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                if turn.exists():
-                    turn.write({"feedback": "satisfied"})
-                if sandbox.exists():
-                    sandbox.write(
-                        {
-                            "auto_hint_status": "idle",
-                            "auto_hint_iteration": 0,
-                            "auto_hint_group_id": False,
-                        }
-                    )
-                _push_bus(
-                    env,
-                    sandbox,
-                    notify_partner_id,
-                    {
-                        "sandbox_id": sandbox_id,
-                        "status": "satisfied",
-                        "iteration": iteration,
-                        "reasoning": reasoning,
-                        "persona_flag": persona_flag,
-                    },
-                )
-                _logger.info(
-                    "auto_hint bg: satisfied sandbox=%s turn=%s iter=%d",
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                )
-                return
+        eval_response = _call_kimi_with_retry(
+            api_key,
+            inference_arn,
+            region,
+            sat_message,
+            "auto_hint eval",
+            sandbox_id,
+            turn_id,
+            iteration,
+            total_usage,
+        )
+    except Exception:
+        _logger.exception(
+            "auto_hint eval: Bedrock call failed sandbox=%s turn=%s iter=%d",
+            sandbox_id,
+            turn_id,
+            iteration,
+        )
+        _write_phase_error(
+            db_name,
+            sandbox_id,
+            turn_id,
+            task_id,
+            iteration,
+            notify_partner_id,
+            total_usage,
+        )
+        return
 
-            # ══════════════════════════════════════════════════════
-            # CALL 2: Hint generation (only when unsatisfied)
-            # ══════════════════════════════════════════════════════
+    eval_parsed = _parse_json_response(eval_response)
+    if not eval_parsed or not isinstance(eval_parsed, dict):
+        _logger.warning(
+            "auto_hint eval: failed to parse JSON (%d chars) "
+            "sandbox=%s turn=%s iter=%d raw=%.500s",
+            len(eval_response),
+            sandbox_id,
+            turn_id,
+            iteration,
+            eval_response,
+        )
+        _write_phase_error(
+            db_name,
+            sandbox_id,
+            turn_id,
+            task_id,
+            iteration,
+            notify_partner_id,
+            total_usage,
+        )
+        return
+
+    satisfied = eval_parsed.get("satisfied", False)
+    reasoning = eval_parsed.get("reasoning", "")
+    persona_flag = eval_parsed.get("persona_flag", False)
+
+    _logger.info(
+        "auto_hint eval: verdict sandbox=%s turn=%s iter=%d "
+        "satisfied=%s persona_flag=%s reasoning=%.200s",
+        sandbox_id,
+        turn_id,
+        iteration,
+        satisfied,
+        persona_flag,
+        reasoning,
+    )
+
+    hint = ""
+    if not satisfied:
+        # CALL 2: Hint generation
+        try:
             hint_template = _get_hint_gen_prompt()
             if not hint_template:
                 _logger.warning("auto_hint bg: no auto_hint_gen.md")
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                _write_phase_error(
+                    db_name,
+                    sandbox_id,
+                    turn_id,
+                    task_id,
+                    iteration,
+                    notify_partner_id,
+                    total_usage,
+                )
                 return
 
             eval_report_str = json.dumps(eval_parsed, ensure_ascii=False)
-
             hint_message = (
                 hint_template.replace("{prompt}", prompt_text)
                 .replace("{response}", response_text_raw[:15000])
@@ -454,33 +468,19 @@ def _auto_hint_eval_bg(
                 .replace("{eval_report}", eval_report_str)
             )
 
-            try:
-                hint_response = _call_kimi_with_retry(
-                    api_key,
-                    inference_arn,
-                    region,
-                    hint_message,
-                    "auto_hint gen",
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                    total_usage,
-                )
-            except Exception:
-                _logger.exception(
-                    "auto_hint gen: Bedrock call failed sandbox=%s turn=%s iter=%d",
-                    sandbox_id,
-                    turn_id,
-                    iteration,
-                )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
-
-            _accumulate_kimi_tokens(env, task.id, total_usage)
+            hint_response = _call_kimi_with_retry(
+                api_key,
+                inference_arn,
+                region,
+                hint_message,
+                "auto_hint gen",
+                sandbox_id,
+                turn_id,
+                iteration,
+                total_usage,
+            )
 
             hint_parsed = _parse_json_response(hint_response)
-            hint = ""
             if hint_parsed and isinstance(hint_parsed, dict):
                 hint = hint_parsed.get("hint", "")
             if not hint:
@@ -493,64 +493,207 @@ def _auto_hint_eval_bg(
                 iteration,
                 hint,
             )
+        except Exception:
+            _logger.exception(
+                "auto_hint gen: Bedrock call failed sandbox=%s turn=%s iter=%d",
+                sandbox_id,
+                turn_id,
+                iteration,
+            )
+            _write_phase_error(
+                db_name,
+                sandbox_id,
+                turn_id,
+                task_id,
+                iteration,
+                notify_partner_id,
+                total_usage,
+            )
+            return
 
-            sandbox = env["talos.sandbox"].browse(sandbox_id)
-            turn = env["talos.turn"].browse(turn_id)
+    # ── Phase 3: Write results (new cursor, with retry) ───────────
+    _write_phase_result(
+        db_name,
+        sandbox_id,
+        turn_id,
+        task_id,
+        iteration,
+        notify_partner_id,
+        total_usage,
+        satisfied,
+        reasoning,
+        persona_flag,
+        hint,
+        group_id,
+    )
 
-            if turn.exists():
-                turn.write({"feedback": "unsatisfied", "hint_text": hint})
 
-            if iteration >= 5:
-                if sandbox.exists():
-                    sandbox.write({"auto_hint_status": "max_retries"})
-                _push_bus(
-                    env,
-                    sandbox,
-                    notify_partner_id,
-                    {
-                        "sandbox_id": sandbox_id,
-                        "status": "max_retries",
-                        "iteration": iteration,
-                        "reasoning": reasoning,
-                        "hint": hint,
-                    },
-                )
-                _logger.info(
-                    "auto_hint bg: max_retries sandbox=%s iter=%d",
-                    sandbox_id,
-                    iteration,
-                )
-            else:
-                if sandbox.exists():
-                    sandbox.write({"auto_hint_status": "sending_hint"})
-                _push_bus(
-                    env,
-                    sandbox,
-                    notify_partner_id,
-                    {
-                        "sandbox_id": sandbox_id,
-                        "status": "unsatisfied",
-                        "iteration": iteration,
-                        "reasoning": reasoning,
-                        "hint": hint,
-                        "turn_id": turn_id,
-                        "group_id": group_id,
-                    },
-                )
-                _logger.info(
-                    "auto_hint bg: unsatisfied sandbox=%s turn=%s iter=%d hint=%.80s",
+def _write_phase_result(
+    db_name,
+    sandbox_id,
+    turn_id,
+    task_id,
+    iteration,
+    notify_partner_id,
+    total_usage,
+    satisfied,
+    reasoning,
+    persona_flag,
+    hint,
+    group_id,
+):
+    """Write Kimi evaluation results to DB with retry on serialization failure."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["talos.sandbox"].browse(sandbox_id)
+                turn = env["talos.turn"].browse(turn_id)
+
+                _accumulate_kimi_tokens(env, task_id, total_usage)
+
+                if satisfied:
+                    if turn.exists():
+                        turn.write({"feedback": "satisfied"})
+                    if sandbox.exists():
+                        sandbox.write(
+                            {
+                                "auto_hint_status": "idle",
+                                "auto_hint_iteration": 0,
+                                "auto_hint_group_id": False,
+                            }
+                        )
+                    _push_bus(
+                        env,
+                        sandbox,
+                        notify_partner_id,
+                        {
+                            "sandbox_id": sandbox_id,
+                            "status": "satisfied",
+                            "iteration": iteration,
+                            "reasoning": reasoning,
+                            "persona_flag": persona_flag,
+                        },
+                    )
+                    _logger.info(
+                        "auto_hint bg: satisfied sandbox=%s turn=%s iter=%d",
+                        sandbox_id,
+                        turn_id,
+                        iteration,
+                    )
+                else:
+                    if turn.exists():
+                        turn.write({"feedback": "unsatisfied", "hint_text": hint})
+
+                    if iteration >= 5:
+                        if sandbox.exists():
+                            sandbox.write({"auto_hint_status": "max_retries"})
+                        _push_bus(
+                            env,
+                            sandbox,
+                            notify_partner_id,
+                            {
+                                "sandbox_id": sandbox_id,
+                                "status": "max_retries",
+                                "iteration": iteration,
+                                "reasoning": reasoning,
+                                "hint": hint,
+                            },
+                        )
+                        _logger.info(
+                            "auto_hint bg: max_retries sandbox=%s iter=%d",
+                            sandbox_id,
+                            iteration,
+                        )
+                    else:
+                        if sandbox.exists():
+                            sandbox.write({"auto_hint_status": "sending_hint"})
+                        _push_bus(
+                            env,
+                            sandbox,
+                            notify_partner_id,
+                            {
+                                "sandbox_id": sandbox_id,
+                                "status": "unsatisfied",
+                                "iteration": iteration,
+                                "reasoning": reasoning,
+                                "hint": hint,
+                                "turn_id": turn_id,
+                                "group_id": group_id,
+                            },
+                        )
+                        _logger.info(
+                            "auto_hint bg: unsatisfied sandbox=%s turn=%s iter=%d hint=%.80s",
+                            sandbox_id,
+                            turn_id,
+                            iteration,
+                            hint,
+                        )
+            # cursor committed successfully
+            return
+        except Exception as e:
+            err_str = str(e).lower()
+            if "serialize" in err_str or "concurrent" in err_str:
+                _logger.warning(
+                    "auto_hint bg: write phase concurrent update (attempt %d/%d) "
+                    "sandbox=%s turn=%s: %s",
+                    attempt + 1,
+                    max_retries,
                     sandbox_id,
                     turn_id,
-                    iteration,
-                    hint,
+                    e,
                 )
-    except Exception:
-        _logger.exception(
-            "auto_hint bg: unhandled error sandbox=%s turn=%s iter=%d",
-            sandbox_id,
-            turn_id,
-            iteration,
-        )
+                if attempt < max_retries - 1:
+                    time.sleep(1 + attempt)
+                    continue
+            _logger.exception(
+                "auto_hint bg: write phase failed sandbox=%s turn=%s iter=%d",
+                sandbox_id,
+                turn_id,
+                iteration,
+            )
+            return
+
+
+def _write_phase_error(
+    db_name,
+    sandbox_id,
+    turn_id,
+    task_id,
+    iteration,
+    notify_partner_id,
+    total_usage,
+):
+    """Write error status to DB with retry on serialization failure."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["talos.sandbox"].browse(sandbox_id)
+                _accumulate_kimi_tokens(env, task_id, total_usage)
+                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+            return
+        except Exception as e:
+            err_str = str(e).lower()
+            if (
+                "serialize" in err_str or "concurrent" in err_str
+            ) and attempt < max_retries - 1:
+                _logger.warning(
+                    "auto_hint bg: error write concurrent update (attempt %d/%d): %s",
+                    attempt + 1,
+                    max_retries,
+                    e,
+                )
+                time.sleep(1 + attempt)
+                continue
+            _logger.exception(
+                "auto_hint bg: error write failed sandbox=%s turn=%s",
+                sandbox_id,
+                turn_id,
+            )
+            return
 
 
 def _accumulate_kimi_tokens(env, task_id, usage):
@@ -633,16 +776,28 @@ class AutoHintController(http.Controller):
         turn_id = int(turn_id or 0)
         sandbox_id = int(sandbox_id or 0)
         if not turn_id or not sandbox_id:
+            _logger.warning(
+                "auto_hint_eval: missing params turn_id=%s sandbox_id=%s",
+                turn_id,
+                sandbox_id,
+            )
             return {"error": "turn_id and sandbox_id are required"}
 
         turn = request.env["talos.turn"].browse(turn_id)
         if not turn.exists():
+            _logger.warning("auto_hint_eval: turn %s not found", turn_id)
             return {"error": "Turn not found"}
 
         if turn.turn_status != "Completed":
-            return {"error": "Turn is not completed"}
+            _logger.warning(
+                "auto_hint_eval: turn %s status is '%s', not 'Completed'",
+                turn_id,
+                turn.turn_status,
+            )
+            return {"error": "Turn is not completed (status=%s)" % turn.turn_status}
 
         if not turn.response:
+            _logger.warning("auto_hint_eval: turn %s has no response", turn_id)
             return {"error": "Turn has no response"}
 
         sandbox = request.env["talos.sandbox"].browse(sandbox_id)
@@ -669,8 +824,16 @@ class AutoHintController(http.Controller):
         db_name = request.env.cr.dbname
         notify_partner_id = request.env.user.partner_id.id
 
-        def _submit():
-            _AUTO_HINT_POOL.submit(
+        _logger.info(
+            "auto_hint_eval: submitting bg worker sandbox=%s turn=%s iter=%d group=%s",
+            sandbox_id,
+            turn_id,
+            new_iter,
+            group_id,
+        )
+
+        try:
+            future = _AUTO_HINT_POOL.submit(
                 _auto_hint_eval_bg,
                 db_name,
                 sandbox_id,
@@ -679,7 +842,18 @@ class AutoHintController(http.Controller):
                 new_iter,
                 notify_partner_id,
             )
-
-        request.env.cr.postcommit.add(_submit)
+            _logger.info(
+                "auto_hint_eval: submitted to pool sandbox=%s turn=%s future=%s",
+                sandbox_id,
+                turn_id,
+                future,
+            )
+        except Exception:
+            _logger.exception(
+                "auto_hint_eval: failed to submit to pool sandbox=%s turn=%s",
+                sandbox_id,
+                turn_id,
+            )
+            return {"error": "Failed to submit background task"}
 
         return {"status": "pending"}

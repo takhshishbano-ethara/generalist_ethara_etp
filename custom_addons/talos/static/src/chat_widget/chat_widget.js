@@ -283,6 +283,9 @@ export class TalosChatWidget extends Component {
                 this._session = _getSession(this.props.sandboxId);
                 this._syncFromSession();
             } else if (this.isRunning && !this._session.wsConnected) {
+                if (this._session.historyLoaded && !this._session.ws) {
+                    this._resetSessionMessages();
+                }
                 this._tryConnect();
             }
         });
@@ -706,6 +709,24 @@ export class TalosChatWidget extends Component {
         }
         this._session.wsConnected = false;
         this.state.connected = false;
+    }
+
+    _resetSessionMessages() {
+        console.log(LOG_PREFIX, "Resetting session messages for sandbox", this.props.sandboxId);
+        this._session.messages.length = 0;
+        this._session.historyLoaded = false;
+        this._session.currentTurnId = null;
+        this._session.currentRunId = null;
+        this._session.streaming = false;
+        this._session._streamBuf = "";
+        this._session._lastFlushedWordCount = 0;
+        this._session._toolCalls = [];
+        this._session._toolCallMap = new Map();
+        this._session._rawEvents = [];
+        this._session._reconnectAttempts = 0;
+        this.state.messages.length = 0;
+        this.state.streaming = false;
+        this.state.sending = false;
     }
 
     _startHeartbeat() {
@@ -1460,6 +1481,9 @@ export class TalosChatWidget extends Component {
             if (result && result.error) {
                 console.error(LOG_PREFIX, "Auto hint eval returned error:", result.error);
                 this._endAutoHintLoop("error");
+            } else if (result && result.status === "max_retries") {
+                console.warn(LOG_PREFIX, "Auto hint eval: max retries reached");
+                this._endAutoHintLoop("max_retries");
             }
         } catch (e) {
             console.error(LOG_PREFIX, "Auto hint eval request failed:", e);

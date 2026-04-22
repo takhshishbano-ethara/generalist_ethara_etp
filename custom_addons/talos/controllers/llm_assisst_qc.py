@@ -229,34 +229,104 @@ def _run_trajectory_qc_background(
 
 
 def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):
-    """Write qc_status and qc_result into a specific trajectory entry in DB."""
-    try:
-        task = env["talos.talos"].browse(record_id)
-        if not task.exists():
+    """Write qc_status and qc_result into a specific trajectory entry in DB.
+
+    If the QC result severity is 'critical', the trajectory entry is auto-deleted.
+    Retries up to 3 times on serialization/concurrent-update errors.
+    """
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            task = env["talos.talos"].browse(record_id)
+            if not task.exists():
+                return
+            # Invalidate cache to get fresh data on retry
+            if attempt > 0:
+                task.invalidate_recordset()
+            raw = task[field_name] or ""
+            if not raw.strip():
+                return
+            data = json.loads(raw)
+            entries = data if isinstance(data, list) else [data]
+            if entry_index < 0 or entry_index >= len(entries):
+                return
+            if entries[entry_index].get("qc_status") == "aborted":
+                return
+
+            # Check if QC failed critically — auto-delete the trajectory entry
+            severity = (
+                qc_result.get("severity", "") if isinstance(qc_result, dict) else ""
+            )
+            if qc_status == "done" and severity == "critical":
+                entry = entries[entry_index]
+                # Safety: verify we're deleting the right entry by checking
+                # its qc_status is "pending" (set when QC was triggered)
+                entry_qc = entry.get("qc_status", "")
+                if entry_qc not in ("pending", "done", ""):
+                    _logger.warning(
+                        "QC auto-delete: skipping — entry qc_status is '%s' "
+                        "(expected 'pending'), record=%s field=%s entry=%s",
+                        entry_qc,
+                        record_id,
+                        field_name,
+                        entry_index,
+                    )
+                else:
+                    _logger.info(
+                        "QC auto-delete: removing trajectory entry record=%s field=%s "
+                        "entry=%s (severity=critical, fails=%s)",
+                        record_id,
+                        field_name,
+                        entry_index,
+                        qc_result.get("total_fails", "?"),
+                    )
+                    entries.pop(entry_index)
+                    if entries:
+                        new_value = json.dumps(entries, indent=2, ensure_ascii=False)
+                    else:
+                        new_value = ""
+                    task.write({field_name: new_value})
+                    env.cr.commit()
+                return
+
+            entries[entry_index]["qc_status"] = qc_status
+            if qc_result:
+                entries[entry_index]["qc_result"] = qc_result
+            elif "qc_result" in entries[entry_index]:
+                del entries[entry_index]["qc_result"]
+            new_value = json.dumps(data, indent=2, ensure_ascii=False)
+            task.write({field_name: new_value})
+            env.cr.commit()
             return
-        raw = task[field_name] or ""
-        if not raw.strip():
+        except Exception as e:
+            err_str = str(e).lower()
+            if "serialize" in err_str or "concurrent" in err_str:
+                _logger.warning(
+                    "_update_qc_entry: concurrent update (attempt %d/%d) "
+                    "record=%s field=%s entry=%s: %s",
+                    attempt + 1,
+                    max_retries,
+                    record_id,
+                    field_name,
+                    entry_index,
+                    e,
+                )
+                try:
+                    env.cr.rollback()
+                except Exception:
+                    pass
+                if attempt < max_retries - 1:
+                    import time as _time
+
+                    _time.sleep(1 + attempt)
+                    continue
+            _logger.exception(
+                "_update_qc_entry failed for record=%s field=%s entry=%s",
+                record_id,
+                field_name,
+                entry_index,
+            )
             return
-        data = json.loads(raw)
-        entries = data if isinstance(data, list) else [data]
-        if entry_index < 0 or entry_index >= len(entries):
-            return
-        if entries[entry_index].get("qc_status") == "aborted":
-            return
-        entries[entry_index]["qc_status"] = qc_status
-        if qc_result:
-            entries[entry_index]["qc_result"] = qc_result
-        elif "qc_result" in entries[entry_index]:
-            del entries[entry_index]["qc_result"]
-        new_value = json.dumps(data, indent=2, ensure_ascii=False)
-        task.write({field_name: new_value})
-    except Exception:
-        _logger.exception(
-            "_update_qc_entry failed for record=%s field=%s entry=%s",
-            record_id,
-            field_name,
-            entry_index,
-        )
 
 
 def _accumulate_tokens(env, record_id, in_field, out_field, usage):
