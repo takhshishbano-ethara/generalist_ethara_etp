@@ -23,6 +23,7 @@ BEDROCK_CONVERSE_URL = (
 
 _system_prompt_cache = {"text": None, "mtime": 0}
 _trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
+_golden_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
 
 
 def _get_system_prompt():
@@ -61,6 +62,35 @@ def _get_trajectory_qc_prompt():
         _trajectory_qc_prompt_cache["text"] = f.read().strip()
     _trajectory_qc_prompt_cache["mtime"] = mtime
     return _trajectory_qc_prompt_cache["text"]
+
+
+def _get_golden_trajectory_qc_prompt():
+    """Return the base QC prompt with golden-specific addendum appended."""
+    base = _get_trajectory_qc_prompt()
+    if not base:
+        return ""
+
+    mod_path = get_module_path("talos")
+    if not mod_path:
+        return base
+
+    path = os.path.join(mod_path, "golden_trajectory_qc_prompt.md")
+    if not os.path.isfile(path):
+        return base
+
+    mtime = os.path.getmtime(path)
+    if (
+        _golden_trajectory_qc_prompt_cache["text"] is not None
+        and _golden_trajectory_qc_prompt_cache["mtime"] == mtime
+    ):
+        addendum = _golden_trajectory_qc_prompt_cache["text"]
+    else:
+        with open(path, "r") as f:
+            addendum = f.read().strip()
+        _golden_trajectory_qc_prompt_cache["text"] = addendum
+        _golden_trajectory_qc_prompt_cache["mtime"] = mtime
+
+    return base + "\n\n---\n\n" + addendum
 
 
 def _parse_json_response(text):
@@ -166,7 +196,10 @@ def _run_trajectory_qc_background(
                 _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
                 return
 
-            system_prompt = _get_trajectory_qc_prompt()
+            if field_name == "golden_trajectory":
+                system_prompt = _get_golden_trajectory_qc_prompt()
+            else:
+                system_prompt = _get_trajectory_qc_prompt()
             if not system_prompt:
                 _logger.warning("QC bg: no trajectory_qc_prompt.md")
                 _update_qc_entry(env, record_id, field_name, entry_index, "error", None)

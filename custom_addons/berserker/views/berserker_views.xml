@@ -1,0 +1,929 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════
+         LIST VIEW
+    ══════════════════════════════════════════════════ -->
+    <record id="berserker_view_list" model="ir.ui.view">
+        <field name="name">berserker.list</field>
+        <field name="model">berserker</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="task_id"/>
+                <field name="employee_id"/>
+                <field name="is_processed"/>
+                <field name="task_status"/>
+                <field name="eval_status" widget="badge"
+                       decoration-info="eval_status == 'evaluating'"
+                       decoration-success="eval_status == 'done'"
+                       decoration-danger="eval_status == 'failed'"/>
+                <field name="qc_task_status"/>
+                <field name="qc_score"/>
+                <field name="submitted_at"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         FORM VIEW
+    ══════════════════════════════════════════════════ -->
+    <record id="berserker_view_form" model="ir.ui.view">
+        <field name="name">berserker.form</field>
+        <field name="model">berserker</field>
+        <field name="arch" type="xml">
+            <form string="Berserker">
+                <sheet>
+                    <header>
+                        <button name="evaluate_task" type="object" string="Evaluate"
+                                class="btn-primary" groups="berserker.group_berserker_admin"/>
+                        <field name="task_status" widget="statusbar" readonly="1" statusbar_visible="NotSubmitted,Submitted"/>
+                        <field name="eval_status" widget="badge" readonly="1"
+                               decoration-info="eval_status == 'evaluating'"
+                               decoration-success="eval_status == 'done'"
+                               decoration-danger="eval_status == 'failed'"/>
+                    </header>
+
+                    <!-- Evaluation status banners -->
+                    <div class="alert alert-warning d-flex align-items-center mb-0 py-3 px-4" role="alert"
+                         invisible="eval_status != 'evaluating'"
+                         style="border-radius: 0; border-left: none; border-right: none; background: #fff3cd; animation: berserker-pulse 2s ease-in-out infinite;">
+                        <span class="fa fa-spinner fa-spin me-3" style="font-size: 20px; color: #856404;"/>
+                        <div>
+                            <strong>Evaluation in progress</strong> &#8212; Your task is being evaluated in the background. Results will appear automatically when complete. Please do not close this page.
+                        </div>
+                    </div>
+                    <div class="alert alert-danger d-flex align-items-center mb-0 py-3 px-4" role="alert"
+                         invisible="eval_status != 'failed'"
+                         style="border-radius: 0; border-left: none; border-right: none;">
+                        <span class="fa fa-exclamation-triangle me-3" style="font-size: 20px;"/>
+                        <div>
+                            <strong>Evaluation failed</strong> &#8212; Something went wrong during processing. Please contact an administrator.
+                        </div>
+                    </div>
+
+                    <!-- Inline CSS -->
+                    <style>
+                      @keyframes berserker-pulse {
+                          0%, 100% { opacity: 1; }
+                          50% { opacity: 0.7; }
+                      }
+
+                      .o_col_4 .alert-info {
+                          visibility: hidden;
+                          opacity: 0;
+                          transition: opacity 0.2s ease-in-out;
+                          position: absolute;
+                          z-index: 10;
+                          pointer-events: none;
+                      }
+                      .o_field_selection_badge {
+                        width: 100% !important;
+                      }
+
+                      .o_col_4 label:hover ~ .alert-info,
+                      .o_col_4 .alert-info:hover {
+                          visibility: visible !important;
+                          opacity: 1 !important;
+                          pointer-events: auto;
+                      }
+                      .hover-container {
+                          position: relative;
+                          display: block;
+                          width: 100%;
+                      }
+
+                      .o_form_label_top {
+                        display: flex;
+                        flex-direction: column;
+                      }
+                      .reason-icon-wrapper {
+                        position: relative;
+                        display: inline-flex;
+                        align-items: center;
+                        margin-left: 6px;
+                        cursor: pointer;
+                      }
+                      .reason-icon {
+                        color: #17a2b8;
+                        font-size: 16px;
+                        cursor: pointer;
+                      }
+                      .reason-icon-wrapper:hover .reason-icon {
+                        color: #0d6efd;
+                      }
+                      .reason-tooltip-popup {
+                        visibility: hidden;
+                        opacity: 0;
+                        transition: opacity 0.2s ease-in-out;
+                        position: absolute;
+                        bottom: 100%;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        z-index: 1050;
+                        min-width: 350px;
+                        max-width: 500px;
+                        background: #fff;
+                        border: 1px solid #17a2b8;
+                        border-radius: 8px;
+                        padding: 12px;
+                        font-size: 12px;
+                        line-height: 1.5;
+                        box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+                        pointer-events: none;
+                        white-space: normal;
+                        word-wrap: break-word;
+                      }
+                      .reason-icon-wrapper:hover .reason-tooltip-popup {
+                        visibility: visible;
+                        opacity: 1;
+                        pointer-events: auto;
+                      }
+                      .reason-tooltip-popup::after {
+                        content: '';
+                        position: absolute;
+                        top: 100%;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        border-width: 6px;
+                        border-style: solid;
+                        border-color: #17a2b8 transparent transparent transparent;
+                      }
+                    </style>
+
+                    <div class="oe_form_field_container">
+                        <!-- Task ID -->
+                        <h3 style="color:#71639e;">Task Id</h3>
+                        <field name="task_id" readonly="1"/>
+                        <field name="is_tasker" invisible="1"/>
+                        <field name="has_rubric1" invisible="1"/>
+                        <field name="has_rubric2" invisible="1"/>
+                        <field name="has_rubric3" invisible="1"/>
+                        <field name="has_rubric4" invisible="1"/>
+                        <field name="has_rubric5" invisible="1"/>
+
+                        <!-- Employee -->
+                        <h3 style="color:#71639e;">Employee</h3>
+                        <field name="employee_id" groups="berserker.group_berserker_admin"/>
+                        <field name="employee_id" readonly="1" groups="berserker.group_berserker_user"/>
+
+                        <!-- PROMPT -->
+                        <h3 style="color:#71639e;">Prompt</h3>
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px;">
+                            <div class="o_col_12 o_form_label_top" style="background: white !important;">
+                                <field name="client_prompt" style="padding: 15px;" widget="berserker_markdown_latex" readonly="1"/>
+                            </div>
+                        </div>
+
+                        <!-- ═══════ RUBRICS (names) ═══════ -->
+                        <br/>
+                        <h3 style="color:#71639e;">Rubrics</h3>
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px;">
+                            <div class="o_col_12 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px;">
+
+                                <!-- Rubric 1 -->
+                                <field name="error_rubric1_name" invisible="1"/>
+                                <label for="rubric1_name" string="Rubric 1" style="font-size: 16px;"/>
+                                <field name="rubric1_name" placeholder="Enter rubric 1..."/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_rubric1_name" style="font-size: 11px;">
+                                    <strong>Rubric Unchanged:</strong> <field name="reason1_rubric1_name" readonly="1"/>
+                                </p>
+
+                                <!-- Rubric 2 -->
+                                <field name="error_rubric2_name" invisible="1"/>
+                                <label for="rubric2_name" string="Rubric 2" style="font-size: 16px;"/>
+                                <field name="rubric2_name" placeholder="Enter rubric 2..."/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_rubric2_name" style="font-size: 11px;">
+                                    <strong>Rubric Unchanged:</strong> <field name="reason1_rubric2_name" readonly="1"/>
+                                </p>
+
+                                <!-- Rubric 3 -->
+                                <field name="error_rubric3_name" invisible="1"/>
+                                <label for="rubric3_name" string="Rubric 3" style="font-size: 16px;"/>
+                                <field name="rubric3_name" placeholder="Enter rubric 3..."/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_rubric3_name" style="font-size: 11px;">
+                                    <strong>Rubric Unchanged:</strong> <field name="reason1_rubric3_name" readonly="1"/>
+                                </p>
+
+                                <!-- Rubric 4 -->
+                                <field name="error_rubric4_name" invisible="1"/>
+                                <label for="rubric4_name" string="Rubric 4" style="font-size: 16px;"/>
+                                <field name="rubric4_name" placeholder="Enter rubric 4..."/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_rubric4_name" style="font-size: 11px;">
+                                    <strong>Rubric Unchanged:</strong> <field name="reason1_rubric4_name" readonly="1"/>
+                                </p>
+
+                                <!-- Rubric 5 -->
+                                <field name="error_rubric5_name" invisible="1"/>
+                                <label for="rubric5_name" string="Rubric 5" style="font-size: 16px;"/>
+                                <field name="rubric5_name" placeholder="Enter rubric 5..."/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_rubric5_name" style="font-size: 11px;">
+                                    <strong>Rubric Unchanged:</strong> <field name="reason1_rubric5_name" readonly="1"/>
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- ═══════ EVALUATION SECTION ═══════ -->
+                        <br/>
+                        <h3 style="color:#71639e;">Evaluation</h3>
+                        <br/>
+
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px; align-items: flex-start;">
+
+                            <!-- ═══════ GPT COLUMN ═══════ -->
+                            <div class="o_col_4 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px; flex: 1; margin-right: 10px;">
+                                <h3 style="text-align: center; background: #7d7575; color: white; border-radius: 5px; padding: 10px; margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">GPT Response</h3>
+                                <field name="gpt_response" widget="berserker_markdown_latex" readonly="1"/>
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Ratings</h4>
+
+                                <!-- GPT Truthfulness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_truthfulness" string="Truthfulness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_truthfulness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_truthfulness" invisible="1"/>
+                                <field name="gpt_truthfulness" widget="selection_badge" decoration-danger="error_gpt_truthfulness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_truthfulness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_truthfulness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- GPT Instruction Following -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_instruction_following" string="Instruction Following" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_instruction_following" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_instruction_following" invisible="1"/>
+                                <field name="gpt_instruction_following" widget="selection_badge" decoration-danger="error_gpt_instruction_following == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_instruction_following" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_instruction_following" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- GPT Writing Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_writing_quality" string="Writing Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_writing_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_writing_quality" invisible="1"/>
+                                <field name="gpt_writing_quality" widget="selection_badge" decoration-danger="error_gpt_writing_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_writing_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_writing_quality" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- GPT Verbosity -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_verbosity" string="Verbosity" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_verbosity" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_verbosity" invisible="1"/>
+                                <field name="gpt_verbosity" widget="selection_badge" decoration-danger="error_gpt_verbosity == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_verbosity" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_verbosity" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- GPT Prompt Correctness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_prompt_correctness" string="Prompt Correctness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_prompt_correctness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_prompt_correctness" invisible="1"/>
+                                <field name="gpt_prompt_correctness" widget="selection_badge" decoration-danger="error_gpt_prompt_correctness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_prompt_correctness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_prompt_correctness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- GPT Overall Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gpt_overall_quality" string="Overall Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_overall_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_overall_quality" invisible="1"/>
+                                <field name="gpt_overall_quality" widget="selection_badge" decoration-danger="error_gpt_overall_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_overall_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_overall_quality" readonly="1"/>
+                                </p>
+
+                                <!-- GPT Rubric Ratings -->
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Rubric Ratings</h4>
+
+                                <!-- GPT Rubric 1 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric1">
+                                    <label for="gpt_rubric1_rating" string="Rubric 1" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_rubric1_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_rubric1_rating" invisible="1"/>
+                                <field name="gpt_rubric1_rating" invisible="not has_rubric1" widget="selection_badge" decoration-danger="error_gpt_rubric1_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_rubric1_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_rubric1_rating" readonly="1"/>
+                                </p>
+
+                                <!-- GPT Rubric 2 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric2">
+                                    <label for="gpt_rubric2_rating" string="Rubric 2" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_rubric2_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_rubric2_rating" invisible="1"/>
+                                <field name="gpt_rubric2_rating" invisible="not has_rubric2" widget="selection_badge" decoration-danger="error_gpt_rubric2_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_rubric2_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_rubric2_rating" readonly="1"/>
+                                </p>
+
+                                <!-- GPT Rubric 3 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric3">
+                                    <label for="gpt_rubric3_rating" string="Rubric 3" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_rubric3_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_rubric3_rating" invisible="1"/>
+                                <field name="gpt_rubric3_rating" invisible="not has_rubric3" widget="selection_badge" decoration-danger="error_gpt_rubric3_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_rubric3_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_rubric3_rating" readonly="1"/>
+                                </p>
+
+                                <!-- GPT Rubric 4 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric4">
+                                    <label for="gpt_rubric4_rating" string="Rubric 4" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_rubric4_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_rubric4_rating" invisible="1"/>
+                                <field name="gpt_rubric4_rating" invisible="not has_rubric4" widget="selection_badge" decoration-danger="error_gpt_rubric4_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_rubric4_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_rubric4_rating" readonly="1"/>
+                                </p>
+
+                                <!-- GPT Rubric 5 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric5">
+                                    <label for="gpt_rubric5_rating" string="Rubric 5" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gpt_rubric5_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gpt_rubric5_rating" invisible="1"/>
+                                <field name="gpt_rubric5_rating" invisible="not has_rubric5" widget="selection_badge" decoration-danger="error_gpt_rubric5_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gpt_rubric5_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gpt_rubric5_rating" readonly="1"/>
+                                </p>
+                            </div>
+
+                            <!-- ═══════ GEMINI COLUMN ═══════ -->
+                            <div class="o_col_4 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px; flex: 1; margin-right: 10px;">
+                                <h3 style="text-align: center; background: #7d7575; color: white; border-radius: 5px; padding: 10px; margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">Gemini Response</h3>
+                                <field name="gemini_response" widget="berserker_markdown_latex" readonly="1"/>
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Ratings</h4>
+
+                                <!-- Gemini Truthfulness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_truthfulness" string="Truthfulness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_truthfulness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_truthfulness" invisible="1"/>
+                                <field name="gemini_truthfulness" widget="selection_badge" decoration-danger="error_gemini_truthfulness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_truthfulness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_truthfulness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Gemini Instruction Following -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_instruction_following" string="Instruction Following" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_instruction_following" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_instruction_following" invisible="1"/>
+                                <field name="gemini_instruction_following" widget="selection_badge" decoration-danger="error_gemini_instruction_following == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_instruction_following" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_instruction_following" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Gemini Writing Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_writing_quality" string="Writing Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_writing_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_writing_quality" invisible="1"/>
+                                <field name="gemini_writing_quality" widget="selection_badge" decoration-danger="error_gemini_writing_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_writing_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_writing_quality" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Gemini Verbosity -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_verbosity" string="Verbosity" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_verbosity" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_verbosity" invisible="1"/>
+                                <field name="gemini_verbosity" widget="selection_badge" decoration-danger="error_gemini_verbosity == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_verbosity" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_verbosity" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Gemini Prompt Correctness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_prompt_correctness" string="Prompt Correctness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_prompt_correctness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_prompt_correctness" invisible="1"/>
+                                <field name="gemini_prompt_correctness" widget="selection_badge" decoration-danger="error_gemini_prompt_correctness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_prompt_correctness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_prompt_correctness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Gemini Overall Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="gemini_overall_quality" string="Overall Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_overall_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_overall_quality" invisible="1"/>
+                                <field name="gemini_overall_quality" widget="selection_badge" decoration-danger="error_gemini_overall_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_overall_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_overall_quality" readonly="1"/>
+                                </p>
+
+                                <!-- Gemini Rubric Ratings -->
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Rubric Ratings</h4>
+
+                                <!-- Gemini Rubric 1 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric1">
+                                    <label for="gemini_rubric1_rating" string="Rubric 1" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_rubric1_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_rubric1_rating" invisible="1"/>
+                                <field name="gemini_rubric1_rating" invisible="not has_rubric1" widget="selection_badge" decoration-danger="error_gemini_rubric1_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_rubric1_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_rubric1_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Gemini Rubric 2 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric2">
+                                    <label for="gemini_rubric2_rating" string="Rubric 2" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_rubric2_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_rubric2_rating" invisible="1"/>
+                                <field name="gemini_rubric2_rating" invisible="not has_rubric2" widget="selection_badge" decoration-danger="error_gemini_rubric2_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_rubric2_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_rubric2_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Gemini Rubric 3 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric3">
+                                    <label for="gemini_rubric3_rating" string="Rubric 3" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_rubric3_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_rubric3_rating" invisible="1"/>
+                                <field name="gemini_rubric3_rating" invisible="not has_rubric3" widget="selection_badge" decoration-danger="error_gemini_rubric3_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_rubric3_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_rubric3_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Gemini Rubric 4 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric4">
+                                    <label for="gemini_rubric4_rating" string="Rubric 4" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_rubric4_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_rubric4_rating" invisible="1"/>
+                                <field name="gemini_rubric4_rating" invisible="not has_rubric4" widget="selection_badge" decoration-danger="error_gemini_rubric4_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_rubric4_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_rubric4_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Gemini Rubric 5 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric5">
+                                    <label for="gemini_rubric5_rating" string="Rubric 5" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_gemini_rubric5_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_gemini_rubric5_rating" invisible="1"/>
+                                <field name="gemini_rubric5_rating" invisible="not has_rubric5" widget="selection_badge" decoration-danger="error_gemini_rubric5_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_gemini_rubric5_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_gemini_rubric5_rating" readonly="1"/>
+                                </p>
+                            </div>
+
+                            <!-- ═══════ CLAUDE COLUMN ═══════ -->
+                            <div class="o_col_4 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px; flex: 1;">
+                                <h3 style="text-align: center; background: #7d7575; color: white; border-radius: 5px; padding: 10px; margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">Claude Response</h3>
+                                <field name="claude_response" widget="berserker_markdown_latex" readonly="1"/>
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Ratings</h4>
+
+                                <!-- Claude Truthfulness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_truthfulness" string="Truthfulness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_truthfulness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_truthfulness" invisible="1"/>
+                                <field name="claude_truthfulness" widget="selection_badge" decoration-danger="error_claude_truthfulness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_truthfulness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_truthfulness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Claude Instruction Following -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_instruction_following" string="Instruction Following" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_instruction_following" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_instruction_following" invisible="1"/>
+                                <field name="claude_instruction_following" widget="selection_badge" decoration-danger="error_claude_instruction_following == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_instruction_following" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_instruction_following" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Claude Writing Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_writing_quality" string="Writing Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_writing_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_writing_quality" invisible="1"/>
+                                <field name="claude_writing_quality" widget="selection_badge" decoration-danger="error_claude_writing_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_writing_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_writing_quality" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Claude Verbosity -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_verbosity" string="Verbosity" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_verbosity" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_verbosity" invisible="1"/>
+                                <field name="claude_verbosity" widget="selection_badge" decoration-danger="error_claude_verbosity == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_verbosity" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_verbosity" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Claude Prompt Correctness -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_prompt_correctness" string="Prompt Correctness" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_prompt_correctness" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_prompt_correctness" invisible="1"/>
+                                <field name="claude_prompt_correctness" widget="selection_badge" decoration-danger="error_claude_prompt_correctness == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_prompt_correctness" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_prompt_correctness" readonly="1"/>
+                                </p>
+                                <br/>
+
+                                <!-- Claude Overall Quality -->
+                                <div class="hover-container" style="position: relative;">
+                                    <label for="claude_overall_quality" string="Overall Quality" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_overall_quality" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_overall_quality" invisible="1"/>
+                                <field name="claude_overall_quality" widget="selection_badge" decoration-danger="error_claude_overall_quality == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_overall_quality" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_overall_quality" readonly="1"/>
+                                </p>
+
+                                <!-- Claude Rubric Ratings -->
+                                <hr/>
+                                <h4 style="color: #71639e; margin-top: 10px;">Rubric Ratings</h4>
+
+                                <!-- Claude Rubric 1 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric1">
+                                    <label for="claude_rubric1_rating" string="Rubric 1" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_rubric1_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_rubric1_rating" invisible="1"/>
+                                <field name="claude_rubric1_rating" invisible="not has_rubric1" widget="selection_badge" decoration-danger="error_claude_rubric1_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_rubric1_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_rubric1_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Claude Rubric 2 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric2">
+                                    <label for="claude_rubric2_rating" string="Rubric 2" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_rubric2_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_rubric2_rating" invisible="1"/>
+                                <field name="claude_rubric2_rating" invisible="not has_rubric2" widget="selection_badge" decoration-danger="error_claude_rubric2_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_rubric2_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_rubric2_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Claude Rubric 3 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric3">
+                                    <label for="claude_rubric3_rating" string="Rubric 3" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_rubric3_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_rubric3_rating" invisible="1"/>
+                                <field name="claude_rubric3_rating" invisible="not has_rubric3" widget="selection_badge" decoration-danger="error_claude_rubric3_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_rubric3_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_rubric3_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Claude Rubric 4 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric4">
+                                    <label for="claude_rubric4_rating" string="Rubric 4" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_rubric4_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_rubric4_rating" invisible="1"/>
+                                <field name="claude_rubric4_rating" invisible="not has_rubric4" widget="selection_badge" decoration-danger="error_claude_rubric4_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_rubric4_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_rubric4_rating" readonly="1"/>
+                                </p>
+
+                                <!-- Claude Rubric 5 -->
+                                <div class="hover-container" style="position: relative;" invisible="not has_rubric5">
+                                    <label for="claude_rubric5_rating" string="Rubric 5" style="font-size: 16px; cursor: help;"/>
+                                    <div class="reason-icon-wrapper">
+                                        <i class="fa fa-info-circle reason-icon"/>
+                                        <div class="reason-tooltip-popup">
+                                            <strong><i class="fa fa-info-circle"/> AI Reasoning:</strong><br/>
+                                            <field name="reason1_claude_rubric5_rating" readonly="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <field name="error_claude_rubric5_rating" invisible="1"/>
+                                <field name="claude_rubric5_rating" invisible="not has_rubric5" widget="selection_badge" decoration-danger="error_claude_rubric5_rating == True"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_claude_rubric5_rating" style="font-size: 11px;">
+                                    <strong>Rating Mismatch:</strong> <field name="reason1_claude_rubric5_rating" readonly="1"/>
+                                </p>
+                            </div>
+
+                        </div>
+
+                        <br/>
+
+                        <!-- RANKING -->
+                        <h3 style="color:#71639e;">Ranking</h3>
+                        <p style="color: #6c757d; font-size: 13px; margin-bottom: 10px;">Drag and drop to rank responses from best (1st) to worst (3rd)</p>
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px;">
+                            <div class="o_col_12 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px;">
+                                <field name="ranking_order" widget="berserker_ranking"/>
+                            </div>
+                        </div>
+
+                        <br/>
+
+                        <!-- JUSTIFICATION -->
+                        <h3 style="color:#71639e;">Justification</h3>
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px;">
+                            <div class="o_col_12 o_form_label_top" style="background: white !important;">
+                                <field name="error_justification" invisible="1"/>
+                                <field name="justification" style="padding: 15px;"/>
+                                <p class="alert alert-danger p-1 m-0" role="alert" invisible="not error_justification" style="font-size: 11px;">
+                                    <strong>QC Alert:</strong> Justification appears to be AI-generated or unchanged from default.
+                                </p>
+                            </div>
+                        </div>
+
+                        <br/>
+
+                        <!-- QC Section -->
+                        <h3 style="color:#71639e;">Quality Check</h3>
+                        <div class="o_row" style="background: #E7E9EB; border-radius: 5px; padding: 18px;">
+                            <div class="o_col_4 o_form_label_top" style="background: white; border-radius: 5px; padding: 20px;">
+                                <label for="qc_task_status" string="QC Status"/>
+                                <field name="qc_task_status"/>
+                            </div>
+                            <div class="o_col_4 o_form_label_top" style="background: white; border-radius: 5px; margin-left: 20px; padding: 20px;">
+                                <label for="qc_score" string="QC Score"/>
+                                <field name="qc_score"/>
+                            </div>
+                        </div>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         SEARCH VIEW
+    ══════════════════════════════════════════════════ -->
+    <record id="berserker_view_search" model="ir.ui.view">
+        <field name="name">berserker.search</field>
+        <field name="model">berserker</field>
+        <field name="arch" type="xml">
+            <search string="Berserker">
+                <field name="task_id"/>
+                <field name="employee_id"/>
+                <filter string="My Tasks" name="my_tasks" domain="[('user_id', '=', uid)]"/>
+                <filter string="Submitted" name="submitted" domain="[('task_status', '=', 'Submitted')]"/>
+                <filter string="Not Submitted" name="not_submitted" domain="[('task_status', '=', 'NotSubmitted')]"/>
+                <filter string="QC Pass" name="qc_pass" domain="[('qc_task_status', '=', 'pass')]"/>
+                <filter string="QC Fail" name="qc_fail" domain="[('qc_task_status', '=', 'fail')]"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════
+         ACTIONS
+    ══════════════════════════════════════════════════ -->
+    <record id="berserker_action" model="ir.actions.act_window">
+        <field name="name">Tasks</field>
+        <field name="res_model">berserker</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="berserker_view_search"/>
+    </record>
+
+    <record id="berserker_action_my_tasks" model="ir.actions.act_window">
+        <field name="name">My Tasks</field>
+        <field name="res_model">berserker</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="berserker_view_search"/>
+        <field name="domain">[('user_id', '=', uid)]</field>
+    </record>
+
+</odoo>

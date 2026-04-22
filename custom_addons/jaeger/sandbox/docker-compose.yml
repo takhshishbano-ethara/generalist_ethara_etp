@@ -1,0 +1,144 @@
+services:
+  # ── PostgreSQL 16 (production parity) ─────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: jaeger_dev
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d jaeger_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - jaeger
+
+  # ── MinIO (S3-compatible local storage) ───────────────────────────────
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - jaeger
+
+  # ── One-shot bucket creator ───────────────────────────────────────────
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/jaeger-local &&
+      echo 'Bucket jaeger-local created (or already exists)'
+      "
+    networks:
+      - jaeger
+
+  # ── Local Docker registry (for K3s image pulls) ──────────────────────
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    networks:
+      - jaeger
+
+  # ── K3s (lightweight Kubernetes) ──────────────────────────────────────
+  k3s:
+    image: rancher/k3s:latest
+    command: server --disable=traefik,servicelb,metrics-server --write-kubeconfig-mode=644 --tls-san=k3s
+    privileged: true
+    environment:
+      K3S_KUBECONFIG_MODE: "644"
+    ports:
+      - "6443:6443"
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - k3s-kubeconfig:/etc/rancher/k3s
+      - ./k3s-registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    tmpfs:
+      - /run
+      - /var/run
+    healthcheck:
+      test: ["CMD", "kubectl", "get", "nodes"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - jaeger
+
+  # ── Odoo (built from production Dockerfile) ───────────────────────────
+  odoo:
+    build:
+      context: ../../..
+      dockerfile: custom_addons/jaeger/sandbox/Dockerfile.sandbox
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cp /etc/rancher/k3s-shared/k3s.yaml /tmp/k3s.yaml
+        sed -i 's|127.0.0.1|k3s|g' /tmp/k3s.yaml
+        export KUBECONFIG=/tmp/k3s.yaml
+        exec ./odoo-bin -c /etc/odoo/odoo.conf -d jaeger_dev
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      JAEGER_S3_BUCKET: jaeger-local
+      JAEGER_S3_REGION: us-east-1
+      JAEGER_S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      KUBECONFIG: /tmp/k3s.yaml
+    ports:
+      - "8069:8069"
+      - "8072:8072"
+    volumes:
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - k3s-kubeconfig:/etc/rancher/k3s-shared:ro
+    networks:
+      - jaeger
+
+  # ── Nginx reverse proxy ───────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - odoo
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - jaeger
+
+volumes:
+  pg-data:
+  minio-data:
+  k3s-data:
+  k3s-kubeconfig:
+  registry-data:
+
+networks:
+  jaeger:
+    driver: bridge
