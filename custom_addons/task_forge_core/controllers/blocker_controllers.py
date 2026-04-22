@@ -4,6 +4,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request, generate_s3_link
 )
 import json
+import base64
+from datetime import datetime
 
 
 class TaskForgeBlockerController(http.Controller):
@@ -25,15 +27,40 @@ class TaskForgeBlockerController(http.Controller):
             if not role == 'tasker':
                 return return_Response(message="Only Tasker Can Create the Blocker", status=404)
 
+            task = request.env['task.forge.log'].sudo().browse(int(jdata.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            blocker_image_url = ''
+            image_file = request.httprequest.files.get('image')
+            if image_file:
+                file_content = image_file.read()
+                if file_content:
+                    file_b64 = base64.b64encode(file_content).decode('utf-8')
+                    blocker_image_url = generate_s3_link(
+                        file_b64,
+                        prefix='blocker_images',
+                        filename=image_file.filename,
+                    ) or ''
+
+            now = datetime.now()
+            pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
+
             blocker = Blocker.create({
                 'name': jdata.get('name'),
-                'task_id': jdata.get('task_id'),
+                'task_id': task.id,
                 'blocker_reason': jdata.get('blocker_reason'),
                 'blocker_type': jdata.get('blocker_type'),
                 'priority': jdata.get('priority'),
                 'employee_id': employee.id if employee else False,
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
-                'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False
+                'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,
+                'blocker_image_url': blocker_image_url,
+            })
+
+            task.write({
+                'state': 'blocker',
+                'pause_time': kwargs('pause_time'),
             })
 
             try:
@@ -49,7 +76,7 @@ class TaskForgeBlockerController(http.Controller):
             except Exception:
                 pass
 
-            return return_Response(message="Blockers list", status=200, data={'data': self._format_blocker(blocker)})
+            return return_Response(message="Blocker created", status=200, data={'data': self._format_blocker(blocker)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
@@ -264,8 +291,10 @@ class TaskForgeBlockerController(http.Controller):
             'pl_id': b.pl_id.id if b.pl_id else 0,
             'pl_name': b.pl_id.name if b.pl_id else "",
             'blocker_reason': b.blocker_reason or '',
+            'blocker_type': b.blocker_type or '',
             'priority': b.priority or '',
             'state': b.state or "",
+            'blocker_image_url': b.blocker_image_url or '',
             'qr_notes': b.qr_notes or '',
             'qr_video_url': b.qr_video_url or '',
             'qr_image_url': b.qr_image_url or '',

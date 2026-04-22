@@ -36,6 +36,7 @@ class TaskForgeAttendanceController(http.Controller):
                 )
             # -----------------------------------------------
             Attendance = request.env['hr.attendance'].sudo()
+
             existing = Attendance.search([
                 ('employee_id', '=', employee.id),
                 ('check_in', '>=', datetime.combine(today, datetime.min.time())),
@@ -46,7 +47,7 @@ class TaskForgeAttendanceController(http.Controller):
                 if existing.attendance_status == 'present':
                     return return_Response(message="Already punched in today", status=400)
                 else:
-                    vals = {'attendance_status': 'present', 'check_in': datetime.now()}
+                    vals = {'attendance_status': 'present', 'check_in': datetime.now(), 'check_out': ""}
                     if jdata.get('location'):
                         vals['geo_location'] = jdata['location']
                     if jdata.get('geo_coordinates'):
@@ -67,6 +68,7 @@ class TaskForgeAttendanceController(http.Controller):
                         }}
                     )
 
+            Attendance.close_open_attendance_record()
             vals = {
                 'employee_id': employee.id,
                 'check_in': datetime.now(),
@@ -77,6 +79,8 @@ class TaskForgeAttendanceController(http.Controller):
                 vals['geo_coordinates'] = jdata['geo_coordinates']
 
             attendance = Attendance.create(vals)
+            IST_OFFSET = timedelta(hours=5, minutes=30)
+            check_in_ist = (attendance.check_in + IST_OFFSET) if attendance.check_in else ""
 
             return return_Response(
                 message="Punched in successfully",
@@ -86,7 +90,7 @@ class TaskForgeAttendanceController(http.Controller):
                     'employee_id': employee.id,
                     'employee_name': employee.name,
                     'date': str(today),
-                    'punch_in_time': attendance.check_in.isoformat() if attendance.check_in else None,
+                    'punch_in_time': str(check_in_ist),
                     'location': attendance.geo_location or '',
                     'geo_coordinates': attendance.geo_coordinates or '',
                     'status': 'Present',
@@ -117,6 +121,9 @@ class TaskForgeAttendanceController(http.Controller):
                 return return_Response(message="No active punch-in found for today", status=400)
 
             attendance.write({'check_out': datetime.now()})
+            IST_OFFSET = timedelta(hours=5, minutes=30)
+            check_in_ist = (attendance.check_in + IST_OFFSET) if attendance.check_in else ""
+            check_out_ist = (attendance.check_out + IST_OFFSET) if attendance.check_out else ""
 
             return return_Response(
                 message="Punched out successfully",
@@ -126,8 +133,8 @@ class TaskForgeAttendanceController(http.Controller):
                     'employee_id': employee.id,
                     'employee_name': employee.name,
                     'date': str(today),
-                    'punch_in_time': attendance.check_in.isoformat() if attendance.check_in else None,
-                    'punch_out_time': attendance.check_out.isoformat() if attendance.check_out else None,
+                    'punch_in_time': str(check_in_ist),
+                    'punch_out_time': str(check_out_ist),
                     'hours_worked': round(attendance.worked_hours, 2) if attendance.worked_hours else 0,
                     'status': 'Present',
                 }}

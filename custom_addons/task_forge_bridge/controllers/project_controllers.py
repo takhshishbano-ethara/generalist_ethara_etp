@@ -775,7 +775,8 @@ class TaskForgeProjectController(http.Controller):
             domain = []
             if kwargs.get('project_id'):
                 domain.append(('id', '=', int(kwargs.get('project_id'))))
-
+            if kwargs.get('search'):
+                domain.append(('name', 'ilike', kwargs.get('search')))
             projects = Project.search(domain)
             result = []
             emp_list = []

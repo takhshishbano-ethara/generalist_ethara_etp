@@ -32,6 +32,7 @@ class TaskForgeBlocker(models.Model):
     pl_validated_at = fields.Datetime(string='PL Validated Time')
 
     validated_bug_id = fields.Many2one('task.forge.validated.bug', string='Validated Bug')
+    blocker_image_url = fields.Char(string='Blocker Image URL')
 
     employee_name = fields.Char(related='employee_id.name', store=True)
     task_name = fields.Char(related='task_id.name', store=True)
