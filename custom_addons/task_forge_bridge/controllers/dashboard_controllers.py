@@ -434,9 +434,10 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = []
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
             task_domain = []
-
+            if kwargs.get('show_all') in [1, '1']:
+                domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
                 domain = []
                 task_domain = []
