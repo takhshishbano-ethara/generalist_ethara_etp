@@ -433,16 +433,22 @@ class DashboardController(http.Controller):
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
 
+            employee = user_id.employee_id
             domain = []
+            task_domain = []
 
-            if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
-                domain = [('project_lead', '=', user_id.employee_id.id)]
-
+            if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                domain = []
+                task_domain = []
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain = [('project_lead', '=', employee.id)]
+                task_domain = [('employee_id.task_forge_qr_id.task_forge_pl_id', '=', employee.id)]
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
-                domain = [('project_qc_reviewer', '=', user_id.employee_id.id)]
-
+                domain = [('project_qc_reviewer', '=', employee.id)]
+                task_domain = [('employee_id.task_forge_qr_id', '=', employee.id)]
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
-                domain = [('project_tasker', '=', user_id.employee_id.id)]
+                domain = [('project_tasker', '=', employee.id)]
+                task_domain = [('employee_id', '=', employee.id)]
 
             search = kwargs.get('search')
             if search:
@@ -453,9 +459,6 @@ class DashboardController(http.Controller):
                     status_list = [int(x.strip()) for x in kwargs.get('status').split(',') if x.strip()]
                     domain += [('stage_id', 'in', status_list)]
 
-                # non_stemp_project_status = kwargs.get('status').split(',')
-                # if "all" not in non_stemp_project_status:
-                #     domain.append(('non_stemp_project_status', 'in', non_stemp_project_status))
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
@@ -463,16 +466,31 @@ class DashboardController(http.Controller):
             if not kwargs.get('page'):
                 limit = total_count
                 offset = 0
-            # projects = request.env['project.project'].sudo().search(domain, order='create_date desc', limit=limit, offset=offset)
             projects = request.env['project.project'].sudo().search(domain, order='id desc', limit=limit, offset=offset)
             project_data = []
+            TaskLog = request.env['task.forge.log'].sudo()
             for p in projects:
-                team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
-                unique_team_count = len(set(team_ids))
+                all_member_ids = set(
+                    p.project_lead.ids + p.project_qc_reviewer.ids +
+                    p.project_tasker.ids + p.project_aire.ids + p.project_swe.ids
+                )
 
-                total = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id)])
-                done = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
+                total = TaskLog.search_count([('project_id', '=', p.id)])
+                done = TaskLog.search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
                 percentage = (done / total * 100) if total > 0 else 0.0
+
+                aht_time = 0
+                task_records = TaskLog.search(task_domain + [('project_id', '=', p.id)])
+                for t in task_records:
+                    if t.pause_time:
+                        try:
+                            aht_time += int(t.pause_time)
+                        except (ValueError, TypeError):
+                            pass
+                aht_time = aht_time // 60 if aht_time else 0
+
+                pl_names = ', '.join(p.project_lead.mapped('name')) if p.project_lead else ''
+                qr_names = ', '.join(p.project_qc_reviewer.mapped('name')) if p.project_qc_reviewer else ''
 
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
@@ -482,14 +500,15 @@ class DashboardController(http.Controller):
                     'status': safe_get_value(p, 'non_stemp_project_status', 'str') if p.project_category == 'non_stem' else safe_get_value(p, 'stage_id.name', 'str'),
                     'progress': percentage,
                     'tasks': total,
-                    'team_count': unique_team_count,
-                    'pl_name': safe_get_value(user_id, 'employee_id.task_forge_pl_id.name', 'str'),
-                    'qr_name': safe_get_value(user_id, 'employee_id.task_forge_qr_id.name', 'str'),
+                    'team_count': len(all_member_ids),
+                    'pl_name': pl_names,
+                    'qr_name': qr_names,
                     'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
                     'date_end': safe_get_value(p, 'date', 'date'),
+                    'aht_time': aht_time
                 })
             return return_Response(
                 message="Success",

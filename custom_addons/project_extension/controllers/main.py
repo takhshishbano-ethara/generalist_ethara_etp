@@ -558,7 +558,6 @@ class ProjectController(http.Controller):
                 # Calculate Team Count (AIRE + SWE + Leads)
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
                 unique_team_count = len(set(team_ids))
-
                 project_data.append({
                     'id': safe_get_value(p, 'id', 'int'),
                     'project_name': safe_get_value(p, 'name', 'str'),
@@ -572,7 +571,7 @@ class ProjectController(http.Controller):
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
-                    'date_end': safe_get_value(p, 'date', 'date'),
+                    'date_end': safe_get_value(p, 'date', 'date')
                 })
             return return_Response(
                 message="Success",

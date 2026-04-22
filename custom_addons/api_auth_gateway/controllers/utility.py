@@ -9,6 +9,7 @@ import mimetypes
 import time
 import re
 import uuid
+import os
 
 
 def return_Response(message, status=200, errors=[], data=None):
@@ -326,20 +327,19 @@ def generate_s3_link(img_data, prefix='profile', uid=None, filename=None):
     unique_id = uuid.uuid4().hex[:12]
     s3_connector_id = request.env['s3.connector'].sudo().search([], limit=1)
 
-    mime_type = "image/jpeg"
     if filename:
-        try:
-            mime_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
-        except Exception:
-            pass
+        _, ext = os.path.splitext(filename)
+        if ext:
+            extension = ext
+            mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        else:
+            mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+            extension = mimetypes.guess_extension(mime_type) or '.bin'
     else:
-        try:
-            mime_type = mimetypes.guess_type("dummy.jpg")[0] or "image/jpeg"
-        except Exception:
-            pass
+        mime_type = "image/jpeg"
+        extension = '.jpeg'
 
-    extension = mimetypes.guess_extension(mime_type) or '.jpeg'
-    safe_name = secure_filename(f"{ts}_{uid}_{unique_id}_profile_image") if uid else secure_filename(f"{ts}_{unique_id}_profile_image")
+    safe_name = secure_filename(f"{ts}_{uid}_{unique_id}_{prefix}") if uid else secure_filename(f"{ts}_{unique_id}_{prefix}")
     images_name = f"{safe_name}{extension}"
 
     img_req = request.env['s3.upload.wizard'].sudo().create({
