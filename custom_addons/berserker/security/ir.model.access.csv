@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_berserker_user,berserker.user,model_berserker,berserker.group_berserker_user,1,1,1,0
+access_berserker_admin,berserker.admin,model_berserker,berserker.group_berserker_admin,1,1,1,1
+access_berserker_mass_assign_admin,berserker.mass.assign.admin,model_berserker_mass_assign,berserker.group_berserker_admin,1,1,1,1
+access_berserker_mass_assign_access_admin,berserker.mass.assign.access.admin,model_berserker_mass_assign_access,berserker.group_berserker_admin,1,1,1,1
+access_berserker_usage_log_admin,berserker.usage.log.admin,model_berserker_usage_log,berserker.group_berserker_admin,1,0,0,0
