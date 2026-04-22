@@ -21,9 +21,11 @@ This module extends the hr.employee functionality with:
         "hr",
         "project",
         "api_auth_gateway",
+        "mail",
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/onboarding_email_template.xml",
         "views/hr_employee_views.xml",
         "views/allocation_request_views.xml",
         "views/menu_views.xml",

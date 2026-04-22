@@ -1,6 +1,18 @@
 from odoo import models, fields, api
 import requests
 import json
+import logging
+
+_logger = logging.getLogger(__name__)
+
+ROLE_FIELD_MAP = {
+    'project_lead': 'lead',
+    'project_qc_reviewer': 'qc_reviewer',
+    'project_tasker': 'tasker',
+    'project_aire': 'aire',
+    'project_swe': 'swe',
+}
+
 
 class Project(models.Model):
     _inherit = 'project.project'
@@ -66,6 +78,7 @@ class Project(models.Model):
     approval_target = fields.Integer(string="Approval Target")
     non_stemp_project_status = fields.Selection([('draft', 'Draft'), ('not_started', 'Not Started'), ('closed', 'Closed'), ('paused', 'Paused'), ('production', 'Production'), ('cancel', 'Cancel')], default='not_started')
     base_project_task = fields.One2many('base.project.task', 'project_id', string='Base Project Task')
+    member_history_ids = fields.One2many('project.member.history', 'project_id', string='Member History')
 
     def create_slack_channel(self):
         user_ids = []
@@ -152,20 +165,92 @@ class Project(models.Model):
         for vals in vals_list:
             vals['project_seq'] = self.env['ir.sequence'].next_by_code('project.project')
         projects = super(Project, self).create(vals_list)
-        for project in projects:
+        for project, vals in zip(projects, vals_list):
+            project._sync_member_history(vals)
             try:
                 project.kick_off_send_mail()
             except Exception as e:
-                print(f"{e}")
+                _logger.error('kick_off_send_mail failed: %s', e)
             try:
                 project.create_google_drive_folders()
             except Exception as e:
-                print(f"{e}")
+                _logger.error('create_google_drive_folders failed: %s', e)
             try:
                 project.create_slack_channel()
             except Exception as e:
-                print(f"{e}")
+                _logger.error('create_slack_channel failed: %s', e)
         return projects
+
+    def write(self, vals):
+        old_members = {}
+        for field_name in ROLE_FIELD_MAP:
+            if field_name in vals:
+                old_members[field_name] = {proj.id: set(proj[field_name].ids) for proj in self}
+
+        result = super(Project, self).write(vals)
+
+        for field_name, role in ROLE_FIELD_MAP.items():
+            if field_name not in vals:
+                continue
+            for proj in self:
+                old_ids = old_members.get(field_name, {}).get(proj.id, set())
+                new_ids = set(proj[field_name].ids)
+
+                added = new_ids - old_ids
+                removed = old_ids - new_ids
+
+                History = self.env['project.member.history'].sudo()
+
+                for emp_id in added:
+                    existing = History.search([
+                        ('project_id', '=', proj.id),
+                        ('employee_id', '=', emp_id),
+                        ('role', '=', role),
+                        ('state', '=', 'active'),
+                    ], limit=1)
+                    if not existing:
+                        History.create({
+                            'project_id': proj.id,
+                            'employee_id': emp_id,
+                            'role': role,
+                            'start_date': fields.Date.today(),
+                        })
+
+                for emp_id in removed:
+                    active_record = History.search([
+                        ('project_id', '=', proj.id),
+                        ('employee_id', '=', emp_id),
+                        ('role', '=', role),
+                        ('state', '=', 'active'),
+                    ], limit=1)
+                    if active_record:
+                        active_record.action_offboard(
+                            reason='Removed from project team',
+                        )
+
+        return result
+
+    def _sync_member_history(self, vals):
+        History = self.env['project.member.history'].sudo()
+        for field_name, role in ROLE_FIELD_MAP.items():
+            if field_name not in vals:
+                continue
+            m2m_commands = vals[field_name]
+            emp_ids = set()
+            if isinstance(m2m_commands, list):
+                for cmd in m2m_commands:
+                    if isinstance(cmd, (list, tuple)):
+                        if cmd[0] == 6:
+                            emp_ids = set(cmd[2])
+                        elif cmd[0] == 4:
+                            emp_ids.add(cmd[1])
+            for emp_id in emp_ids:
+                History.create({
+                    'project_id': self.id,
+                    'employee_id': emp_id,
+                    'role': role,
+                    'start_date': fields.Date.today(),
+                })
 
 class TaskTemplateType(models.Model):
     _name = 'task.template.type'

@@ -8,8 +8,67 @@ import pandas as pd
 import io
 from datetime import datetime, date, timedelta, time
 import calendar
+import logging
+
+_logger = logging.getLogger(__name__)
+
 
 class EmployeeController(http.Controller):
+
+    def _send_onboarding_email(self, user, plain_password):
+        """Send welcome email with login credentials to newly onboarded employee."""
+        try:
+            template = request.env.ref(
+                'employee_extension.email_template_employee_onboarding',
+                raise_if_not_found=False,
+            )
+            login_url = request.env['ir.config_parameter'].sudo().get_param(
+                'employee_extension.onboarding_login_url',
+                default='https://etp.stage.ethara.ai',
+            )
+            role_name = ''
+            if user.user_role:
+                role_name = user.user_role.name or ''
+
+            ctx = {
+                'plain_password': plain_password,
+                'login_url': login_url,
+                'role_name': role_name,
+            }
+
+            if template:
+                template.sudo().with_context(**ctx).send_mail(user.id, force_send=True)
+            else:
+                mail_values = {
+                    'subject': 'Welcome to Ethara - Your Login Credentials',
+                    'email_from': request.env['ir.config_parameter'].sudo().get_param(
+                        'mail.catchall.email', 'noreply@ethara.ai'),
+                    'email_to': user.email,
+                    'body_html': '''
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                            <h2 style="color: #007bff;">Welcome to Ethara!</h2>
+                            <p>Hi %s,</p>
+                            <p>Your account has been created. Here are your login credentials:</p>
+                            <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                                <p><strong>Login Email:</strong> %s</p>
+                                <p><strong>Password:</strong> %s</p>
+                                <p><strong>Role:</strong> %s</p>
+                            </div>
+                            <p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 5px;">
+                                <strong>Important:</strong> Please change your password after your first login.
+                            </p>
+                            <p style="text-align: center; margin: 25px 0;">
+                                <a href="%s" style="background: #007bff; color: white; padding: 12px 30px;
+                                   text-decoration: none; border-radius: 5px; font-size: 16px;">Login to Ethara ETP</a>
+                            </p>
+                            <hr style="border: none; border-top: 1px solid #eee;"/>
+                            <p style="color: #999; font-size: 11px;">Ethara ETP Team</p>
+                        </div>
+                    ''' % (user.name, user.login, plain_password, role_name, login_url),
+                }
+                request.env['mail.mail'].sudo().create(mail_values).send()
+        except Exception as e:
+            _logger.error('Failed to send onboarding email to %s: %s', user.login, str(e))
 
     @http.route('/api/v2/employees', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
@@ -30,8 +89,8 @@ class EmployeeController(http.Controller):
             ResUsers = request.env['res.users'].sudo()
 
             email = jdata.get('email', '').strip().lower()
-            if not email.endswith('@ethara.ai'):
-                return return_Response(message="Email must be @ethara.ai domain", status=400)
+            # if not email.endswith('@ethara.ai'):
+            #     return return_Response(message="Email must be @ethara.ai domain", status=400)
 
             existing_user = ResUsers.search([('login', '=', email)], limit=1)
             if existing_user:
@@ -94,6 +153,8 @@ class EmployeeController(http.Controller):
                         emp_list = ProjectRequest.project_tasker.ids
                         emp_list.append(employee.id)
                         ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
+
+            self._send_onboarding_email(new_user, 'Ethara@123')
 
             try:
                 request.env['kubera.notification'].sudo().create({
@@ -198,8 +259,8 @@ class EmployeeController(http.Controller):
                         if not name or name == '':
                             error_msg = f"Row {idx}: name is missing"
 
-                        if not email or not email.endswith('@ethara.ai'):
-                            error_msg = f"Row {idx}: invalid ethara.ai email"
+                        # if not email or not email.endswith('@ethara.ai'):
+                        #     error_msg = f"Row {idx}: invalid ethara.ai email"
 
                         if ResUsers.search_count([('login', '=', email)]):
                             error_msg = f"Row {idx}: {email} already exists"
@@ -311,9 +372,9 @@ class EmployeeController(http.Controller):
                     if not name or name == '':
                         errors.append(f"Row {idx}: name is missing")
                         continue
-                    if not email or not email.endswith('@ethara.ai'):
-                        errors.append(f"Row {idx}: invalid ethara.ai email")
-                        continue
+                    # if not email or not email.endswith('@ethara.ai'):
+                    #     errors.append(f"Row {idx}: invalid ethara.ai email")
+                    #     continue
 
                     if ResUsers.search_count([('login', '=', email)]):
                         errors.append(f"Row {idx}: {email} already exists")
@@ -425,6 +486,8 @@ class EmployeeController(http.Controller):
                     #
                     #     employee = Employee.create(employee_vals)
                         created.append({'id': employee.id, 'name': employee.name, 'email': employee.work_email})
+                    plain_password = row.get('password') if row.get('password') else 'Ethara@123'
+                    self._send_onboarding_email(new_user, plain_password)
                 except Exception as e:
                     errors.append(f"Row {idx}: {str(e)}")
 

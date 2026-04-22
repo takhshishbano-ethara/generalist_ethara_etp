@@ -18,7 +18,7 @@ const STEPS = [
     },
     {
         key: "claude",
-        label: "Claude 4.6",
+        label: "Claude 4.7",
         field: "claude_session_status",
         iconMap: {
             not_started: "fa-microchip",

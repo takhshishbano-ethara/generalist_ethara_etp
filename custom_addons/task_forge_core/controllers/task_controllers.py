@@ -27,12 +27,16 @@ class TaskForgeTaskController(http.Controller):
             if kwargs.get('employee_id'):
                 domain.append(('employee_id', '=', int(kwargs['employee_id'])))
 
+            if kwargs.get('project_id'):
+                domain.append(('project_id', '=', int(kwargs['project_id'])))
+
             if kwargs.get('project'):
                 domain.append(('project_id', '=', int(kwargs['project'])))
 
             if kwargs.get('status'):
                 if kwargs.get('status') != 'all':
                     domain.append(('state', '=', kwargs['status']))
+
             today = date.today()
             if kwargs.get('date'):
                 domain.append(('date', '=', kwargs.get('date')))

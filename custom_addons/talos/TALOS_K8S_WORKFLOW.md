@@ -279,11 +279,11 @@ data:
           "talos-bedrock": { ... },   // Only if AWS_BEARER_TOKEN_BEDROCK + BEDROCK_MODEL_ARN set
           "litellm": {                // Always present
             "baseUrl": "http://localhost:4000/v1",
-            "models": ["claude-opus-4.6", "kimi-k2.5"]
+            "models": ["claude-opus-4.7", "kimi-k2.5"]
           }
         }
       },
-      "agents": {"defaults": {"model": "litellm/claude-opus-4.6"}}
+      "agents": {"defaults": {"model": "litellm/claude-opus-4.7"}}
     }
 ```
 
@@ -310,7 +310,7 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: claude-opus-4.6
+      - model_name: claude-opus-4.7
         litellm_params:
           model: bedrock/converse/{BEDROCK_MODEL_ARN}
           aws_region_name: {AWS_REGION}

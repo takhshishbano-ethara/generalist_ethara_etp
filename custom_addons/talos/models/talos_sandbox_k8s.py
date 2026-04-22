@@ -200,8 +200,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
         "api": "openai-completions",
         "models": [
             {
-                "id": "claude-opus-4.6",
-                "name": "claude-opus-4.6",
+                "id": "claude-opus-4.7",
+                "name": "claude-opus-4.7",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -229,7 +229,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
         ],
     }
     config_dict["agents"] = {
-        "defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.6")}
+        "defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")}
     }
 
     return config_dict
@@ -826,8 +826,8 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "250m", "memory": "512Mi"},
-                limits={"memory": "8Gi"},
+                requests={"cpu": "50m", "memory": "1536Mi"},
+                limits={"memory": "3Gi"},
             ),
             lifecycle=client.V1Lifecycle(
                 pre_stop=client.V1LifecycleHandler(
@@ -919,7 +919,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "100m", "memory": "512Mi"},
+                requests={"cpu": "25m", "memory": "512Mi"},
             ),
             startup_probe=client.V1Probe(
                 tcp_socket=client.V1TCPSocketAction(port=4000),

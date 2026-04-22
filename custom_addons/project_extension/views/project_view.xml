@@ -80,6 +80,23 @@
                         </form>
                     </field>
                 </page>
+
+                <page string="Member History" name="member_history">
+                    <field name="member_history_ids" readonly="1">
+                        <list decoration-danger="state == 'offboarded'" decoration-success="state == 'active'">
+                            <field name="employee_id"/>
+                            <field name="role"/>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'active'"
+                                   decoration-danger="state == 'offboarded'"/>
+                            <field name="offboard_reason"/>
+                            <field name="reason_id"/>
+                            <field name="notes"/>
+                        </list>
+                    </field>
+                </page>
             </xpath>
         </field>
     </record>
