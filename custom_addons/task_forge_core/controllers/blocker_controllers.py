@@ -12,7 +12,7 @@ class TaskForgeBlockerController(http.Controller):
 
     @http.route('/api/v2/taskforge/create_blocker_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "int", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
+    @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "str", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
     def create_blocker_record(self, **kwargs):
         try:
             jdata = kwargs.get('jdata')
@@ -93,18 +93,17 @@ class TaskForgeBlockerController(http.Controller):
             role = employee._get_task_forge_role()
 
             if role == 'admin':
-                # domain = [('state', '=', 'escalated')]
                 domain = []
                 if kwargs.get('active_blocker') in [1, '1']:
                     domain = [('state', 'not in', ['no_issue'])]
 
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
-                domain = [
-                    ('employee_id', 'in', team_ids),
-                    ('state', 'not in', ['no_issue']),
-                    # ('state', 'in', ['ack', 'escalated']),
-                ]
+                domain = [('employee_id', 'in', team_ids)]
+
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain.append(('state', 'not in', ['no_issue']))
+
 
             elif role in ('qr', 'ql'):
                 domain = [('qr_id', '=', employee.id)]

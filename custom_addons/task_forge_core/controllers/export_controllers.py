@@ -231,6 +231,10 @@ class TaskForgeExportController(http.Controller):
         used_names.add(candidate.lower())
         return candidate
 
+    def _get_date_filters(self, kwargs):
+        """Extract start_date/end_date from kwargs. Returns (start_date, end_date) as strings or None."""
+        return kwargs.get('start_date') or kwargs.get('date_from'), kwargs.get('end_date') or kwargs.get('date_to')
+
     # ──────────────────────────────────────────────────────────────────────────
     # 1. Project Report
     # ──────────────────────────────────────────────────────────────────────────
@@ -245,7 +249,13 @@ class TaskForgeExportController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             Project = request.env['project.project'].sudo()
-            projects = Project.browse(project_ids).sorted('name')
+            proj_domain = [('id', 'in', project_ids)]
+            start_date, end_date = self._get_date_filters(kwargs)
+            if start_date:
+                proj_domain.append(('date_start', '>=', start_date))
+            if end_date:
+                proj_domain.append(('date_start', '<=', end_date))
+            projects = Project.search(proj_domain, order='name asc')
 
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -317,10 +327,11 @@ class TaskForgeExportController(http.Controller):
             TaskLog = request.env['task.forge.log'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
-            if kwargs.get('date_from'):
-                domain.append(('date', '>=', kwargs['date_from']))
-            if kwargs.get('date_to'):
-                domain.append(('date', '<=', kwargs['date_to']))
+            start_date, end_date = self._get_date_filters(kwargs)
+            if start_date:
+                domain.append(('date', '>=', start_date))
+            if end_date:
+                domain.append(('date', '<=', end_date))
             if kwargs.get('project_id'):
                 pid = int(kwargs['project_id'])
                 if pid not in project_ids:
@@ -413,6 +424,12 @@ class TaskForgeExportController(http.Controller):
             if kwargs.get('state'):
                 domain.append(('state', '=', kwargs['state']))
 
+            start_date, end_date = self._get_date_filters(kwargs)
+            if start_date:
+                domain.append(('create_date', '>=', start_date))
+            if end_date:
+                domain.append(('create_date', '<=', end_date))
+
             blockers = Blocker.search(domain, order='create_date desc')
 
             output = io.BytesIO()
@@ -482,6 +499,18 @@ class TaskForgeExportController(http.Controller):
 
             employees = Employee.browse(team_ids)
 
+            start_date, end_date = self._get_date_filters(kwargs)
+            date_domain = []
+            if start_date:
+                date_domain.append(('date', '>=', start_date))
+            if end_date:
+                date_domain.append(('date', '<=', end_date))
+            blocker_date_domain = []
+            if start_date:
+                blocker_date_domain.append(('create_date', '>=', start_date))
+            if end_date:
+                blocker_date_domain.append(('create_date', '<=', end_date))
+
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
             fmt = self._get_formats(wb)
@@ -503,15 +532,15 @@ class TaskForgeExportController(http.Controller):
             for idx, emp in enumerate(employees, 1):
                 # role = emp._get_task_forge_role() if hasattr(emp, '_get_task_forge_role') else ''
                 role = emp.user_id.user_role.name or ''
-                total_tasks = TaskLog.search_count([('employee_id', '=', emp.id)])
-                completed = TaskLog.search_count([('employee_id', '=', emp.id), ('state', '=', 'completed')])
-                in_progress = TaskLog.search_count([('employee_id', '=', emp.id), ('state', '=', 'in_progress')])
-                blocker_count = Blocker.search_count([('employee_id', '=', emp.id)])
+                total_tasks = TaskLog.search_count([('employee_id', '=', emp.id)] + date_domain)
+                completed = TaskLog.search_count([('employee_id', '=', emp.id), ('state', '=', 'completed')] + date_domain)
+                in_progress = TaskLog.search_count([('employee_id', '=', emp.id), ('state', '=', 'in_progress')] + date_domain)
+                blocker_count = Blocker.search_count([('employee_id', '=', emp.id)] + blocker_date_domain)
 
                 scores = TaskLog.search([
                     ('employee_id', '=', emp.id),
                     ('quality_score', '>', 0),
-                ])
+                ] + date_domain)
                 avg_score = 0
                 if scores:
                     avg_score = round(sum(s.quality_score for s in scores) / len(scores), 1)
@@ -572,6 +601,18 @@ class TaskForgeExportController(http.Controller):
                 domain = [('id', '=', pid)]
             projects = Project.search(domain, order='name asc')
 
+            start_date, end_date = self._get_date_filters(kwargs)
+            date_domain = []
+            if start_date:
+                date_domain.append(('date', '>=', start_date))
+            if end_date:
+                date_domain.append(('date', '<=', end_date))
+            blocker_date_domain = []
+            if start_date:
+                blocker_date_domain.append(('create_date', '>=', start_date))
+            if end_date:
+                blocker_date_domain.append(('create_date', '<=', end_date))
+
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
             fmt = self._get_formats(wb)
@@ -617,22 +658,22 @@ class TaskForgeExportController(http.Controller):
                         ('employee_id', '=', emp.id),
                         ('project_id', '=', proj.id),
                         ('state', '=', 'completed'),
-                    ])
+                    ] + date_domain)
                     ip = TaskLog.search_count([
                         ('employee_id', '=', emp.id),
                         ('project_id', '=', proj.id),
                         ('state', '=', 'in_progress'),
-                    ])
+                    ] + date_domain)
                     scores = TaskLog.search([
                         ('employee_id', '=', emp.id),
                         ('project_id', '=', proj.id),
                         ('quality_score', '>', 0),
-                    ])
+                    ] + date_domain)
                     avg_q = round(sum(s.quality_score for s in scores) / len(scores), 1) if scores else 0
                     blk = Blocker.search_count([
                         ('employee_id', '=', emp.id),
                         ('project_id', '=', proj.id),
-                    ])
+                    ] + blocker_date_domain)
 
                     row = [
                         idx,
@@ -688,6 +729,8 @@ class TaskForgeExportController(http.Controller):
             priority_map = {'0': 'Low', '1': 'Medium', '2': 'High', '3': 'Critical'}
             used_sheet_names = set()
 
+            start_date, end_date = self._get_date_filters(kwargs)
+
             for proj in projects:
                 blocker_domain = [('project_id', '=', proj.id)]
                 if role == 'pl':
@@ -696,6 +739,10 @@ class TaskForgeExportController(http.Controller):
                     blocker_domain.extend(['|', ('qr_id', '=', employee.id), ('employee_id', 'in', team_ids)])
                 elif role == 'tasker':
                     blocker_domain.append(('employee_id', '=', employee.id))
+                if start_date:
+                    blocker_domain.append(('create_date', '>=', start_date))
+                if end_date:
+                    blocker_domain.append(('create_date', '<=', end_date))
                 blockers = Blocker.search(blocker_domain, order='create_date desc')
                 if not blockers:
                     continue
