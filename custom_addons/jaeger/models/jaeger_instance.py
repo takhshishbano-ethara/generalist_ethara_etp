@@ -1,9 +1,207 @@
 import json
 import logging
+import re
 
-from odoo import api, fields, models
+from odoo import SUPERUSER_ID, api, fields, models
 
 _logger = logging.getLogger(__name__)
+
+
+def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, memory_limit="4g", language="python"):
+    """Execute a single Docker run. Pure function — no ORM dependency.
+
+    Args:
+        inst_name: instance name (for container naming)
+        docker_image: full Docker image tag
+        mode: 'run', 'test_patch', or 'fix_patch'
+        patches: dict {patch_name: patch_content} or None
+        timeout: seconds before kill
+        memory_limit: Docker memory limit (e.g. "4g", "8g")
+        language: repo language — Python gets --network none, others need network for deps
+
+    Returns:
+        str: combined stdout + stderr
+    """
+    import subprocess
+    import tempfile
+    from uuid import uuid4
+
+    tag = uuid4().hex[:8]
+    container_name = f"jaeger-{inst_name}-{mode}-{tag}".replace("/", "-").replace("__", "-").lower()
+
+    cmd = [
+        "docker", "run",
+        "--name", container_name,
+        "--rm",
+        "--memory", memory_limit,
+        "--memory-swap", memory_limit,
+    ]
+
+    if (language or "").lower() == "python":
+        cmd.extend(["--network", "none"])
+
+    if patches:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
+            for patch_name, patch_content in patches.items():
+                if patch_content:
+                    (Path(tmpdir) / f"{patch_name}.diff").write_text(
+                        patch_content, encoding="utf-8",
+                    )
+
+            cmd.extend(["-v", f"{tmpdir}:/patches:ro"])
+            cmd.append(docker_image)
+
+            if mode == "test_patch":
+                cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
+            elif mode == "fix_patch":
+                cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/fix_patch.diff && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
+
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+    else:
+        cmd.append(docker_image)
+        cmd.extend(["bash", "-c", "cd /testbed && bash /jaeger/fix-run.sh"])
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+
+    return result.stdout + "\n" + result.stderr
+
+
+def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
+    """Execute 3-run test validation for a single instance.
+
+    Designed for ThreadPoolExecutor: opens its own DB cursors,
+    Docker execution holds no cursor open.
+
+    Returns:
+        dict with keys: instance_id, success, is_valid, error, summary
+    """
+    from odoo.orm.registry import Registry
+
+    result = {"instance_id": instance_id, "success": False, "is_valid": False, "error": None, "summary": ""}
+
+    # Phase A: read instance data (short cursor)
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            inst = env["jaeger.instance"].browse(instance_id)
+            if not inst.exists():
+                result["error"] = "Instance not found"
+                return result
+            if inst.docker_build_status != "built" or not inst.docker_image_name:
+                result["error"] = "No built image"
+                return result
+            if not inst.fix_patch or not inst.fix_patch.strip():
+                inst.write({"is_valid": False, "validation_error": "Empty fix_patch"})
+                result["error"] = "Empty fix_patch"
+                return result
+            if not inst.test_patch or not inst.test_patch.strip():
+                inst.write({"is_valid": False, "validation_error": "Empty test_patch"})
+                result["error"] = "Empty test_patch"
+                return result
+
+            inst_name = inst.name
+            docker_image = inst.docker_image_name
+            fix_patch = inst.fix_patch
+            test_patch = inst.test_patch
+            lang = (inst.repository_id.language or "").lower()
+            memory_limit = "8g" if lang in ("rust", "cpp", "c", "java") else "4g"
+    except Exception as e:
+        result["error"] = f"Read phase failed: {e}"
+        return result
+
+    # Phase B: execute Docker runs sequentially (no cursor held)
+    try:
+        run_log = _execute_docker_run_pure(
+            inst_name, docker_image, "run", None,
+            agent_timeout, memory_limit, lang,
+        )
+        test_patch_log = _execute_docker_run_pure(
+            inst_name, docker_image, "test_patch",
+            {"test_patch": test_patch}, agent_timeout, memory_limit, lang,
+        )
+
+        # Early skip: if test-patch run has 0 failures, f2p is impossible
+        # Parse test_patch results inline to decide whether Run 3 is needed
+        skip_run3 = False
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                inst_check = env["jaeger.instance"].browse(instance_id)
+                test_result_check = inst_check._parse_test_log(test_patch_log)
+                if test_result_check.get("failed_count", 0) == 0:
+                    skip_run3 = True
+                    _logger.info(
+                        "Skipping Run 3 for %s: test-patch has 0 failures, f2p impossible",
+                        inst_name,
+                    )
+        except Exception:
+            pass
+
+        if skip_run3:
+            fix_patch_log = ""
+        else:
+            fix_patch_log = _execute_docker_run_pure(
+                inst_name, docker_image, "fix_patch",
+                {"fix_patch": fix_patch, "test_patch": test_patch},
+                agent_timeout, memory_limit, lang,
+            )
+    except Exception as e:
+        _logger.error("Docker execution failed for %s: %s", inst_name, e)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                inst = env["jaeger.instance"].browse(instance_id)
+                inst.write({"is_valid": False, "validation_error": f"Test execution error: {str(e)[:500]}"})
+        except Exception:
+            pass
+        result["error"] = str(e)
+        return result
+
+    # Phase C: write results + generate report (short cursor)
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            inst = env["jaeger.instance"].browse(instance_id)
+
+            run_result = inst._parse_test_log(run_log)
+            test_result = inst._parse_test_log(test_patch_log)
+            fix_result = inst._parse_test_log(fix_patch_log)
+
+            inst.write({
+                "run_log": run_log[-50000:],
+                "run_result_json": json.dumps(run_result),
+                "run_passed_count": run_result.get("passed_count", 0),
+                "run_failed_count": run_result.get("failed_count", 0),
+                "run_skipped_count": run_result.get("skipped_count", 0),
+                "test_patch_run_log": test_patch_log[-50000:],
+                "test_patch_result_json": json.dumps(test_result),
+                "test_patch_passed_count": test_result.get("passed_count", 0),
+                "test_patch_failed_count": test_result.get("failed_count", 0),
+                "test_patch_skipped_count": test_result.get("skipped_count", 0),
+                "fix_patch_run_log": fix_patch_log[-50000:],
+                "fix_patch_result_json": json.dumps(fix_result),
+                "fix_patch_passed_count": fix_result.get("passed_count", 0),
+                "fix_patch_failed_count": fix_result.get("failed_count", 0),
+                "fix_patch_skipped_count": fix_result.get("skipped_count", 0),
+            })
+
+            inst._generate_test_report(run_result, test_result, fix_result)
+
+            result["success"] = True
+            result["is_valid"] = inst.is_valid
+            f2p = inst.f2p_count
+            p2p = inst.p2p_count
+            result["summary"] = f"{'valid' if inst.is_valid else 'invalid'} ({f2p} f2p, {p2p} p2p)" if inst.is_valid else (inst.validation_error or "invalid")
+    except Exception as e:
+        _logger.error("Write phase failed for %s: %s", instance_id, e)
+        result["error"] = f"Write phase: {e}"
+
+    return result
 
 DOCKER_BUILD_STATUS = [
     ("pending", "Pending"),
@@ -230,6 +428,15 @@ class JaegerInstance(models.Model):
             _logger.warning("Instance %s has no built image, skipping test execution", self.name)
             return
 
+        if not self.fix_patch or not self.fix_patch.strip():
+            _logger.warning("Instance %s has empty fix_patch, skipping", self.name)
+            self.write({"is_valid": False, "validation_error": "Empty fix_patch"})
+            return
+        if not self.test_patch or not self.test_patch.strip():
+            _logger.warning("Instance %s has empty test_patch, skipping", self.name)
+            self.write({"is_valid": False, "validation_error": "Empty test_patch"})
+            return
+
         ICP = self.env["ir.config_parameter"].sudo()
         agent_timeout = int(ICP.get_param("jaeger.agent_timeout", "1800"))
 
@@ -268,18 +475,25 @@ class JaegerInstance(models.Model):
                 "test_patch_skipped_count": test_result.get("skipped_count", 0),
             })
 
-            # Run 3: Fix + test patch
-            _logger.info("[%s] Run 3/3: fix+test patch", self.name)
-            fix_patch_log = self._execute_docker_run(
-                mode="fix_patch",
-                patches={
-                    "fix_patch": self.fix_patch,
-                    "test_patch": self.test_patch,
-                },
-                timeout=agent_timeout,
-            )
-            self.write({"fix_patch_run_log": fix_patch_log[-50000:]})
-            fix_result = self._parse_test_log(fix_patch_log)
+            # Early skip: if test-patch has 0 failures, f2p is impossible
+            if test_result.get("failed_count", 0) == 0:
+                _logger.info("[%s] Skipping Run 3: test-patch has 0 failures", self.name)
+                fix_patch_log = ""
+                fix_result = self._empty_parse_result()
+            else:
+                # Run 3: Fix + test patch
+                _logger.info("[%s] Run 3/3: fix+test patch", self.name)
+                fix_patch_log = self._execute_docker_run(
+                    mode="fix_patch",
+                    patches={
+                        "fix_patch": self.fix_patch,
+                        "test_patch": self.test_patch,
+                    },
+                    timeout=agent_timeout,
+                )
+                fix_result = self._parse_test_log(fix_patch_log)
+
+            self.write({"fix_patch_run_log": fix_patch_log[-50000:] if fix_patch_log else ""})
             self.write({
                 "fix_patch_result_json": json.dumps(fix_result),
                 "fix_patch_passed_count": fix_result.get("passed_count", 0),
@@ -289,26 +503,6 @@ class JaegerInstance(models.Model):
 
             # Generate report: classify test state transitions
             self._generate_test_report(run_result, test_result, fix_result)
-
-            # Update repo-level progress
-            repo = self.repository_id
-            all_instances = repo.instance_ids
-            tested = all_instances.filtered(lambda i: i.run_result_json)
-            valid = all_instances.filtered(lambda i: i.is_valid)
-            invalid = tested.filtered(lambda i: not i.is_valid)
-            errors = all_instances.filtered(lambda i: i.validation_error and "error" in (i.validation_error or "").lower())
-            total = max(len(all_instances), 1)
-            progress = (len(tested) / total) * 100
-            vals = {
-                "instances_tested_count": len(tested),
-                "instances_valid_count": len(valid),
-                "instances_invalid_count": len(invalid),
-                "instances_error_count": len(errors),
-                "test_execution_progress": progress,
-            }
-            if progress >= 100:
-                vals["test_execution_status"] = "done"
-            repo.write(vals)
 
             _logger.info("Test execution complete for %s (valid=%s)", self.name, self.is_valid)
 
@@ -342,14 +536,19 @@ class JaegerInstance(models.Model):
             capture_output=True, timeout=30,
         )
 
+        lang = (self.repository_id.language or "").lower()
+        mem = "8g" if lang in ("rust", "cpp", "c", "java") else "4g"
+
         cmd = [
             "docker", "run",
             "--name", container_name,
             "--rm",
-            "--network", "none",
-            "--memory", "4g",
-            "--memory-swap", "4g",
+            "--memory", mem,
+            "--memory-swap", mem,
         ]
+
+        if lang == "python":
+            cmd.extend(["--network", "none"])
 
         if patches:
             # Create a temp dir with patches and mount it
@@ -365,16 +564,16 @@ class JaegerInstance(models.Model):
                 cmd.append(self.docker_image_name)
 
                 if mode == "test_patch":
-                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/test_patch.diff && bash fix-run.sh"])
+                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
                 elif mode == "fix_patch":
-                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/fix_patch.diff && git apply /patches/test_patch.diff && bash fix-run.sh"])
+                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/fix_patch.diff && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
 
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=timeout,
                 )
         else:
             cmd.append(self.docker_image_name)
-            cmd.extend(["bash", "-c", "cd /testbed && bash fix-run.sh"])
+            cmd.extend(["bash", "-c", "cd /testbed && bash /jaeger/fix-run.sh"])
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout,
             )
@@ -384,15 +583,45 @@ class JaegerInstance(models.Model):
     def _parse_test_log(self, log_text):
         """Parse test runner output into structured results.
 
-        Returns:
-            dict with passed_count, failed_count, skipped_count,
-            passed_tests (list), failed_tests (list), skipped_tests (list)
+        Auto-detects the test framework from log content and delegates
+        to the appropriate parser. Supports pytest, Go, Rust, Jest/Vitest,
+        Mocha, CTest, and Maven/Surefire.
         """
-        passed = set()
-        failed = set()
-        skipped = set()
+        text = log_text or ""
+        if not text.strip():
+            return self._empty_parse_result()
 
-        for line in (log_text or "").splitlines():
+        if "--- PASS:" in text or "--- FAIL:" in text:
+            return self._parse_go_log(text)
+        if re.search(r"test \S+ \.\.\. (?:ok|FAILED|ignored)", text):
+            return self._parse_rust_log(text)
+        if "\u2713" in text or "\u2717" in text or "\u25CB" in text:
+            return self._parse_jest_log(text)
+        if "\u2714" in text or re.search(r"\d+ passing", text):
+            return self._parse_mocha_log(text)
+        if re.search(r"Test\s+#\d+:", text) or "[ PASS ]" in text or "[ FAIL ]" in text:
+            return self._parse_ctest_log(text)
+        if re.search(r"\[(?:INFO|ERROR)\].*Tests run:", text):
+            return self._parse_maven_log(text)
+        return self._parse_pytest_log(text)
+
+    def _empty_parse_result(self):
+        return {
+            "passed_count": 0, "failed_count": 0, "skipped_count": 0,
+            "passed_tests": [], "failed_tests": [], "skipped_tests": [],
+        }
+
+    def _make_parse_result(self, passed, failed, skipped):
+        return {
+            "passed_count": len(passed), "failed_count": len(failed),
+            "skipped_count": len(skipped),
+            "passed_tests": sorted(passed), "failed_tests": sorted(failed),
+            "skipped_tests": sorted(skipped),
+        }
+
+    def _parse_pytest_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        for line in text.splitlines():
             line = line.strip()
             if " PASSED" in line:
                 parts = line.split()
@@ -406,15 +635,173 @@ class JaegerInstance(models.Model):
                 parts = line.split()
                 if parts:
                     skipped.add(parts[0])
+        return self._make_parse_result(passed, failed, skipped)
 
-        return {
-            "passed_count": len(passed),
-            "failed_count": len(failed),
-            "skipped_count": len(skipped),
-            "passed_tests": sorted(passed),
-            "failed_tests": sorted(failed),
-            "skipped_tests": sorted(skipped),
-        }
+    def _parse_go_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        re_pass = re.compile(r"--- PASS: (\S+)")
+        re_fail = [re.compile(r"--- FAIL: (\S+)"), re.compile(r"FAIL:?\s?(\S+)\s")]
+        re_skip = re.compile(r"--- SKIP: (\S+)")
+        for line in text.splitlines():
+            line = line.strip()
+            m = re_pass.match(line)
+            if m:
+                name = m.group(1)
+                if name not in failed:
+                    skipped.discard(name)
+                    passed.add(name)
+                continue
+            for pat in re_fail:
+                m = pat.match(line)
+                if m:
+                    name = m.group(1)
+                    passed.discard(name)
+                    skipped.discard(name)
+                    failed.add(name)
+                    break
+            else:
+                m = re_skip.match(line)
+                if m:
+                    name = m.group(1)
+                    if name not in passed and name not in failed:
+                        skipped.add(name)
+        return self._make_parse_result(passed, failed, skipped)
+
+    def _parse_rust_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        re_pass = re.compile(r"test (\S+) \.\.\. ok")
+        re_fail = re.compile(r"test (\S+) \.\.\. FAILED")
+        re_skip = re.compile(r"test (\S+) \.\.\. ignored")
+        for line in text.splitlines():
+            line = line.strip()
+            m = re_pass.match(line)
+            if m:
+                passed.add(m.group(1))
+                continue
+            m = re_fail.match(line)
+            if m:
+                failed.add(m.group(1))
+                continue
+            m = re_skip.match(line)
+            if m:
+                skipped.add(m.group(1))
+        return self._make_parse_result(passed, failed, skipped)
+
+    def _parse_jest_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(("\u2713", "\u2717", "\u25CB", "x")):
+                symbol = stripped[0]
+                name = re.sub(r"\s*\(\d+\s*ms\)\s*$", "", stripped[1:]).strip()
+                if not name:
+                    continue
+                if symbol == "\u2713":
+                    passed.add(name)
+                elif symbol in ("\u2717", "x"):
+                    failed.add(name)
+                elif symbol == "\u25CB":
+                    skipped.add(name)
+        return self._make_parse_result(passed, failed, skipped)
+
+    def _parse_mocha_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        re_pass = re.compile(r"\u2714\s+(.+?)(?:\s+\(\d+ms\))?\s*$")
+        re_fail = re.compile(r"^\s*(\d+)\)\s+(.+)$")
+        re_pend = re.compile(r"^\s*-\s+(.+)$")
+        in_failures = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("\u2714"):
+                m = re_pass.match(stripped)
+                if m:
+                    passed.add(m.group(1).strip())
+                continue
+            if "failing" in stripped.lower() and re.match(r"\d+\s+failing", stripped):
+                in_failures = True
+                continue
+            if in_failures:
+                m = re_fail.match(line)
+                if m:
+                    failed.add(m.group(2).strip())
+                    continue
+            m = re_pend.match(line)
+            if m and not m.group(1).startswith("-"):
+                skipped.add(m.group(1).strip())
+        return self._make_parse_result(passed, failed, skipped)
+
+    def _parse_ctest_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        re_ctest_pass = re.compile(
+            r"^\d+/\d+\s*Test\s*#\d+:\s*(.*?)\s*\.+\s+Passed\s+.*$")
+        re_ctest_fail = [
+            re.compile(r"^\d+/\d+\s*Test\s*#\d+:\s*(.*?)\s*\.+\*\*\*Failed\s+.*$"),
+            re.compile(r"^\d+/\d+\s*Test\s*#\d+:\s*(.*?)\s*\.+.*\*\*\*Exception.*$"),
+            re.compile(r"^\d+/\d+\s*Test\s*#\d+:\s*(.*?)\s*\.+\*\*\*Timeout\s+.*$"),
+            re.compile(r"^\d+/\d+\s*Test\s*#\d+:\s*(.*?)\s*\.+\*\*\*Not Run\s+.*$"),
+        ]
+        re_sub_pass = re.compile(r"^\[\s*PASS\s*\]\s+(.+)$")
+        re_sub_fail = re.compile(r"^\[\s*FAIL\s*\]\s+(.+)$")
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = re_ctest_pass.match(line)
+            if m:
+                passed.add(m.group(1).strip())
+                continue
+            matched = False
+            for pat in re_ctest_fail:
+                m = pat.match(line)
+                if m:
+                    failed.add(m.group(1).strip())
+                    matched = True
+                    break
+            if matched:
+                continue
+            m = re_sub_pass.match(line)
+            if m:
+                passed.add(m.group(1).strip())
+                continue
+            m = re_sub_fail.match(line)
+            if m:
+                failed.add(m.group(1).strip())
+        return self._make_parse_result(passed, failed, skipped)
+
+    def _parse_maven_log(self, text):
+        passed, failed, skipped = set(), set(), set()
+        ansi = r"(?:\x1B\[[0-9;]*m)?"
+        re_pass = [
+            re.compile(
+                rf"\[?{ansi}INFO{ansi}\]?\s+.*?Tests run:.*?[-]+ in {ansi}([a-zA-Z0-9_.]+){ansi}"),
+            re.compile(
+                rf"(?:\[{ansi})?INFO{ansi}\]?\s+([a-zA-Z0-9 \-_.]+?)\s+\.{{3,}}\s+{ansi}SUCCESS"),
+        ]
+        re_fail = [
+            re.compile(
+                rf"\[?{ansi}ERROR{ansi}\]?\s+.*?Tests run:.*?[-]+ in {ansi}([a-zA-Z0-9_.]+){ansi}"),
+            re.compile(
+                rf"(?:\[{ansi})?INFO{ansi}\]?\s+([a-zA-Z0-9 \-_.]+?)\s+\.{{3,}}\s+{ansi}FAILURE"),
+        ]
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for pat in re_pass:
+                m = pat.match(line)
+                if m:
+                    passed.add(m.group(1))
+                    break
+            for pat in re_fail:
+                m = pat.match(line)
+                if m:
+                    failed.add(m.group(1))
+                    break
+        return self._make_parse_result(passed, failed, skipped)
 
     def _generate_test_report(self, run_result, test_result, fix_result):
         """Classify test state transitions and validate the instance.
@@ -449,12 +836,21 @@ class JaegerInstance(models.Model):
         s2p_dict = {t: {"test": "SKIP", "fix": "PASS"} for t in s2p}
         n2p_dict = {t: {"test": "NONE", "fix": "PASS"} for t in n2p}
 
+        # Sanity: if test-patch and fix-patch runs are identical, patches likely didn't apply
+        runs_identical = (
+            set(test_result.get("passed_tests", [])) == set(fix_result.get("passed_tests", []))
+            and set(test_result.get("failed_tests", [])) == set(fix_result.get("failed_tests", []))
+            and (test_result.get("passed_count", 0) + test_result.get("failed_count", 0)) > 0
+        )
+
         # Validation rules
         has_fix_signal = len(f2p) > 0
         has_regressions = len(regressions) > 0
-        is_valid = has_fix_signal and not has_regressions
+        is_valid = has_fix_signal and not has_regressions and not runs_identical
 
-        if not has_fix_signal:
+        if runs_identical:
+            validation_error = "Test-patch and fix-patch runs identical — patches may not have applied"
+        elif not has_fix_signal:
             validation_error = "No f2p tests (fix doesn't change any failing test to passing)"
         elif has_regressions:
             validation_error = f"Has {len(regressions)} regressions: {sorted(regressions)[:5]}"

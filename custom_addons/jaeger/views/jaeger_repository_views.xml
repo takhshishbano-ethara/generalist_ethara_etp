@@ -45,37 +45,39 @@
 
                     <button name="action_cancel_pipeline" type="object" string="Cancel Pipeline"
                             class="btn-danger"
-                            invisible="pr_collection_status not in ('running', 'queued')"
+                            invisible="pr_collection_status not in ('running', 'queued') and docker_build_status not in ('running', 'queued') and test_execution_status not in ('running', 'queued')"
                             confirm="Are you sure you want to cancel the running pipeline?"/>
 
-                    <!-- Phase 2-7 buttons: hidden until infra ready -->
+                    <!-- Stage 3: Docker Build -->
                     <button name="action_build_docker_images" type="object" string="Build Images (Queue)"
                             class="btn-primary" invisible="1"/>
-                    <button name="action_build_docker_direct" type="object" string="Build Images (Direct)"
-                            class="btn-warning" invisible="1"/>
+                    <button name="action_build_docker_direct" type="object" string="Build Images"
+                            class="btn-primary" invisible="current_stage != 'stage3' or docker_build_status in ('building', 'queued')"/>
 
+                    <!-- Stage 4: Test Execution -->
                     <button name="action_run_tests" type="object" string="Run Tests (Queue)"
                             class="btn-primary" invisible="1"/>
-                    <button name="action_run_tests_direct" type="object" string="Run Tests (Direct)"
-                            class="btn-warning" invisible="1"/>
+                    <button name="action_run_tests_direct" type="object" string="Run Tests"
+                            class="btn-primary" invisible="current_stage != 'stage4' or test_execution_status in ('running', 'queued')"/>
 
+                    <!-- Stage 5: Dataset Finalization -->
                     <button name="action_finalize_dataset" type="object" string="Finalize Dataset (Queue)"
                             class="btn-primary" invisible="1"/>
-                    <button name="action_finalize_dataset_direct" type="object" string="Finalize (Direct)"
-                            class="btn-warning" invisible="1"/>
+                    <button name="action_finalize_dataset_direct" type="object" string="Finalize Dataset"
+                            class="btn-primary" invisible="current_stage != 'stage5' or dataset_status in ('generating', 'queued')"/>
 
+                    <!-- Stage 6-7: hidden until infra ready -->
                     <button name="action_dispatch_trajectories" type="object" string="Generate Trajectories"
                             class="btn-primary" invisible="1"/>
-
                     <button name="action_export_meta" type="object" string="Export to Meta (Queue)"
                             class="btn-primary" invisible="1"/>
                     <button name="action_export_meta_direct" type="object" string="Export (Direct)"
                             class="btn-warning" invisible="1"/>
 
                     <button name="action_advance_stage" type="object" string="Advance Stage"
-                            class="btn-secondary"/>
+                            class="btn-secondary" invisible="current_stage in ('done', 'failed')"/>
                     <field name="current_stage" widget="statusbar"
-                           statusbar_visible="stage1,stage2,done"/>
+                           statusbar_visible="stage1,stage2,stage3,stage4,stage5,done"/>
                 </header>
                 <sheet>
                     <!-- Pipeline Progress Widget -->
@@ -91,13 +93,13 @@
                         </button>
                         <button name="%(action_jaeger_instance)d" type="action"
                                 class="oe_stat_button" icon="fa-cube"
-                                invisible="1"
+                                invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')"
                                 context="{'search_default_built': 1, 'search_default_repository_id': id}">
                             <field name="images_built_count" widget="statinfo" string="Images Built"/>
                         </button>
                         <button name="%(action_jaeger_instance)d" type="action"
                                 class="oe_stat_button" icon="fa-check-circle"
-                                invisible="1"
+                                invisible="current_stage not in ('stage4', 'stage5', 'stage6', 'stage7', 'done')"
                                 context="{'search_default_valid': 1, 'search_default_repository_id': id}">
                             <field name="instances_valid_count" widget="statinfo" string="Valid"/>
                         </button>
@@ -188,8 +190,8 @@
                                     invisible="not raw_dataset_jsonl_path or pr_collection_status != 'done'"/>
                         </page>
 
-                        <!-- Stage 3: Docker Build (Phase 2-7: hidden) -->
-                        <page string="3 - Docker Build" name="stage3" invisible="1">
+                        <!-- Stage 3: Docker Build -->
+                        <page string="3 - Docker Build" name="stage3" invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')">
                             <div class="alert alert-info" role="status" invisible="docker_build_status not in ('building', 'queued')">
                                 <i class="fa fa-spinner fa-spin me-2"/>Building Docker images...
                             </div>
@@ -231,8 +233,8 @@
                             </field>
                         </page>
 
-                        <!-- Stage 4: Test Execution (Phase 2-7: hidden) -->
-                        <page string="4 - Test Execution" name="stage4" invisible="1">
+                        <!-- Stage 4: Test Execution -->
+                        <page string="4 - Test Execution" name="stage4" invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')">
                             <div class="alert alert-info" role="status" invisible="test_execution_status not in ('running', 'queued')">
                                 <i class="fa fa-spinner fa-spin me-2"/>Running test execution (3 Docker runs per instance)...
                             </div>
@@ -268,8 +270,8 @@
                             </field>
                         </page>
 
-                        <!-- Stage 5: Dataset Finalization (Phase 2-7: hidden) -->
-                        <page string="5 - Dataset" name="stage5" invisible="1">
+                        <!-- Stage 5: Dataset Finalization -->
+                        <page string="5 - Dataset" name="stage5" invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')">
                             <div class="alert alert-info" role="status" invisible="dataset_status != 'generating'">
                                 <i class="fa fa-spinner fa-spin me-2"/>Generating final dataset...
                             </div>

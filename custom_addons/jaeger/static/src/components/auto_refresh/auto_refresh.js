@@ -30,7 +30,11 @@ export class JaegerAutoRefresh extends Component {
     _shouldPoll() {
         const data = this.props.record.data;
         return POLL_STATUSES.has(data[this.props.name])
-            || POLL_STATUSES.has(data.crawl_status);
+            || POLL_STATUSES.has(data.crawl_status)
+            || POLL_STATUSES.has(data.docker_build_status)
+            || POLL_STATUSES.has(data.base_image_status)
+            || POLL_STATUSES.has(data.test_execution_status)
+            || POLL_STATUSES.has(data.dataset_status);
     }
 
     _checkAndPoll() {

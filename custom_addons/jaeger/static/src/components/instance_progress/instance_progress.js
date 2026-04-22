@@ -7,17 +7,27 @@ import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 const STAGES = [
     { key: "stage1", label: "Validation", field: "crawl_status" },
     { key: "stage2", label: "PR Collection", field: "pr_collection_status" },
+    { key: "stage3", label: "Docker Build", field: "docker_build_status" },
+    { key: "stage4", label: "Test Execution", field: "test_execution_status" },
+    { key: "stage5", label: "Dataset", field: "dataset_status" },
 ];
 
 const STAGE_INDEX = {
     stage1: 0,
     stage2: 1,
-    done: 2,
+    stage3: 2,
+    stage4: 3,
+    stage5: 4,
+    stage6: 5,
+    stage7: 6,
+    done: 7,
     failed: -1,
 };
 
 const PROGRESS_FIELDS = {
     stage2: "pr_collection_progress",
+    stage3: "docker_build_progress",
+    stage4: "test_execution_progress",
 };
 
 export class InstanceProgressWidget extends Component {

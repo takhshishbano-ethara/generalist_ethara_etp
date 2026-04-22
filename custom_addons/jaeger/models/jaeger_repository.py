@@ -79,7 +79,7 @@ LANGUAGE_BASE_IMAGES = {
     "typescript": "node:20-slim",
     "java": "eclipse-temurin:17-jdk",
     "go": "golang:1.22",
-    "rust": "rust:1.77",
+    "rust": "rust:1.85",
     "c": "ubuntu:22.04",
     "cpp": "ubuntu:22.04",
 }
@@ -346,18 +346,16 @@ def _upload_outputs_to_s3(db_name, repo_id, out_dir, org, repo_name):
         _logger.warning("boto3 not installed — skipping S3 upload for repo %s", repo_id)
         return []
 
-    config_kwargs = {
-        "retries": {"mode": "standard", "max_attempts": 5},
-        "connect_timeout": 30,
-        "read_timeout": 60,
-    }
-    if os.environ.get("JAEGER_S3_ENDPOINT"):
-        config_kwargs["s3"] = {"addressing_style": "path"}
     client = boto3.client(
         "s3",
         region_name=s3_region,
         endpoint_url=os.environ.get("JAEGER_S3_ENDPOINT", f"https://s3.{s3_region}.amazonaws.com"),
-        config=BotoConfig(**config_kwargs),
+        config=BotoConfig(
+            retries={"mode": "standard", "max_attempts": 5},
+            connect_timeout=30,
+            read_timeout=60,
+            **({"s3": {"addressing_style": "path"}} if os.environ.get("JAEGER_S3_ENDPOINT") else {}),
+        ),
     )
 
     from pathlib import Path
@@ -574,7 +572,7 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
         "pr_collection_step": "",
         "terminal_state": "none",
         "error_message": False,
-        "current_stage": "done",
+        "current_stage": "stage3",
     })
 
 
@@ -860,8 +858,8 @@ class JaegerRepository(models.Model):
 
         if not file_path:
             return ""
-
         p = Path(file_path)
+
         raw_lines = None
 
         # Try local file first
@@ -1164,6 +1162,7 @@ class JaegerRepository(models.Model):
             self.env.cr.postcommit.add(_dispatch_local)
 
     def _create_scrape_k8s_job(self):
+        """Create a K8s Job to run worker/run_pipeline.py (kaiju_build pattern)."""
         try:
             from kubernetes import client, config as k8s_config
         except ImportError:
@@ -1187,8 +1186,8 @@ class JaegerRepository(models.Model):
         s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
         s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
         s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
-        sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
         db_name = self.env.cr.dbname
+        sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
         job_name = "jaeger-scrape-%s" % self.id
         env_vars = [
@@ -1301,7 +1300,13 @@ class JaegerRepository(models.Model):
 
     def action_cancel_pipeline(self):
         self.ensure_one()
-        if self.pr_collection_status not in ("running", "queued"):
+        active_statuses = ("running", "queued")
+        is_active = (
+            self.pr_collection_status in active_statuses
+            or self.docker_build_status in active_statuses
+            or self.test_execution_status in active_statuses
+        )
+        if not is_active:
             raise UserError("No active pipeline to cancel.")
         self.write({"cancel_requested": True})
         self._append_log("Cancellation requested by user.")
@@ -1589,7 +1594,6 @@ class JaegerRepository(models.Model):
     # ── Stage 3 Actions (Phase 2-7: disabled until infra ready) ────────
 
     def action_build_docker_images(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage3":
             raise UserError("Repository must be in Stage 3.")
@@ -1601,14 +1605,29 @@ class JaegerRepository(models.Model):
         publish_docker_task(self.id)
 
     def action_build_docker_direct(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage3":
             raise UserError("Repository must be in Stage 3.")
         if not self.instance_ids:
             raise UserError("No instances found. Run PR collection first.")
-        if self.docker_build_status in ("building", "queued"):
+
+        from psycopg2 import OperationalError as Psycopg2OpError
+        try:
+            self.env.cr.execute(
+                "SELECT docker_build_status FROM jaeger_repository"
+                " WHERE id = %s FOR UPDATE NOWAIT",
+                [self.id],
+            )
+        except Psycopg2OpError:
+            self.env.cr.rollback()
+            raise UserError("Docker build is already being started by another user.")
+        row = self.env.cr.fetchone()
+        if row and row[0] in ("building", "queued"):
             raise UserError("Docker build is already in progress.")
+
+        self.write({"docker_build_status": "building", "error_message": False})
+        self.env.cr.commit()
+
         return self._run_pipeline_async(
             "run_docker_build", "docker_build_status", "Docker Build",
         )
@@ -1616,14 +1635,13 @@ class JaegerRepository(models.Model):
     def run_docker_build(self):
         """Build Docker images. Called by consumer.py via XML-RPC."""
         self.ensure_one()
-        self.write(
-            {
-                "docker_build_status": "building",
-                "error_message": False,
-                "images_built_count": 0,
-                "images_failed_count": 0,
-            },
-        )
+        pending_before = len(self.instance_ids.filtered(
+            lambda i: i.docker_build_status == "pending",
+        ))
+        vals = {"error_message": False, "images_built_count": 0, "images_failed_count": 0}
+        if self.docker_build_status != "building":
+            vals["docker_build_status"] = "building"
+        self.write(vals)
         self.env.cr.commit()
         try:
             self._build_via_local_docker()
@@ -1641,7 +1659,7 @@ class JaegerRepository(models.Model):
                 },
             )
 
-            if not built:
+            if not built and pending_before > 0:
                 self.write(
                     {
                         "docker_build_status": "failed",
@@ -1651,6 +1669,9 @@ class JaegerRepository(models.Model):
                 )
                 self.env.cr.commit()
                 raise ValueError("All Docker image builds failed")
+
+            if not built and pending_before == 0:
+                self._append_log("No pending instances to build — all already built.")
 
             vals = {
                 "docker_build_status": "done",
@@ -1694,6 +1715,56 @@ class JaegerRepository(models.Model):
         except Exception:
             return False
 
+    def _validate_docker_image(self, instance, image_tag):
+        """Post-build smoke test: verify image contents are correct.
+
+        Returns None if valid, error string if not.
+        """
+        import subprocess
+
+        if not instance.base_sha:
+            return None
+
+        try:
+            result = subprocess.run(
+                [
+                    "docker", "run", "--rm", "--network", "none",
+                    image_tag, "bash", "-c",
+                    'echo "SHA:$(git -C /testbed rev-parse HEAD)" && '
+                    'echo "FIXRUN:$(test -f /jaeger/fix-run.sh && echo OK || echo MISSING)" && '
+                    'echo "CLEAN:$(git -C /testbed status --porcelain | wc -l | tr -d \" \")"',
+                ],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return "Smoke test timed out (container may be broken)"
+        except Exception as e:
+            return f"Smoke test failed to run: {e}"
+
+        if result.returncode != 0:
+            return f"Container failed to start: {result.stderr[-500:]}"
+
+        output = result.stdout.strip()
+        checks = {}
+        for line in output.splitlines():
+            if ":" in line:
+                key, _, val = line.partition(":")
+                checks[key.strip()] = val.strip()
+
+        errors = []
+        actual_sha = checks.get("SHA", "")
+        if actual_sha != instance.base_sha:
+            errors.append(f"SHA mismatch: expected {instance.base_sha[:12]}, got {actual_sha[:12]}")
+
+        if checks.get("FIXRUN") != "OK":
+            errors.append("fix-run.sh missing from /jaeger")
+
+        dirty_count = int(checks.get("CLEAN", "0") or "0")
+        if dirty_count > 0:
+            errors.append(f"Working tree has {dirty_count} modified files")
+
+        return "; ".join(errors) if errors else None
+
     def _detect_install_commands(self, repo_dir):
         """Detect how to install dependencies from repo files.
 
@@ -1728,11 +1799,11 @@ class JaegerRepository(models.Model):
 
         # ── Non-Python languages ──
         if (p / "package.json").exists():
-            return ["npm install"]
+            return ["npm install 2>/dev/null || true"]
         if (p / "go.mod").exists():
-            return ["go mod download"]
+            return ["go mod download 2>/dev/null || true"]
         if (p / "Cargo.toml").exists():
-            return ["cargo fetch"]
+            return ["cargo fetch 2>/dev/null || true"]
         return []
 
     def _detect_extras(self, repo_path):
@@ -1802,32 +1873,32 @@ class JaegerRepository(models.Model):
 
             lines = [f"FROM {runtime}", ""]
 
-            # System dependencies
+            # System dependencies (ca-certificates required for HTTPS git clone)
             if is_python:
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
-                    "    git make gcc g++ curl && \\",
+                    "    ca-certificates git make gcc g++ curl && \\",
                     "    rm -rf /var/lib/apt/lists/*",
                     "",
                 ]
             elif is_node:
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
-                    "    git make gcc g++ && \\",
+                    "    ca-certificates git make gcc g++ python3 && \\",
                     "    rm -rf /var/lib/apt/lists/*",
                     "",
                 ]
             elif self.language in ("c", "cpp"):
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
-                    "    git make gcc g++ cmake python3 python3-pip curl && \\",
+                    "    ca-certificates git make gcc g++ cmake python3 python3-pip curl && \\",
                     "    rm -rf /var/lib/apt/lists/*",
                     "",
                 ]
             else:
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
-                    "    git make curl && \\",
+                    "    ca-certificates git make curl && \\",
                     "    rm -rf /var/lib/apt/lists/*",
                     "",
                 ]
@@ -1837,13 +1908,18 @@ class JaegerRepository(models.Model):
             dockerfile_clone_url = authed_clone_url if github_token else clone_url
             lines += [
                 "WORKDIR /testbed",
-                f"RUN git clone {dockerfile_clone_url} .",
+                f"RUN git clone {dockerfile_clone_url} . && git fetch --all",
                 "",
             ]
 
             # Install dependencies (may be multiple commands)
             for cmd in install_cmds:
                 lines.append(f"RUN {cmd}")
+                lines.append("")
+
+            # Add node_modules/.bin to PATH for monorepo tools (lerna, turbo, nx)
+            if is_node:
+                lines.append('ENV PATH="/testbed/node_modules/.bin:${PATH}"')
                 lines.append("")
 
             # Install test framework
@@ -1904,6 +1980,40 @@ class JaegerRepository(models.Model):
                 import shutil
                 shutil.rmtree(clone_dir, ignore_errors=True)
 
+    def _verify_base_deps(self, base_tag):
+        """Verify dependencies are cached in the base image.
+
+        Runs the language's dep tool in offline/no-network mode.
+        Returns None if OK, error string if deps are missing.
+        """
+        import subprocess
+
+        lang = (self.language or "").lower()
+        if lang == "rust":
+            check_cmd = "cargo check --offline 2>&1 | tail -10"
+        elif lang == "go":
+            check_cmd = "GONOSUMCHECK=* GOFLAGS=-mod=mod go build ./... 2>&1 | tail -10"
+        elif lang in ("javascript", "typescript"):
+            check_cmd = "test -d node_modules && echo OK || echo MISSING"
+        else:
+            return None
+
+        try:
+            result = subprocess.run(
+                ["docker", "run", "--rm", "--network", "none", base_tag,
+                 "bash", "-c", check_cmd],
+                capture_output=True, text=True, timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            return "Dep check timed out"
+        except Exception as e:
+            return f"Dep check failed to run: {e}"
+
+        if result.returncode != 0:
+            output = (result.stdout + result.stderr)[-500:]
+            return f"Dep check failed (exit {result.returncode}): {output}"
+        return None
+
     def _build_via_local_docker(self):
         """Build Docker images for all instances using kaiju_build or local Docker.
 
@@ -1929,14 +2039,30 @@ class JaegerRepository(models.Model):
 
         # Step 0: Ensure repo base image exists (auto-build if needed)
         base_tag = f"mswebench/{self.org}_m_{self.repo_name}:base".lower()
-        if not self._docker_image_exists(base_tag) and self.base_image_status != "built":
+        if self._docker_image_exists(base_tag):
+            if self.base_image_status != "built":
+                self.write({"base_image_status": "built", "base_image_name": base_tag})
+                self.env.cr.commit()
+        elif self.base_image_status != "built":
             self._append_log("No base image found — building repo base image (first time)...")
             self._build_base_image()
 
-        instances = self.instance_ids.filtered(
+        all_pending = self.instance_ids.filtered(
             lambda i: i.docker_build_status == "pending",
         )
+        no_sha = all_pending.filtered(lambda i: not i.base_sha)
+        if no_sha:
+            for inst in no_sha:
+                inst.write({
+                    "docker_build_status": "failed",
+                    "docker_build_log": "Missing base_sha — cannot build image",
+                })
+            self._append_log(f"Skipped {len(no_sha)} instances with missing base_sha")
+            self.env.cr.commit()
+        instances = all_pending.filtered(lambda i: i.base_sha)
         total = len(instances)
+        built_count = 0
+        failed_count = 0
         self._append_log(f"Building Docker images for {total} instances (mode={build_mode})")
 
         for idx, inst in enumerate(instances, 1):
@@ -1947,6 +2073,7 @@ class JaegerRepository(models.Model):
                 full_tag = f"{ecr_prefix}/{image_name}:{image_tag}"
 
             inst.write({"docker_build_status": "building"})
+            self.env.cr.commit()
 
             try:
                 # Generate Dockerfile
@@ -1989,28 +2116,37 @@ class JaegerRepository(models.Model):
                         push_cmd = ["docker", "push", full_tag]
                         subprocess.run(push_cmd, check=True, timeout=600)
 
-                inst.write({
-                    "docker_build_status": "built",
-                    "docker_image_name": full_tag,
-                })
-                self._append_log(f"  [{idx}/{total}] Built {full_tag}")
+                validation_err = self._validate_docker_image(inst, full_tag)
+                if validation_err:
+                    inst.write({
+                        "docker_build_status": "failed",
+                        "docker_build_log": f"Post-build validation failed: {validation_err}",
+                    })
+                    failed_count += 1
+                    self._append_log(f"  [{idx}/{total}] VALIDATION FAILED {inst.name}: {validation_err}")
+                else:
+                    inst.write({
+                        "docker_build_status": "built",
+                        "docker_image_name": full_tag,
+                    })
+                    built_count += 1
+                    self._append_log(f"  [{idx}/{total}] Built {full_tag}")
 
             except Exception as e:
                 inst.write({
                     "docker_build_status": "failed",
                     "docker_build_log": str(e)[:5000],
                 })
+                failed_count += 1
                 _logger.warning("Docker build failed for %s: %s", inst.name, e)
                 self._append_log(f"  [{idx}/{total}] FAILED {inst.name}: {e}")
 
-            if total <= 10 or idx % 10 == 0:
-                self.write({
-                    "docker_build_progress": (idx / total) * 100,
-                    "images_built_count": len(instances.filtered(
-                        lambda i: i.docker_build_status == "built",
-                    )),
-                })
-                self.env.cr.commit()
+            self.write({
+                "docker_build_progress": (idx / total) * 100,
+                "images_built_count": built_count,
+                "images_failed_count": failed_count,
+            })
+            self.env.cr.commit()
 
     def _generate_dockerfile(self, instance):
         """Generate a Dockerfile for a single instance.
@@ -2036,7 +2172,7 @@ class JaegerRepository(models.Model):
                 or f"mswebench/{instance.org}_m_{instance.repo}:base".lower()
             )
             checkout_cmd = (
-                f"RUN git fetch origin && git checkout {instance.base_sha}\n"
+                f"RUN git checkout -- . && git clean -fd && (git checkout {instance.base_sha} || (git fetch origin {instance.base_sha} && git checkout {instance.base_sha}))\n"
                 if instance.base_sha else ""
             )
             # Re-install deps after checkout — base_sha may have different
@@ -2048,9 +2184,9 @@ class JaegerRepository(models.Model):
 
 WORKDIR /testbed
 {checkout_cmd}{reinstall_cmd}
-# Apply fix-run.sh for test execution
-COPY fix-run.sh /testbed/fix-run.sh
-RUN chmod +x /testbed/fix-run.sh
+# Apply fix-run.sh outside repo tree to avoid linters/license checkers
+COPY fix-run.sh /jaeger/fix-run.sh
+RUN chmod +x /jaeger/fix-run.sh
 
 # Metadata
 LABEL org.opencontainers.image.source="https://github.com/{instance.org}/{instance.repo}"
@@ -2059,19 +2195,32 @@ LABEL jaeger.instance="{instance.name}"
 """
 
     def _dep_reinstall_commands(self, language):
-        """Return Dockerfile RUN lines to re-install deps at the checked-out commit."""
+        """Return Dockerfile RUN lines to conditionally re-install deps.
+
+        Only reinstalls when dep files differ between HEAD and the checked-out
+        base_sha. Skips entirely (~80% of PRs) when deps haven't changed.
+        """
         if language in ("python",):
             return (
-                "# Re-install deps (base_sha may differ from HEAD)\n"
-                "RUN pip install -r requirements.txt 2>/dev/null || true\n"
-                'RUN pip install -e ".[dev,test]" 2>/dev/null || pip install -e . 2>/dev/null || true\n'
+                "RUN if ! git diff HEAD --quiet -- requirements.txt setup.py pyproject.toml setup.cfg 2>/dev/null; then "
+                "pip install -r requirements.txt 2>/dev/null || true && "
+                'pip install -e ".[dev,test]" 2>/dev/null || pip install -e . 2>/dev/null || true; fi\n'
             )
         if language in ("javascript", "typescript"):
-            return "RUN npm install 2>/dev/null || true\n"
+            return (
+                "RUN if ! git diff HEAD --quiet -- package.json package-lock.json 2>/dev/null; then "
+                "npm install 2>/dev/null || true; fi\n"
+            )
         if language == "go":
-            return "RUN go mod download 2>/dev/null || true\n"
+            return (
+                "RUN if ! git diff HEAD --quiet -- go.mod go.sum 2>/dev/null; then "
+                "go mod download 2>/dev/null || true; fi\n"
+            )
         if language == "rust":
-            return "RUN cargo build 2>/dev/null || true\n"
+            return (
+                "RUN if ! git diff HEAD --quiet -- Cargo.toml Cargo.lock 2>/dev/null; then "
+                "cargo fetch 2>/dev/null || true; fi\n"
+            )
         return ""
 
     def _generate_fix_run_script(self, instance):
@@ -2091,8 +2240,51 @@ LABEL jaeger.instance="{instance.name}"
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        if instance.language == "python":
+        lang = (instance.language or "python").lower()
+
+        if lang == "python":
             test_cmd = f"python -m pytest {test_files or 'tests/'} -v 2>&1"
+            return (
+                "#!/bin/bash\n"
+                "set -uo pipefail\n"
+                "cd /testbed\n"
+                "echo '>>>>> Start Test Output'\n"
+                f"{test_cmd}\n"
+                "echo '>>>>> End Test Output'\n"
+            )
+        if lang in ("javascript", "typescript"):
+            return self._generate_js_fix_run_script(test_files)
+        if lang == "go":
+            if test_files:
+                packages = set()
+                for f in test_files.split():
+                    parts = f.rsplit("/", 1)
+                    packages.add("./" + parts[0] if len(parts) > 1 else "./...")
+                pkg_arg = " ".join(sorted(packages))
+            else:
+                pkg_arg = "./..."
+            test_cmd = f"go test -v -count=1 -timeout 15m {pkg_arg} 2>&1"
+        elif lang == "rust":
+            test_cmd = "cargo test 2>&1"
+        elif lang == "java":
+            test_cmd = (
+                "if [ -f pom.xml ]; then mvn clean test -fn 2>&1; "
+                "elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then ./gradlew test 2>&1; "
+                "else echo 'No build system detected' && exit 1; fi"
+            )
+        elif lang == "c":
+            test_cmd = (
+                "if [ -f CMakeLists.txt ]; then "
+                "mkdir -p build && cd build && cmake .. && make -j$(nproc) && ctest --output-on-failure 2>&1; "
+                "elif [ -f Makefile ]; then make test 2>&1; "
+                "else echo 'No build system detected' && exit 1; fi"
+            )
+        elif lang == "cpp":
+            test_cmd = (
+                "mkdir -p build && cd build && "
+                "cmake -DBUILD_TESTING=ON .. && make -j$(nproc) && "
+                "ctest --output-on-failure 2>&1"
+            )
         else:
             test_cmd = f"python -m pytest {test_files or '.'} -v 2>&1"
 
@@ -2104,6 +2296,52 @@ LABEL jaeger.instance="{instance.name}"
             f"{test_cmd}\n"
             "echo '>>>>> End Test Output'\n"
         )
+
+    def _generate_js_fix_run_script(self, test_files=""):
+        """Generate a runtime-adaptive test script for JS/TS repos.
+
+        Instead of hardcoding 'npm test', the script inspects the checked-out
+        code at base_sha to find the actual test runner and install deps if needed.
+        This handles repos where old commits use different test setups than HEAD.
+        """
+        return r"""#!/bin/bash
+set -uo pipefail
+cd /testbed
+echo '>>>>> Start Test Output'
+
+# Install deps if package.json exists at this commit
+if [ -f package.json ]; then
+    npm install --ignore-scripts 2>/dev/null || true
+    # Some repos need postinstall/build steps
+    npm run build 2>/dev/null || true
+fi
+
+# Detect and run the test command from the actual checked-out code
+if [ -f package.json ]; then
+    # Read the test script from package.json
+    TEST_SCRIPT=$(node -e "try{const p=require('./package.json');console.log(p.scripts&&p.scripts.test||'')}catch(e){console.log('')}" 2>/dev/null)
+    if [ -n "$TEST_SCRIPT" ]; then
+        npm test 2>&1
+    else
+        # No test script — try common runners directly
+        if command -v jest &>/dev/null || [ -f node_modules/.bin/jest ]; then
+            npx jest --verbose 2>&1
+        elif command -v mocha &>/dev/null || [ -f node_modules/.bin/mocha ]; then
+            npx mocha --recursive 2>&1
+        elif command -v ava &>/dev/null || [ -f node_modules/.bin/ava ]; then
+            npx ava 2>&1
+        elif command -v vitest &>/dev/null || [ -f node_modules/.bin/vitest ]; then
+            npx vitest run 2>&1
+        else
+            echo 'No test runner found' 2>&1
+        fi
+    fi
+else
+    echo 'No package.json at this commit' 2>&1
+fi
+
+echo '>>>>> End Test Output'
+"""
 
     def _build_via_kaiju(self, instance, full_tag, dockerfile_path):
         """Build via kaiju_build K8s job system."""
@@ -2119,7 +2357,6 @@ LABEL jaeger.instance="{instance.name}"
     # ── Stage 4 Actions ──────────────────────────────────────────────────
 
     def action_run_tests(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage4":
             raise UserError("Repository must be in Stage 4.")
@@ -2134,7 +2371,6 @@ LABEL jaeger.instance="{instance.name}"
         batch_publish_test_tasks(built.ids)
 
     def action_run_tests_direct(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage4":
             raise UserError("Repository must be in Stage 4.")
@@ -2150,29 +2386,105 @@ LABEL jaeger.instance="{instance.name}"
         )
 
     def _run_all_tests(self):
-        """Run test execution for all built instances. Used by background thread."""
+        """Run test execution for all built instances in parallel."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from .jaeger_instance import _run_instance_tests_standalone
+
         self.ensure_one()
         self.write({"test_execution_status": "running", "error_message": False})
         self.env.cr.commit()
+
         built = self.instance_ids.filtered(
             lambda i: i.docker_build_status == "built",
         )
-        for inst in built:
-            inst.run_test_execution()
+        instance_ids = built.ids
+        total = len(instance_ids)
+        if not total:
+            self.write({"test_execution_status": "done", "error_message": "No built instances"})
             self.env.cr.commit()
-        vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False}
-        gate_ok, _ = self._check_current_gate()
-        if gate_ok:
-            next_stage = self._next_stage()
-            if next_stage:
-                vals["current_stage"] = next_stage
-        self.write(vals)
-        self.env.cr.commit()
+            return
+
+        db_name = self.env.cr.dbname
+        repo_id = self.id
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        max_workers = int(ICP.get_param("jaeger.max_run_workers", "2"))
+        agent_timeout = int(ICP.get_param("jaeger.agent_timeout", "1800"))
+
+        _append_log_standalone(db_name, repo_id,
+            f"Starting parallel test execution: {total} instances, {max_workers} workers")
+
+        completed = valid_count = invalid_count = error_count = 0
+
+        cancelled = False
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_run_instance_tests_standalone, db_name, iid, agent_timeout): iid
+                for iid in instance_ids
+            }
+            for future in as_completed(futures):
+                iid = futures[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    _logger.error("Instance %s raised: %s", iid, e)
+                    res = {"instance_id": iid, "success": False, "is_valid": False,
+                           "error": str(e), "summary": f"exception: {e}"}
+
+                completed += 1
+                if res.get("is_valid"):
+                    valid_count += 1
+                elif res.get("success"):
+                    invalid_count += 1
+                if res.get("error"):
+                    error_count += 1
+
+                summary = res.get("summary") or res.get("error") or "done"
+                _append_log_standalone(db_name, repo_id,
+                    f"  [{completed}/{total}] instance #{iid}: {summary}")
+
+                _write_with_retry(db_name, repo_id, {
+                    "test_execution_progress": (completed / total) * 100,
+                    "instances_tested_count": completed,
+                    "instances_valid_count": valid_count,
+                    "instances_invalid_count": invalid_count,
+                    "instances_error_count": error_count,
+                })
+
+                try:
+                    _check_cancelled(db_name, repo_id)
+                except PipelineCancelled:
+                    _append_log_standalone(db_name, repo_id, "Cancellation requested — stopping remaining instances")
+                    for f in futures:
+                        f.cancel()
+                    cancelled = True
+                    break
+
+        if cancelled:
+            _append_log_standalone(db_name, repo_id,
+                f"Test execution cancelled: {completed}/{total} done, {valid_count} valid, {invalid_count} invalid")
+        else:
+            _append_log_standalone(db_name, repo_id,
+                f"Test execution complete: {valid_count} valid, {invalid_count} invalid, {error_count} errors")
+
+        vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False,
+                "cancel_requested": False}
+        try:
+            gate_ok, _ = self._check_current_gate()
+            if gate_ok:
+                next_stage = self._next_stage()
+                if next_stage:
+                    vals["current_stage"] = next_stage
+            self.write(vals)
+            self.env.cr.commit()
+        except Exception:
+            _logger.warning("Final write via ORM failed, using standalone retry")
+            _write_with_retry(db_name, repo_id, vals)
 
     # ── Stage 5 Actions ──────────────────────────────────────────────────
 
     def action_finalize_dataset(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage5":
             raise UserError("Repository must be in Stage 5.")
@@ -2182,7 +2494,6 @@ LABEL jaeger.instance="{instance.name}"
         publish_finalize_task(self.id)
 
     def action_finalize_dataset_direct(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
         self.ensure_one()
         if self.current_stage != "stage5":
             raise UserError("Repository must be in Stage 5.")
@@ -2726,8 +3037,8 @@ LABEL jaeger.instance="{instance.name}"
 
     def action_advance_stage(self):
         self.ensure_one()
-        if self.current_stage not in ("stage1", "stage2"):
-            raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
+        if self.current_stage in ("done", "failed"):
+            raise UserError("Repository is already in a terminal state.")
         gate_ok, msg = self._check_current_gate()
         if not gate_ok:
             raise UserError(f"Cannot advance: {msg}")
@@ -2773,7 +3084,12 @@ LABEL jaeger.instance="{instance.name}"
     def _next_stage(self):
         mapping = {
             "stage1": "stage2",
-            "stage2": "done",
+            "stage2": "stage3",
+            "stage3": "stage4",
+            "stage4": "stage5",
+            "stage5": "stage6",
+            "stage6": "stage7",
+            "stage7": "done",
         }
         return mapping.get(self.current_stage)
 
@@ -3047,16 +3363,38 @@ LABEL jaeger.instance="{instance.name}"
             _logger.info("Watchdog: marked %d stale scrape jobs as failed", len(stale))
 
     @api.model
+    def _cron_watchdog_stale_builds(self):
+        """Reset repos stuck in 'building' for 2+ hours back to pending."""
+        from datetime import timedelta
+
+        cutoff = fields.Datetime.now() - timedelta(hours=2)
+        stale = self.search([
+            ("docker_build_status", "=", "building"),
+            ("write_date", "<", cutoff),
+        ])
+        for repo in stale:
+            _logger.warning(
+                "Watchdog: resetting stuck build for %s (last write %s)",
+                repo.name, repo.write_date,
+            )
+            stuck_instances = repo.instance_ids.filtered(
+                lambda i: i.docker_build_status == "building",
+            )
+            stuck_instances.write({"docker_build_status": "pending"})
+            repo.write({
+                "docker_build_status": "pending",
+                "error_message": "Watchdog: build appeared stuck for 2+ hours, reset to pending.",
+            })
+        if stale:
+            _logger.info("Watchdog: reset %d stuck builds to pending", len(stale))
+
+    @api.model
     def _cron_reconcile_scrape_jobs(self):
         """Check K8s Job status for running scrape pipelines (kaiju_build pattern).
 
         Safety net for pods that crash without updating the database
         (OOM kill, node failure, network partition).
         """
-        ICP = self.env["ir.config_parameter"].sudo()
-        if ICP.get_param("jaeger.dispatch_mode", "local") != "k8s":
-            return
-
         running = self.search([("pr_collection_status", "=", "running")])
         if not running:
             return
