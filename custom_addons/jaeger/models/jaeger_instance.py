@@ -7,7 +7,7 @@ from odoo import SUPERUSER_ID, api, fields, models
 _logger = logging.getLogger(__name__)
 
 
-def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, memory_limit="4g", language="python"):
+def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, memory_limit="4g", language="python", network_enabled=None):
     """Execute a single Docker run. Pure function — no ORM dependency.
 
     Args:
@@ -17,7 +17,8 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
         patches: dict {patch_name: patch_content} or None
         timeout: seconds before kill
         memory_limit: Docker memory limit (e.g. "4g", "8g")
-        language: repo language — Python gets --network none, others need network for deps
+        language: repo language — used as fallback for network decision
+        network_enabled: explicit network toggle from test config (None = use language default)
 
     Returns:
         str: combined stdout + stderr
@@ -37,7 +38,11 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
         "--memory-swap", memory_limit,
     ]
 
-    if (language or "").lower() == "python":
+    # Network: explicit config wins, otherwise Python-only gets --network none
+    if network_enabled is not None:
+        if not network_enabled:
+            cmd.extend(["--network", "none"])
+    elif (language or "").lower() == "python":
         cmd.extend(["--network", "none"])
 
     if patches:
@@ -109,7 +114,9 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
             fix_patch = inst.fix_patch
             test_patch = inst.test_patch
             lang = (inst.repository_id.language or "").lower()
-            memory_limit = "8g" if lang in ("rust", "cpp", "c", "java") else "4g"
+            config = inst.repository_id._get_effective_config()
+            memory_limit = config.get("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
+            network_enabled = config.get("network")
     except Exception as e:
         result["error"] = f"Read phase failed: {e}"
         return result
@@ -118,11 +125,11 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
     try:
         run_log = _execute_docker_run_pure(
             inst_name, docker_image, "run", None,
-            agent_timeout, memory_limit, lang,
+            agent_timeout, memory_limit, lang, network_enabled,
         )
         test_patch_log = _execute_docker_run_pure(
             inst_name, docker_image, "test_patch",
-            {"test_patch": test_patch}, agent_timeout, memory_limit, lang,
+            {"test_patch": test_patch}, agent_timeout, memory_limit, lang, network_enabled,
         )
 
         # Early skip: if test-patch run has 0 failures, f2p is impossible
@@ -148,7 +155,7 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
             fix_patch_log = _execute_docker_run_pure(
                 inst_name, docker_image, "fix_patch",
                 {"fix_patch": fix_patch, "test_patch": test_patch},
-                agent_timeout, memory_limit, lang,
+                agent_timeout, memory_limit, lang, network_enabled,
             )
     except Exception as e:
         _logger.error("Docker execution failed for %s: %s", inst_name, e)
@@ -537,7 +544,9 @@ class JaegerInstance(models.Model):
         )
 
         lang = (self.repository_id.language or "").lower()
-        mem = "8g" if lang in ("rust", "cpp", "c", "java") else "4g"
+        config = self.repository_id._get_effective_config()
+        mem = config.get("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
+        network_enabled = config.get("network")
 
         cmd = [
             "docker", "run",
@@ -547,7 +556,10 @@ class JaegerInstance(models.Model):
             "--memory-swap", mem,
         ]
 
-        if lang == "python":
+        if network_enabled is not None:
+            if not network_enabled:
+                cmd.extend(["--network", "none"])
+        elif lang == "python":
             cmd.extend(["--network", "none"])
 
         if patches:
@@ -595,15 +607,73 @@ class JaegerInstance(models.Model):
             return self._parse_go_log(text)
         if re.search(r"test \S+ \.\.\. (?:ok|FAILED|ignored)", text):
             return self._parse_rust_log(text)
+        clean = self._strip_ansi(text)
+        # Mocha before jest: both use \u2713, but mocha has "N passing/failing"
+        if re.search(r"\d+ passing", text) or re.search(r"\d+ failing", text):
+            return self._parse_mocha_log(text)
+        # AVA: spinner-based "N passed" / "N tests failed"
+        if re.search(r"\d+ tests? failed|\d+ (?:tests? )?passed", clean):
+            ava_result = self._parse_ava_log(text)
+            if ava_result["passed_count"] > 0 or ava_result["failed_count"] > 0:
+                return ava_result
         if "\u2713" in text or "\u2717" in text or "\u25CB" in text:
             return self._parse_jest_log(text)
-        if "\u2714" in text or re.search(r"\d+ passing", text):
-            return self._parse_mocha_log(text)
         if re.search(r"Test\s+#\d+:", text) or "[ PASS ]" in text or "[ FAIL ]" in text:
             return self._parse_ctest_log(text)
         if re.search(r"\[(?:INFO|ERROR)\].*Tests run:", text):
             return self._parse_maven_log(text)
         return self._parse_pytest_log(text)
+
+    @staticmethod
+    def _strip_ansi(text):
+        return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]|\[2K\[1A", "", text)
+
+    def _parse_ava_log(self, text):
+        """Parse AVA test runner output.
+
+        Handles two AVA output styles:
+          - Newer AVA: spinner + "N passed" / "N tests failed" summary lines
+          - Older AVA: "✔ suite › test name" per-test lines + "N tests passed"
+        """
+        clean = self._strip_ansi(text)
+        lines = [ln.strip() for ln in clean.splitlines() if ln.strip()]
+
+        passed = set()
+        failed = set()
+        summary_passed = 0
+        summary_failed = 0
+
+        re_ava_checkmark = re.compile(r"^[✔✓]\s+(.+)$")
+        re_ava_cross = re.compile(r"^[✖✘]\s+(.+)$")
+        re_ava_test = re.compile(r"^(.+\s+›\s+.+)$")
+
+        for i, line in enumerate(lines):
+            m = re.match(r"^(\d+) (?:tests? )?passed$", line)
+            if m:
+                summary_passed = max(summary_passed, int(m.group(1)))
+                continue
+            m = re.match(r"^(\d+) tests? failed$", line)
+            if m:
+                summary_failed = max(summary_failed, int(m.group(1)))
+                continue
+            m = re_ava_checkmark.match(line)
+            if m:
+                passed.add(m.group(1).strip())
+                continue
+            m = re_ava_cross.match(line)
+            if m:
+                failed.add(m.group(1).strip())
+                continue
+            if re_ava_test.match(line):
+                next_lines = " ".join(lines[i + 1:i + 3])
+                if "Error" in next_lines or "thrown" in next_lines:
+                    failed.add(line)
+
+        if not passed and summary_passed > 0:
+            passed = {f"ava_test_{i}" for i in range(summary_passed)}
+        if not failed and summary_failed > 0:
+            failed = {f"ava_failed_{i}" for i in range(summary_failed)}
+        return self._make_parse_result(passed, failed, set())
 
     def _empty_parse_result(self):
         return {
@@ -708,20 +778,29 @@ class JaegerInstance(models.Model):
 
     def _parse_mocha_log(self, text):
         passed, failed, skipped = set(), set(), set()
-        re_pass = re.compile(r"\u2714\s+(.+?)(?:\s+\(\d+ms\))?\s*$")
+        re_pass = re.compile(r"[\u2713\u2714]\s+(.+?)(?:\s+\(\d+ms\))?\s*$")
         re_fail = re.compile(r"^\s*(\d+)\)\s+(.+)$")
         re_pend = re.compile(r"^\s*-\s+(.+)$")
+        summary_passed = 0
+        summary_failed = 0
         in_failures = False
         for line in text.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
-            if stripped.startswith("\u2714"):
+            if stripped.startswith(("\u2713", "\u2714")):
                 m = re_pass.match(stripped)
                 if m:
                     passed.add(m.group(1).strip())
                 continue
-            if "failing" in stripped.lower() and re.match(r"\d+\s+failing", stripped):
+            m = re.match(r"(\d+)\s+passing", stripped)
+            if m:
+                summary_passed = int(m.group(1))
+                continue
+            if "failing" in stripped.lower() and re.match(r"(\d+)\s+failing", stripped):
+                m_f = re.match(r"(\d+)\s+failing", stripped)
+                if m_f:
+                    summary_failed = int(m_f.group(1))
                 in_failures = True
                 continue
             if in_failures:
@@ -732,6 +811,10 @@ class JaegerInstance(models.Model):
             m = re_pend.match(line)
             if m and not m.group(1).startswith("-"):
                 skipped.add(m.group(1).strip())
+        if not passed and summary_passed > 0:
+            passed = {f"mocha_test_{i}" for i in range(summary_passed)}
+        if not failed and summary_failed > 0:
+            failed = {f"mocha_failed_{i}" for i in range(summary_failed)}
         return self._make_parse_result(passed, failed, skipped)
 
     def _parse_ctest_log(self, text):

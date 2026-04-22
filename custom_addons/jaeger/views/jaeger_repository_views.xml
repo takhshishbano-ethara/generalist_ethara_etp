@@ -233,6 +233,28 @@
                             </field>
                         </page>
 
+                        <!-- Test Config: human-in-the-loop overrides -->
+                        <page string="Test Config" name="test_config" invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')">
+                            <div class="alert alert-secondary mb-3" role="alert">
+                                <strong>Override auto-detected settings.</strong>
+                                Leave empty to use auto-detection (default). Only fill keys you need to change.
+                            </div>
+                            <group>
+                                <group string="Manual Overrides">
+                                    <button name="action_detect_config" type="object"
+                                            string="Auto-Detect Config" class="btn-secondary mb-2"
+                                            help="Clone repo, detect install/test commands, and populate the JSON field below"/>
+                                    <field name="test_config_json" widget="ace"
+                                           options="{'mode': 'json'}"
+                                           placeholder='{"base_image": "node:22", "install_cmd": "yarn install", "test_cmd": "yarn test", "memory_limit": "8g"}'
+                                           nolabel="1"/>
+                                </group>
+                                <group string="Effective Config (what will run)">
+                                    <field name="test_config_effective" nolabel="1" readonly="1"/>
+                                </group>
+                            </group>
+                        </page>
+
                         <!-- Stage 4: Test Execution -->
                         <page string="4 - Test Execution" name="stage4" invisible="current_stage not in ('stage3', 'stage4', 'stage5', 'stage6', 'stage7', 'done')">
                             <div class="alert alert-info" role="status" invisible="test_execution_status not in ('running', 'queued')">
