@@ -404,3 +404,64 @@ class TaskForgeTaskController(http.Controller):
             'created_at': str(create_date),
             'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
         }
+
+    @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({'task_id': {'type': 'int', 'required': True}})
+    def delete_task(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            task_id = int(jdata.get('task_id'))
+
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            task = request.env['task.forge.log'].sudo().browse(task_id)
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            role = employee._get_task_forge_role()
+            if role == 'tasker' and task.employee_id.id != employee.id:
+                return return_Response(message="You can only delete your own tasks", status=403)
+            elif role in ('qr', 'ql'):
+                team_ids = employee._get_team_employee_ids()
+                if task.employee_id.id not in team_ids:
+                    return return_Response(message="Access denied: task not in your team", status=403)
+
+            task_name = task.name
+            task_ref = task.sequence
+
+            # Collect counts before deletion
+            blocker_count = len(task.blocker_ids)
+            bug_report_count = len(task.bug_report_ids)
+            validated_bugs = request.env['task.forge.validated.bug'].sudo().search([('task_id', '=', task.id)])
+            images = request.env['task.forge.image'].sudo().search([('task_id', '=', task.id)])
+
+            deleted_counts = {
+                'blockers': blocker_count,
+                'bug_reports': bug_report_count,
+                'validated_bugs': len(validated_bugs),
+                'images': len(images),
+            }
+
+            # 1. Delete validated_bugs (ondelete='set null' — would be orphaned)
+            for blockerr in task.blocker_ids:
+                blockerr.sudo().unlink()
+
+            if validated_bugs:
+                validated_bugs.unlink()
+
+            # 2. Delete images (no ondelete — would be orphaned)
+            if images:
+                images.unlink()
+
+            # 3. Delete task — blockers and bug_reports cascade automatically
+            task.unlink()
+
+            return return_Response(
+                message="Task deleted successfully",
+                status=200)
+        except Exception as e:
+            return return_Response(message=str(e), status=400)

@@ -12,10 +12,9 @@ class TaskForgeBlockerController(http.Controller):
 
     @http.route('/api/v2/taskforge/create_blocker_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "str", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
+    # @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "str", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
     def create_blocker_record(self, **kwargs):
         try:
-            jdata = kwargs.get('jdata')
             user = request.env.user
             employee = user.employee_id
             if not employee:
@@ -27,7 +26,7 @@ class TaskForgeBlockerController(http.Controller):
             if not role == 'tasker':
                 return return_Response(message="Only Tasker Can Create the Blocker", status=404)
 
-            task = request.env['task.forge.log'].sudo().browse(int(jdata.get('task_id')))
+            task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
             if not task.exists():
                 return return_Response(message="Task not found", status=404)
 
@@ -47,11 +46,11 @@ class TaskForgeBlockerController(http.Controller):
             pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
 
             blocker = Blocker.create({
-                'name': jdata.get('name'),
+                'name': kwargs.get('name'),
                 'task_id': task.id,
-                'blocker_reason': jdata.get('blocker_reason'),
-                'blocker_type': jdata.get('blocker_type'),
-                'priority': jdata.get('priority'),
+                'blocker_reason': kwargs.get('blocker_reason'),
+                'blocker_type': kwargs.get('blocker_type'),
+                'priority': kwargs.get('priority'),
                 'employee_id': employee.id if employee else False,
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,

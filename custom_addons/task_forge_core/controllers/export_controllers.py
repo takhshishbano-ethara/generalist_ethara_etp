@@ -789,3 +789,99 @@ class TaskForgeExportController(http.Controller):
         except Exception as e:
             _logger.error('Export project blockers failed: %s', str(e))
             return return_Response(message=str(e), status=400)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 7. Employee List Report
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @http.route('/api/v2/taskforge/export/employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def export_employee_list(self, **kwargs):
+        try:
+            import xlsxwriter
+            Employee = request.env['hr.employee'].sudo()
+            TaskLog = request.env['task.forge.log'].sudo()
+            Blocker = request.env['task.forge.blocker'].sudo()
+
+            domain = [('task_forge_active', '=', True)]
+
+            if kwargs.get('role'):
+                domain.append(('user_id.user_role', '=', int(kwargs.get('role'))))
+
+            if kwargs.get('search'):
+                domain += ['|', ('name', 'ilike', kwargs['search']), ('work_email', 'ilike', kwargs['search'])]
+
+            start_date, end_date = self._get_date_filters(kwargs)
+            task_date_domain = []
+            if start_date:
+                task_date_domain.append(('date', '>=', start_date))
+            if end_date:
+                task_date_domain.append(('date', '<=', end_date))
+            blocker_date_domain = []
+            if start_date:
+                blocker_date_domain.append(('create_date', '>=', start_date))
+            if end_date:
+                blocker_date_domain.append(('create_date', '<=', end_date))
+
+            employees = Employee.search(domain, order='name asc')
+
+            output = io.BytesIO()
+            wb = xlsxwriter.Workbook(output, {'in_memory': True})
+            fmt = self._get_formats(wb)
+            ws = wb.add_worksheet('Employee List')
+
+            headers = ['#', 'Employee Name', 'Email', 'Role', 'PL', 'QR',
+                        'Date of Joining', 'Total Tasks', 'Completed', 'Blockers',
+                        'Avg Quality', 'Status']
+            col_types = ['num', 'str', 'str', 'str', 'str', 'str',
+                         'date', 'num', 'num', 'num',
+                         'num', 'status']
+            widths = [5, 28, 30, 16, 20, 20, 14, 12, 12, 10, 13, 14]
+
+            self._write_title_banner(ws, fmt, 'Employee List Report', len(headers))
+            self._write_headers(ws, fmt, headers)
+            for i, w in enumerate(widths):
+                ws.set_column(i, i, w)
+
+            for idx, emp in enumerate(employees, 1):
+                role_name = emp.user_id.user_role.name if emp.user_id and emp.user_id.user_role else ''
+                total_tasks = TaskLog.search_count([('employee_id', '=', emp.id)] + task_date_domain)
+                completed = TaskLog.search_count([('employee_id', '=', emp.id), ('state', '=', 'completed')] + task_date_domain)
+                blocker_count = Blocker.search_count([('employee_id', '=', emp.id)] + blocker_date_domain)
+                scores = TaskLog.search([('employee_id', '=', emp.id), ('quality_score', '>', 0)] + task_date_domain)
+                avg_score = round(sum(s.quality_score for s in scores) / len(scores), 1) if scores else 0
+
+                active_projects = request.env['project.project'].sudo().search_count([
+                    '|', '|',
+                    ('project_tasker', '=', emp.id),
+                    ('project_qc_reviewer', '=', emp.id),
+                    ('project_lead', '=', emp.id),
+                    ('non_stemp_project_status', 'in', ['not_started', 'production']),
+                ])
+                alloc_status = 'Allocated' if active_projects else 'On-Bench'
+
+                row = [
+                    idx,
+                    emp.name or '',
+                    emp.work_email or '',
+                    role_name,
+                    emp.task_forge_pl_id.name if emp.task_forge_pl_id else '',
+                    emp.task_forge_qr_id.name if emp.task_forge_qr_id else '',
+                    emp.create_date.strftime('%Y-%m-%d') if emp.create_date else '',
+                    total_tasks,
+                    completed,
+                    blocker_count,
+                    avg_score,
+                    alloc_status,
+                ]
+                self._write_row(ws, fmt, idx + 3, row, col_types)
+
+            ws.autofilter(3, 0, 3 + len(employees), len(headers) - 1)
+            ws.freeze_panes(4, 2)
+            s3_url = self._finalize_and_upload(wb, output, 'employee_list_report')
+
+            return return_Response(message="Employee list report generated", status=200,
+                                   data={'download_url': s3_url})
+        except Exception as e:
+            _logger.error('Export employee list failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
