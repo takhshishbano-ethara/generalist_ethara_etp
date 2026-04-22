@@ -265,26 +265,46 @@ class TalosGogAuthController(http.Controller):
                 "find . -type f | while read f; do "
                 '  rel=$(echo "$f" | sed "s|^\\./||"); '
                 '  echo "---FILE:$rel"; '
-                '  cat "$f"; '
+                '  base64 -w0 "$f" 2>/dev/null || base64 "$f"; '
+                '  echo ""; '
+                '  echo "---ENDFILE"; '
                 "done"
             ).format(config=config_dir)
 
             file_stdout, _, file_rc = _local_exec(collect_cmd, config_dir, keyring_pw)
 
+            import base64 as b64mod
             gog_auth_data = {}
             if file_rc == 0 and file_stdout.strip():
                 current_file = None
                 current_content = []
                 for line in file_stdout.splitlines():
                     if line.startswith("---FILE:"):
-                        if current_file is not None:
-                            gog_auth_data[current_file] = "\n".join(current_content)
+                        if current_file is not None and current_content:
+                            raw_b64 = "".join(current_content)
+                            try:
+                                gog_auth_data[current_file] = b64mod.b64decode(raw_b64).decode("utf-8")
+                            except Exception:
+                                gog_auth_data[current_file] = raw_b64
                         current_file = line[len("---FILE:"):]
                         current_content = []
+                    elif line.strip() == "---ENDFILE":
+                        if current_file is not None and current_content:
+                            raw_b64 = "".join(current_content)
+                            try:
+                                gog_auth_data[current_file] = b64mod.b64decode(raw_b64).decode("utf-8")
+                            except Exception:
+                                gog_auth_data[current_file] = raw_b64
+                            current_file = None
+                            current_content = []
                     else:
-                        current_content.append(line)
-                if current_file is not None:
-                    gog_auth_data[current_file] = "\n".join(current_content)
+                        current_content.append(line.strip())
+                if current_file is not None and current_content:
+                    raw_b64 = "".join(current_content)
+                    try:
+                        gog_auth_data[current_file] = b64mod.b64decode(raw_b64).decode("utf-8")
+                    except Exception:
+                        gog_auth_data[current_file] = raw_b64
 
             _logger.info(
                 "[GogAuth] step 2 collected %d config files: %s",

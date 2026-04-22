@@ -151,6 +151,11 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             "auth": {
                 "mode": "token",
                 "token": gateway_token,
+                "rateLimit": {
+                    "maxAttempts": 9999,
+                    "windowMs": 1000,
+                    "lockoutMs": 1000,
+                },
             },
             "trustedProxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
             "controlUi": {
@@ -692,7 +697,7 @@ class TalosSandboxK8s(models.AbstractModel):
                     "print(re.sub(r'_([0-9a-f]{2})_', lambda m: chr(int(m.group(1),16)), sys.argv[1]))\" "
                     '  "$bn") && '
                     '  mkdir -p "/gog-out/gogcli/$(dirname "$real")" && '
-                    '  cp -L "$f" "/gog-out/gogcli/$real"; '
+                    '  cp -L "$f" "/gog-out/gogcli/${real}.tmp" && mv "/gog-out/gogcli/${real}.tmp" "/gog-out/gogcli/$real"; '
                     "done && "
                     "ls -laR /gog-out/gogcli/ && "
                     "chown -R 1000:1000 /gog-out 2>/dev/null || true",
