@@ -741,6 +741,7 @@ class Talos(models.Model):
     )
     system_prompt = fields.Text(string="System Prompt")
     seed_prompt = fields.Text(string="Seed Prompt")
+    initial_prompt = fields.Text(string="Initial Prompt")
     agent_md = fields.Text(string="Agent MD")
     soul_md = fields.Text(string="Soul MD")
     memory_md = fields.Text(string="Memory MD")
