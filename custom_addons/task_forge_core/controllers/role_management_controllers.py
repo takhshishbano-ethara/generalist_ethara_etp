@@ -96,11 +96,13 @@ class TaskForgeRoleManagementController(http.Controller):
                 if emp.user_id and emp.user_id.user_role:
                     role_name = emp.user_id.user_role.name or ''
                 data.append({
-                    'id': emp.id,
+                    'id': emp.id or 0,
                     'name': emp.name or '',
                     'email': emp.work_email or '',
-                    'role': role_name,
+                    'role': role_name or '',
                     'date_of_joining': emp.create_date.strftime('%Y-%m-%d') if emp.create_date else '',
+                    'designation_id': emp.designation_id.id if emp.designation_id.id else 0,
+                    'job_title': emp.designation_id.name if emp.designation_id and emp.designation_id.name else ''
                 })
 
             return return_Response(

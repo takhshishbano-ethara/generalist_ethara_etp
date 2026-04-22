@@ -59,7 +59,7 @@ class TaskForgeBlockerController(http.Controller):
 
             task.write({
                 'state': 'blocker',
-                'pause_time': kwargs('pause_time'),
+                'pause_time': kwargs.get('pause_time') or pause_time_str,
             })
 
             try:

@@ -832,11 +832,11 @@ class TaskForgeExportController(http.Controller):
 
             headers = ['#', 'Employee Name', 'Email', 'Role', 'PL', 'QR',
                         'Date of Joining', 'Total Tasks', 'Completed', 'Blockers',
-                        'Avg Quality', 'Status']
+                        'Avg Quality', 'Status', 'Job Title']
             col_types = ['num', 'str', 'str', 'str', 'str', 'str',
                          'date', 'num', 'num', 'num',
-                         'num', 'status']
-            widths = [5, 28, 30, 16, 20, 20, 14, 12, 12, 10, 13, 14]
+                         'num', 'status', 'str']
+            widths = [5, 28, 30, 16, 20, 20, 14, 12, 12, 10, 13, 14, 20]
 
             self._write_title_banner(ws, fmt, 'Employee List Report', len(headers))
             self._write_headers(ws, fmt, headers)
@@ -873,6 +873,7 @@ class TaskForgeExportController(http.Controller):
                     blocker_count,
                     avg_score,
                     alloc_status,
+                    emp.designation_id.name if emp.designation_id else '',
                 ]
                 self._write_row(ws, fmt, idx + 3, row, col_types)
 
