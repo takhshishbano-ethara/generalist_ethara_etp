@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
@@ -36,7 +37,10 @@ def _get_system_prompt():
         return ""
 
     mtime = os.path.getmtime(path)
-    if _system_prompt_cache["text"] is not None and _system_prompt_cache["mtime"] == mtime:
+    if (
+        _system_prompt_cache["text"] is not None
+        and _system_prompt_cache["mtime"] == mtime
+    ):
         return _system_prompt_cache["text"]
 
     with open(path, "r") as f:
@@ -55,7 +59,10 @@ def _get_trajectory_qc_prompt():
         return ""
 
     mtime = os.path.getmtime(path)
-    if _trajectory_qc_prompt_cache["text"] is not None and _trajectory_qc_prompt_cache["mtime"] == mtime:
+    if (
+        _trajectory_qc_prompt_cache["text"] is not None
+        and _trajectory_qc_prompt_cache["mtime"] == mtime
+    ):
         return _trajectory_qc_prompt_cache["text"]
 
     with open(path, "r") as f:
@@ -188,6 +195,7 @@ def _run_trajectory_qc_background(
             region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
 
             from ..models.talos import _load_dotenv as _ld
+
             dotenv = _ld()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
@@ -206,10 +214,23 @@ def _run_trajectory_qc_background(
                 return
 
             if len(trajectory_str) > 50000:
-                trajectory_str = trajectory_str[:50000] + "\n\n[... truncated for length ...]"
+                trajectory_str = (
+                    trajectory_str[:50000] + "\n\n[... truncated for length ...]"
+                )
 
             total_usage = {"input_tokens": 0, "output_tokens": 0}
             try:
+                _logger.info(
+                    "QC bg: calling Kimi record=%s field=%s entry=%s "
+                    "arn=%s region=%s prompt_len=%d",
+                    record_id,
+                    field_name,
+                    entry_index,
+                    inference_arn,
+                    region,
+                    len(trajectory_str),
+                )
+                t0 = time.monotonic()
                 response_text, usage = _call_bedrock_converse(
                     api_key=api_key,
                     inference_arn=inference_arn,
@@ -219,10 +240,29 @@ def _run_trajectory_qc_background(
                     max_tokens=4096,
                     temperature=0.3,
                 )
+                elapsed = time.monotonic() - t0
                 total_usage["input_tokens"] += usage.get("input_tokens", 0)
                 total_usage["output_tokens"] += usage.get("output_tokens", 0)
+                _logger.info(
+                    "QC bg: Kimi response record=%s field=%s entry=%s "
+                    "elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                    "response_len=%d raw_output=%.500s",
+                    record_id,
+                    field_name,
+                    entry_index,
+                    elapsed,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    len(response_text),
+                    response_text,
+                )
                 if _is_degenerate(response_text):
-                    _logger.warning("QC bg: degenerate response, retrying temp=0.1")
+                    _logger.warning(
+                        "QC bg: degenerate response (%d chars), retrying temp=0.1: %.200s",
+                        len(response_text),
+                        response_text,
+                    )
+                    t0 = time.monotonic()
                     response_text, usage = _call_bedrock_converse(
                         api_key=api_key,
                         inference_arn=inference_arn,
@@ -233,25 +273,68 @@ def _run_trajectory_qc_background(
                         temperature=0.1,
                         top_p=0.7,
                     )
+                    elapsed = time.monotonic() - t0
                     total_usage["input_tokens"] += usage.get("input_tokens", 0)
                     total_usage["output_tokens"] += usage.get("output_tokens", 0)
+                    _logger.info(
+                        "QC bg: Kimi retry response record=%s field=%s entry=%s "
+                        "elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                        "response_len=%d raw_output=%.500s",
+                        record_id,
+                        field_name,
+                        entry_index,
+                        elapsed,
+                        usage.get("input_tokens", 0),
+                        usage.get("output_tokens", 0),
+                        len(response_text),
+                        response_text,
+                    )
             except Exception as e:
-                _logger.exception("QC bg: Bedrock call failed")
+                _logger.exception(
+                    "QC bg: Bedrock call failed record=%s field=%s entry=%s",
+                    record_id,
+                    field_name,
+                    entry_index,
+                )
                 _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+                _accumulate_tokens(
+                    env,
+                    record_id,
+                    "traj_qc_input_tokens",
+                    "traj_qc_output_tokens",
+                    total_usage,
+                )
                 return
 
-            _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+            _accumulate_tokens(
+                env,
+                record_id,
+                "traj_qc_input_tokens",
+                "traj_qc_output_tokens",
+                total_usage,
+            )
 
             qc_verdict = _parse_qc_verdict(response_text)
             if qc_verdict:
-                _update_qc_entry(env, record_id, field_name, entry_index, "done", qc_verdict)
-                _logger.info("QC bg: done for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+                _update_qc_entry(
+                    env, record_id, field_name, entry_index, "done", qc_verdict
+                )
+                _logger.info(
+                    "QC bg: done for record=%s field=%s entry=%s",
+                    record_id,
+                    field_name,
+                    entry_index,
+                )
             else:
                 _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
                 _logger.warning("QC bg: no parseable verdict for record=%s", record_id)
     except Exception:
-        _logger.exception("QC bg: unhandled error for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+        _logger.exception(
+            "QC bg: unhandled error for record=%s field=%s entry=%s",
+            record_id,
+            field_name,
+            entry_index,
+        )
 
 
 def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):
@@ -277,7 +360,12 @@ def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_resu
         new_value = json.dumps(data, indent=2, ensure_ascii=False)
         task.write({field_name: new_value})
     except Exception:
-        _logger.exception("_update_qc_entry failed for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+        _logger.exception(
+            "_update_qc_entry failed for record=%s field=%s entry=%s",
+            record_id,
+            field_name,
+            entry_index,
+        )
 
 
 def _accumulate_tokens(env, record_id, in_field, out_field, usage):
@@ -290,14 +378,18 @@ def _accumulate_tokens(env, record_id, in_field, out_field, usage):
         task = env["talos.talos"].browse(record_id)
         if not task.exists():
             return
-        task.write({
-            in_field: (getattr(task, in_field, 0) or 0) + t_in,
-            out_field: (getattr(task, out_field, 0) or 0) + t_out,
-        })
+        task.write(
+            {
+                in_field: (getattr(task, in_field, 0) or 0) + t_in,
+                out_field: (getattr(task, out_field, 0) or 0) + t_out,
+            }
+        )
     except Exception:
         _logger.exception(
             "_accumulate_tokens failed for record=%s %s/%s",
-            record_id, in_field, out_field,
+            record_id,
+            in_field,
+            out_field,
         )
 
 
@@ -337,7 +429,7 @@ def _call_bedrock_converse(
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
-    with httpx.Client(http2=False, timeout=timeout) as client:
+    with httpx.Client(http2=True, timeout=timeout) as client:
         resp = client.post(url, json=payload, headers=headers)
 
     if resp.status_code != 200:
@@ -397,6 +489,13 @@ class LlmAssistQc(http.Controller):
             system_prompt = _get_system_prompt()
 
         try:
+            _logger.info(
+                "seed QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                inference_arn,
+                region,
+                len(prompt),
+            )
+            t0 = time.monotonic()
             response_text, usage = _call_bedrock_converse(
                 api_key=api_key,
                 inference_arn=inference_arn,
@@ -406,9 +505,24 @@ class LlmAssistQc(http.Controller):
                 max_tokens=int(max_tokens),
                 temperature=float(temperature),
             )
+            elapsed = time.monotonic() - t0
+            _logger.info(
+                "seed QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "response_len=%d raw_output=%.500s",
+                elapsed,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+                len(response_text),
+                response_text,
+            )
 
             if _is_degenerate(response_text):
-                _logger.warning("QC response degenerated, retrying with temperature=0.1")
+                _logger.warning(
+                    "seed QC: degenerate response (%d chars), retrying temp=0.1: %.200s",
+                    len(response_text),
+                    response_text,
+                )
+                t0 = time.monotonic()
                 response_text, usage = _call_bedrock_converse(
                     api_key=api_key,
                     inference_arn=inference_arn,
@@ -419,9 +533,19 @@ class LlmAssistQc(http.Controller):
                     temperature=0.1,
                     top_p=0.7,
                 )
+                elapsed = time.monotonic() - t0
+                _logger.info(
+                    "seed QC: Kimi retry response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                    "response_len=%d raw_output=%.500s",
+                    elapsed,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    len(response_text),
+                    response_text,
+                )
 
         except Exception as e:
-            _logger.exception("QC Bedrock call failed")
+            _logger.exception("seed QC: Bedrock call failed")
             return {"error": str(e)[:500]}
 
         parsed_json = _parse_json_response(response_text)
@@ -477,7 +601,11 @@ class LlmAssistQc(http.Controller):
         def _submit():
             _QC_POOL.submit(
                 _run_trajectory_qc_background,
-                db_name, record_id, field_name, entry_index, trajectory_str,
+                db_name,
+                record_id,
+                field_name,
+                entry_index,
+                trajectory_str,
             )
 
         request.env.cr.postcommit.add(_submit)
@@ -485,7 +613,9 @@ class LlmAssistQc(http.Controller):
         return {"success": True}
 
     @http.route("/talos/generate_task_description", type="json", auth="user")
-    def generate_task_description(self, record_id=0, field_name="", entry_index=-1, **kw):
+    def generate_task_description(
+        self, record_id=0, field_name="", entry_index=-1, **kw
+    ):
         """Trigger background task-description generation for a trajectory entry."""
         record_id = int(record_id or 0)
         entry_index = int(entry_index if entry_index is not None else -1)
@@ -525,7 +655,12 @@ class LlmAssistQc(http.Controller):
         def _submit():
             _TASKDESC_POOL.submit(
                 _inject_task_description_bg,
-                db_name, record_id, field_name, seed_prompt, messages, entry_index,
+                db_name,
+                record_id,
+                field_name,
+                seed_prompt,
+                messages,
+                entry_index,
             )
 
         request.env.cr.postcommit.add(_submit)
@@ -533,7 +668,9 @@ class LlmAssistQc(http.Controller):
         return {"success": True}
 
     @http.route("/talos/abort_trajectory_action", type="json", auth="user")
-    def abort_trajectory_action(self, record_id=0, field_name="", entry_index=-1, action_type="", **kw):
+    def abort_trajectory_action(
+        self, record_id=0, field_name="", entry_index=-1, action_type="", **kw
+    ):
         """Abort a running QC or task-description generation by flipping status to 'aborted'."""
         record_id = int(record_id or 0)
         entry_index = int(entry_index if entry_index is not None else -1)
@@ -622,6 +759,13 @@ class LlmAssistQc(http.Controller):
                     status=500,
                 )
 
+            _logger.info(
+                "legacy QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                inference_arn,
+                region,
+                len(prompt),
+            )
+            t0 = time.monotonic()
             response_text, usage = _call_bedrock_converse(
                 api_key=api_key,
                 inference_arn=inference_arn,
@@ -630,6 +774,16 @@ class LlmAssistQc(http.Controller):
                 user_message=prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
+            )
+            elapsed = time.monotonic() - t0
+            _logger.info(
+                "legacy QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "response_len=%d raw_output=%.500s",
+                elapsed,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+                len(response_text),
+                response_text,
             )
 
             parsed_json = _parse_json_response(response_text)

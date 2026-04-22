@@ -418,6 +418,15 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
 
         from ..controllers.llm_assisst_qc import _call_bedrock_converse
 
+        _logger.info(
+            "task_desc: calling Kimi arn=%s region=%s prompt_len=%d",
+            inference_arn,
+            region,
+            len(user_message),
+        )
+        import time as _time
+
+        t0 = _time.monotonic()
         response_text, usage = _call_bedrock_converse(
             api_key=api_key,
             inference_arn=inference_arn,
@@ -427,6 +436,16 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
             max_tokens=1024,
             temperature=0.3,
             timeout=90.0,
+        )
+        elapsed = _time.monotonic() - t0
+        _logger.info(
+            "task_desc: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+            "response_len=%d raw_output=%.500s",
+            elapsed,
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+            len(response_text),
+            response_text,
         )
         desc = response_text.strip().replace("\n", " ")
 
@@ -459,7 +478,9 @@ def _format_tool_result(result):
         return str(result)
 
 
-def _wrap_trajectory_message(msg, is_accepted=0, hints=None):
+def _wrap_trajectory_message(
+    msg, is_accepted=0, hints=None, is_auto_hint=False, auto_hint_iteration=0
+):
     """Wrap an assistant or toolResult message with is_accepted/hints.
 
     User messages are returned as-is (no wrapper per client spec).
@@ -469,11 +490,15 @@ def _wrap_trajectory_message(msg, is_accepted=0, hints=None):
     if isinstance(inner, dict):
         role = inner.get("role", "")
     if role in ("assistant", "toolResult"):
-        return {
+        wrapped = {
             "is_accepted": is_accepted,
             "hints": hints,
             "message": msg,
         }
+        if is_auto_hint:
+            wrapped["is_auto_hint"] = True
+            wrapped["auto_hint_iteration"] = auto_hint_iteration
+        return wrapped
     return msg
 
 
@@ -497,11 +522,21 @@ def _wrap_messages_with_turn_feedback(messages, turns):
         else:
             is_accepted = 0
             hint = None
-        turn_feedback.append((user_text, is_accepted, hint))
+        turn_feedback.append(
+            (
+                user_text,
+                is_accepted,
+                hint,
+                getattr(t, "is_auto_hint", False),
+                getattr(t, "auto_hint_iteration", 0),
+            )
+        )
 
     wrapped = []
     current_accepted = 0
     current_hints = None
+    current_is_auto_hint = False
+    current_auto_hint_iteration = 0
     turn_idx = 0
 
     for msg in messages:
@@ -530,13 +565,25 @@ def _wrap_messages_with_turn_feedback(messages, turns):
             if matched:
                 current_accepted = turn_feedback[turn_idx][1]
                 current_hints = turn_feedback[turn_idx][2]
+                current_is_auto_hint = turn_feedback[turn_idx][3]
+                current_auto_hint_iteration = turn_feedback[turn_idx][4]
                 turn_idx += 1
             elif user_text:
                 current_accepted = turn_feedback[turn_idx][1]
                 current_hints = turn_feedback[turn_idx][2]
+                current_is_auto_hint = turn_feedback[turn_idx][3]
+                current_auto_hint_iteration = turn_feedback[turn_idx][4]
                 turn_idx += 1
 
-        wrapped.append(_wrap_trajectory_message(msg, current_accepted, current_hints))
+        wrapped.append(
+            _wrap_trajectory_message(
+                msg,
+                current_accepted,
+                current_hints,
+                current_is_auto_hint,
+                current_auto_hint_iteration,
+            )
+        )
 
     return wrapped
 
@@ -731,7 +778,10 @@ class Talos(models.Model):
             ("high_stakes_actions", "high_stakes_actions"),
             ("borderline_requests", "borderline_requests"),
             ("private_data_usage", "private_data_usage"),
-            ("ambiguous_requests_or_confirmations", "ambiguous_requests_or_confirmations"),
+            (
+                "ambiguous_requests_or_confirmations",
+                "ambiguous_requests_or_confirmations",
+            ),
             ("third_party_instructions", "third_party_instructions"),
             ("context_sensitive_tasks", "context_sensitive_tasks"),
             ("jailbreaks_and_prompt_injections", "jailbreaks_and_prompt_injections"),
@@ -860,6 +910,11 @@ class Talos(models.Model):
     # Golden trajectory generation tokens
     golden_input_tokens = fields.Integer(string="Golden Gen Input Tokens", default=0)
     golden_output_tokens = fields.Integer(string="Golden Gen Output Tokens", default=0)
+    # Kimi auto-hint evaluation tokens
+    kimi_eval_input_tokens = fields.Integer(string="Kimi Eval Input Tokens", default=0)
+    kimi_eval_output_tokens = fields.Integer(
+        string="Kimi Eval Output Tokens", default=0
+    )
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -1425,7 +1480,9 @@ class TalosTurn(models.Model):
         related="talos_id.employee_id", store=True, readonly=True
     )
     turn_number = fields.Integer(string="Turn Number")
-    turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
+    turn_status = fields.Selection(
+        [("Pending", "Pending"), ("Streaming", "Streaming"), ("Completed", "Completed")]
+    )
     prompt = fields.Text(string="Prompt")
     response = fields.Text(string="Response")
     run_id = fields.Char(string="Run ID", index=True)
@@ -1468,6 +1525,20 @@ class TalosTurn(models.Model):
     hints = fields.Text(string="Hints")
     hint_text = fields.Text(string="Hint Text")
     is_hint_turn = fields.Boolean(string="Is Hint Turn", default=False)
+    is_auto_hint = fields.Boolean(
+        string="Is Auto Hint",
+        default=False,
+        help="True if this turn was generated by automated Kimi QC, not a human.",
+    )
+    auto_hint_iteration = fields.Integer(
+        string="Auto Hint Iteration",
+        default=0,
+        help="Which iteration of the auto-hint loop produced this turn (1-5). 0 = not auto-hint.",
+    )
+    auto_hint_group_id = fields.Char(
+        string="Auto Hint Group ID",
+        help="UUID linking all turns in a single auto-hint evaluation loop.",
+    )
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):

@@ -291,6 +291,29 @@ class TalosSandbox(models.Model):
         default="not_started",
     )
 
+    # Auto-hint loop state
+    auto_hint_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("evaluating", "Evaluating"),
+            ("sending_hint", "Sending Hint"),
+            ("streaming", "Streaming"),
+            ("max_retries", "Max Retries Reached"),
+            ("error", "Error"),
+        ],
+        default="idle",
+        help="Current state of the automated hint loop.",
+    )
+    auto_hint_iteration = fields.Integer(
+        string="Auto Hint Current Iteration",
+        default=0,
+        help="Current iteration count of the in-flight auto-hint loop (0 = idle).",
+    )
+    auto_hint_group_id = fields.Char(
+        string="Auto Hint Group ID",
+        help="UUID of the currently active auto-hint loop.",
+    )
+
     # Turns
     turn_ids = fields.One2many("talos.turn", "sandbox_id", string="Turns")
 
