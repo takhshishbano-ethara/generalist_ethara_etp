@@ -8,6 +8,7 @@ and copied to sandbox pods via the gog-setup init container.
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -18,7 +19,7 @@ _logger = logging.getLogger(__name__)
 
 _GOG_TIMEOUT = 45
 _GOG_SERVICES = "gmail,calendar,drive,contacts,sheets,docs"
-_GOG_BIN = "/usr/local/bin/gog"
+_GOG_BIN = shutil.which("gog") or "/usr/local/bin/gog"
 
 
 def _gog_config_dir(task_id):
