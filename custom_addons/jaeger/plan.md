@@ -1,9 +1,9 @@
 # Jaeger Pipeline — Engineering Plan
 
-> **Version:** 17.0.0
+> **Version:** 18.0.0
 > **Date:** 2026-04-22
-> **Status:** Phase 1 implemented, Phase 2 (Stages 3-5) enabled + Stage 3 hardened + Stage 4 production-grade
-> **Scope:** Stage 1 (repo validation) + Stage 2 (PR collection) + Stage 3 (Docker build) + Stage 4 (test execution) + Stage 5 (dataset finalization)
+> **Status:** Phase 1 implemented, Phase 2 (Stages 3-5) enabled + Stage 3 hardened + Stage 4 production-grade + Human-in-the-Loop Test Config + Parser Fixes (AVA, Mocha)
+> **Scope:** Stage 1 (repo validation) + Stage 2 (PR collection) + Stage 3 (Docker build) + Stage 4 (test execution) + Stage 5 (dataset finalization) + Test Config overrides
 > **Module:** `ethara-etp/custom_addons/jaeger/`
 
 ---
@@ -167,19 +167,20 @@ This handles repos where older commits use different test frameworks (e.g., chal
 
 `_parse_test_log()` (jaeger_instance.py:385) auto-detects the test framework from log content and delegates to 7 parsers:
 
-| Parser | Detection Signal | Method |
-|--------|-----------------|--------|
-| Go | `--- PASS:` / `--- FAIL:` | `_parse_go_log()` (line 442) |
-| Rust | `test \S+ ... ok/FAILED/ignored` | `_parse_rust_log()` (line 472) |
-| Jest/Vitest | `✓` / `✕` / `○` symbols | `_parse_jest_log()` (line 492) |
-| Mocha | `✔` / `N passing` | `_parse_mocha_log()` (line 511) |
-| CTest | `Test #N:` / `[ PASS ]` / `[ FAIL ]` | `_parse_ctest_log()` (line 539) |
-| Maven/Surefire | `[INFO/ERROR].*Tests run:` | `_parse_maven_log()` (line 577) |
-| pytest | (default fallback) | `_parse_pytest_log()` (line 424) |
+| Priority | Parser | Detection Signal | Method |
+|----------|--------|-----------------|--------|
+| 1 | Go | `--- PASS:` / `--- FAIL:` | `_parse_go_log()` (line 710) |
+| 2 | Rust | `test \S+ ... ok/FAILED/ignored` | `_parse_rust_log()` (line 740) |
+| 3 | Mocha | `\d+ passing` OR `\d+ failing` | `_parse_mocha_log()` (line 779) |
+| 4 | AVA | `\d+ tests? failed` / `\d+ (tests?)? passed` | `_parse_ava_log()` (line 631) |
+| 5 | Jest/Vitest | `✓` / `✕` / `○` symbols | `_parse_jest_log()` (line 760) |
+| 6 | CTest | `Test #N:` / `[ PASS ]` / `[ FAIL ]` | `_parse_ctest_log()` (line 820) |
+| 7 | Maven/Surefire | `[INFO/ERROR].*Tests run:` | `_parse_maven_log()` (line 850+) |
+| 8 | pytest | (default fallback) | `_parse_pytest_log()` (line 692) |
 
 Each parser returns `{passed_count, failed_count, skipped_count, passed_tests, failed_tests, skipped_tests}`.
 
-Go parser has priority handling: FAIL wins over PASS for the same test name. Maven parser strips ANSI escape sequences.
+**Detection order is critical:** Mocha and Jest both use `✓` (U+2713). Mocha is detected first by checking for `\d+ passing` / `\d+ failing` summary lines (which jest doesn't emit). AVA is checked before Jest because AVA's spinner output after ANSI stripping can contain `✓`. Go parser has priority handling: FAIL wins over PASS for the same test name.
 
 #### Test Classification
 
@@ -666,6 +667,267 @@ Button: "Download Raw Dataset JSONL" visible in Stage 2 tab when `pr_collection_
 
 ## 17. Changelog
 
+### v18.0.0 (2026-04-22) — Human-in-the-Loop Test Config + Parser Fixes
+
+Added a `test_config_json` field to `jaeger.repository` that lets a human override auto-detected pipeline settings. Auto-detection remains the default; human intervenes only when it fails. Also fixed AVA and Mocha parsers, reordered parser detection, and fixed post-build validation false positives.
+
+#### Why This Was Needed
+
+The multi-swe-bench reference has **2,813 hand-written Python config files** — one per repo — defining base image, install commands, test commands, system deps, and custom log parsers. Each was tuned by a human. Our pipeline auto-detects these, which works for ~60% of repos but fails for repos with unusual setups (yarn vs npm vs pnpm, custom system deps, PR-range-specific base images, custom test runner invocations like `npx ava` vs `npm test`).
+
+**Core problem:** `npm test` in many JS repos runs `linter && test-runner`. Old commits often fail the linter (style changes over time), so tests never execute. Human override to run the test runner directly (e.g., `npx ava`) bypasses this.
+
+#### New Fields on `jaeger.repository`
+
+```python
+# Line 720-729 in jaeger_repository.py
+test_config_json = fields.Text(
+    string="Test Configuration (JSON)",
+    help="Optional JSON overrides for auto-detected settings. "
+         "Keys: base_image, system_deps, install_cmd, test_cmd, "
+         "prepare_cmd, parser, memory_limit, network, env",
+)
+test_config_effective = fields.Text(
+    string="Effective Config",
+    compute="_compute_test_config_effective",
+)
+```
+
+#### JSON Schema
+
+```json
+{
+  "base_image": "node:22",
+  "system_deps": ["cmake", "g++", "pkg-config"],
+  "install_cmd": "yarn install --frozen-lockfile",
+  "test_cmd": "yarn test -- --verbose",
+  "prepare_cmd": "yarn build",
+  "parser": "mocha",
+  "memory_limit": "8g",
+  "network": true,
+  "env": {"NODE_OPTIONS": "--max-old-space-size=4096"}
+}
+```
+
+All keys are optional. Missing keys = auto-detected (current behavior). Single JSON field (not 10 separate Char fields) because config needs vary wildly per language.
+
+#### Architecture: 5 Injection Points
+
+| # | Method | File:Line | Override Keys | Fallback |
+|---|--------|-----------|---------------|----------|
+| 1 | `_build_base_image()` | jaeger_repository.py:1857 | `base_image`, `system_deps`, `install_cmd`, `env` | `LANGUAGE_BASE_IMAGES[]`, language-based apt-get, `_detect_install_commands()` |
+| 2 | `_generate_dockerfile()` | jaeger_repository.py:2215 | `install_cmd` (for dep reinstall) | `_dep_reinstall_commands()` |
+| 3 | `_generate_fix_run_script()` | jaeger_repository.py:2276 | `test_cmd`, `prepare_cmd` | Language switch + `_generate_js_fix_run_script()` |
+| 4 | `_execute_docker_run_pure()` | jaeger_instance.py:10 | `memory_limit`, `network` | Language-based 4g/8g, Python-only `--network none` |
+| 5 | `_run_instance_tests_standalone()` | jaeger_instance.py:117 | `memory_limit`, `network` (read from DB) | Same as #4 |
+
+Plus the ORM path `_execute_docker_run()` (jaeger_instance.py:547) also reads config.
+
+#### Core Method: `_get_effective_config()` (Line 1700)
+
+Single source of truth — all injection points call this:
+
+```python
+def _get_effective_config(self):
+    config = {}
+    if self.test_config_json:
+        try:
+            config = json.loads(self.test_config_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    lang = (self.language or "python").lower()
+    config.setdefault("base_image", LANGUAGE_BASE_IMAGES.get(lang, "python:3.11-slim"))
+    config.setdefault("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
+    config.setdefault("network", lang != "python")
+    config.setdefault("parser", None)
+    return config
+```
+
+#### UI: Test Config Tab (jaeger_repository_views.xml:236-256)
+
+New notebook page between Docker Build and Test Execution tabs. Visible from Stage 3 onwards:
+
+```xml
+<page string="Test Config" name="test_config"
+      invisible="current_stage not in ('stage3','stage4','stage5','stage6','stage7','done')">
+    <div class="alert alert-secondary mb-3" role="alert">
+        <strong>Override auto-detected settings.</strong>
+        Leave empty to use auto-detection (default). Only fill keys you need to change.
+    </div>
+    <group>
+        <group string="Manual Overrides">
+            <button name="action_detect_config" type="object"
+                    string="Auto-Detect Config" class="btn-secondary mb-2"/>
+            <field name="test_config_json" widget="ace" options="{'mode': 'json'}" nolabel="1"/>
+        </group>
+        <group string="Effective Config (what will run)">
+            <field name="test_config_effective" nolabel="1" readonly="1"/>
+        </group>
+    </group>
+</page>
+```
+
+**Auto-Detect Config button** (`action_detect_config`, line 1732): Shallow-clones repo, runs `_detect_install_commands()`, auto-populates `test_config_json` with detected settings. Human then tweaks as needed.
+
+**Effective Config** (`test_config_effective`, computed field): Shows merged JSON — what the pipeline will actually use. Read-only. Uses plain text rendering (ace widget doesn't render readonly computed fields properly in Odoo 19).
+
+#### Parser Fixes (3 Bugs Fixed)
+
+**Bug #1: Parser Detection Order — Mocha Routed to Jest**
+- **Problem:** Both mocha and jest use `✓` (U+2713). Previous order checked jest first → mocha output parsed as jest → mocha-specific features (numbered failures, `N passing/failing` summary) missed.
+- **Fix:** Reordered detection: mocha checks for `\d+ passing` / `\d+ failing` first (line 612), before jest/ava. Jest only triggered if no mocha/ava signals found.
+- **Impact:** sails/sails (JAE-0028) mocha output now correctly parsed.
+
+**Bug #2: Mocha Parser Missed `✓` (U+2713)**
+- **Problem:** `_parse_mocha_log()` only matched `✔` (U+2714, heavy check mark). Many mocha outputs use `✓` (U+2713, regular check mark).
+- **Fix:** Updated regex at line 781: `re_pass = re.compile(r"[✓✔]\s+(.+?)(?:\s+\(\d+ms\))?\s*$")`. Also added `summary_passed`/`summary_failed` fallback from `N passing`/`N failing` lines (lines 796-817) — generates synthetic test names when individual checkmarks not found.
+
+**Bug #3: AVA Parser Didn't Exist**
+- **Problem:** AVA uses spinner-based output with ANSI escape codes. After stripping ANSI, output has "N passed" / "N tests failed" summary lines and optionally `✔ suite › test name` per-test lines. Without a parser, AVA repos returned 0 passed / 0 failed.
+- **Fix:** New `_strip_ansi()` static method (line 628): `re.sub(r"\x1b\[[0-9;]*[a-zA-Z]|\[2K\[1A", "", text)`. New `_parse_ava_log()` (line 631) handles both styles:
+  - Newer AVA: spinner + "N passed" / "N tests failed" summary
+  - Older AVA: `✔ suite › test name` per-test + "N tests passed"
+  - Failed test extraction: looks for `suite › test` lines followed by "Error"/"thrown"
+
+#### Post-Build Validation Fix
+
+**Bug: `package-lock.json` False Positives**
+- **File:** jaeger_repository.py:1665
+- **Problem:** `git status --porcelain` in the smoke test picked up untracked `package-lock.json` on old JS commits (npm auto-generates it). This caused the "Working tree has N modified files" validation error → image marked as failed even though it was correct.
+- **Fix:** Changed to `git status --porcelain -uno` (ignore untracked files). The smoke test validates that the **checked-out** commit is clean, not that zero files exist outside the repo tree.
+
+#### Early-Skip Chicken-and-Egg Issue (Operational Discovery)
+
+When parsers were broken (returning 0 failures), Run 2 always showed "0 failures" → Run 3 was always skipped → no f2p data generated. After fixing parsers, re-parsing old logs would show failures, but Run 3 data didn't exist. **Resolution:** Must re-run full test execution (all 3 runs) after parser fixes. Cannot retroactively fix by re-parsing — the execution must happen again.
+
+#### Repos Tested & Results
+
+| Repo ID | Repo | Language | Instances | Config Used | Valid Before | Valid After | Key Finding |
+|---------|------|----------|-----------|-------------|-------------|-------------|-------------|
+| JAE-0029 | chalk/chalk | JavaScript | 36 | `{"test_cmd": "npx ava"}` | 0/36 | **7/36** | `npm test` runs xo linter → fails on old commits. `npx ava` skips linter, runs tests directly. Proves test config feature works. |
+| JAE-0028 | balderdashy/sails | JavaScript | 19 | `{"test_cmd": "npx mocha --timeout 10000 --recursive test/"}` | 0/19 | **0/19** | 12/19 instances crash on node:20 (code too old), 4 have bad patches, 3 have pre-existing failures. Bad SWE-bench data, not pipeline issue. |
+| JAE-0012 | theskumar/python-dotenv | Python | 29 | `{"install_cmd": "pip install -e \".[dev,test]\" && pip install sh mock ipython"}` | 0/29 | Config set, rebuild pending | Auto-detection misses `sh` module. Original SWE-bench images had hand-written configs including these deps. |
+
+#### Detailed Repo Analysis
+
+**chalk/chalk (JAE-0029) — SUCCESS STORY**
+
+- **Problem:** `npm test` in chalk runs `xo && ava`. `xo` is a strict linter that fails on code from 2+ years ago (style rules have changed). Tests never execute.
+- **Diagnosis:** Checked `package.json` at multiple base_sha commits. All had `"test": "xo && ava"`.
+- **Solution:** Set `test_cmd: "npx ava"` to bypass the linter entirely and run ava directly.
+- **Result:** 7 instances produced f2p tests. 29 instances had 0 test failures in Run 2 (early-skip kicked in correctly). Remaining instances had various issues (broken patches, test files not at base_sha).
+- **Config that worked:**
+  ```json
+  {"test_cmd": "npx ava"}
+  ```
+
+**balderdashy/sails (JAE-0028) — DATA QUALITY ISSUE**
+
+- **Problem:** All 19 instances invalid even after config override.
+- **Root cause analysis (instance by instance):**
+  - 12 instances: `base_sha` is from 2017-2019, code requires Node 8-12. Our base image is `node:20-slim` → syntax errors, missing APIs, npm peer dep failures.
+  - 4 instances: `fix_patch` modifies files that don't exist at `base_sha` → `git apply` fails silently.
+  - 3 instances: Tests pass in both Run 2 and Run 3 → p2p only, no f2p. Pre-existing test coverage already covered the "bug".
+- **Conclusion:** Not a pipeline issue. The SWE-bench data for sails is low-quality — would require per-instance base_image overrides (e.g., `node:12` for old PRs) which our repo-level config can't do. Would need instance-level config (future feature).
+- **Config tried:**
+  ```json
+  {"test_cmd": "npx mocha --timeout 10000 --recursive test/"}
+  ```
+
+**python-dotenv (JAE-0012) — DEPENDENCY GAP**
+
+- **Problem:** Tests import `sh` module but `pip install -e ".[dev,test]"` doesn't install it. Also needs `mock` and `ipython` for full test suite.
+- **Diagnosis:** Compared our auto-detected install against the SWE-bench reference config. Reference had hand-written `pip install sh mock ipython` in addition to the standard install.
+- **Solution:** Set `install_cmd` to include the missing deps.
+- **Status:** Config set, requires base image rebuild + test re-run.
+- **Config set:**
+  ```json
+  {"install_cmd": "pip install -e \".[dev,test]\" && pip install sh mock ipython"}
+  ```
+
+#### Process Playbook: How to Use Test Config
+
+**For a new JavaScript/TypeScript repo:**
+
+1. **Import repo** → Run through Stage 1 (validate) → Stage 2 (collect PRs)
+2. **Check `package.json`** at HEAD: look at `scripts.test` field
+   - If `"test": "linter && test-runner"` → you'll likely need a config override
+   - If `"test": "jest"` or `"test": "mocha"` → auto-detection probably works
+3. **Build base image** (Stage 3) first with no config → check if it succeeds
+4. **If tests fail with `npm test`:** Identify the test runner from `package.json`:
+   - `ava` → set `{"test_cmd": "npx ava"}`
+   - `mocha` → set `{"test_cmd": "npx mocha --recursive test/"}`
+   - `jest` → set `{"test_cmd": "npx jest --verbose"}`
+   - `vitest` → set `{"test_cmd": "npx vitest run"}`
+5. **After setting config:** You MUST rebuild Docker images (base image unchanged, but per-PR images need new `fix-run.sh`). The `fix-run.sh` is baked into the Docker image at build time — config changes don't take effect until rebuild.
+6. **Re-run tests** after rebuild
+
+**For a new Python repo:**
+
+1. **Import repo** → Stage 1 → Stage 2 → Stage 3 (build base image)
+2. **If tests fail with missing imports:** Check what the test files import:
+   ```bash
+   grep "^import\|^from" tests/test_*.py | sort -u
+   ```
+3. **Set `install_cmd`** to include missing deps:
+   ```json
+   {"install_cmd": "pip install -e \".[dev,test]\" && pip install <missing-dep1> <missing-dep2>"}
+   ```
+4. **IMPORTANT:** Setting `install_cmd` requires **base image rebuild** (not just per-PR image rebuild). Reset `base_image_status` to `none` in the form view or via DB, then click "Build Images" again.
+5. **Do NOT use `-x` flag in pytest** — it stops on first failure, most instances will report 0 tests. Use `-v` for verbose output.
+
+**Common pitfalls:**
+
+| Pitfall | Symptom | Fix |
+|---------|---------|-----|
+| Config changed but not rebuilt | Old test results persist | Rebuild per-PR images (and base image if `install_cmd`/`base_image` changed) |
+| `npm test` runs linter | All instances 0 tests | Override `test_cmd` to run test runner directly |
+| `-x` flag in pytest | Most instances show 0 tests | Remove `-x`, use `-v` only |
+| Missing test deps (Python) | `ModuleNotFoundError` in logs | Add missing deps to `install_cmd` |
+| Old Node.js code on node:20 | Syntax errors, peer dep failures | Need `base_image: "node:12"` or `node:14"` — but this is repo-wide, may break newer PRs |
+| Base image cached | `install_cmd` change ignored | Reset `base_image_status` to `none` before rebuilding |
+| `test_config_effective` empty | Computed field not rendered | Normal until module is updated (`-u jaeger`). Also won't show in create mode. |
+
+#### Known Gaps & Future Work
+
+1. **Instance-level config overrides**: Current config is per-repo. Repos like sails need per-instance overrides (e.g., `node:12` for 2017 PRs, `node:20` for 2023 PRs). Would need an `instance_config_json` field.
+
+2. **Automatic config detection from SWE-bench reference**: We have 2,813 reference configs. Could auto-import them when a matching repo is detected.
+
+3. **Parser auto-selection from config**: `config["parser"]` key exists but isn't wired into `_parse_test_log()` yet. Would allow forcing a specific parser when auto-detection fails.
+
+4. **Config validation**: No JSON schema validation — invalid keys are silently ignored. Could add a `_validate_test_config()` method.
+
+5. **Config diff tracking**: No history of config changes. Could log config changes to `log_output` when `test_config_json` is written.
+
+6. **Base image auto-rebuild on config change**: Changing `install_cmd` or `base_image` in config should auto-reset `base_image_status` to `none`. Currently requires manual reset.
+
+7. **Network policy in smoke test**: `_validate_docker_image()` still uses `--network none` always (line 1661). Should be language-conditional like test execution. Currently OK because smoke test only checks file existence, not dep resolution.
+
+#### Files Changed in v18
+
+| File | Line(s) | Changes |
+|------|---------|---------|
+| `jaeger_repository.py` | 720-729 | `test_config_json` + `test_config_effective` field definitions |
+| `jaeger_repository.py` | 1698-1720 | `_get_effective_config()` — merge overrides with defaults |
+| `jaeger_repository.py` | 1722-1730 | `_compute_test_config_effective()` — computed field |
+| `jaeger_repository.py` | 1732-1782 | `action_detect_config()` — auto-populate from repo detection |
+| `jaeger_repository.py` | 1857 | `_build_base_image()` — reads `base_image`, `system_deps`, `install_cmd`, `env` from config |
+| `jaeger_repository.py` | 1960-1965 | `_build_base_image()` — custom ENV vars from `config.get("env")` |
+| `jaeger_repository.py` | 2215-2220 | `_generate_dockerfile()` — reads `install_cmd` for dep reinstall |
+| `jaeger_repository.py` | 2276-2294 | `_generate_fix_run_script()` — config-override path for `test_cmd`/`prepare_cmd` |
+| `jaeger_repository.py` | 1665 | `_validate_docker_image()` — `git status --porcelain -uno` (ignore untracked) |
+| `jaeger_instance.py` | 10-76 | `_execute_docker_run_pure()` — added `network_enabled` parameter |
+| `jaeger_instance.py` | 117-119 | `_run_instance_tests_standalone()` — reads config from DB for memory_limit + network |
+| `jaeger_instance.py` | 547-563 | `_execute_docker_run()` (ORM) — reads config for memory + network |
+| `jaeger_instance.py` | 595-625 | `_parse_test_log()` — reordered detection: mocha before jest, added AVA |
+| `jaeger_instance.py` | 627-629 | `_strip_ansi()` — new static method for ANSI escape stripping |
+| `jaeger_instance.py` | 631-676 | `_parse_ava_log()` — new parser for AVA test runner |
+| `jaeger_instance.py` | 779-818 | `_parse_mocha_log()` — updated to match both U+2713 and U+2714, added summary fallback |
+| `jaeger_repository_views.xml` | 236-256 | Test Config tab with JSON editor, effective config, detect button |
+
+---
+
 ### v17.0.0 (2026-04-22) — Stage 4: Production-Grade Test Execution
 
 Complete overhaul of Stage 4 test execution covering multi-language network policy, parallel execution architecture, runtime-adaptive test detection, early skip optimization, and comprehensive debugging across 6 repos.
@@ -792,11 +1054,9 @@ error: failed to get `ascii-canvas` as dependency — Could not resolve host: in
 
 **P2 — Medium (quality improvements)**
 
-5. **No AVA-Specific Log Parser**
-   - AVA test framework uses `✔ suite › test name` format
-   - Currently detected by Mocha parser via U+2714 character — works but imprecise
-   - **Impact:** Test counts may be slightly off for AVA repos
-   - **Fix:** Add dedicated `_parse_ava_log()` parser
+5. **~~No AVA-Specific Log Parser~~ (FIXED in v18)**
+   - ~~AVA test framework uses `✔ suite › test name` format~~
+   - **Fixed:** Dedicated `_parse_ava_log()` parser added (line 631), handles both newer (spinner + summary) and older (`✔ suite › test`) AVA styles. ANSI stripping via `_strip_ansi()` (line 628).
 
 6. **Odoo Running Process Doesn't Pick Up Code Changes**
    - `python src/odoo-bin -c odoo.conf -u jaeger --stop-after-init` only updates DB schema

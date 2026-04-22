@@ -717,6 +717,18 @@ class JaegerRepository(models.Model):
     human_mode = fields.Boolean(string="Human Mode (Sequential)", default=True)
     agent_timeout = fields.Integer(string="Agent Timeout (s)", default=1800)
 
+    # ── Test Config (human-in-the-loop overrides) ────────────────────────
+    test_config_json = fields.Text(
+        string="Test Configuration (JSON)",
+        help="Optional JSON overrides for auto-detected settings. "
+             "Keys: base_image, system_deps, install_cmd, test_cmd, "
+             "prepare_cmd, parser, memory_limit, network, env",
+    )
+    test_config_effective = fields.Text(
+        string="Effective Config",
+        compute="_compute_test_config_effective",
+    )
+
     # ── Stage 5: Dataset Finalization ─────────────────────────────────────
     dataset_status = fields.Selection(
         [
@@ -1732,7 +1744,7 @@ class JaegerRepository(models.Model):
                     image_tag, "bash", "-c",
                     'echo "SHA:$(git -C /testbed rev-parse HEAD)" && '
                     'echo "FIXRUN:$(test -f /jaeger/fix-run.sh && echo OK || echo MISSING)" && '
-                    'echo "CLEAN:$(git -C /testbed status --porcelain | wc -l | tr -d \" \")"',
+                    'echo "CLEAN:$(git -C /testbed status --porcelain -uno | wc -l | tr -d \" \")"',
                 ],
                 capture_output=True, text=True, timeout=30,
             )
@@ -1764,6 +1776,92 @@ class JaegerRepository(models.Model):
             errors.append(f"Working tree has {dirty_count} modified files")
 
         return "; ".join(errors) if errors else None
+
+    # ── Test Config: human-in-the-loop overrides ───────────────────────
+
+    def _get_effective_config(self):
+        """Return merged test config: manual overrides + auto-detected defaults.
+
+        All pipeline methods call this single source of truth instead of
+        hardcoding language-based decisions.
+        """
+        import json as _json
+
+        config = {}
+        if self.test_config_json:
+            try:
+                config = _json.loads(self.test_config_json)
+            except (_json.JSONDecodeError, TypeError):
+                pass
+
+        lang = (self.language or "python").lower()
+        config.setdefault("base_image", LANGUAGE_BASE_IMAGES.get(lang, "python:3.11-slim"))
+        config.setdefault("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
+        config.setdefault("network", lang != "python")
+        config.setdefault("parser", None)
+        return config
+
+    @api.depends("test_config_json", "language")
+    def _compute_test_config_effective(self):
+        import json as _json
+        for rec in self:
+            try:
+                cfg = rec._get_effective_config()
+                rec.test_config_effective = _json.dumps(cfg, indent=2, default=str)
+            except Exception:
+                rec.test_config_effective = "{}"
+
+    def action_detect_config(self):
+        """Auto-detect test config from repo and populate test_config_json."""
+        import json as _json
+        import subprocess
+        import tempfile
+
+        lang = (self.language or "python").lower()
+        config = {
+            "base_image": LANGUAGE_BASE_IMAGES.get(lang, "python:3.11-slim"),
+            "memory_limit": "8g" if lang in ("rust", "cpp", "c", "java") else "4g",
+            "network": lang != "python",
+        }
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        tokens_str = ICP.get_param("jaeger.github_tokens", "")
+        github_token = tokens_str.split(",")[0].strip() if tokens_str else ""
+        clone_url = (
+            f"https://x-access-token:{github_token}@github.com/{self.org}/{self.repo_name}.git"
+            if github_token
+            else f"https://github.com/{self.org}/{self.repo_name}.git"
+        )
+
+        clone_dir = None
+        try:
+            clone_dir = tempfile.mkdtemp(prefix="jaeger_detect_")
+            subprocess.run(
+                ["git", "clone", "--depth=1", clone_url, clone_dir],
+                check=True, capture_output=True, text=True, timeout=120,
+            )
+            install_cmds = self._detect_install_commands(clone_dir)
+            if install_cmds:
+                config["install_cmd"] = " && ".join(install_cmds)
+        except Exception as e:
+            _logger.warning("Config detection clone failed: %s", e)
+        finally:
+            if clone_dir:
+                import shutil
+                shutil.rmtree(clone_dir, ignore_errors=True)
+
+        if lang == "python":
+            config["test_cmd"] = "python -m pytest tests/ -v"
+        elif lang in ("javascript", "typescript"):
+            config["test_cmd"] = "npm test"
+        elif lang == "go":
+            config["test_cmd"] = "go test -v -count=1 -timeout 15m ./..."
+        elif lang == "rust":
+            config["test_cmd"] = "cargo test"
+        elif lang == "java":
+            config["test_cmd"] = "mvn clean test -fn"
+
+        self.write({"test_config_json": _json.dumps(config, indent=2)})
 
     def _detect_install_commands(self, repo_dir):
         """Detect how to install dependencies from repo files.
@@ -1838,7 +1936,8 @@ class JaegerRepository(models.Model):
         from pathlib import Path
 
         base_tag = f"mswebench/{self.org}_m_{self.repo_name}:base".lower()
-        runtime = LANGUAGE_BASE_IMAGES.get(self.language, "python:3.11-slim")
+        config = self._get_effective_config()
+        runtime = config.get("base_image", LANGUAGE_BASE_IMAGES.get(self.language, "python:3.11-slim"))
 
         self.write({"base_image_status": "building"})
         self.env.cr.commit()
@@ -1865,7 +1964,11 @@ class JaegerRepository(models.Model):
             ]
             subprocess.run(clone_cmd, check=True, capture_output=True, text=True, timeout=120)
 
-            install_cmds = self._detect_install_commands(clone_dir)
+            config_install = config.get("install_cmd")
+            if config_install:
+                install_cmds = [config_install]
+            else:
+                install_cmds = self._detect_install_commands(clone_dir)
 
             # Build Dockerfile content
             is_python = self.language in ("python",)
@@ -1873,8 +1976,17 @@ class JaegerRepository(models.Model):
 
             lines = [f"FROM {runtime}", ""]
 
-            # System dependencies (ca-certificates required for HTTPS git clone)
-            if is_python:
+            # System dependencies — config override or language-based defaults
+            custom_deps = config.get("system_deps")
+            if custom_deps:
+                deps_str = " ".join(custom_deps)
+                lines += [
+                    "RUN apt-get update && apt-get install -y --no-install-recommends \\",
+                    f"    ca-certificates git {deps_str} && \\",
+                    "    rm -rf /var/lib/apt/lists/*",
+                    "",
+                ]
+            elif is_python:
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
                     "    ca-certificates git make gcc g++ curl && \\",
@@ -1925,6 +2037,13 @@ class JaegerRepository(models.Model):
             # Install test framework
             if is_python:
                 lines.append("RUN pip install pytest || true")
+                lines.append("")
+
+            # Custom env vars from test config
+            config_env = config.get("env")
+            if config_env and isinstance(config_env, dict):
+                for k, v in config_env.items():
+                    lines.append(f'ENV {k}="{v}"')
                 lines.append("")
 
             # Metadata labels
@@ -2175,10 +2294,12 @@ class JaegerRepository(models.Model):
                 f"RUN git checkout -- . && git clean -fd && (git checkout {instance.base_sha} || (git fetch origin {instance.base_sha} && git checkout {instance.base_sha}))\n"
                 if instance.base_sha else ""
             )
-            # Re-install deps after checkout — base_sha may have different
-            # dependencies than HEAD (which the base image was built from).
-            # Most deps are already cached from Layer 1 so this is fast.
-            reinstall_cmd = self._dep_reinstall_commands(instance.language)
+            config = self._get_effective_config()
+            config_install = config.get("install_cmd")
+            if config_install:
+                reinstall_cmd = f"RUN {config_install} 2>/dev/null || true\n"
+            else:
+                reinstall_cmd = self._dep_reinstall_commands(instance.language)
 
         return f"""FROM {base_image}
 
@@ -2228,9 +2349,33 @@ LABEL jaeger.instance="{instance.name}"
 
         This script runs inside the container after patches have been applied
         at runtime by _execute_docker_run(). It only needs to run the test suite.
+
+        If test_config_json provides test_cmd/prepare_cmd, those override
+        the auto-detected commands entirely.
         """
         import json
 
+        config = self._get_effective_config()
+
+        # Config-override path: human-specified test_cmd takes precedence
+        if config.get("test_cmd"):
+            prepare = config.get("prepare_cmd", "")
+            test_cmd = config["test_cmd"]
+            lines = [
+                "#!/bin/bash",
+                "set -uo pipefail",
+                "cd /testbed",
+                "echo '>>>>> Start Test Output'",
+            ]
+            if prepare:
+                lines.append(f"{prepare} 2>&1")
+            lines += [
+                f"{test_cmd} 2>&1",
+                "echo '>>>>> End Test Output'",
+            ]
+            return "\n".join(lines) + "\n"
+
+        # Auto-detection path (existing behavior)
         test_files = ""
         if instance.selected_test_files_json:
             try:
