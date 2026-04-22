@@ -23,7 +23,7 @@ NAMESPACE = "talos"
 WS_ROUTER_NAME = "talos-ws-router"
 
 NODE_SELECTOR = {
-    "kubernetes.io/arch": "amd64",
+    "kubernetes.io/arch": "amd64", 
     "ethara.ai/node-pool": "general-purpose",
 }
 
@@ -532,7 +532,9 @@ class TalosSandboxK8s(models.AbstractModel):
         except ApiException as e:
             if e.status == 409:
                 core_v1.replace_namespaced_config_map(
-                    name=cm.metadata.name, namespace=NAMESPACE, body=cm
+                    name="talos-sandbox-openclaw-config-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=cm,
                 )
             else:
                 raise
@@ -551,11 +553,7 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
         except ApiException as e:
-            if e.status == 409:
-                core_v1.replace_namespaced_config_map(
-                    name=cm.metadata.name, namespace=NAMESPACE, body=cm
-                )
-            else:
+            if e.status != 409:
                 raise
 
     def _create_deployment(
@@ -927,8 +925,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 ),
             ],
             resources=client.V1ResourceRequirements(
-                requests={"cpu": "25m", "memory": "512Mi"},
-                limits={"memory": "1Gi"},
+                requests={"cpu": "25m", "memory": "1Gi"},
             ),
             startup_probe=client.V1Probe(
                 tcp_socket=client.V1TCPSocketAction(port=4000),
