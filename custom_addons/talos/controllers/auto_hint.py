@@ -230,6 +230,8 @@ def _extract_last_prompt_and_response(turn, sandbox):
 def _auto_hint_eval_bg(
     db_name, sandbox_id, turn_id, group_id, iteration, notify_partner_id
 ):
+    print("[DIAG] _auto_hint_eval_bg ENTERED pid=%d sandbox=%s turn=%s thread=%s" % (
+        os.getpid(), sandbox_id, turn_id, threading.current_thread().name), flush=True)
     _logger.info(
         "auto_hint bg: STARTED sandbox=%s turn=%s iter=%d thread=%s",
         sandbox_id,
@@ -771,6 +773,57 @@ def _push_error_by_partner(env, sandbox_id, iteration, notify_partner_id):
 
 
 class AutoHintController(http.Controller):
+
+    @http.route("/talos/test_bg_worker", type="json", auth="user")
+    def test_bg_worker(self, **kw):
+        """Temporary diagnostic endpoint — tests postcommit + pool.submit in-worker."""
+        import sys as _sys
+        results = {"pid": os.getpid(), "steps": []}
+        print("[DIAG-TEST] test_bg_worker ENTER pid=%d" % os.getpid(), flush=True)
+        results["steps"].append("endpoint_entered")
+
+        test_results = []
+
+        def _bg_func():
+            print("[DIAG-TEST] bg_func RUNNING pid=%d thread=%s" % (
+                os.getpid(), threading.current_thread().name), flush=True)
+            try:
+                with Registry(request.env.cr.dbname).cursor() as cr:
+                    cr.execute("SELECT 1")
+                    val = cr.fetchone()
+                    print("[DIAG-TEST] bg_func CURSOR OK result=%s" % str(val), flush=True)
+                    test_results.append("cursor_ok")
+            except Exception as e:
+                print("[DIAG-TEST] bg_func CURSOR FAILED: %s" % e, flush=True)
+                test_results.append("cursor_failed: %s" % e)
+
+        # Test 1: direct pool.submit (no postcommit)
+        print("[DIAG-TEST] submitting to pool directly...", flush=True)
+        future = _AUTO_HINT_POOL.submit(_bg_func)
+        try:
+            future.result(timeout=10)
+            results["steps"].append("direct_submit_ok")
+            print("[DIAG-TEST] direct pool.submit OK", flush=True)
+        except Exception as e:
+            results["steps"].append("direct_submit_failed: %s" % e)
+            print("[DIAG-TEST] direct pool.submit FAILED: %s" % e, flush=True)
+
+        # Test 2: postcommit + pool.submit
+        postcommit_fired = []
+
+        def _postcommit_test():
+            print("[DIAG-TEST] postcommit FIRED pid=%d" % os.getpid(), flush=True)
+            postcommit_fired.append(True)
+            _AUTO_HINT_POOL.submit(lambda: print("[DIAG-TEST] postcommit->pool RUNNING", flush=True))
+
+        request.env.cr.postcommit.add(_postcommit_test)
+        results["steps"].append("postcommit_registered")
+        print("[DIAG-TEST] postcommit registered, returning...", flush=True)
+
+        results["test_results"] = test_results
+        results["note"] = "Check pod logs for [DIAG-TEST] postcommit FIRED after this response"
+        return results
+
     @http.route("/talos/auto_hint_eval", type="json", auth="user")
     def auto_hint_eval(self, turn_id=0, sandbox_id=0, **kw):
         turn_id = int(turn_id or 0)
@@ -857,7 +910,12 @@ class AutoHintController(http.Controller):
         _submitted = []
 
         def _submit_via_postcommit():
+            import sys as _sys
+            print("[DIAG] postcommit FIRED pid=%d sandbox=%s turn=%s" % (os.getpid(), sandbox_id, turn_id), flush=True)
+            _sys.stdout.flush()
+            _sys.stderr.flush()
             if _submitted:
+                print("[DIAG] postcommit SKIPPED (already submitted)", flush=True)
                 return
             _submitted.append(True)
             _logger.info(
@@ -865,18 +923,24 @@ class AutoHintController(http.Controller):
                 sandbox_id,
                 turn_id,
             )
-            _AUTO_HINT_POOL.submit(_auto_hint_eval_bg, *bg_args)
+            print("[DIAG] postcommit calling pool.submit pid=%d" % os.getpid(), flush=True)
+            future = _AUTO_HINT_POOL.submit(_auto_hint_eval_bg, *bg_args)
+            print("[DIAG] postcommit pool.submit returned future=%s pid=%d" % (future, os.getpid()), flush=True)
 
         request.env.cr.postcommit.add(_submit_via_postcommit)
+        print("[DIAG] postcommit REGISTERED pid=%d sandbox=%s turn=%s" % (os.getpid(), sandbox_id, turn_id), flush=True)
 
         # Also submit directly as fallback — if postcommit already fired
         # this will be a no-op due to _submitted guard
         try:
 
             def _submit_direct():
+                import sys as _sys
                 # Small delay to let postcommit fire first if it's going to
                 time.sleep(0.5)
+                print("[DIAG] direct_submit checking pid=%d _submitted=%s" % (os.getpid(), _submitted), flush=True)
                 if _submitted:
+                    print("[DIAG] direct_submit SKIPPED (already submitted)", flush=True)
                     return
                 _submitted.append(True)
                 _logger.info(
@@ -884,6 +948,7 @@ class AutoHintController(http.Controller):
                     sandbox_id,
                     turn_id,
                 )
+                print("[DIAG] direct_submit calling pool.submit pid=%d" % os.getpid(), flush=True)
                 _AUTO_HINT_POOL.submit(_auto_hint_eval_bg, *bg_args)
 
             threading.Thread(
