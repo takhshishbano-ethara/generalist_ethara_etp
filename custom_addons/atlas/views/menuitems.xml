@@ -1,0 +1,23 @@
+<odoo>
+
+    <record model="ir.actions.client" id="atlas_costing_action">
+        <field name="name">Token Usage</field>
+        <field name="tag">atlas_costing_dashboard</field>
+    </record>
+
+    <menuitem name="Atlas" id="atlas.menu_atlas_root"
+              groups="etp_user_roles.group_tasker"/>
+
+    <menuitem name="Tasks" id="atlas.menu_atlas_tasks" parent="atlas.menu_atlas_root"
+              action="atlas_atlas_action_window" sequence="10"
+              groups="etp_user_roles.group_tasker"/>
+    <menuitem name="Costing" id="atlas.menu_atlas_costing" parent="atlas.menu_atlas_root"
+              action="atlas_costing_action" sequence="12"
+              groups="etp_user_roles.group_project_lead"/>
+    <menuitem name="Turns" id="atlas.menu_atlas_turns" parent="atlas.menu_atlas_root"
+              action="atlas_turn_action_window" sequence="25"
+              groups="etp_user_roles.group_quality_lead"/>
+    <menuitem name="Sandboxes" id="atlas.menu_atlas_sandboxes" parent="atlas.menu_atlas_root"
+              action="atlas_sandbox_action_window" sequence="35"
+              groups="etp_user_roles.group_quality_lead"/>
+</odoo>

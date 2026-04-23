@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="atlas.SandboxCard">
+        <div t-attf-class="o_atlas_card #{props.disabled ? 'o_atlas_card_disabled' : ''}">
+            <!-- Card Header -->
+            <div class="o_atlas_card_header">
+                <div class="o_atlas_card_title">
+                    <span class="o_atlas_card_label" t-out="props.modelLabel"/>
+                    <span t-attf-class="badge rounded-pill text-bg-#{statusColor} ms-2">
+                        <t t-out="props.dockerStatus"/>
+                    </span>
+                </div>
+                <div class="o_atlas_card_actions">
+                    <t t-if="props.disabled">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                            Coming Soon
+                        </button>
+                    </t>
+                    <t t-elif="props.loading">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                            <i class="fa fa-spinner fa-spin me-1"/> Working...
+                        </button>
+                    </t>
+                    <t t-elif="isRunning or isStarting">
+                        <button class="btn btn-sm btn-outline-danger" t-on-click="onStopClick">
+                            <i class="fa fa-stop me-1"/> Stop
+                        </button>
+                    </t>
+                    <t t-else="">
+                        <button class="btn btn-sm btn-primary" t-on-click="onStartClick">
+                            <i class="fa fa-play me-1"/> Start Sandbox
+                        </button>
+                    </t>
+                </div>
+            </div>
+
+            <!-- Error Banner -->
+            <div t-if="props.dockerError" class="o_atlas_card_error">
+                <i class="fa fa-exclamation-triangle me-1"/>
+                <t t-out="props.dockerError"/>
+            </div>
+
+            <!-- Disabled Overlay -->
+            <t t-if="props.disabled">
+                <div class="o_atlas_card_body_disabled">
+                    <i class="fa fa-lock fa-2x mb-2 text-muted"/>
+                    <p class="text-muted mb-0">This model is not yet available.</p>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="o_atlas_card_content">
+                    <div class="o_atlas_card_panel">
+                        <AtlasChatWidget
+                            sandboxId="props.sandboxId"
+                            dockerStatus="props.dockerStatus"
+                            dockerWsUrl="props.dockerWsUrl"
+                            gatewayToken="props.gatewayToken"
+                            modelType="props.modelType"
+                        />
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

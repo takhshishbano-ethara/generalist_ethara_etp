@@ -1,0 +1,10 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_atlas_atlas_tasker,atlas.atlas.tasker,model_atlas_atlas,etp_user_roles.group_tasker,1,1,1,1
+access_atlas_turn_tasker,atlas.turn.tasker,model_atlas_turn,etp_user_roles.group_tasker,1,1,1,1
+access_atlas_sandbox_tasker,atlas.sandbox.tasker,model_atlas_sandbox,etp_user_roles.group_tasker,1,1,1,1
+access_atlas_domain_tasker,atlas.domain.tasker,model_atlas_domain,etp_user_roles.group_tasker,1,0,0,0
+access_atlas_domain_ql,atlas.domain.ql,model_atlas_domain,etp_user_roles.group_quality_lead,1,1,1,1
+access_atlas_atlas_admin,atlas.atlas.admin,model_atlas_atlas,group_atlas_admin,1,1,1,1
+access_atlas_turn_admin,atlas.turn.admin,model_atlas_turn,group_atlas_admin,1,1,1,1
+access_atlas_sandbox_admin,atlas.sandbox.admin,model_atlas_sandbox,group_atlas_admin,1,1,1,1
+access_atlas_domain_admin,atlas.domain.admin,model_atlas_domain,group_atlas_admin,1,1,1,1

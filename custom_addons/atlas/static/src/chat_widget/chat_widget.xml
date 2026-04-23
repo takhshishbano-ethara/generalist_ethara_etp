@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="atlas.ChatWidget">
+        <div class="o_atlas_chat">
+            <div class="o_atlas_chat_status small px-2 py-1">
+                <span t-if="state.connected" class="text-success">
+                    <i class="fa fa-circle"/> Connected
+                </span>
+                <span t-else="" class="text-muted">
+                    <i class="fa fa-circle-o"/> <t t-out="state.statusText"/>
+                </span>
+            </div>
+            <t t-if="!isRunning">
+                <div class="o_atlas_chat_placeholder">
+                    <i class="fa fa-comments-o fa-2x mb-2 text-muted"/>
+                    <p class="text-muted">Start the sandbox to begin chatting.</p>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="o_atlas_chat_messages">
+                    <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
+                        <t t-if="!msg.pending or msg.text">
+                            <div t-attf-class="o_atlas_msg o_atlas_msg_#{msg.role} #{msg.isHint ? 'o_atlas_msg_hint' : ''}">
+                                <div class="o_atlas_msg_meta">
+                                    <span class="o_atlas_msg_role">
+                                        <t t-if="msg.isHint">
+                                            <span class="o_atlas_hint_badge">HINT</span>
+                                        </t>
+                                        <t t-elif="msg.role === 'user'">You</t>
+                                        <t t-else="">Assistant</t>
+                                    </span>
+                                </div>
+                                <div t-attf-class="o_atlas_msg_bubble #{msg.isError ? 'o_atlas_msg_error' : ''} #{msg.isQc ? 'o_atlas_qc_bubble o_atlas_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_atlas_md' : ''}">
+                                    <t t-if="msg.isQc">
+                                        <div class="o_atlas_qc_header">
+                                            <span t-attf-class="o_atlas_qc_badge o_atlas_qc_badge_#{msg.qcSeverity || 'low'}">
+                                                <t t-out="(msg.qcSeverity || 'low').charAt(0).toUpperCase() + (msg.qcSeverity || 'low').slice(1)"/>
+                                            </span>
+                                            <span class="o_atlas_qc_title">QC Check</span>
+                                        </div>
+                                        <div class="o_atlas_qc_summary"><t t-out="msg.text"/></div>
+                                        <t t-if="msg.qcChecks and msg.qcChecks.length">
+                                            <div class="o_atlas_qc_checks">
+                                                <t t-foreach="msg.qcChecks" t-as="chk" t-key="chk.check">
+                                                    <t t-if="chk.verdict !== 'PASS'">
+                                                        <div class="o_atlas_qc_check_item">
+                                                            <span t-attf-class="o_atlas_qc_check_verdict o_atlas_qc_check_#{chk.verdict === 'FAIL' ? 'fail' : 'warn'}">
+                                                                <t t-out="chk.verdict"/>
+                                                            </span>
+                                                            <span class="o_atlas_qc_check_name">
+                                                                Check <t t-out="chk.check"/> — <t t-out="chk.name"/>
+                                                            </span>
+                                                            <t t-if="chk.reason">
+                                                                <div class="o_atlas_qc_check_reason"><t t-out="chk.reason"/></div>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </t>
+                                            </div>
+                                        </t>
+                                    </t>
+                                    <t t-elif="msg.role === 'assistant' and msg.html">
+                                        <t t-out="msg.html"/>
+                                    </t>
+                                    <t t-else="">
+                                        <t t-out="msg.text"/>
+                                    </t>
+                                    <span t-if="msg.pending and msg.text" class="o_atlas_cursor">|</span>
+                                    <t t-if="msg.toolCalls and msg.toolCalls.length">
+                                        <div class="o_atlas_tools_section">
+                                            <button class="o_atlas_tools_toggle btn btn-link btn-sm p-0"
+                                                    t-on-click="() => this.onToggleTools(msg)">
+                                                <i t-attf-class="fa fa-chevron-#{msg.toolsExpanded ? 'down' : 'right'} me-1"/>
+                                                <span><t t-out="msg.toolCalls.length"/> tool(s) used</span>
+                                            </button>
+                                            <t t-if="msg.toolsExpanded">
+                                                <div class="o_atlas_tools_list">
+                                                    <t t-foreach="msg.toolCalls" t-as="tc" t-key="tc.toolCallId || tc_index">
+                                                        <div class="o_atlas_tool_item">
+                                                            <div class="o_atlas_tool_header">
+                                                                <t t-if="tc.isError">
+                                                                    <span class="o_atlas_tool_status text-danger">
+                                                                        <i class="fa fa-times-circle"/>
+                                                                    </span>
+                                                                </t>
+                                                                <t t-elif="tc.result !== null and tc.result !== undefined">
+                                                                    <span class="o_atlas_tool_status text-success">
+                                                                        <i class="fa fa-check-circle"/>
+                                                                    </span>
+                                                                </t>
+                                                                <t t-else="">
+                                                                    <span class="o_atlas_tool_status text-warning">
+                                                                        <i class="fa fa-spinner fa-spin"/>
+                                                                    </span>
+                                                                </t>
+                                                                <span class="o_atlas_tool_name fw-bold"><t t-out="tc.name || 'unknown'"/></span>
+                                                                <span t-if="tc.isError" class="badge bg-danger ms-2">Error</span>
+                                                                <span t-elif="tc.result === null or tc.result === undefined" class="badge bg-warning ms-2">Running</span>
+                                                            </div>
+                                                            <t t-if="tc.result !== null and tc.result !== undefined">
+                                                                <pre t-attf-class="o_atlas_tool_output #{tc.isError ? 'o_atlas_tool_output_error' : ''}"><t t-out="this.formatToolResult(tc.result)"/></pre>
+                                                            </t>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
+                                    <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
+                                        <div class="o_atlas_feedback_row">
+                                            <t t-if="msg.feedback === 'satisfied'">
+                                                <span class="o_atlas_feedback_tag o_atlas_feedback_satisfied active">
+                                                    <i class="fa fa-check-circle me-1"/>Satisfied
+                                                </span>
+                                            </t>
+                                            <t t-elif="msg.feedback === 'unsatisfied'">
+                                                <span class="o_atlas_feedback_tag o_atlas_feedback_unsatisfied active">
+                                                    <i class="fa fa-times-circle me-1"/>Unsatisfied
+                                                </span>
+                                            </t>
+                                            <t t-else="">
+                                                <button class="o_atlas_feedback_tag o_atlas_feedback_satisfied"
+                                                        t-on-click="() => this.onFeedbackSatisfied(msg_index)">
+                                                    <i class="fa fa-thumbs-up me-1"/>Satisfied
+                                                </button>
+                                                <button class="o_atlas_feedback_tag o_atlas_feedback_unsatisfied"
+                                                        t-on-click="() => this.onFeedbackUnsatisfied(msg_index)">
+                                                    <i class="fa fa-thumbs-down me-1"/>Unsatisfied
+                                                </button>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </div>
+                            </div>
+                        </t>
+                    </t>
+                    <div t-if="state.activityText" class="o_atlas_activity">
+                        <span class="o_atlas_activity_dots"><span/><span/><span/></span>
+                        <span class="o_atlas_activity_text"><t t-out="state.activityText"/></span>
+                    </div>
+                    <div t-ref="messagesEnd"/>
+                </div>
+
+                <t t-if="state.qcPending">
+                    <div t-attf-class="o_atlas_qc_action_bar o_atlas_qc_action_#{state.qcResult.severity}">
+                        <t t-if="state.qcResult.severity === 'critical'">
+                            <div class="o_atlas_qc_action_text">
+                                <i class="fa fa-ban"/> This prompt has been blocked by QC and cannot be sent.
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                <i class="fa fa-pencil me-1"/>Re-write
+                            </button>
+                        </t>
+                        <t t-elif="state.qcResult.severity === 'high'">
+                            <div class="o_atlas_qc_action_text">
+                                <i class="fa fa-exclamation-triangle"/> QC flagged significant issues. Provide a reason to proceed.
+                            </div>
+                            <textarea
+                                class="o_atlas_qc_reason_input"
+                                t-model="state.qcDismissReason"
+                                placeholder="Why are you dismissing this QC flag?"
+                                rows="2"
+                            />
+                            <div class="o_atlas_qc_action_buttons">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                    <i class="fa fa-pencil me-1"/>Re-write
+                                </button>
+                                <button class="btn btn-warning btn-sm"
+                                        t-on-click="onQcDismiss"
+                                        t-att-disabled="!state.qcDismissReason.trim()">
+                                    Dismiss &amp; Send
+                                </button>
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <div class="o_atlas_qc_action_text">
+                                <i class="fa fa-info-circle"/> QC flagged minor issues. You can dismiss and proceed.
+                            </div>
+                            <div class="o_atlas_qc_action_buttons">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onQcRewrite">
+                                    <i class="fa fa-pencil me-1"/>Re-write
+                                </button>
+                                <button class="btn btn-primary btn-sm" t-on-click="onQcDismiss">
+                                    Dismiss &amp; Send
+                                </button>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <t t-if="state.browserAuthActive">
+                    <div class="o_atlas_browser_auth_panel">
+                        <div class="o_atlas_browser_auth_header">
+                            <i class="fa fa-lock me-1"/>
+                            <span class="fw-bold">Authentication Required</span>
+                            <t t-if="state.browserAuthDomain">
+                                <span class="text-muted ms-1">— <t t-out="state.browserAuthDomain"/></span>
+                            </t>
+                            <button class="btn btn-link btn-sm ms-auto p-0"
+                                    t-on-click="onDismissBrowserAuth"
+                                    title="Dismiss">
+                                <i class="fa fa-times"/>
+                            </button>
+                        </div>
+
+                        <t t-if="state.browserAuthScreenshot">
+                            <div class="o_atlas_browser_auth_screenshot">
+                                <img t-att-src="state.browserAuthScreenshot"
+                                     alt="Browser screenshot"
+                                     class="img-fluid"/>
+                                <button class="btn btn-outline-secondary btn-sm mt-1"
+                                        t-on-click="onRefreshBrowserScreenshot">
+                                    <i class="fa fa-refresh me-1"/>Refresh
+                                </button>
+                            </div>
+                        </t>
+
+                        <div class="o_atlas_browser_auth_instructions small text-muted mb-2">
+                            <ol class="mb-1 ps-3">
+                                <li>Open
+                                    <t t-if="state.browserAuthUrl">
+                                        <a t-att-href="state.browserAuthUrl"
+                                           target="_blank" rel="noopener">
+                                           <t t-out="state.browserAuthDomain || state.browserAuthUrl"/>
+                                        </a>
+                                    </t>
+                                    <t t-else="">the website</t>
+                                    in your browser and log in
+                                </li>
+                                <li>Open DevTools (F12) → Application → Cookies</li>
+                                <li>Copy all cookies as <code>name=value; name2=value2</code></li>
+                                <li>Paste below and click Inject</li>
+                            </ol>
+                        </div>
+
+                        <div class="o_atlas_browser_auth_input_row">
+                            <textarea
+                                t-model="state.browserAuthCookieInput"
+                                placeholder="Paste cookies here: name=value; name2=value2"
+                                rows="2"
+                                class="o_atlas_browser_auth_textarea"
+                                t-att-disabled="state.browserAuthStatus === 'injecting'"
+                            />
+                            <button class="btn btn-primary btn-sm"
+                                    t-on-click="onInjectCookies"
+                                    t-att-disabled="!state.browserAuthCookieInput.trim() or state.browserAuthStatus === 'injecting'">
+                                <t t-if="state.browserAuthStatus === 'injecting'">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Injecting…
+                                </t>
+                                <t t-elif="state.browserAuthStatus === 'done'">
+                                    <i class="fa fa-check me-1"/>Done
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-sign-in me-1"/>Inject Cookies
+                                </t>
+                            </button>
+                        </div>
+
+                        <t t-if="state.browserAuthError">
+                            <div class="text-danger small mt-1">
+                                <i class="fa fa-exclamation-circle me-1"/>
+                                <t t-out="state.browserAuthError"/>
+                            </div>
+                        </t>
+                        <t t-if="state.browserAuthStatus === 'done'">
+                            <div class="text-success small mt-1">
+                                <i class="fa fa-check-circle me-1"/>
+                                Cookies injected. The agent will refresh and continue.
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <t t-if="state.hintPopupVisible">
+                    <div class="o_atlas_hint_overlay" t-on-click="onHintOverlayClick">
+                        <div class="o_atlas_hint_popup" t-on-click.stop="">
+                            <div class="o_atlas_hint_header">
+                                <i class="fa fa-lightbulb-o me-1"/>
+                                <span class="fw-bold">Provide a Hint</span>
+                                <button class="btn btn-link btn-sm ms-auto p-0"
+                                        t-on-click="onHintCancel"
+                                        title="Cancel">
+                                    <i class="fa fa-times"/>
+                                </button>
+                            </div>
+                            <p class="o_atlas_hint_desc text-muted small mb-2">
+                                Describe what was wrong or what you expected. This hint will guide the assistant's next response.
+                            </p>
+                            <textarea
+                                class="o_atlas_hint_textarea"
+                                t-model="state.hintText"
+                                t-on-input="onHintTextareaInput"
+                                t-on-keydown="onHintKeydown"
+                                placeholder="e.g. The code should use async/await instead..."
+                                rows="2"
+                                t-ref="hintTextarea"
+                            />
+                            <div class="o_atlas_hint_actions">
+                                <button class="btn btn-outline-secondary btn-sm" t-on-click="onHintCancel">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-primary btn-sm"
+                                        t-on-click="onHintSend"
+                                        t-att-disabled="!state.hintText.trim()">
+                                    <i class="fa fa-paper-plane me-1"/>Send Hint
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <div class="o_atlas_chat_input">
+                    <div class="o_atlas_chat_input_row">
+                        <textarea
+                            t-model="state.inputText"
+                            t-on-keydown="onKeydown"
+                            t-on-input="onMainTextareaInput"
+                            placeholder="Type a message..."
+                            t-att-disabled="state.sending or state.streaming or state.qcPending"
+                            rows="1"
+                            class="o_atlas_chat_textarea"
+                            t-ref="mainTextarea"
+                        />
+                        <t t-if="state.streaming">
+                            <button class="btn btn-outline-danger btn-sm o_atlas_btn"
+                                    t-on-click="onAbort">
+                                <i class="fa fa-stop"/> Stop
+                            </button>
+                        </t>
+                        <t t-else="">
+                            <button class="btn btn-primary btn-sm o_atlas_btn"
+                                    t-on-click="onSend"
+                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending">
+                                <i class="fa fa-paper-plane"/>
+                            </button>
+                        </t>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

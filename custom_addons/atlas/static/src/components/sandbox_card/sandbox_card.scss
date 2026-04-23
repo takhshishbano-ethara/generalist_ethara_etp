@@ -1,0 +1,131 @@
+.o_atlas_card {
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--o-view-background-color, #fff);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.o_atlas_card_disabled {
+    opacity: 0.6;
+    pointer-events: none;
+    position: relative;
+}
+
+.o_atlas_card_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--o-border-color, #dee2e6);
+    background: var(--o-gray-100, #f8f9fa);
+}
+
+.o_atlas_card_title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.o_atlas_card_label {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.o_atlas_card_error {
+    padding: 8px 16px;
+    background: #fde8e8;
+    color: #991b1b;
+    font-size: 12px;
+    border-bottom: 1px solid #fca5a5;
+    max-height: 80px;
+    overflow-y: auto;
+}
+
+.o_atlas_card_body_disabled {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    min-height: 300px;
+}
+
+.o_atlas_card_tabs {
+    display: flex;
+    border-bottom: 1px solid var(--o-border-color, #dee2e6);
+    background: var(--o-gray-100, #f8f9fa);
+    padding: 0 8px;
+}
+
+.o_atlas_card_tab {
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--o-text-color-muted, #6c757d);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+
+    &:hover {
+        color: var(--o-brand-primary, #714B67);
+    }
+
+    &.active {
+        color: var(--o-brand-primary, #714B67);
+        border-bottom-color: var(--o-brand-primary, #714B67);
+    }
+}
+
+.o_atlas_card_content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.o_atlas_card_panel {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.o_atlas_card_iframe {
+    width: 100%;
+    flex: 1;
+    min-height: 500px;
+    border: none;
+}
+
+.o_atlas_card_placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    flex: 1;
+}
+
+.o_atlas_turns_table {
+    font-size: 12px;
+    margin: 0;
+
+    th {
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+}
+
+.o_atlas_turn_cell {
+    max-width: 300px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

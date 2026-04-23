@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="atlas.MarkdownField">
+        <div class="o_field_atlas_markdown o_field_widget">
+            <div class="o_atlas_markdown_content" t-out="renderedMarkup"/>
+        </div>
+    </t>
+
+</templates>
