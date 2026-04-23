@@ -1,0 +1,348 @@
+.o_field_atlas_json {
+    width: 100%;
+
+    &.o_field_atlas_json_readonly {
+        position: relative;
+    }
+
+    .atlas-json-entry {
+        margin-bottom: 4px;
+    }
+
+    .atlas-json-entry-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        background: #181825;
+        border: 1px solid #313244;
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
+    }
+
+    .atlas-json-session-label {
+        font-size: 0.8em;
+        font-weight: 600;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .atlas-json-timestamp {
+        font-weight: 400;
+        color: #6c7086;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+
+    .atlas-json-entry-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .atlas-json-edit-btn,
+    .atlas-json-delete-btn,
+    .atlas-json-qc-btn,
+    .atlas-json-taskdesc-btn,
+    .atlas-json-abort-btn {
+        background: none;
+        border: 1px solid transparent;
+        color: #6c7086;
+        cursor: pointer;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        line-height: 1;
+        transition: all 0.15s ease;
+
+        &:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    }
+
+    .atlas-json-edit-btn:hover {
+        color: #89b4fa;
+        border-color: #89b4fa;
+        background: rgba(137, 180, 250, 0.1);
+    }
+
+    .atlas-json-delete-btn:hover {
+        color: #f38ba8;
+        border-color: #f38ba8;
+        background: rgba(243, 139, 168, 0.1);
+    }
+
+    .atlas-json-qc-btn:hover {
+        color: #a6e3a1;
+        border-color: #a6e3a1;
+        background: rgba(166, 227, 161, 0.1);
+    }
+
+    .atlas-json-taskdesc-btn:hover {
+        color: #cba6f7;
+        border-color: #cba6f7;
+        background: rgba(203, 166, 247, 0.1);
+    }
+
+    .atlas-json-abort-btn {
+        color: #f38ba8;
+        border-color: #f38ba8;
+
+        &:hover {
+            background: rgba(243, 139, 168, 0.15);
+        }
+    }
+
+    .atlas-json-entry-body {
+        .atlas-json-block {
+            border-radius: 0 0 6px 6px;
+            margin-top: 0;
+        }
+    }
+
+    .atlas-json-edit-container {
+        border: 1px solid #313244;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        background: #1e1e2e;
+        padding: 0;
+    }
+
+    .atlas-json-edit-textarea {
+        width: 100%;
+        min-height: 200px;
+        max-height: 800px;
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border: none;
+        padding: 16px 18px;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.85em;
+        line-height: 1.55;
+        resize: vertical;
+        outline: none;
+
+        &:focus {
+            box-shadow: inset 0 0 0 1px #89b4fa;
+        }
+    }
+
+    .atlas-json-edit-error {
+        padding: 6px 18px;
+        color: #f38ba8;
+        font-size: 0.82em;
+        background: rgba(243, 139, 168, 0.08);
+    }
+
+    .atlas-json-edit-actions {
+        display: flex;
+        gap: 8px;
+        padding: 8px 18px 12px;
+    }
+
+    .atlas-json-divider {
+        border: none;
+        border-top: 1px dashed #45475a;
+        margin: 12px 0;
+    }
+
+    .atlas-json-block {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        padding: 16px 18px;
+        margin: 0;
+        overflow-x: auto;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.85em;
+        line-height: 1.55;
+        max-height: 600px;
+        overflow-y: auto;
+
+        code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: inherit;
+            font-family: inherit;
+        }
+
+        .json-key {
+            color: #89b4fa;
+        }
+        .json-string {
+            color: #a6e3a1;
+        }
+        .json-number {
+            color: #fab387;
+        }
+        .json-boolean {
+            color: #cba6f7;
+        }
+        .json-null {
+            color: #f38ba8;
+            font-style: italic;
+        }
+    }
+
+    textarea.o_input {
+        width: 100%;
+        min-height: 80px;
+        resize: vertical;
+    }
+
+    .atlas-qc-result {
+        border: 1px solid #313244;
+        border-top: none;
+        padding: 0;
+        font-size: 0.85em;
+        background: #1e1e2e;
+
+        &.atlas-qc-low {
+            border-color: #40a02b;
+            .atlas-qc-header { background: #1a2e1a; }
+            .atlas-qc-badge { color: #a6e3a1; }
+        }
+        &.atlas-qc-medium {
+            border-color: #df8e1d;
+            .atlas-qc-header { background: #2e2a1a; }
+            .atlas-qc-badge { color: #f9e2af; }
+        }
+        &.atlas-qc-high {
+            border-color: #fe640b;
+            .atlas-qc-header { background: #2e221a; }
+            .atlas-qc-badge { color: #fab387; }
+        }
+        &.atlas-qc-critical {
+            border-color: #d20f39;
+            .atlas-qc-header { background: #2e1a1e; }
+            .atlas-qc-badge { color: #f38ba8; }
+        }
+    }
+
+    .atlas-qc-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        flex-wrap: wrap;
+    }
+
+    .atlas-qc-badge {
+        font-weight: 700;
+        font-size: 0.82em;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+
+        i { margin-right: 4px; }
+    }
+
+    .atlas-qc-summary {
+        color: #cdd6f4;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .atlas-qc-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    .atlas-qc-stats {
+        display: flex;
+        gap: 8px;
+        font-size: 0.85em;
+        font-weight: 600;
+
+        .text-success { color: #a6e3a1 !important; }
+        .text-warning { color: #f9e2af !important; }
+        .text-danger { color: #f38ba8 !important; }
+    }
+
+    .atlas-qc-toggle-btn,
+    .atlas-qc-dismiss-btn {
+        background: none;
+        border: 1px solid transparent;
+        color: #6c7086;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        line-height: 1;
+        transition: all 0.15s ease;
+
+        &:hover {
+            color: #cdd6f4;
+            border-color: #45475a;
+        }
+    }
+
+    .atlas-qc-checks {
+        border-top: 1px solid #313244;
+        padding: 8px 12px;
+        background: #181825;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .atlas-qc-check {
+        padding: 6px 10px;
+        border-radius: 4px;
+        background: #1e1e2e;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+
+        &.atlas-qc-check-fail { border-left: 3px solid #f38ba8; }
+        &.atlas-qc-check-warn { border-left: 3px solid #f9e2af; }
+        &.atlas-qc-check-pass { border-left: 3px solid #a6e3a1; }
+    }
+
+    .atlas-qc-check-num {
+        color: #6c7086;
+        font-weight: 700;
+        font-size: 0.85em;
+        min-width: 16px;
+    }
+
+    .atlas-qc-check-name {
+        color: #cdd6f4;
+        font-weight: 600;
+    }
+
+    .atlas-qc-check-verdict {
+        font-size: 0.75em;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-weight: 600;
+        color: #fff !important;
+
+        &.bg-success { background-color: #40a02b !important; }
+        &.bg-warning { background-color: #df8e1d !important; color: #fff !important; }
+        &.bg-danger { background-color: #d20f39 !important; }
+    }
+
+    .atlas-qc-check-reason {
+        width: 100%;
+        color: #bac2de;
+        font-size: 0.92em;
+        padding-left: 24px;
+    }
+
+    .atlas-qc-check-fix {
+        width: 100%;
+        color: #89b4fa;
+        font-size: 0.88em;
+        padding-left: 24px;
+
+        i { color: #f9e2af; margin-right: 4px; }
+    }
+}
