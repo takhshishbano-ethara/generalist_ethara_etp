@@ -91,6 +91,18 @@
             }
         }
 
+        &.o_jaeger_progress_step_warning {
+            .o_jaeger_progress_number {
+                background: #ffc107;
+                border-color: #ffc107;
+                color: #212529;
+            }
+            .o_jaeger_progress_label {
+                color: #856404;
+                font-weight: 500;
+            }
+        }
+
         &.o_jaeger_progress_step_failed {
             .o_jaeger_progress_number {
                 background: #dc3545;

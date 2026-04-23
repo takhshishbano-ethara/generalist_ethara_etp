@@ -21,6 +21,9 @@
                             <t t-if="step.state === 'done'">
                                 <i class="fa fa-check"/>
                             </t>
+                            <t t-elif="step.state === 'warning'">
+                                <i class="fa fa-exclamation-circle"/>
+                            </t>
                             <t t-elif="step.state === 'failed'">
                                 <i class="fa fa-times"/>
                             </t>
