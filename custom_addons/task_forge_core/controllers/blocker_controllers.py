@@ -70,6 +70,8 @@ class TaskForgeBlockerController(http.Controller):
             'blocker_reason': b.blocker_reason or '',
             'blocker_type': b.blocker_type or '',
             'priority': b.priority or '',
+            'blocker_issue_id': b.blocker_issue_id.id if b.blocker_issue_id else 0,
+            'blocker_issue': b.blocker_issue_id.name if b.blocker_issue_id and b.blocker_issue_id.name else '',
             'state': b.state or "",
             'escalation_level': b.escalation_level or 'qr',
             'blocker_image_url': b.blocker_image_url or '',
@@ -139,6 +141,7 @@ class TaskForgeBlockerController(http.Controller):
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,
                 'blocker_image_url': blocker_image_url,
                 'escalation_level': 'qr',
+                'blocker_issue_id': int(kwargs.get('blocker_issue_id')) if kwargs.get('blocker_issue_id') else False,
             })
 
             blocker._log_escalation('tasker', 'qr', 'create',
@@ -482,3 +485,25 @@ class TaskForgeBlockerController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+
+    @http.route('/api/v2/get_blocker_issues_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_blocker_issues_list(self, **kwargs):
+        temp = []
+        try:
+            blocker_issues = request.env['res.blocker.issues'].sudo().search([])
+            for bi in blocker_issues:
+                temp.append({
+                    'id': bi.id,
+                    'name': bi.name
+                })
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+

@@ -159,4 +159,40 @@
         <field name="view_mode">list,form</field>
     </record>
 
+    <!-- Blocker Issues: Editable Tree + Form -->
+    <record id="view_blocker_issues_tree" model="ir.ui.view">
+        <field name="name">res.blocker.issues.tree</field>
+        <field name="model">res.blocker.issues</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="name" string="Issue Name"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_blocker_issues_form" model="ir.ui.view">
+        <field name="name">res.blocker.issues.form</field>
+        <field name="model">res.blocker.issues</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name" string="Issue Name"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_blocker_issues" model="ir.actions.act_window">
+        <field name="name">Blocker Issues</field>
+        <field name="res_model">res.blocker.issues</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first blocker issue type
+            </p>
+        </field>
+    </record>
+
 </odoo>

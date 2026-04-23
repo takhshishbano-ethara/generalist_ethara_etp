@@ -71,6 +71,7 @@ class TaskForgeBlocker(models.Model):
         ('2', 'High'),
         ('3', 'Critical')
     ], default='1', string="Priority", tracking=True)
+    blocker_issue_id = fields.Many2one('res.blocker.issues', string='Issue')
 
     def _log_escalation(self, from_role, to_role, action, notes='', image_url='', document_urls=None):
         """Create an escalation log entry."""
@@ -272,6 +273,12 @@ class TaskForgeBlocker(models.Model):
         """PL validates blocker into formal bug (legacy)."""
         return self.action_cto_validate_bug(bug_data)
 
+
+class BlockerIssues(models.Model):
+    _name = 'res.blocker.issues'
+    _description = 'Blocker Issues'
+
+    name = fields.Char(string='Blocker Issues')
 
 class TaskForgeBlockerEscalationLog(models.Model):
     _name = 'task.forge.blocker.escalation.log'

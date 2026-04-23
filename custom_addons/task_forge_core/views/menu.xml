@@ -18,4 +18,8 @@
     <!-- Flags -->
     <menuitem id="menu_tf_flags" name="Flags" parent="menu_task_forge_root" action="action_tf_flag" sequence="40"/>
 
+    <!-- Configuration -->
+    <menuitem id="menu_tf_config" name="Configuration" parent="menu_task_forge_root" sequence="90"/>
+    <menuitem id="menu_tf_blocker_issues" name="Blocker Issues" parent="menu_tf_config" action="action_blocker_issues" sequence="10"/>
+
 </odoo>
