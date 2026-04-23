@@ -491,6 +491,8 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
 
     get_related_issues(pool, out_dir, filtered_file)
     issues_file = out_dir / f"{org}__{repo_name}_related_issues.jsonl"
+    if issues_file.exists():
+        _validate_step_output(issues_file, 3)
     issues_count = _count_lines(issues_file)
 
     _append_log_standalone(db_name, repo_id, f"Step 3/5 done: {issues_count} issues fetched")
@@ -510,6 +512,8 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
     })
 
     merge_prs_with_issues(out_dir, org, repo_name)
+    merged_file = out_dir / f"{org}__{repo_name}_filtered_prs_with_issues.jsonl"
+    _validate_step_output(merged_file, 4)
 
     _append_log_standalone(db_name, repo_id, "Step 4/5 done: PRs merged with issues")
     _write_with_retry(db_name, repo_id, {
@@ -757,8 +761,8 @@ class JaegerRepository(models.Model):
     final_dataset_count = fields.Integer(string="Final Dataset Count")
     final_report_json = fields.Text(string="Final Report JSON")
     total_instances = fields.Integer(string="Total Instances")
-    resolved_instances = fields.Integer(string="Resolved Instances")
-    unresolved_instances = fields.Integer(string="Unresolved Instances")
+    resolved_instances = fields.Integer(string="Valid Instances")
+    unresolved_instances = fields.Integer(string="Invalid Instances")
     empty_patch_instances = fields.Integer(string="Empty Patch Instances")
     error_instances = fields.Integer(string="Error Instances")
 
@@ -964,6 +968,18 @@ class JaegerRepository(models.Model):
                     "jaeger.repository",
                 ) or "New"
         return super().create(vals_list)
+
+    def write(self, vals):
+        if "test_config_json" in vals:
+            for rec in self:
+                if rec.base_image_status == "built":
+                    vals.setdefault("base_image_status", "none")
+                    vals.setdefault("base_image_name", False)
+                    _logger.info(
+                        "Auto-reset base image for %s (test_config_json changed)",
+                        rec.name,
+                    )
+        return super().write(vals)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -1345,6 +1361,52 @@ class JaegerRepository(models.Model):
                 "sticky": False,
             },
         }
+
+    def action_reset_to_docker_build(self):
+        """Reset repo back to Stage 3 for rebuild after config change."""
+        self.ensure_one()
+        if self.test_execution_status in ("running", "queued"):
+            raise UserError("Cannot reset while test execution is running.")
+        if self.docker_build_status in ("building", "queued"):
+            raise UserError("Cannot reset while Docker build is running.")
+
+        self.write({
+            "current_stage": "stage3",
+            "docker_build_status": "pending",
+            "base_image_status": "none",
+            "base_image_name": False,
+            "test_execution_status": "pending",
+            "test_execution_progress": 0,
+            "instances_tested_count": 0,
+            "instances_valid_count": 0,
+            "instances_invalid_count": 0,
+            "instances_error_count": 0,
+            "resolved_instances": 0,
+            "unresolved_instances": 0,
+            "dataset_status": "pending",
+            "error_message": False,
+            "terminal_state": "none",
+        })
+        self.instance_ids.write({
+            "docker_build_status": "pending",
+            "docker_image_name": False,
+            "run_log": False,
+            "test_patch_run_log": False,
+            "fix_patch_run_log": False,
+            "f2p_tests_json": False,
+            "p2p_tests_json": False,
+            "s2p_tests_json": False,
+            "n2p_tests_json": False,
+            "is_valid": False,
+            "validation_error": False,
+            "report_json": False,
+            "run_result_json": False,
+            "test_patch_result_json": False,
+            "fix_patch_result_json": False,
+        })
+        self._append_log(
+            "Reset to Docker Build stage (operator requested rebuild after config change)",
+        )
 
     def action_collect_prs_direct(self):
         """Run PR collection in background thread (always local)."""
@@ -3288,6 +3350,8 @@ echo '>>>>> End Test Output'
         elif stage == "stage4":
             if self.test_execution_status != "done":
                 return False, "Test execution not complete"
+            if self.instances_valid_count == 0:
+                return False, "No valid instances after test execution"
         elif stage == "stage5":
             if self.dataset_status != "done":
                 return False, "Dataset finalization not complete"
