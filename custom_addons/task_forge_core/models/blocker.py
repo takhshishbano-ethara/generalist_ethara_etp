@@ -9,7 +9,7 @@ class TaskForgeBlocker(models.Model):
     _order = 'create_date desc'
 
     name = fields.Char(string='Summary', required=True, tracking=True)
-    task_id = fields.Many2one('task.forge.log', string='Task', required=True, ondelete='cascade')
+    task_id = fields.Many2one('task.forge.log', string='Task', ondelete='cascade')
     project_id = fields.Many2one(
         related='task_id.project_id', string='Project', store=True,
     )
@@ -194,7 +194,7 @@ class TaskForgeBlocker(models.Model):
                     'message': 'PL escalated blocker "%s" on project "%s". Requires CTO action.' % (
                         self.name, self.project_id.name if self.project_id else ''),
                     'user_id': cto_user.id,
-                    'priority': '3',
+                    'priority': '2',
                     'res_model': 'task.forge.blocker',
                     'res_id': self.id,
                     'project_id': self.project_id.id if self.project_id else False,
