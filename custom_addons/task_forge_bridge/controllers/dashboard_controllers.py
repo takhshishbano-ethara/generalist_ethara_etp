@@ -46,11 +46,11 @@ class DashboardController(http.Controller):
             complete_task_count = request.env['task.forge.log'].sudo().search_count([('state', 'in', ['completed']), ('date', '=', datetime.datetime.now().date())])
 
             blockers = request.env['task.forge.blocker'].sudo().read_group(
-                domain=[('state', 'not in', ['no_issue'])],
+                domain=[('state', 'not in', ['no_issue', 'resolved'])],
                 fields=['priority'],
                 groupby=['priority']
             )
-            blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'not in', ['no_issue'])])
+            blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'not in', ['no_issue', 'resolved'])])
             blockers_info = ", ".join([f"{block['priority_count']} {priority[block['priority']]}" for block in blockers])
             diff_percent = 0.0
 
@@ -150,7 +150,7 @@ class DashboardController(http.Controller):
                 # ('date_from', '<=', datetime.datetime.now().date()),
                 # ('date_to', '>=', datetime.datetime.now().date())
             ])
-            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue'])])
+            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue', 'resolved'])])
 
             data = request.env['task.forge.log'].sudo().read_group(
                 domain=[('project_id', 'in', current_projects.ids), ('state', 'in', ['completed']), ('end_time', '!=', False)],
@@ -276,7 +276,7 @@ class DashboardController(http.Controller):
             # 5. Pending Items
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
                 ('project_id', 'in', current_projects.ids),
-                ('state','not in', ['no_issue'])
+                ('state','not in', ['no_issue', 'resolved'])
             ])
 
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
@@ -411,7 +411,7 @@ class DashboardController(http.Controller):
                     'progress': percentage,
                     'tasks': safe_get_value(p, 'sample_task_number', 'int'),
                     'team_count': unique_team_count,
-                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
+                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue', 'resolved']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
@@ -504,7 +504,7 @@ class DashboardController(http.Controller):
                     'team_count': len(all_member_ids),
                     'pl_name': pl_names,
                     'qr_name': qr_names,
-                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue']), ('project_id', '=', p.id)]),
+                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue', 'resolved']), ('project_id', '=', p.id)]),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
