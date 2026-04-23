@@ -64,6 +64,12 @@ export class InstanceProgressWidget extends Component {
                 state = "idle";
             }
 
+            if (stage.key === "stage4" && state === "current"
+                && data.test_execution_status === "done"
+                && data.instances_valid_count === 0) {
+                state = "warning";
+            }
+
             const progressField = PROGRESS_FIELDS[stage.key];
             const progress = progressField ? Math.round(data[progressField] || 0) : 0;
 

@@ -247,15 +247,34 @@ class TaskForgeExportController(http.Controller):
             employee, role, team_ids, project_ids = self._get_scoped_context()
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
 
-            Project = request.env['project.project'].sudo()
-            proj_domain = [('id', 'in', project_ids)]
+            employee = user_id.employee_id
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            if kwargs.get('show_all') in [1, '1']:
+                domain = []
+            if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                domain = []
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                          request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                          request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain.append(('project_lead', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                domain.append(('project_qc_reviewer', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                domain.append(('project_tasker', '=', employee.id))
             start_date, end_date = self._get_date_filters(kwargs)
             if start_date:
-                proj_domain.append(('date_start', '>=', start_date))
+                domain.append(('date_start', '>=', start_date))
             if end_date:
-                proj_domain.append(('date_start', '<=', end_date))
-            projects = Project.search(proj_domain, order='name asc')
+                domain.append(('date_start', '<=', end_date))
+            projects = request.env['project.project'].sudo().search(domain)
 
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
