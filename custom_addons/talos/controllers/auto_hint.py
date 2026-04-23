@@ -836,35 +836,66 @@ class AutoHintController(http.Controller):
         notify_partner_id = request.env.user.partner_id.id
 
         _logger.info(
-            "auto_hint_eval: submitting bg worker sandbox=%s turn=%s iter=%d group=%s",
+            "auto_hint_eval: scheduling bg worker sandbox=%s turn=%s iter=%d group=%s",
             sandbox_id,
             turn_id,
             new_iter,
             group_id,
         )
 
-        try:
-            future = _AUTO_HINT_POOL.submit(
-                _auto_hint_eval_bg,
-                db_name,
-                sandbox_id,
-                turn_id,
-                group_id,
-                new_iter,
-                notify_partner_id,
-            )
+        bg_args = (
+            db_name,
+            sandbox_id,
+            turn_id,
+            group_id,
+            new_iter,
+            notify_partner_id,
+        )
+
+        # Use postcommit (works in multi-worker/K8s) + immediate fallback
+        # (works in single-threaded/local dev). Dedup via a flag on the pool.
+        _submitted = []
+
+        def _submit_via_postcommit():
+            if _submitted:
+                return
+            _submitted.append(True)
             _logger.info(
-                "auto_hint_eval: submitted to pool sandbox=%s turn=%s future=%s",
+                "auto_hint_eval: postcommit fired, submitting sandbox=%s turn=%s",
                 sandbox_id,
                 turn_id,
-                future,
             )
+            _AUTO_HINT_POOL.submit(_auto_hint_eval_bg, *bg_args)
+
+        request.env.cr.postcommit.add(_submit_via_postcommit)
+
+        # Also submit directly as fallback — if postcommit already fired
+        # this will be a no-op due to _submitted guard
+        try:
+
+            def _submit_direct():
+                # Small delay to let postcommit fire first if it's going to
+                time.sleep(0.5)
+                if _submitted:
+                    return
+                _submitted.append(True)
+                _logger.info(
+                    "auto_hint_eval: direct submit (postcommit did not fire) sandbox=%s turn=%s",
+                    sandbox_id,
+                    turn_id,
+                )
+                _AUTO_HINT_POOL.submit(_auto_hint_eval_bg, *bg_args)
+
+            threading.Thread(
+                target=_submit_direct,
+                name="auto-hint-submit-%s" % turn_id,
+                daemon=True,
+            ).start()
         except Exception:
             _logger.exception(
-                "auto_hint_eval: failed to submit to pool sandbox=%s turn=%s",
+                "auto_hint_eval: direct submit thread failed sandbox=%s turn=%s",
                 sandbox_id,
                 turn_id,
             )
-            return {"error": "Failed to submit background task"}
 
         return {"status": "pending"}
