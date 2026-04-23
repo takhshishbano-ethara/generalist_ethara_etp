@@ -55,18 +55,20 @@ class TaskForgeBlockerController(http.Controller):
             })
 
         return {
+            'steps_to_reproduce': b.steps_to_reproduce or '',
+            'task_page_affected': b.affected_area or '',
             'id': b.id if b.id else 0,
             'name': b.name if b.name else "",
             'task_id': b.task_id.id if b.task_id else 0,
-            'task_name': b.task_id.name if b.task_id else "",
+            'task_name': b.task_id.name if b.task_id and b.task_id.name else "",
             'project_id': b.project_id.id if b.project_id else 0,
-            'project_name': b.project_id.name if b.project_id else "",
+            'project_name': b.project_id.name if b.project_id and b.project_id.name else "",
             'employee_id': b.employee_id.id if b.employee_id else 0,
-            'employee_name': b.employee_id.name if b.employee_id else "",
+            'employee_name': b.employee_id.name if b.employee_id and b.employee_id.name else "",
             'qr_id': b.qr_id.id if b.qr_id else 0,
-            'qr_name': b.qr_id.name if b.qr_id else "",
+            'qr_name': b.qr_id.name if b.qr_id and b.qr_id.name else "",
             'pl_id': b.pl_id.id if b.pl_id else 0,
-            'pl_name': b.pl_id.name if b.pl_id else "",
+            'pl_name': b.pl_id.name if b.pl_id and b.pl_id.name else "",
             'blocker_reason': b.blocker_reason or '',
             'blocker_type': b.blocker_type or '',
             'priority': b.priority or '',
@@ -306,9 +308,18 @@ class TaskForgeBlockerController(http.Controller):
                 current_level = blocker.escalation_level or 'qr'
                 if current_level == 'qr':
                     blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url, document_urls=document_urls)
+
+                    if kwargs.get('priority'):
+                        blocker.priority = kwargs.get('priority')
                     return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
                 elif current_level == 'pl':
                     blocker.action_pl_escalate_to_cto(notes=notes, image_url=image_url, document_urls=document_urls)
+                    blocker.sudo().write({
+                        'steps_to_reproduce': kwargs.get('steps_to_reproduce') or blocker.steps_to_reproduce,
+                        'affected_area': kwargs.get('task_page_affected') or blocker.affected_area,
+                        'priority': kwargs.get('priority') or blocker.priority,
+                    })
+
                     return return_Response(message="Blocker escalated to CTO", status=200, data={'data': self._format_blocker(blocker)})
                 else:
                     return return_Response(message="Blocker is already at highest escalation level (CTO)", status=400)

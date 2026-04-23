@@ -72,6 +72,8 @@ class TaskForgeBlocker(models.Model):
         ('3', 'Critical')
     ], default='1', string="Priority", tracking=True)
     blocker_issue_id = fields.Many2one('res.blocker.issues', string='Issue')
+    steps_to_reproduce = fields.Char('Steps to Reproduce')
+    affected_area = fields.Char('Affected Area')
 
     def _log_escalation(self, from_role, to_role, action, notes='', image_url='', document_urls=None):
         """Create an escalation log entry."""
