@@ -283,7 +283,7 @@ class TaskForgeExportController(http.Controller):
             for idx, p in enumerate(projects, 1):
                 task_count = TaskLog.search_count([('project_id', '=', p.id)])
                 blocker_count = Blocker.search_count([
-                    ('project_id', '=', p.id), ('state', 'not in', ['no_issue'])])
+                    ('project_id', '=', p.id), ('state', 'not in', ['no_issue', 'resolved'])])
                 row = [
                     idx,
                     p.name or '',

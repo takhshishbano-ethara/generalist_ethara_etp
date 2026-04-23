@@ -10,9 +10,101 @@ from datetime import datetime
 
 class TaskForgeBlockerController(http.Controller):
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Shared helpers
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _upload_files(self, file_key='image', prefix='blocker_images'):
+        """Upload a single file from the request to S3, return URL."""
+        image_file = request.httprequest.files.get(file_key)
+        if not image_file:
+            return ''
+        file_content = image_file.read()
+        if not file_content:
+            return ''
+        file_b64 = base64.b64encode(file_content).decode('utf-8')
+        return generate_s3_link(file_b64, prefix=prefix, filename=image_file.filename) or ''
+
+    def _upload_multiple_files(self, prefix='blocker_documents'):
+        """Upload multiple documents from request, return list of URLs."""
+        urls = []
+        files = request.httprequest.files.getlist('documents')
+        for f in files:
+            content = f.read()
+            if content:
+                b64 = base64.b64encode(content).decode('utf-8')
+                url = generate_s3_link(b64, prefix=prefix, filename=f.filename)
+                if url:
+                    urls.append(url)
+        return urls
+
+    def _format_blocker(self, b):
+        escalation_logs = []
+        for log in b.escalation_log_ids:
+            escalation_logs.append({
+                'id': log.id,
+                'from_role': log.from_role or '',
+                'to_role': log.to_role or '',
+                'action': log.action or '',
+                'notes': log.notes or '',
+                'image_url': log.image_url or '',
+                'document_urls': log.document_urls.split(',') if log.document_urls else [],
+                'action_by_id': log.action_by_id.id if log.action_by_id else 0,
+                'action_by_name': log.action_by_name or '',
+                'created_at': log.create_date.isoformat() if log.create_date else '',
+            })
+
+        return {
+            'id': b.id if b.id else 0,
+            'name': b.name if b.name else "",
+            'task_id': b.task_id.id if b.task_id else 0,
+            'task_name': b.task_id.name if b.task_id else "",
+            'project_id': b.project_id.id if b.project_id else 0,
+            'project_name': b.project_id.name if b.project_id else "",
+            'employee_id': b.employee_id.id if b.employee_id else 0,
+            'employee_name': b.employee_id.name if b.employee_id else "",
+            'qr_id': b.qr_id.id if b.qr_id else 0,
+            'qr_name': b.qr_id.name if b.qr_id else "",
+            'pl_id': b.pl_id.id if b.pl_id else 0,
+            'pl_name': b.pl_id.name if b.pl_id else "",
+            'blocker_reason': b.blocker_reason or '',
+            'blocker_type': b.blocker_type or '',
+            'priority': b.priority or '',
+            'state': b.state or "",
+            'escalation_level': b.escalation_level or 'qr',
+            'blocker_image_url': b.blocker_image_url or '',
+            # QR
+            'qr_notes': b.qr_notes or '',
+            'qr_video_url': b.qr_video_url or '',
+            'qr_image_url': b.qr_image_url or '',
+            'qr_action_at': b.qr_action_at.isoformat() if b.qr_action_at else "",
+            # PL
+            'pl_notes': b.pl_notes or '',
+            'pl_image_url': b.pl_image_url or '',
+            'pl_action_at': b.pl_action_at.isoformat() if b.pl_action_at else "",
+            'pl_validated_at': b.pl_validated_at.isoformat() if b.pl_validated_at else "",
+            # CTO
+            'cto_notes': b.cto_notes or '',
+            'cto_image_url': b.cto_image_url or '',
+            'cto_action_at': b.cto_action_at.isoformat() if b.cto_action_at else "",
+            # Resolution
+            'resolved_by_id': b.resolved_by_id.id if b.resolved_by_id else 0,
+            'resolved_by_name': b.resolved_by_id.name if b.resolved_by_id else '',
+            'resolved_at': b.resolved_at.isoformat() if b.resolved_at else '',
+            'resolution_notes': b.resolution_notes or '',
+            # Bug
+            'validated_bug_id': b.validated_bug_id.id if b.validated_bug_id else 0,
+            'created_at': b.create_date.isoformat() if b.create_date else '',
+            # Escalation history
+            'escalation_logs': escalation_logs,
+        }
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 1. Create Blocker (Tasker)
+    # ──────────────────────────────────────────────────────────────────────────
+
     @http.route('/api/v2/taskforge/create_blocker_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    # @validate_request({"name": {"type": "str", "required": True}, "task_id": {"type": "str", "required": True}, "blocker_reason": {"type": "str", "required": True}, "blocker_type": {"type": "str", "required": True}})
     def create_blocker_record(self, **kwargs):
         try:
             user = request.env.user
@@ -23,24 +115,15 @@ class TaskForgeBlockerController(http.Controller):
             Blocker = request.env['task.forge.blocker'].sudo()
             role = employee._get_task_forge_role()
 
-            if not role == 'tasker':
+            if role != 'tasker':
                 return return_Response(message="Only Tasker Can Create the Blocker", status=404)
 
             task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
             if not task.exists():
                 return return_Response(message="Task not found", status=404)
 
-            blocker_image_url = ''
-            image_file = request.httprequest.files.get('image')
-            if image_file:
-                file_content = image_file.read()
-                if file_content:
-                    file_b64 = base64.b64encode(file_content).decode('utf-8')
-                    blocker_image_url = generate_s3_link(
-                        file_b64,
-                        prefix='blocker_images',
-                        filename=image_file.filename,
-                    ) or ''
+            blocker_image_url = self._upload_files('image', 'blocker_images')
+            document_urls = self._upload_multiple_files('blocker_documents')
 
             now = datetime.now()
             pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -51,11 +134,17 @@ class TaskForgeBlockerController(http.Controller):
                 'blocker_reason': kwargs.get('blocker_reason'),
                 'blocker_type': kwargs.get('blocker_type'),
                 'priority': kwargs.get('priority'),
-                'employee_id': employee.id if employee else False,
+                'employee_id': employee.id,
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,
                 'blocker_image_url': blocker_image_url,
+                'escalation_level': 'qr',
             })
+
+            blocker._log_escalation('tasker', 'qr', 'create',
+                                    notes=kwargs.get('blocker_reason') or '',
+                                    image_url=blocker_image_url,
+                                    document_urls=document_urls)
 
             task.write({
                 'state': 'blocker',
@@ -63,21 +152,26 @@ class TaskForgeBlockerController(http.Controller):
             })
 
             try:
-                request.env['kubera.notification'].sudo().create({
-                    'title': 'New Blocker Created',
-                    'message': f'{employee.name} raised a blocker: "{blocker.name}".',
-                    'user_id': request.env.user.id,
-                    'priority': '2',
-                    'res_model': 'task.forge.blocker',
-                    'res_id': blocker.id,
-                    'project_id': blocker.project_id.id if blocker.project_id else False,
-                })
+                if blocker.qr_id and blocker.qr_id.user_id:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'New Blocker Created',
+                        'message': '%s raised a blocker: "%s".' % (employee.name, blocker.name),
+                        'user_id': blocker.qr_id.user_id.id,
+                        'priority': '2',
+                        'res_model': 'task.forge.blocker',
+                        'res_id': blocker.id,
+                        'project_id': blocker.project_id.id if blocker.project_id else False,
+                    })
             except Exception:
                 pass
 
             return return_Response(message="Blocker created", status=200, data={'data': self._format_blocker(blocker)})
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 2. List Blockers
+    # ──────────────────────────────────────────────────────────────────────────
 
     @http.route('/api/v2/taskforge/blockers', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
@@ -94,38 +188,33 @@ class TaskForgeBlockerController(http.Controller):
             if role == 'admin':
                 domain = []
                 if kwargs.get('active_blocker') in [1, '1']:
-                    domain = [('state', 'not in', ['no_issue'])]
-
+                    domain = [('state', 'not in', ['no_issue', 'resolved'])]
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
-                domain = [('employee_id', 'in', team_ids)]
-
+                domain = [
+                    '|',
+                    ('employee_id', 'in', team_ids),
+                    ('state', '=', 'escalated_to_pl'),
+                ]
                 if kwargs.get('active_blocker') in [1, '1']:
-                    domain.append(('state', 'not in', ['no_issue']))
-
-
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
             elif role in ('qr', 'ql'):
                 domain = [('qr_id', '=', employee.id)]
                 if kwargs.get('active_blocker') in [1, '1']:
-                    domain.append(('state', 'not in', ['no_issue']))
-
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
             else:
                 domain = [('employee_id', '=', employee.id)]
                 if kwargs.get('active_blocker') in [1, '1']:
-                    domain.append(('state', 'not in', ['no_issue']))
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
 
             if kwargs.get('project_id'):
                 domain.append(('project_id', '=', int(kwargs.get('project_id'))))
-
             if kwargs.get('search'):
                 domain.append(('name', 'ilike', kwargs.get('search')))
-
             if kwargs.get('status'):
                 domain.append(('state', 'in', [kwargs.get('status')]))
-
             if kwargs.get('priority'):
                 domain.append(('priority', '=', kwargs.get('priority')))
-
             if kwargs.get('assignee'):
                 domain.append('|')
                 domain.append(('qr_id', '=', int(kwargs.get('assignee'))))
@@ -134,9 +223,9 @@ class TaskForgeBlockerController(http.Controller):
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
-            total_count = request.env['task.forge.blocker'].sudo().search_count(domain)
+            total_count = Blocker.search_count(domain)
             if not kwargs.get('page'):
-                limit = total_count
+                limit = total_count or 1
                 offset = 0
             blockers = Blocker.search(domain, order='create_date desc', limit=limit, offset=offset)
             data = [self._format_blocker(b) for b in blockers]
@@ -144,20 +233,25 @@ class TaskForgeBlockerController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v2/taskforge/blockers/qr_action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    # ──────────────────────────────────────────────────────────────────────────
+    # 3. Blocker Action (unified — QR / PL / CTO)
+    #    Params: blocker_id, action, notes, image (file), video (file), documents (files)
+    #    Bug params (only for validate_bug): bug_title, bug_description, steps_to_reproduce,
+    #                                         pages_affected, impact, impact_details
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @http.route('/api/v2/taskforge/blockers/action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    def qr_action(self, **kwargs):
+    def blocker_action(self, **kwargs):
         try:
             user = request.env.user
-            if not user.user_role.id in [request.env.ref('api_auth_gateway.role_cto_technical').id,
-                                         request.env.ref('api_auth_gateway.role_qc_technical').id,
-                                         request.env.ref('api_auth_gateway.role_qc_stem').id,
-                                         request.env.ref('api_auth_gateway.role_qc_non_stem').id,
-                                         request.env.ref('api_auth_gateway.role_pl_technical').id,
-                                         request.env.ref('api_auth_gateway.role_pl_stem').id,
-                                         request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
 
-                return return_Response(message="CTO, QR Or PL role required", status=403)
+            role = employee._get_task_forge_role()
+            if role == 'tasker':
+                return return_Response(message="Taskers cannot take action on blockers", status=403)
 
             Blocker = request.env['task.forge.blocker'].sudo()
             blocker = Blocker.browse(int(kwargs.get('blocker_id')))
@@ -166,60 +260,105 @@ class TaskForgeBlockerController(http.Controller):
 
             action = kwargs.get('action')
             notes = kwargs.get('notes')
+            image_url = self._upload_files('image', 'taskforge/blocker_images')
+            video_url = self._upload_files('video', 'taskforge/blocker_videos')
+            document_urls = self._upload_multiple_files('taskforge/blocker_documents')
+
+            valid_actions = {
+                # (blocker_state, caller_role): [allowed_actions]
+                ('pending', 'qr'): ['no_issue', 'escalate'],
+                ('pending', 'ql'): ['no_issue', 'escalate'],
+                ('pending', 'pl'): ['no_issue', 'escalate', 'resolve'],
+                ('pending', 'admin'): ['no_issue', 'escalate', 'resolve'],
+                ('escalated_to_pl', 'pl'): ['resolve', 'escalate'],
+                ('escalated_to_pl', 'admin'): ['resolve', 'escalate', 'validate_bug'],
+                ('ack', 'pl'): ['resolve', 'escalate'],
+                ('ack', 'admin'): ['resolve', 'escalate', 'validate_bug'],
+                ('escalated_to_cto', 'admin'): ['resolve', 'validate_bug'],
+            }
+
+            allowed = valid_actions.get((blocker.state, role), [])
+            if not allowed:
+                return return_Response(
+                    message="You cannot act on this blocker in its current state (%s). Your role: %s" % (blocker.state, role),
+                    status=403)
+            if action not in allowed:
+                return return_Response(
+                    message="Invalid action '%s'. Allowed actions for %s at state '%s': %s" % (action, role, blocker.state, ', '.join(allowed)),
+                    status=400)
 
             if action == 'no_issue':
                 blocker.action_qr_no_issue(notes=notes)
-
-                try:
-                    request.env['kubera.notification'].sudo().create({
-                        'title': 'Blocker Marked No Issue',
-                        'message': f'Blocker "{blocker.name}" marked as No Issue.',
-                        'user_id': request.env.user.id,
-                        'priority': '1',
-                        'res_model': 'task.forge.blocker',
-                        'res_id': blocker.id,
-                        'project_id': blocker.project_id.id if blocker.project_id else False,
-                    })
-                except Exception:
-                    pass
-
                 return return_Response(message="Blocker marked as No Issue", status=200, data={'data': self._format_blocker(blocker)})
+
             elif action == 'escalate':
-                video_url = None
-                image_url = None
+                current_level = blocker.escalation_level or 'qr'
+                if current_level == 'qr':
+                    blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url, document_urls=document_urls)
+                    return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
+                elif current_level == 'pl':
+                    blocker.action_pl_escalate_to_cto(notes=notes, image_url=image_url, document_urls=document_urls)
+                    return return_Response(message="Blocker escalated to CTO", status=200, data={'data': self._format_blocker(blocker)})
+                else:
+                    return return_Response(message="Blocker is already at highest escalation level (CTO)", status=400)
 
-                video_file = request.httprequest.files.get('video')
-                if video_file:
-                    import base64
-                    vid_data = base64.b64encode(video_file.read())
-                    video_url = generate_s3_link(vid_data, prefix='taskforge/blocker_videos', uid=user.employee_id.id, filename=video_file.filename)
+            elif action == 'resolve':
+                current_level = blocker.escalation_level or 'qr'
+                if current_level in ('qr', 'pl') and role in ('pl', 'admin'):
+                    blocker.action_pl_resolve(notes=notes, image_url=image_url, document_urls=document_urls)
+                elif current_level == 'cto' and role == 'admin':
+                    blocker.action_cto_resolve(notes=notes, image_url=image_url, document_urls=document_urls)
+                else:
+                    return return_Response(message="Cannot resolve at this level with your role", status=403)
+                return return_Response(message="Blocker resolved", status=200, data={'data': self._format_blocker(blocker)})
 
-                image_file = request.httprequest.files.get('image')
-                if image_file:
-                    import base64
-                    img_data = base64.b64encode(image_file.read())
-                    image_url = generate_s3_link(img_data, prefix='taskforge/blocker_images', uid=user.employee_id.id)
-
-                blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url)
-
-                try:
-                    request.env['kubera.notification'].sudo().create({
-                        'title': 'Blocker Escalated',
-                        'message': f'Blocker "{blocker.name}" has been escalated to PL.',
-                        'user_id': request.env.user.id,
-                        'priority': '2',
-                        'res_model': 'task.forge.blocker',
-                        'res_id': blocker.id,
-                        'project_id': blocker.project_id.id if blocker.project_id else False,
-                    })
-                except Exception:
-                    pass
-
-                return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
+            elif action == 'validate_bug':
+                bug_data = {
+                    'bug_title': kwargs.get('bug_title', blocker.name),
+                    'bug_description': kwargs.get('bug_description', ''),
+                    'steps_to_reproduce': kwargs.get('steps_to_reproduce', ''),
+                    'pages_affected': kwargs.get('pages_affected', ''),
+                    'impact': kwargs.get('impact', 'medium'),
+                    'impact_details': kwargs.get('impact_details', ''),
+                }
+                bug = blocker.action_cto_validate_bug(bug_data, notes=notes, image_url=image_url, document_urls=document_urls)
+                return return_Response(
+                    message="Bug validated",
+                    status=200,
+                    data={'data': {
+                        'blocker': self._format_blocker(blocker),
+                        'validated_bug': {
+                            'id': bug.id,
+                            'name': bug.name,
+                            'impact': bug.impact,
+                            'state': bug.state,
+                        }
+                    }}
+                )
             else:
-                return return_Response(message="Invalid action. Use 'no_issue' or 'escalate'.", status=400)
+                return return_Response(message="Unknown action: %s" % action, status=400)
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    # Legacy endpoints kept for backward compatibility — redirect to unified action
+    @http.route('/api/v2/taskforge/blockers/qr_action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def qr_action(self, **kwargs):
+        return self.blocker_action(**kwargs)
+
+    @http.route('/api/v2/taskforge/blockers/pl_action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def pl_action(self, **kwargs):
+        return self.blocker_action(**kwargs)
+
+    @http.route('/api/v2/taskforge/blockers/cto_action', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def cto_action(self, **kwargs):
+        return self.blocker_action(**kwargs)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 6. PL Validate (legacy — kept for backward compatibility)
+    # ──────────────────────────────────────────────────────────────────────────
 
     @http.route('/api/v2/taskforge/blockers/pl_validate', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
@@ -243,21 +382,7 @@ class TaskForgeBlockerController(http.Controller):
             if not blocker.exists():
                 return return_Response(message="Blocker not found", status=404)
 
-            bug = blocker.action_pl_validate(jdata)
-
-            try:
-                request.env['kubera.notification'].sudo().create({
-                    'title': 'Bug Validated',
-                    'message': f'Blocker "{blocker.name}" validated as bug "{bug.name}" by PL.',
-                    'user_id': request.env.user.id,
-                    'priority': '2',
-                    'res_model': 'task.forge.validated.bug',
-                    'res_id': bug.id,
-                    'project_id': blocker.project_id.id if blocker.project_id else False,
-                })
-            except Exception:
-                pass
-
+            bug = blocker.action_cto_validate_bug(jdata)
             return return_Response(
                 message="Bug validated",
                 status=200,
@@ -274,33 +399,9 @@ class TaskForgeBlockerController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    def _format_blocker(self, b):
-        return {
-            'id': b.id if b.id else 0,
-            'name': b.name if b.name else "",
-            'task_id': b.task_id.id if b.task_id.id else 0,
-            'task_name': b.task_id.name if b.task_id.name else "",
-            'project_id': b.project_id.id if b.project_id else 0,
-            'project_name': b.project_id.name if b.project_id.name else "",
-            'employee_id': b.employee_id.id if b.employee_id.id else 0,
-            'employee_name': b.employee_id.name if b.employee_id.name else "",
-            'qr_id': b.qr_id.id if b.qr_id else 0,
-            'qr_name': b.qr_id.name if b.qr_id else "",
-            'pl_id': b.pl_id.id if b.pl_id else 0,
-            'pl_name': b.pl_id.name if b.pl_id else "",
-            'blocker_reason': b.blocker_reason or '',
-            'blocker_type': b.blocker_type or '',
-            'priority': b.priority or '',
-            'state': b.state or "",
-            'blocker_image_url': b.blocker_image_url or '',
-            'qr_notes': b.qr_notes or '',
-            'qr_video_url': b.qr_video_url or '',
-            'qr_image_url': b.qr_image_url or '',
-            'qr_action_at': b.qr_action_at.isoformat() if b.qr_action_at else "",
-            'pl_validated_at': b.pl_validated_at.isoformat() if b.pl_validated_at else "",
-            'validated_bug_id': b.validated_bug_id.id if b.validated_bug_id else 0,
-            'created_at': b.create_date.isoformat() if b.create_date else '',
-        }
+    # ──────────────────────────────────────────────────────────────────────────
+    # 7. Blocker Assignee List
+    # ──────────────────────────────────────────────────────────────────────────
 
     @http.route('/api/v2/get_blocker_assignee_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token

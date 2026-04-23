@@ -19,3 +19,4 @@ access_tf_flag_admin,task.forge.flag.admin,model_task_forge_flag,,1,1,1,1
 access_tf_file_tasker,task.forge.file.tasker,model_task_forge_file,,1,0,1,0
 access_tf_file_admin,task.forge.file.admin,model_task_forge_file,,1,1,1,1
 access_task_forge_image,task.forge.image,model_task_forge_image,,1,1,1,1
+access_tf_escalation_log,task.forge.blocker.escalation.log,model_task_forge_blocker_escalation_log,,1,1,1,1
