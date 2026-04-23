@@ -404,12 +404,18 @@ def validate_envelopes(envelopes, label_prefix):
 
             elif btype == "toolCall":
                 nested_tc = block.get("toolCall")
-                if not isinstance(nested_tc, dict):
+                if isinstance(nested_tc, dict):
+                    tc_source = nested_tc
+                elif block.get("id") and block.get("name"):
+                    tc_source = block
+                else:
                     content_structure_issues.append(
-                        f"{block_label}: toolCall block missing nested 'toolCall' object [BLOCK]"
+                        f"{block_label}: toolCall block missing 'id' and 'name' fields [BLOCK]"
                     )
-                    nested_tc = None
-                tc_source = nested_tc if nested_tc is not None else block
+                    tc_source = None
+
+                if tc_source is None:
+                    continue
 
                 tc_id = tc_source.get("id")
                 tc_name = tc_source.get("name")
@@ -640,12 +646,29 @@ def emit_envelope_checks(
 def detect_hints_mode(data):
     if "past_conversations" in data:
         return True
-    messages = data.get("messages")
-    if isinstance(messages, list):
-        for msg in messages:
-            if isinstance(msg, dict) and "is_accepted" in msg:
-                return True
     return False
+
+
+def has_mixed_wrappers(messages):
+    if not isinstance(messages, list):
+        return False
+    for msg in messages:
+        if isinstance(msg, dict) and "is_accepted" in msg:
+            return True
+    return False
+
+
+def unwrap_mixed_messages(messages):
+    unwrapped = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            unwrapped.append(msg)
+            continue
+        if "is_accepted" in msg and "message" in msg:
+            unwrapped.append(msg["message"])
+        else:
+            unwrapped.append(msg)
+    return unwrapped
 
 
 def validate_trajectory(file_path, raw_content):
@@ -1148,6 +1171,11 @@ def validate_trajectory(file_path, raw_content):
                 f"messages is a non-empty array ({len(messages)} elements)",
             )
         )
+
+    # ── Mixed wrapper format: unwrap before validation ──────────────
+    mixed = has_mixed_wrappers(messages)
+    if mixed and not hints_mode:
+        messages = unwrap_mixed_messages(messages)
 
     # ── Hints mode: unwrap wrappers, validate wrappers & flow ───────────────
     if hints_mode:

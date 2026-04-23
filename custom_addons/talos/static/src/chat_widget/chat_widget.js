@@ -1481,113 +1481,18 @@ export class TalosChatWidget extends Component {
             if (result && result.error) {
                 console.error(LOG_PREFIX, "Auto hint eval returned error:", result.error);
                 this._endAutoHintLoop("error");
-                return;
             } else if (result && result.status === "max_retries") {
                 console.warn(LOG_PREFIX, "Auto hint eval: max retries reached");
                 this._endAutoHintLoop("max_retries");
-                return;
             }
         } catch (e) {
             console.error(LOG_PREFIX, "Auto hint eval request failed:", e);
             this._endAutoHintLoop("error");
-            return;
-        }
-
-        this._startAutoHintPollFallback();
-    }
-
-    _startAutoHintPollFallback() {
-        this._stopAutoHintPollFallback();
-        this._autoHintPollInterval = setInterval(async () => {
-            if (!this.state.autoHintActive) {
-                this._stopAutoHintPollFallback();
-                return;
-            }
-            try {
-                const state = await rpc("/talos/chat/sandbox_state", {
-                    sandbox_id: this.props.sandboxId,
-                });
-                if (!state || state.error) return;
-                const status = state.auto_hint_status;
-                if (status === "evaluating") return;
-
-                console.log(LOG_PREFIX, "Auto hint poll fallback detected status:", status, state);
-                this._stopAutoHintPollFallback();
-
-                if (status === "idle") {
-                    const feedback = state.last_turn_feedback || "";
-                    if (feedback === "satisfied") {
-                        const msg = this.state.messages.findLast(m => m.isModelResponse && !m.feedback);
-                        if (msg) {
-                            msg.feedback = "satisfied";
-                            if (msg.turnId) {
-                                rpc("/talos/chat/save_feedback", { turn_id: msg.turnId, feedback: "satisfied" })
-                                    .catch(() => {});
-                            }
-                        }
-                        this._session.messages.push({
-                            role: "assistant",
-                            text: "Auto-review passed.",
-                            isAutoHint: true,
-                            isAutoHintVerdict: true,
-                            pending: false,
-                        });
-                        this._endAutoHintLoop("satisfied");
-                    } else if (feedback === "unsatisfied") {
-                        const hint = state.last_turn_hint_text || "";
-                        if (hint) {
-                            this._sendAutoHint(
-                                hint,
-                                state.last_turn_id,
-                                state.auto_hint_group_id || "",
-                                state.auto_hint_iteration || 0,
-                            );
-                        } else {
-                            this._endAutoHintLoop("error");
-                        }
-                    } else {
-                        this._endAutoHintLoop("satisfied");
-                    }
-                } else if (status === "sending_hint") {
-                    const hint = state.last_turn_hint_text || "";
-                    if (hint) {
-                        this._sendAutoHint(
-                            hint,
-                            state.last_turn_id,
-                            state.auto_hint_group_id || "",
-                            state.auto_hint_iteration || 0,
-                        );
-                    } else {
-                        this._endAutoHintLoop("error");
-                    }
-                } else if (status === "max_retries") {
-                    this._session.messages.push({
-                        role: "assistant",
-                        text: "Auto-review reached maximum attempts. Needs human review.",
-                        isAutoHint: true,
-                        isAutoHintVerdict: true,
-                        pending: false,
-                    });
-                    this._endAutoHintLoop("max_retries");
-                } else if (status === "error") {
-                    this._endAutoHintLoop("error");
-                }
-            } catch (e) {
-                console.warn(LOG_PREFIX, "Auto hint poll failed:", e);
-            }
-        }, 5000);
-    }
-
-    _stopAutoHintPollFallback() {
-        if (this._autoHintPollInterval) {
-            clearInterval(this._autoHintPollInterval);
-            this._autoHintPollInterval = null;
         }
     }
 
     _handleAutoHintResult(payload) {
         if (!payload || payload.sandbox_id !== this.props.sandboxId) return;
-        this._stopAutoHintPollFallback();
 
         if (payload.status === "satisfied") {
             const msg = this.state.messages.findLast(m => m.isModelResponse && !m.feedback);
@@ -1682,7 +1587,6 @@ export class TalosChatWidget extends Component {
             clearTimeout(this._autoHintTimeout);
             this._autoHintTimeout = null;
         }
-        this._stopAutoHintPollFallback();
         this.state.autoHintActive = false;
         this.state.autoHintIteration = 0;
         this.state.autoHintStatus = "";
