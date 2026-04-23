@@ -1867,13 +1867,46 @@ class JaegerRepository(models.Model):
 
             install_cmds = self._detect_install_commands(clone_dir)
 
-            # Build Dockerfile content
             is_python = self.language in ("python",)
             is_node = self.language in ("javascript", "typescript")
 
-            lines = [f"FROM {runtime}", ""]
+            lines = [
+                "# syntax=docker/dockerfile:1.6",
+                "",
+                f"FROM {runtime}",
+                "",
+                'ARG TARGETARCH',
+                'ARG http_proxy=""',
+                'ARG https_proxy=""',
+                'ARG HTTP_PROXY=""',
+                'ARG HTTPS_PROXY=""',
+                'ARG no_proxy="localhost,127.0.0.1,::1"',
+                'ARG NO_PROXY="localhost,127.0.0.1,::1"',
+                'ARG CA_CERT_PATH="/etc/ssl/certs/ca-certificates.crt"',
+                "",
+                "ENV DEBIAN_FRONTEND=noninteractive \\",
+                "    LANG=C.UTF-8 \\",
+                "    TZ=UTC \\",
+                "    http_proxy=${http_proxy} \\",
+                "    https_proxy=${https_proxy} \\",
+                "    HTTP_PROXY=${HTTP_PROXY} \\",
+                "    HTTPS_PROXY=${HTTPS_PROXY} \\",
+                "    no_proxy=${no_proxy} \\",
+                "    NO_PROXY=${NO_PROXY} \\",
+                "    SSL_CERT_FILE=${CA_CERT_PATH} \\",
+                "    REQUESTS_CA_BUNDLE=${CA_CERT_PATH} \\",
+                "    CURL_CA_BUNDLE=${CA_CERT_PATH}",
+                "",
+                f'LABEL org.opencontainers.image.title="{self.org}/{self.repo_name}" \\',
+                f'      org.opencontainers.image.source="https://github.com/{self.org}/{self.repo_name}" \\',
+                '      org.opencontainers.image.authors="https://www.ethara.ai/"',
+                "",
+                "RUN mkdir -p /etc/pki/tls/certs /etc/ssl/certs && \\",
+                "    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt 2>/dev/null || true && \\",
+                "    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem 2>/dev/null || true",
+                "",
+            ]
 
-            # System dependencies (ca-certificates required for HTTPS git clone)
             if is_python:
                 lines += [
                     "RUN apt-get update && apt-get install -y --no-install-recommends \\",
@@ -1903,33 +1936,32 @@ class JaegerRepository(models.Model):
                     "",
                 ]
 
-            # Use authenticated URL inside Dockerfile for rate limit avoidance
-            # (token is baked into build layer — acceptable for local/private images)
-            dockerfile_clone_url = authed_clone_url if github_token else clone_url
             lines += [
                 "WORKDIR /testbed",
-                f"RUN git clone {dockerfile_clone_url} . && git fetch --all",
+                "RUN --mount=type=secret,id=github_token,required=false \\",
+                "    TOKEN_FILE=/run/secrets/github_token && \\",
+                "    if [ -f \"$TOKEN_FILE\" ] && [ -s \"$TOKEN_FILE\" ]; then \\",
+                f"        git clone \"https://x-access-token:$(cat $TOKEN_FILE)@github.com/{self.org}/{self.repo_name}.git\" . ; \\",
+                "    else \\",
+                f"        git clone \"{clone_url}\" . ; \\",
+                "    fi && \\",
+                "    git fetch --all",
                 "",
             ]
 
-            # Install dependencies (may be multiple commands)
             for cmd in install_cmds:
                 lines.append(f"RUN {cmd}")
                 lines.append("")
 
-            # Add node_modules/.bin to PATH for monorepo tools (lerna, turbo, nx)
             if is_node:
                 lines.append('ENV PATH="/testbed/node_modules/.bin:${PATH}"')
                 lines.append("")
 
-            # Install test framework
             if is_python:
                 lines.append("RUN pip install pytest || true")
                 lines.append("")
 
-            # Metadata labels
             lines += [
-                f'LABEL org.opencontainers.image.source="https://github.com/{self.org}/{self.repo_name}"',
                 'LABEL jaeger.image.type="base"',
             ]
 
@@ -1943,9 +1975,15 @@ class JaegerRepository(models.Model):
             ICP = self.env["ir.config_parameter"].sudo()
             platform = self.docker_platform or ICP.get_param("jaeger.docker_platform", "")
 
-            cmd = ["docker", "build"]
+            cmd = ["docker", "buildx", "build", "--load"]
             if platform:
                 cmd += ["--platform", platform]
+
+            if github_token:
+                token_file = Path(build_dir) / ".github_token"
+                token_file.write_text(github_token, encoding="utf-8")
+                cmd += ["--secret", f"id=github_token,src={token_file}"]
+
             cmd += ["-t", base_tag, "-f", str(build_dir / "Dockerfile"), str(build_dir)]
 
             self._append_log(f"Building base image: {base_tag}")
@@ -2249,7 +2287,7 @@ LABEL jaeger.instance="{instance.name}"
                 "set -uo pipefail\n"
                 "cd /testbed\n"
                 "echo '>>>>> Start Test Output'\n"
-                f"{test_cmd}\n"
+                f"{test_cmd} || true\n"
                 "echo '>>>>> End Test Output'\n"
             )
         if lang in ("javascript", "typescript"):
@@ -2293,7 +2331,7 @@ LABEL jaeger.instance="{instance.name}"
             "set -uo pipefail\n"
             "cd /testbed\n"
             "echo '>>>>> Start Test Output'\n"
-            f"{test_cmd}\n"
+            f"{test_cmd} || true\n"
             "echo '>>>>> End Test Output'\n"
         )
 
@@ -2592,6 +2630,12 @@ echo '>>>>> End Test Output'
                     "test_patch": inst.test_patch or "",
                     "f2p_tests": json.loads(inst.f2p_tests_json or "{}"),
                     "p2p_tests": json.loads(inst.p2p_tests_json or "{}"),
+                    "s2p_tests": json.loads(inst.s2p_tests_json or "{}"),
+                    "n2p_tests": json.loads(inst.n2p_tests_json or "{}"),
+                    "fixed_tests": json.loads(inst.fixed_tests_json or "{}"),
+                    "run_result": json.loads(inst.run_result_json or "{}"),
+                    "test_patch_result": json.loads(inst.test_patch_result_json or "{}"),
+                    "fix_patch_result": json.loads(inst.fix_patch_result_json or "{}"),
                     "docker_image_name": inst.docker_image_name or "",
                     "is_valid": True,
                     "tag": inst.tag or "",

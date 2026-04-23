@@ -104,9 +104,13 @@ services:
     ports:
       - "8069:8069"
       - "8072:8072"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - ./odoo.conf:/etc/odoo/odoo.conf:ro
       - k3s-kubeconfig:/etc/rancher/k3s:ro
+      - odoo-filestore:/root/.local/share/Odoo
     networks:
       - jaeger
 
@@ -127,6 +131,7 @@ volumes:
   minio-data:
   k3s-data:
   k3s-kubeconfig:
+  odoo-filestore:
 
 networks:
   jaeger:

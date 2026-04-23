@@ -22,23 +22,39 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
     Returns:
         str: combined stdout + stderr
     """
+    return _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
+                            memory_limit, language)
+
+
+def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
+                     memory_limit="4g", language="python"):
+    """Shared Docker execution logic used by both ORM and standalone paths."""
     import subprocess
     import tempfile
     from uuid import uuid4
 
     tag = uuid4().hex[:8]
-    container_name = f"jaeger-{inst_name}-{mode}-{tag}".replace("/", "-").replace("__", "-").lower()
+    container_name = (
+        f"jaeger-{inst_name}-{mode}-{tag}"
+        .replace("/", "-").replace("__", "-").lower()
+    )
+
+    subprocess.run(
+        ["docker", "rm", "-f", container_name],
+        capture_output=True, timeout=30,
+    )
 
     cmd = [
         "docker", "run",
         "--name", container_name,
-        "--rm",
         "--memory", memory_limit,
         "--memory-swap", memory_limit,
     ]
 
     if (language or "").lower() == "python":
         cmd.extend(["--network", "none"])
+
+    reset_prefix = "git checkout -- . && git clean -fd && "
 
     if patches:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -54,19 +70,36 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
             cmd.append(docker_image)
 
             if mode == "test_patch":
-                cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
+                cmd.extend(["bash", "-c",
+                    f"cd /testbed && {reset_prefix}"
+                    "git apply --whitespace=nowarn /patches/test_patch.diff && "
+                    "bash /jaeger/fix-run.sh"])
             elif mode == "fix_patch":
-                cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/fix_patch.diff && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
+                cmd.extend(["bash", "-c",
+                    f"cd /testbed && {reset_prefix}"
+                    "git apply --whitespace=nowarn /patches/fix_patch.diff && "
+                    "git apply --whitespace=nowarn /patches/test_patch.diff && "
+                    "bash /jaeger/fix-run.sh"])
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
-            )
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                subprocess.run(["docker", "rm", "-f", container_name],
+                               capture_output=True, timeout=30)
+                raise
     else:
         cmd.append(docker_image)
         cmd.extend(["bash", "-c", "cd /testbed && bash /jaeger/fix-run.sh"])
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
-        )
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            subprocess.run(["docker", "rm", "-f", container_name],
+                           capture_output=True, timeout=30)
+            raise
 
     return result.stdout + "\n" + result.stderr
 
@@ -125,31 +158,11 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
             {"test_patch": test_patch}, agent_timeout, memory_limit, lang,
         )
 
-        # Early skip: if test-patch run has 0 failures, f2p is impossible
-        # Parse test_patch results inline to decide whether Run 3 is needed
-        skip_run3 = False
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                inst_check = env["jaeger.instance"].browse(instance_id)
-                test_result_check = inst_check._parse_test_log(test_patch_log)
-                if test_result_check.get("failed_count", 0) == 0:
-                    skip_run3 = True
-                    _logger.info(
-                        "Skipping Run 3 for %s: test-patch has 0 failures, f2p impossible",
-                        inst_name,
-                    )
-        except Exception:
-            pass
-
-        if skip_run3:
-            fix_patch_log = ""
-        else:
-            fix_patch_log = _execute_docker_run_pure(
-                inst_name, docker_image, "fix_patch",
-                {"fix_patch": fix_patch, "test_patch": test_patch},
-                agent_timeout, memory_limit, lang,
-            )
+        fix_patch_log = _execute_docker_run_pure(
+            inst_name, docker_image, "fix_patch",
+            {"fix_patch": fix_patch, "test_patch": test_patch},
+            agent_timeout, memory_limit, lang,
+        )
     except Exception as e:
         _logger.error("Docker execution failed for %s: %s", inst_name, e)
         try:
@@ -395,7 +408,7 @@ class JaegerInstance(models.Model):
     def _compute_instance_id(self):
         for rec in self:
             if rec.org and rec.repo and rec.pr_number:
-                rec.instance_id = f"{rec.org}__{rec.repo}-{rec.pr_number}"
+                rec.instance_id = f"{rec.org}/{rec.repo}:pr-{rec.pr_number}"
             else:
                 rec.instance_id = ""
 
@@ -475,23 +488,17 @@ class JaegerInstance(models.Model):
                 "test_patch_skipped_count": test_result.get("skipped_count", 0),
             })
 
-            # Early skip: if test-patch has 0 failures, f2p is impossible
-            if test_result.get("failed_count", 0) == 0:
-                _logger.info("[%s] Skipping Run 3: test-patch has 0 failures", self.name)
-                fix_patch_log = ""
-                fix_result = self._empty_parse_result()
-            else:
-                # Run 3: Fix + test patch
-                _logger.info("[%s] Run 3/3: fix+test patch", self.name)
-                fix_patch_log = self._execute_docker_run(
-                    mode="fix_patch",
-                    patches={
-                        "fix_patch": self.fix_patch,
-                        "test_patch": self.test_patch,
-                    },
-                    timeout=agent_timeout,
-                )
-                fix_result = self._parse_test_log(fix_patch_log)
+            # Run 3: Fix + test patch
+            _logger.info("[%s] Run 3/3: fix+test patch", self.name)
+            fix_patch_log = self._execute_docker_run(
+                mode="fix_patch",
+                patches={
+                    "fix_patch": self.fix_patch,
+                    "test_patch": self.test_patch,
+                },
+                timeout=agent_timeout,
+            )
+            fix_result = self._parse_test_log(fix_patch_log)
 
             self.write({"fix_patch_run_log": fix_patch_log[-50000:] if fix_patch_log else ""})
             self.write({
@@ -515,70 +522,12 @@ class JaegerInstance(models.Model):
             raise
 
     def _execute_docker_run(self, mode, patches, timeout):
-        """Execute a single Docker run and return the log output.
-
-        Args:
-            mode: 'run', 'test_patch', or 'fix_patch'
-            patches: dict with patch content to apply, or None
-            timeout: execution timeout in seconds
-
-        Returns:
-            str: Container log output
-        """
-        import subprocess
-        import tempfile
-
-        container_name = f"jaeger-{self.name}-{mode}".replace("/", "-").replace("__", "-").lower()
-
-        # Clean up any existing container with same name
-        subprocess.run(
-            ["docker", "rm", "-f", container_name],
-            capture_output=True, timeout=30,
-        )
-
+        """Execute a single Docker run and return the log output."""
         lang = (self.repository_id.language or "").lower()
         mem = "8g" if lang in ("rust", "cpp", "c", "java") else "4g"
-
-        cmd = [
-            "docker", "run",
-            "--name", container_name,
-            "--rm",
-            "--memory", mem,
-            "--memory-swap", mem,
-        ]
-
-        if lang == "python":
-            cmd.extend(["--network", "none"])
-
-        if patches:
-            # Create a temp dir with patches and mount it
-            with tempfile.TemporaryDirectory() as tmpdir:
-                from pathlib import Path
-
-                for patch_name, patch_content in patches.items():
-                    if patch_content:
-                        patch_path = Path(tmpdir) / f"{patch_name}.diff"
-                        patch_path.write_text(patch_content, encoding="utf-8")
-
-                cmd.extend(["-v", f"{tmpdir}:/patches:ro"])
-                cmd.append(self.docker_image_name)
-
-                if mode == "test_patch":
-                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
-                elif mode == "fix_patch":
-                    cmd.extend(["bash", "-c", "cd /testbed && git apply /patches/fix_patch.diff && git apply /patches/test_patch.diff && bash /jaeger/fix-run.sh"])
-
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=timeout,
-                )
-        else:
-            cmd.append(self.docker_image_name)
-            cmd.extend(["bash", "-c", "cd /testbed && bash /jaeger/fix-run.sh"])
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
-            )
-
-        return result.stdout + "\n" + result.stderr
+        return _docker_run_impl(
+            self.name, self.docker_image_name, mode, patches, timeout, mem, lang,
+        )
 
     def _parse_test_log(self, log_text):
         """Parse test runner output into structured results.
@@ -806,12 +755,20 @@ class JaegerInstance(models.Model):
     def _generate_test_report(self, run_result, test_result, fix_result):
         """Classify test state transitions and validate the instance.
 
+        Implements the same 4-check validation as multi-swe-bench Report.check():
+          1. Fix patch result must have >0 tests captured
+          2. No regressions (PASS in test-patch → FAIL in fix-patch)
+          3. At least one test was fixed (f2p > 0)
+          4. No anomalous patterns (PASS in baseline, NONE/SKIP in test, FAIL in fix)
+
         State transitions (comparing test_patch run vs fix+test run):
         - f2p: test FAILED in test_patch, PASSED in fix_patch (the bug fix works)
         - p2p: test PASSED in both (no regression)
         - s2p: test SKIPPED in test_patch, PASSED in fix_patch
         - n2p: test not present in test_patch, PASSED in fix_patch
         """
+        run_passed = set(run_result.get("passed_tests", []))
+
         test_passed = set(test_result.get("passed_tests", []))
         test_failed = set(test_result.get("failed_tests", []))
         test_skipped = set(test_result.get("skipped_tests", []))
@@ -820,6 +777,11 @@ class JaegerInstance(models.Model):
         fix_failed = set(fix_result.get("failed_tests", []))
 
         all_test_tests = test_passed | test_failed | test_skipped
+        fix_all_count = (
+            fix_result.get("passed_count", 0)
+            + fix_result.get("failed_count", 0)
+            + fix_result.get("skipped_count", 0)
+        )
 
         # Classify transitions
         f2p = {t for t in fix_passed if t in test_failed}
@@ -830,32 +792,86 @@ class JaegerInstance(models.Model):
         # Regressions: tests that passed in test_patch but failed in fix_patch
         regressions = {t for t in fix_failed if t in test_passed}
 
-        # Build status dicts
-        f2p_dict = {t: {"test": "FAIL", "fix": "PASS"} for t in f2p}
-        p2p_dict = {t: {"test": "PASS", "fix": "PASS"} for t in p2p}
-        s2p_dict = {t: {"test": "SKIP", "fix": "PASS"} for t in s2p}
-        n2p_dict = {t: {"test": "NONE", "fix": "PASS"} for t in n2p}
+        # Fixed tests: any test that was not passing in test-patch but passes in fix-patch
+        fixed_tests = {t for t in fix_passed if t not in test_passed}
 
-        # Sanity: if test-patch and fix-patch runs are identical, patches likely didn't apply
-        runs_identical = (
-            set(test_result.get("passed_tests", [])) == set(fix_result.get("passed_tests", []))
-            and set(test_result.get("failed_tests", [])) == set(fix_result.get("failed_tests", []))
-            and (test_result.get("passed_count", 0) + test_result.get("failed_count", 0)) > 0
-        )
+        # Build status dicts (include run status for full traceability)
+        def _status(t, source):
+            if t in source.get("passed_tests", []):
+                return "PASS"
+            if t in source.get("failed_tests", []):
+                return "FAIL"
+            if t in source.get("skipped_tests", []):
+                return "SKIP"
+            return "NONE"
 
-        # Validation rules
+        f2p_dict = {t: {"run": _status(t, run_result), "test": "FAIL", "fix": "PASS"} for t in f2p}
+        p2p_dict = {t: {"run": _status(t, run_result), "test": "PASS", "fix": "PASS"} for t in p2p}
+        s2p_dict = {t: {"run": _status(t, run_result), "test": "SKIP", "fix": "PASS"} for t in s2p}
+        n2p_dict = {t: {"run": _status(t, run_result), "test": "NONE", "fix": "PASS"} for t in n2p}
+        fixed_dict = {t: {"run": _status(t, run_result), "test": _status(t, test_result), "fix": "PASS"} for t in fixed_tests}
+
+        # ── 4-check validation (matches multi-swe-bench Report.check()) ──
+
+        is_valid = True
+        validation_error = ""
         has_fix_signal = len(f2p) > 0
         has_regressions = len(regressions) > 0
-        is_valid = has_fix_signal and not has_regressions and not runs_identical
 
-        if runs_identical:
-            validation_error = "Test-patch and fix-patch runs identical — patches may not have applied"
-        elif not has_fix_signal:
-            validation_error = "No f2p tests (fix doesn't change any failing test to passing)"
-        elif has_regressions:
-            validation_error = f"Has {len(regressions)} regressions: {sorted(regressions)[:5]}"
-        else:
-            validation_error = ""
+        # Check 1: fix patch result must have captured at least one test
+        if is_valid and fix_all_count == 0:
+            is_valid = False
+            validation_error = (
+                "After applying the fix patch, no test results were captured "
+                "when executing the test command."
+            )
+
+        # Check 2: no regressions (PASS in test-patch → FAIL in fix-patch)
+        if is_valid and has_regressions:
+            is_valid = False
+            validation_error = (
+                f"Before applying the fix patch, {len(regressions)} test(s) passed; "
+                f"after applying the fix patch, they failed: {sorted(regressions)[:5]}"
+            )
+
+        # Check 3: fix must actually fix something (f2p > 0)
+        if is_valid and not has_fix_signal:
+            is_valid = False
+            validation_error = (
+                "After applying the fix patch, no test cases transitioned from "
+                "failed to passed (0 f2p tests)."
+            )
+
+        # Check 4: anomalous pattern — test PASSED in baseline, NONE/SKIP in
+        # test-patch, FAILED in fix-patch.  This indicates the fix broke a test
+        # that was unrelated to the test patch.
+        if is_valid:
+            for t in fix_failed:
+                t_in_test = t in test_passed or t in test_failed or t in test_skipped
+                t_was_none_or_skip = (not t_in_test) or (t in test_skipped)
+                if t_was_none_or_skip and t in run_passed:
+                    is_valid = False
+                    validation_error = (
+                        f"Anomalous pattern: test `{t}` passed in baseline, "
+                        f"was {'skipped' if t in test_skipped else 'absent'} in "
+                        f"test-patch run, but failed after applying fix patch."
+                    )
+                    break
+
+        # Extra sanity: if test-patch and fix-patch runs are identical,
+        # patches likely didn't apply
+        if is_valid:
+            runs_identical = (
+                test_passed == fix_passed
+                and test_failed == fix_failed
+                and (len(test_passed) + len(test_failed)) > 0
+            )
+            if runs_identical:
+                is_valid = False
+                validation_error = (
+                    "Test-patch and fix-patch runs produced identical results — "
+                    "patches may not have applied."
+                )
 
         report = {
             "f2p_count": len(f2p),
@@ -863,18 +879,18 @@ class JaegerInstance(models.Model):
             "s2p_count": len(s2p),
             "n2p_count": len(n2p),
             "regressions_count": len(regressions),
+            "fixed_count": len(fixed_tests),
             "is_valid": is_valid,
             "has_fix_signal": has_fix_signal,
             "has_regressions": has_regressions,
         }
 
         self.write({
+            "fixed_tests_json": json.dumps(fixed_dict),
             "f2p_tests_json": json.dumps(f2p_dict),
             "p2p_tests_json": json.dumps(p2p_dict),
             "s2p_tests_json": json.dumps(s2p_dict),
             "n2p_tests_json": json.dumps(n2p_dict),
-            "f2p_count": len(f2p),
-            "p2p_count": len(p2p),
             "is_valid": is_valid,
             "has_fix_signal": has_fix_signal,
             "has_regressions": has_regressions,
