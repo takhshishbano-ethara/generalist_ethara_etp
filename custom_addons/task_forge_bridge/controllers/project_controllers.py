@@ -270,7 +270,7 @@ class TaskForgeProjectController(http.Controller):
             if total_task_count > 0:
                 completion_rate = round((done_task_count / total_task_count) * 100, 2)
 
-            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue'])]
+            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue', 'resolved'])]
             open_blocker_count = Blocker.search_count(blocker_domain)
             blocker_grouped = Blocker.read_group(
                 domain=blocker_domain,
@@ -613,7 +613,7 @@ class TaskForgeProjectController(http.Controller):
             done_task_count = TaskLog.search_count(task_domain + [('state', '=', 'completed')])
             in_progress_count = TaskLog.search_count(task_domain + [('state', '=', 'in_progress')])
 
-            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue'])]
+            blocker_domain = [('project_id', '=', project_id), ('state', 'not in', ['no_issue', 'resolved'])]
             total_blocker_count = Blocker.search_count(blocker_domain)
 
             blocker_grouped = Blocker.read_group(

@@ -5,13 +5,23 @@
         <field name="name">task.forge.blocker.tree</field>
         <field name="model">task.forge.blocker</field>
         <field name="arch" type="xml">
-            <list decoration-danger="state == 'pending'" decoration-warning="state == 'ack'" decoration-success="state == 'no_issue'">
+            <list decoration-danger="state in ('pending','escalated_to_cto')"
+                  decoration-warning="state in ('escalated_to_pl','ack')"
+                  decoration-success="state in ('resolved','no_issue')"
+                  decoration-info="state == 'validated'">
                 <field name="name"/>
                 <field name="task_name"/>
                 <field name="employee_name"/>
                 <field name="qr_id"/>
                 <field name="pl_id"/>
-                <field name="state" widget="badge"/>
+                <field name="priority" widget="priority"/>
+                <field name="escalation_level" widget="badge"/>
+                <field name="state" widget="badge"
+                       decoration-danger="state in ('pending','escalated_to_cto')"
+                       decoration-warning="state in ('escalated_to_pl','ack')"
+                       decoration-success="state in ('resolved','no_issue')"
+                       decoration-info="state == 'validated'"/>
+                <field name="resolved_by_id" optional="hide"/>
                 <field name="create_date"/>
             </list>
         </field>
@@ -23,36 +33,118 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <field name="state" widget="statusbar" statusbar_visible="pending,ack,escalated"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,escalated_to_pl,escalated_to_cto,resolved,validated"/>
                 </header>
                 <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Blocker Summary..."/></h1>
+                    </div>
                     <group>
                         <group string="Blocker Info">
-                            <field name="name"/>
                             <field name="task_id"/>
                             <field name="project_id"/>
+                            <field name="blocker_type"/>
+                            <field name="priority" widget="priority"/>
+                            <field name="escalation_level" widget="badge"/>
                             <field name="blocker_reason"/>
                         </group>
-                        <group string="Hierarchy">
+                        <group string="People">
                             <field name="employee_id"/>
                             <field name="qr_id"/>
                             <field name="pl_id"/>
+                            <field name="resolved_by_id"/>
                         </group>
                     </group>
+
                     <notebook>
-                        <page string="QR Review">
+                        <page string="QR Review" name="qr_review">
                             <group>
-                                <field name="qr_notes"/>
-                                <field name="qr_video_url" widget="url"/>
-                                <field name="qr_image_url" widget="url"/>
-                                <field name="qr_action_at"/>
+                                <group>
+                                    <field name="qr_notes"/>
+                                    <field name="qr_action_at"/>
+                                </group>
+                                <group>
+                                    <field name="qr_image_url" widget="url"/>
+                                    <field name="qr_video_url" widget="url"/>
+                                </group>
                             </group>
                         </page>
-                        <page string="PL Validation">
+
+                        <page string="PL Review" name="pl_review">
                             <group>
-                                <field name="pl_validated_at"/>
+                                <group>
+                                    <field name="pl_notes"/>
+                                    <field name="pl_action_at"/>
+                                    <field name="pl_validated_at"/>
+                                </group>
+                                <group>
+                                    <field name="pl_image_url" widget="url"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="CTO Review" name="cto_review">
+                            <group>
+                                <group>
+                                    <field name="cto_notes"/>
+                                    <field name="cto_action_at"/>
+                                </group>
+                                <group>
+                                    <field name="cto_image_url" widget="url"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Resolution" name="resolution">
+                            <group>
+                                <group>
+                                    <field name="resolved_by_id"/>
+                                    <field name="resolved_at"/>
+                                </group>
+                                <group>
+                                    <field name="resolution_notes"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Validated Bug" name="validated_bug"
+                              invisible="not validated_bug_id">
+                            <group>
                                 <field name="validated_bug_id"/>
                             </group>
+                        </page>
+
+                        <page string="Attachments" name="attachments">
+                            <group>
+                                <group>
+                                    <field name="blocker_image_url" widget="url"/>
+                                    <field name="qr_image_url" widget="url"/>
+                                    <field name="qr_video_url" widget="url"/>
+                                </group>
+                                <group>
+                                    <field name="pl_image_url" widget="url"/>
+                                    <field name="cto_image_url" widget="url"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Escalation History" name="escalation_history">
+                            <field name="escalation_log_ids" readonly="1">
+                                <list decoration-info="action == 'escalate'"
+                                      decoration-success="action == 'resolve'"
+                                      decoration-danger="action == 'no_issue'"
+                                      decoration-warning="action == 'validate_bug'">
+                                    <field name="create_date" string="Time"/>
+                                    <field name="action" widget="badge"/>
+                                    <field name="from_role"/>
+                                    <field name="to_role"/>
+                                    <field name="action_by_name"/>
+                                    <field name="notes"/>
+                                    <field name="image_url" widget="url" optional="hide"/>
+                                    <field name="document_urls" optional="hide"/>
+                                </list>
+                            </field>
                         </page>
                     </notebook>
                 </sheet>

@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from pathlib import Path
 
 from .util import extract_resolved_issues
@@ -7,6 +8,38 @@ from .util import extract_resolved_issues
 _logger = logging.getLogger(__name__)
 
 TOKEN_ROTATE_INTERVAL = 50
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 10
+
+
+def _fetch_commits_with_retry(pool, g, token, r, org, repo, pr_number, retries=_MAX_RETRIES):
+    for attempt in range(1, retries + 1):
+        try:
+            pr_obj = r.get_pull(pr_number)
+            commits = list(pr_obj.get_commits())
+            return g, token, r, [
+                {
+                    "sha": c.sha,
+                    "parents": [p.sha for p in c.parents],
+                    "message": c.commit.message,
+                }
+                for c in commits
+            ]
+        except Exception as e:
+            is_last = attempt == retries
+            is_network = "NameResolution" in str(e) or "ConnectionError" in str(type(e).__name__) or "MaxRetry" in str(e)
+            if is_network and not is_last:
+                wait = _RETRY_BACKOFF * attempt
+                _logger.warning(
+                    "PR #%s attempt %d/%d network error: %s — retrying in %ds",
+                    pr_number, attempt, retries, e, wait,
+                )
+                time.sleep(wait)
+                pool.report_from_client(g, token)
+                g, token = pool.get_github_client(per_page=100)
+                r = g.get_repo(f"{org}/{repo}")
+                continue
+            raise
 
 
 def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
@@ -70,25 +103,37 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
             if not skip_commit_message and r:
                 if api_calls > 0 and api_calls % TOKEN_ROTATE_INTERVAL == 0:
                     _logger.info("Rotating GitHub token after %d API calls", api_calls)
-                    pool.report_from_client(g, token)
-                    g, token = pool.get_github_client(per_page=100)
-                    r = g.get_repo(f"{org}/{repo}")
+                    try:
+                        pool.report_from_client(g, token)
+                        g, token = pool.get_github_client(per_page=100)
+                        r = g.get_repo(f"{org}/{repo}")
+                    except Exception as e:
+                        _logger.warning(
+                            "Token rotation failed at PR #%s [%d/%d]: %s — retrying after backoff",
+                            pr_num, i, total_prs, e,
+                        )
+                        time.sleep(_RETRY_BACKOFF)
+                        try:
+                            g, token = pool.get_github_client(per_page=100)
+                            r = g.get_repo(f"{org}/{repo}")
+                        except Exception as e2:
+                            _logger.error(
+                                "Token rotation retry failed at PR #%s: %s — skipping PR",
+                                pr_num, e2,
+                            )
+                            skipped_commit_error += 1
+                            api_calls += 1
+                            continue
 
                 try:
-                    pr_obj = r.get_pull(pull["number"])
-                    commits = list(pr_obj.get_commits())
-                    pull["commits"] = [
-                        {
-                            "sha": commit.sha,
-                            "parents": [p.sha for p in commit.parents],
-                            "message": commit.commit.message,
-                        }
-                        for commit in commits
-                    ]
+                    g, token, r, commit_data = _fetch_commits_with_retry(
+                        pool, g, token, r, org, repo, pull["number"],
+                    )
+                    pull["commits"] = commit_data
                     api_calls += 1
                     _logger.info(
                         "PR #%s [%d/%d] fetched %d commits",
-                        pr_num, i, total_prs, len(commits),
+                        pr_num, i, total_prs, len(commit_data),
                     )
                 except Exception as e:
                     _logger.warning(

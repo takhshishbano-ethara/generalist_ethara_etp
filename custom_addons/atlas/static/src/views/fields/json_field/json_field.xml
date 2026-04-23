@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="atlas.JsonField">
+        <div class="o_field_atlas_json o_field_widget" t-ref="root" t-att-class="{'o_field_atlas_json_readonly': props.readonly}">
+            <t t-if="hasEntries">
+                <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
+                    <div class="atlas-json-entry">
+                            <div class="atlas-json-entry-header">
+                                <span class="atlas-json-session-label">
+                                    Session <t t-esc="entry.index + 1"/>
+                                    <t t-if="entry.timestamp">
+                                        <span class="atlas-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
+                                    </t>
+                                </span>
+                                <div class="atlas-json-entry-actions">
+                                    <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
+                                    <t t-set="isQcCollapsed" t-value="state.qcCollapsed[entry.index]"/>
+                                    <t t-if="!isGoldenField and hasQcResult and isQcCollapsed">
+                                        <button class="atlas-json-qc-btn atlas-json-qc-btn-show"
+                                                t-on-click="() => this.onShowQc(entry.index)"
+                                                title="Show QC result">
+                                            <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
+                                        </button>
+                                    </t>
+                                    <t t-if="!isGoldenField">
+                                        <button class="atlas-json-taskdesc-btn"
+                                                t-att-disabled="isAnyActionRunning or entry.taskDescriptionStatus === 'pending'"
+                                                t-on-click="() => this.onGenerateTaskDesc(entry.index)"
+                                                title="Generate task description via AI">
+                                            <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
+                                                <i class="fa fa-spinner fa-spin"/> Describing…
+                                            </t>
+                                            <t t-else="">
+                                                <i class="fa fa-magic"/> Describe
+                                            </t>
+                                        </button>
+                                        <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
+                                            <button class="atlas-json-abort-btn"
+                                                    t-on-click="() => this.onAbortTaskDesc(entry.index)"
+                                                    title="Abort description generation">
+                                                <i class="fa fa-stop"/> Stop
+                                            </button>
+                                        </t>
+                                    </t>
+                                    <t t-if="!isGoldenField">
+                                        <button class="atlas-json-qc-btn"
+                                                t-att-disabled="isAnyActionRunning or entry.qcStatus === 'pending'"
+                                                t-on-click="() => this.onQcEntry(entry.index)"
+                                                t-att-title="hasQcResult ? 'Re-run QC' : 'Run QC on this trajectory'">
+                                            <t t-if="state.qcRunning === entry.index">
+                                                <i class="fa fa-spinner fa-spin"/> QC
+                                            </t>
+                                            <t t-elif="entry.qcStatus === 'pending'">
+                                                <i class="fa fa-spinner fa-spin"/> QC
+                                            </t>
+                                            <t t-elif="hasQcResult and !isQcCollapsed">
+                                                <i class="fa fa-refresh"/> Re-QC
+                                            </t>
+                                            <t t-elif="hasQcResult and isQcCollapsed">
+                                                <i class="fa fa-refresh"/> Re-QC
+                                            </t>
+                                            <t t-else="">
+                                                QC
+                                            </t>
+                                        </button>
+                                        <t t-if="state.qcRunning === entry.index or entry.qcStatus === 'pending'">
+                                            <button class="atlas-json-abort-btn"
+                                                    t-on-click="() => this.onAbortQc(entry.index)"
+                                                    title="Abort QC check">
+                                                <i class="fa fa-stop"/> Stop
+                                            </button>
+                                        </t>
+                                    </t>
+                                    <t t-if="isEditable and state.editingIndex !== entry.index">
+                                        <button class="atlas-json-edit-btn"
+                                                t-att-disabled="isAnyActionRunning"
+                                                t-on-click="() => this.onEditEntry(entry.index)"
+                                                title="Edit this trajectory">
+                                            <i class="fa fa-pencil"/>
+                                        </button>
+                                    </t>
+                                    <button class="atlas-json-delete-btn"
+                                            t-att-disabled="state.deleting === entry.index or isAnyActionRunning"
+                                            t-on-click="() => this.onDeleteEntry(entry.index)"
+                                            title="Delete this trajectory">
+                                        <t t-if="state.deleting === entry.index">
+                                            <i class="fa fa-spinner fa-spin"/>
+                                        </t>
+                                        <t t-else="">
+                                            <i class="fa fa-times"/>
+                                        </t>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <t t-set="qc" t-value="state.qcResults[entry.index] || entry.qcResult"/>
+                            <t t-if="qc and !state.qcCollapsed[entry.index]">
+                                <div t-attf-class="atlas-qc-result atlas-qc-#{qc.severity}">
+                                    <div class="atlas-qc-header">
+                                        <span class="atlas-qc-badge">
+                                            <i t-attf-class="fa #{severityIcon(qc.severity)}"/>
+                                            <t t-esc="qc.severity.toUpperCase()"/>
+                                        </span>
+                                        <span class="atlas-qc-summary" t-esc="qc.summary"/>
+                                        <div class="atlas-qc-header-actions">
+                                            <span class="atlas-qc-stats">
+                                                <span class="text-success" t-if="qc.total_passes"><t t-esc="qc.total_passes"/> pass</span>
+                                                <span class="text-warning" t-if="qc.total_warns"><t t-esc="qc.total_warns"/> warn</span>
+                                                <span class="text-danger" t-if="qc.total_fails"><t t-esc="qc.total_fails"/> fail</span>
+                                            </span>
+                                            <button class="atlas-qc-toggle-btn"
+                                                    t-on-click="() => this.onToggleQcChecks(entry.index)">
+                                                <i t-attf-class="fa #{state.qcExpandedChecks[entry.index] ? 'fa-chevron-up' : 'fa-chevron-down'}"/>
+                                            </button>
+                                            <button class="atlas-qc-dismiss-btn"
+                                                    t-on-click="() => this.onDismissQc(entry.index)"
+                                                    title="Collapse QC result">
+                                                <i class="fa fa-chevron-up"/>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <t t-if="state.qcExpandedChecks[entry.index] and qc.checks and qc.checks.length">
+                                        <div class="atlas-qc-checks">
+                                            <t t-foreach="qc.checks" t-as="check" t-key="check.check">
+                                                <div t-attf-class="atlas-qc-check atlas-qc-check-#{check.verdict ? check.verdict.toLowerCase() : 'pass'}">
+                                                    <span class="atlas-qc-check-num" t-esc="check.check"/>
+                                                    <span class="atlas-qc-check-name" t-esc="check.name"/>
+                                                    <span t-attf-class="atlas-qc-check-verdict badge bg-#{check.verdict === 'PASS' ? 'success' : check.verdict === 'WARN' ? 'warning' : 'danger'}"
+                                                          t-esc="check.verdict"/>
+                                                    <t t-if="check.reason">
+                                                        <div class="atlas-qc-check-reason" t-esc="check.reason"/>
+                                                    </t>
+                                                    <t t-if="check.fix">
+                                                        <div class="atlas-qc-check-fix">
+                                                            <i class="fa fa-lightbulb-o"/> <t t-esc="check.fix"/>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+
+                            <t t-if="state.editingIndex === entry.index">
+                                <div class="atlas-json-edit-container">
+                                    <textarea class="atlas-json-edit-textarea"
+                                              t-ref="editTextarea"
+                                              t-att-value="state.editBuffer"
+                                              t-on-input="onEditInput"
+                                              spellcheck="false"/>
+                                    <t t-if="state.editError">
+                                        <div class="atlas-json-edit-error">
+                                            <i class="fa fa-exclamation-circle"/> <t t-esc="state.editError"/>
+                                        </div>
+                                    </t>
+                                    <div class="atlas-json-edit-actions">
+                                        <button class="btn btn-sm btn-primary" t-on-click="onSaveEntry">
+                                            <i class="fa fa-check"/> Save
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary" t-on-click="onCancelEdit">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </t>
+                            <t t-else="">
+                                <div class="atlas-json-entry-body" t-out="entry.html"/>
+                            </t>
+                    </div>
+                    <t t-if="!entry_last">
+                        <hr class="atlas-json-divider"/>
+                    </t>
+                </t>
+            </t>
+            <t t-else="">
+                <div class="text-muted p-3">No trajectory data</div>
+            </t>
+        </div>
+    </t>
+
+</templates>

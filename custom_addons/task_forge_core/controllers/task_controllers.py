@@ -42,9 +42,9 @@ class TaskForgeTaskController(http.Controller):
             if search:
                 domain += ['|', ('name', 'ilike', search), ('internal_project_name', 'ilike', search)]
 
-            if kwargs.get('status'):
-                if 'all' not in kwargs.get('status'):
-                    status_list = [int(x.strip()) for x in kwargs.get('status').split(',') if x.strip()]
+            if kwargs.get('project_status'):
+                if 'all' not in kwargs.get('project_status'):
+                    status_list = [int(x.strip()) for x in kwargs.get('project_status').split(',') if x.strip()]
                     domain += [('stage_id', 'in', status_list)]
 
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
@@ -64,7 +64,10 @@ class TaskForgeTaskController(http.Controller):
                     'aht_time': 0,
                     'task_list': []
                 }
-                tasks = TaskLog.search([('project_id', '=', p.id), ('employee_id', 'in', team_ids)], order='create_date desc')
+                task_domain = [('project_id', '=', p.id), ('employee_id', 'in', team_ids)]
+                if kwargs.get('status'):
+                    task_domain.append(('state', '=', kwargs.get('status')))
+                tasks = TaskLog.search(task_domain, order='create_date desc')
                 aht_time = 0
                 for t in tasks:
                     project_vals.get('task_list').append(self._format_task(t))
