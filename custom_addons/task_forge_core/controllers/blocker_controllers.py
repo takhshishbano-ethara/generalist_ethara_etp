@@ -120,39 +120,45 @@ class TaskForgeBlockerController(http.Controller):
             if role != 'tasker':
                 return return_Response(message="Only Tasker Can Create the Blocker", status=404)
 
-            task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
-            if not task.exists():
-                return return_Response(message="Task not found", status=404)
-
-            blocker_image_url = self._upload_files('image', 'blocker_images')
-            document_urls = self._upload_multiple_files('blocker_documents')
-
-            now = datetime.now()
-            pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
-
-            blocker = Blocker.create({
+            blocker_dict = {
                 'name': kwargs.get('name'),
-                'task_id': task.id,
                 'blocker_reason': kwargs.get('blocker_reason'),
                 'blocker_type': kwargs.get('blocker_type'),
                 'priority': kwargs.get('priority'),
                 'employee_id': employee.id,
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,
-                'blocker_image_url': blocker_image_url,
-                'escalation_level': 'qr',
-                'blocker_issue_id': int(kwargs.get('blocker_issue_id')) if kwargs.get('blocker_issue_id') else False,
-            })
+                'escalation_level': 'qr'
+            }
+
+            if kwargs.get('blocker_issue_id'):
+                blocker_dict['blocker_issue_id'] = int(kwargs.get('blocker_issue_id'))
+
+            if kwargs.get('task_id'):
+                task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
+                if not task.exists():
+                    return return_Response(message="Task not found", status=404)
+                blocker_dict['task_id'] = task.id
+                now = datetime.now()
+                pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
+                task.write({
+                    'state': 'blocker',
+                    'pause_time': kwargs.get('pause_time') or pause_time_str,
+                })
+
+            blocker_image_url = self._upload_files('image', 'blocker_images')
+            if blocker_image_url:
+                blocker_dict['blocker_image_url'] = blocker_image_url
+
+            document_urls = self._upload_multiple_files('blocker_documents')
+
+            blocker = Blocker.create(blocker_dict)
 
             blocker._log_escalation('tasker', 'qr', 'create',
                                     notes=kwargs.get('blocker_reason') or '',
                                     image_url=blocker_image_url,
                                     document_urls=document_urls)
 
-            task.write({
-                'state': 'blocker',
-                'pause_time': kwargs.get('pause_time') or pause_time_str,
-            })
 
             try:
                 if blocker.qr_id and blocker.qr_id.user_id:
