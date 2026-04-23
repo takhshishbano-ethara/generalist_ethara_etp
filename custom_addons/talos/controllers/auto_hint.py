@@ -238,9 +238,11 @@ def _auto_hint_eval_bg(
         threading.current_thread().name,
     )
 
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
 
             sandbox = env["talos.sandbox"].browse(sandbox_id)
             if not sandbox.exists():
@@ -481,11 +483,20 @@ def _auto_hint_eval_bg(
                     "auto_hint bg: unsatisfied sandbox=%s turn=%s iter=%d hint=%.80s",
                     sandbox_id, turn_id, iteration, hint,
                 )
-    except Exception:
-        _logger.exception(
-            "auto_hint bg: unhandled error sandbox=%s turn=%s iter=%d",
-            sandbox_id, turn_id, iteration,
-        )
+            return
+        except Exception as e:
+            err_str = str(e).lower()
+            if ("serialize" in err_str or "concurrent" in err_str) and attempt < max_retries - 1:
+                _logger.warning(
+                    "auto_hint bg: serialization conflict (attempt %d/%d) sandbox=%s turn=%s: %s",
+                    attempt + 1, max_retries, sandbox_id, turn_id, e,
+                )
+                time.sleep(1 + attempt)
+                continue
+            _logger.exception(
+                "auto_hint bg: unhandled error sandbox=%s turn=%s iter=%d",
+                sandbox_id, turn_id, iteration,
+            )
 
 
 def _accumulate_kimi_tokens(env, task_id, usage):
