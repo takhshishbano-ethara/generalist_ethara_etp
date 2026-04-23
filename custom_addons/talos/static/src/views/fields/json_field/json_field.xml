@@ -12,6 +12,9 @@
                                     <t t-if="entry.timestamp">
                                         <span class="talos-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
                                     </t>
+                                    <t t-if="entry.deleted">
+                                        <span class="badge bg-danger ms-2">Deleted — QC Failed</span>
+                                    </t>
                                 </span>
                                 <div class="talos-json-entry-actions">
                                     <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
@@ -23,7 +26,7 @@
                                             <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
                                         </button>
                                     </t>
-                                    <t t-if="!isGoldenField">
+                                    <t t-if="!entry.deleted and !isGoldenField">
                                         <button class="talos-json-taskdesc-btn"
                                                 t-att-disabled="isAnyActionRunning or entry.taskDescriptionStatus === 'pending'"
                                                 t-on-click="() => this.onGenerateTaskDesc(entry.index)"
@@ -72,7 +75,7 @@
                                             </button>
                                         </t>
                                     </t>
-                                    <t t-if="isEditable and state.editingIndex !== entry.index">
+                                    <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
                                         <button class="talos-json-edit-btn"
                                                 t-att-disabled="isAnyActionRunning"
                                                 t-on-click="() => this.onEditEntry(entry.index)"
@@ -164,6 +167,12 @@
                                             Cancel
                                         </button>
                                     </div>
+                                </div>
+                            </t>
+                            <t t-elif="entry.deleted">
+                                <div class="talos-json-deleted-notice p-3 text-muted">
+                                    <i class="fa fa-trash-o me-1"/>
+                                    Trajectory removed: <t t-esc="entry.deletedReason || 'QC failed'"/>
                                 </div>
                             </t>
                             <t t-else="">

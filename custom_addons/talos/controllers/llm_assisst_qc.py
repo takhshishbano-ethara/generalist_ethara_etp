@@ -280,11 +280,16 @@ def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_resu
                         entry_index,
                         qc_result.get("total_fails", "?"),
                     )
-                    entries.pop(entry_index)
-                    if entries:
-                        new_value = json.dumps(entries, indent=2, ensure_ascii=False)
-                    else:
-                        new_value = ""
+                    # Replace trajectory with tombstone that preserves QC feedback
+                    entries[entry_index] = {
+                        "session_id": entry.get("session_id", ""),
+                        "timestamp": entry.get("timestamp", ""),
+                        "deleted": True,
+                        "deleted_reason": "QC failed (severity: critical)",
+                        "qc_status": "done",
+                        "qc_result": qc_result,
+                    }
+                    new_value = json.dumps(entries, indent=2, ensure_ascii=False)
                     task.write({field_name: new_value})
                     env.cr.commit()
                 return

@@ -775,9 +775,14 @@ class AutoHintController(http.Controller):
     def auto_hint_eval(self, turn_id=0, sandbox_id=0, **kw):
         turn_id = int(turn_id or 0)
         sandbox_id = int(sandbox_id or 0)
+        _logger.info(
+            "auto_hint_eval: received request turn_id=%s sandbox_id=%s",
+            turn_id,
+            sandbox_id,
+        )
         if not turn_id or not sandbox_id:
-            _logger.warning(
-                "auto_hint_eval: missing params turn_id=%s sandbox_id=%s",
+            _logger.info(
+                "auto_hint_eval: REJECTED missing params turn_id=%s sandbox_id=%s",
                 turn_id,
                 sandbox_id,
             )
@@ -785,27 +790,33 @@ class AutoHintController(http.Controller):
 
         turn = request.env["talos.turn"].browse(turn_id)
         if not turn.exists():
-            _logger.warning("auto_hint_eval: turn %s not found", turn_id)
+            _logger.info("auto_hint_eval: REJECTED turn %s not found", turn_id)
             return {"error": "Turn not found"}
 
         if turn.turn_status != "Completed":
-            _logger.warning(
-                "auto_hint_eval: turn %s status is '%s', not 'Completed'",
+            _logger.info(
+                "auto_hint_eval: REJECTED turn %s status='%s' (expected 'Completed')",
                 turn_id,
                 turn.turn_status,
             )
             return {"error": "Turn is not completed (status=%s)" % turn.turn_status}
 
         if not turn.response:
-            _logger.warning("auto_hint_eval: turn %s has no response", turn_id)
+            _logger.info("auto_hint_eval: REJECTED turn %s has no response", turn_id)
             return {"error": "Turn has no response"}
 
         sandbox = request.env["talos.sandbox"].browse(sandbox_id)
         if not sandbox.exists():
+            _logger.info("auto_hint_eval: REJECTED sandbox %s not found", sandbox_id)
             return {"error": "Sandbox not found"}
 
         current_iter = sandbox.auto_hint_iteration or 0
         if current_iter >= 5:
+            _logger.info(
+                "auto_hint_eval: REJECTED sandbox %s max_retries (iter=%d)",
+                sandbox_id,
+                current_iter,
+            )
             return {"status": "max_retries"}
 
         group_id = sandbox.auto_hint_group_id or ""

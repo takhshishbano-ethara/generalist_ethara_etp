@@ -302,7 +302,11 @@ export class TalosJsonField extends Component {
             sessionId: entry.session_id || `session-${idx + 1}`,
             timestamp: entry.timestamp || "",
             trajectory: entry.trajectory,
-            html: markup(renderTrajectoryHtml(entry.trajectory)),
+            html: entry.deleted
+                ? markup("")
+                : markup(renderTrajectoryHtml(entry.trajectory)),
+            deleted: !!entry.deleted,
+            deletedReason: entry.deleted_reason || "",
             qcStatus: entry.qc_status || null,
             qcResult: entry.qc_result || null,
             taskDescriptionStatus: entry.task_description_status || null,
