@@ -51,6 +51,7 @@ LANGUAGE_SELECTION = [
 
 PIPELINE_MODE_SELECTION = [
     ("swe", "SWE (Single-PR Tasks)"),
+    ("hard_swe", "Hard SWE (≥5 files, ≥100 lines)"),
     ("lht", "LHT (Long-Horizon Tasks)"),
 ]
 
@@ -298,7 +299,7 @@ def _run_scrape_pipeline_standalone(db_name, repo_id):
         else:
             _run_swe_steps_standalone(
                 db_name, repo_id, org, repo_name, tokens, out_dir,
-                retry_attempts, delay_on_error,
+                retry_attempts, delay_on_error, pipeline_mode,
             )
     except PipelineCancelled:
         _logger.info("Pipeline %s cancelled by user", repo_id)
@@ -409,7 +410,7 @@ def _upload_outputs_to_s3(db_name, repo_id, out_dir, org, repo_name):
 
 
 def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
-                              retry_attempts, delay_on_error):
+                              retry_attempts, delay_on_error, pipeline_mode="swe"):
     from odoo.addons.jaeger.tools.github_token_pool import GitHubTokenPool
     from odoo.addons.jaeger.tools.get_all_prs import main as get_all_prs
     from odoo.addons.jaeger.tools.filter_prs import main as filter_prs
@@ -451,7 +452,19 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
         "pr_collection_progress": 25,
     })
 
-    filter_prs(pool, out_dir, prs_file, skip_commit_message=False)
+    def _filter_progress(processed, total, passed):
+        _check_cancelled(db_name, repo_id)
+        pct = 25 + (processed / total) * 15 if total else 25
+        step_text = f"Step 2/5: Filtering PRs — {processed}/{total} processed, {passed} passed so far"
+        _heartbeat_standalone(db_name, repo_id, step_text)
+        _write_with_retry(db_name, repo_id, {
+            "pr_collection_step": step_text,
+            "pr_collection_progress": round(pct, 1),
+            "filtered_prs_count": passed,
+        })
+
+    filter_prs(pool, out_dir, prs_file, skip_commit_message=False,
+               progress_callback=_filter_progress)
     filtered_file = out_dir / f"{org}__{repo_name}_filtered_prs.jsonl"
     filtered_count = _count_lines(filtered_file)
 
@@ -514,7 +527,7 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
     })
 
     dataset_file = out_dir / f"{org}__{repo_name}_filtered_prs_with_issues.jsonl"
-    build_dataset(pool, out_dir, dataset_file, delay_on_error, retry_attempts)
+    build_dataset(pool, out_dir, dataset_file, delay_on_error, retry_attempts, mode=pipeline_mode)
     raw_dataset_file = out_dir / f"{org}__{repo_name}_raw_dataset.jsonl"
     _validate_step_output(raw_dataset_file, 5)
     raw_count = _count_lines(raw_dataset_file)
@@ -1432,12 +1445,29 @@ class JaegerRepository(models.Model):
         self.env.cr.commit()
         from ..tools.filter_prs import main as filter_prs
 
+        def _lht_filter_progress(processed, total, passed):
+            self.env.cr.execute(
+                "SELECT cancel_requested FROM jaeger_repository WHERE id = %s",
+                [self.id],
+            )
+            if self.env.cr.fetchone()[0]:
+                raise UserError("Pipeline cancelled by user.")
+            pct = 20 + (processed / total) * 13 if total else 20
+            step_text = f"Step 2/6: Filtering PRs (LHT) — {processed}/{total} processed, {passed} passed"
+            self.write({
+                "pr_collection_step": step_text,
+                "pr_collection_progress": round(pct, 1),
+                "filtered_prs_count": passed,
+            })
+            self.env.cr.commit()
+
         filter_prs(
             pool,
             out_dir,
             prs_file,
             mode="lht",
             skip_commit_message=True,
+            progress_callback=_lht_filter_progress,
         )
         lht_filtered = out_dir / f"{self.org}__{self.repo_name}_lht_filtered_prs.jsonl"
         filtered_fallback = out_dir / f"{self.org}__{self.repo_name}_filtered_prs.jsonl"
