@@ -641,10 +641,10 @@ def detect_hints_mode(data):
     if "past_conversations" in data:
         return True
     messages = data.get("messages")
-    if isinstance(messages, list) and len(messages) > 0:
-        first = messages[0]
-        if isinstance(first, dict) and "is_accepted" in first:
-            return True
+    if isinstance(messages, list):
+        for msg in messages:
+            if isinstance(msg, dict) and "is_accepted" in msg:
+                return True
     return False
 
 
