@@ -42,7 +42,8 @@ def _fetch_commits_with_retry(pool, g, token, r, org, repo, pr_number, retries=_
             raise
 
 
-def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False):
+def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
+         progress_callback=None):
     out_dir = Path(out_dir)
     prs_file = Path(prs_file)
 
@@ -84,6 +85,8 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False):
                     pr_num, i, total_prs, pull["state"], pr_title,
                 )
                 skipped_not_closed += 1
+                if progress_callback and i % 10 == 0:
+                    progress_callback(i, total_prs, count)
                 continue
 
             if mode == "lht" and not pull.get("merged_at"):
@@ -92,6 +95,8 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False):
                     pr_num, i, total_prs, pr_title,
                 )
                 skipped_not_merged += 1
+                if progress_callback and i % 10 == 0:
+                    progress_callback(i, total_prs, count)
                 continue
 
             pull["commits"] = []
@@ -146,6 +151,8 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False):
                     pr_num, i, total_prs, pr_title,
                 )
                 skipped_no_issues += 1
+                if progress_callback and i % 10 == 0:
+                    progress_callback(i, total_prs, count)
                 continue
 
             pull["resolved_issues"] = resolved_issues
@@ -155,6 +162,9 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False):
                 "PR #%s [%d/%d] PASS: %d resolved issues=%s title=%.80s",
                 pr_num, i, total_prs, len(resolved_issues), resolved_issues, pr_title,
             )
+
+            if progress_callback and i % 10 == 0:
+                progress_callback(i, total_prs, count)
 
     _logger.info(
         "Filter summary for %s/%s: %d/%d passed | skipped: %d not-closed, %d not-merged, "

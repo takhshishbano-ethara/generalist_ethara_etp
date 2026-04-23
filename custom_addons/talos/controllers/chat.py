@@ -13,7 +13,16 @@ _logger = logging.getLogger(__name__)
 class TalosChatController(http.Controller):
     @http.route("/talos/chat/create_turn", type="json", auth="user")
     def create_turn(
-        self, sandbox_id=0, message="", model=None, timestamp="", is_hint=False, **kw
+        self,
+        sandbox_id=0,
+        message="",
+        model=None,
+        timestamp="",
+        is_hint=False,
+        is_auto_hint=False,
+        auto_hint_iteration=0,
+        auto_hint_group_id="",
+        **kw,
     ):
         sandbox_id = int(sandbox_id or 0)
         message = (message or "").strip()
@@ -43,6 +52,13 @@ class TalosChatController(http.Controller):
             vals["prompt"] = message
         if timestamp:
             vals["prompt_timestamp"] = timestamp
+
+        # Auto-hint metadata
+        if is_auto_hint:
+            vals["is_auto_hint"] = True
+            vals["auto_hint_iteration"] = int(auto_hint_iteration or 0)
+            if auto_hint_group_id:
+                vals["auto_hint_group_id"] = auto_hint_group_id
 
         turn = request.env["talos.turn"].create(vals)
 
@@ -76,8 +92,13 @@ class TalosChatController(http.Controller):
 
         vals = {
             "response": response or "",
-            "turn_status": "Streaming" if partial else "Completed",
         }
+        # Never downgrade Completed → Streaming (late incremental save race)
+        if partial:
+            if turn.turn_status != "Completed":
+                vals["turn_status"] = "Streaming"
+        else:
+            vals["turn_status"] = "Completed"
         if run_id:
             vals["run_id"] = run_id
         if timestamp:
@@ -390,3 +411,20 @@ class TalosChatController(http.Controller):
                 ("Content-Disposition", 'attachment; filename="%s"' % filename),
             ],
         )
+
+    @http.route("/talos/chat/sandbox_state", type="json", auth="user")
+    def sandbox_state(self, sandbox_id=0, **kw):
+        """Return auto-hint loop state for a sandbox (used by frontend on reload)."""
+        sandbox_id = int(sandbox_id or 0)
+        if not sandbox_id:
+            return {"error": "sandbox_id is required"}
+
+        sandbox = request.env["talos.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+
+        return {
+            "auto_hint_status": sandbox.auto_hint_status or "idle",
+            "auto_hint_iteration": sandbox.auto_hint_iteration or 0,
+            "auto_hint_group_id": sandbox.auto_hint_group_id or "",
+        }

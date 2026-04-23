@@ -291,6 +291,29 @@ class TalosSandbox(models.Model):
         default="not_started",
     )
 
+    # Auto-hint loop state
+    auto_hint_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("evaluating", "Evaluating"),
+            ("sending_hint", "Sending Hint"),
+            ("streaming", "Streaming"),
+            ("max_retries", "Max Retries Reached"),
+            ("error", "Error"),
+        ],
+        default="idle",
+        help="Current state of the automated hint loop.",
+    )
+    auto_hint_iteration = fields.Integer(
+        string="Auto Hint Current Iteration",
+        default=0,
+        help="Current iteration count of the in-flight auto-hint loop (0 = idle).",
+    )
+    auto_hint_group_id = fields.Char(
+        string="Auto Hint Group ID",
+        help="UUID of the currently active auto-hint loop.",
+    )
+
     # Turns
     turn_ids = fields.One2many("talos.turn", "sandbox_id", string="Turns")
 
@@ -1090,6 +1113,10 @@ class TalosSandbox(models.Model):
             "docker_status": "starting",
             "docker_error": False,
             "docker_gateway_token": gateway_token,
+            # Reset auto-hint state from previous sessions
+            "auto_hint_status": "idle",
+            "auto_hint_iteration": 0,
+            "auto_hint_group_id": False,
         }
         if mode != "k8s":
             gateway_port, litellm_port, db_port = self._allocate_ports()
@@ -2190,9 +2217,6 @@ class TalosSandbox(models.Model):
                 self.write({"docker_status": "stopped"})
             return
 
-        if self.docker_status == "running":
-            return
-
         compose_bin = _compose_cmd()
         if not compose_bin:
             return
@@ -2319,10 +2343,11 @@ class TalosSandbox(models.Model):
     def action_check_status(self):
         """Public action: reconcile DB docker_status with actual Docker state.
 
-        Called by the frontend on page load to fix stale statuses.
-        Returns a dict mapping sandbox_id → current docker_status for the caller.
+        Called by the frontend on page load and during polling to fix stale
+        statuses.  Returns a dict mapping sandbox_id → current docker_status.
         """
         mode = self._deployment_mode()
+        k8s = self.env["talos.sandbox.k8s"] if mode == "k8s" else None
         result = {}
         for sandbox in self:
             if (
@@ -2332,9 +2357,32 @@ class TalosSandbox(models.Model):
                 result[sandbox.id] = sandbox.docker_status
                 continue
 
+            # Skip sandboxes that are actively being started in a background
+            # thread — the thread will set the final status itself.
+            with _SANDBOX_LOCK:
+                if sandbox.id in _SANDBOX_STARTING:
+                    result[sandbox.id] = sandbox.docker_status
+                    continue
+
             if mode == "local":
                 sandbox._check_local_status()
-            # k8s reconciliation is handled by cron
+            elif mode == "k8s" and sandbox.docker_status in ("starting", "running"):
+                try:
+                    k8s_status = k8s.get_sandbox_status(sandbox)
+                    if k8s_status != sandbox.docker_status:
+                        vals = {"docker_status": k8s_status}
+                        if k8s_status == "error":
+                            vals["docker_error"] = (
+                                "Sandbox deployment not found after timeout"
+                            )
+                        sandbox.write(vals)
+                except Exception:
+                    _logger.debug(
+                        "[action_check_status] K8s status check failed for "
+                        "sandbox %s, returning DB value",
+                        sandbox.id,
+                        exc_info=True,
+                    )
 
             result[sandbox.id] = sandbox.docker_status
         return result
@@ -2395,3 +2443,238 @@ class TalosSandbox(models.Model):
                     sandbox.id,
                     e,
                 )
+
+    # ── Auto-process XML-RPC methods (called by consumer) ─────────────
+
+    @api.model
+    def auto_process_get_ws_info(self, sandbox_id):
+        """Return WS connection details for a running sandbox."""
+        sandbox = self.browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+        if sandbox.docker_status != "running":
+            return {
+                "error": "Sandbox is not running (status=%s)" % sandbox.docker_status
+            }
+
+        mode = sandbox._deployment_mode()
+        if mode == "k8s":
+            ws_host = (
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param("talos.ws_router_host", "")
+                .strip()
+            )
+            if ws_host:
+                ws_url = "wss://%s/sandbox/%s/" % (ws_host, sandbox.id)
+            else:
+                ws_url = ""
+        else:
+            ws_url = (
+                "ws://localhost:%d" % sandbox.docker_port if sandbox.docker_port else ""
+            )
+
+        if not ws_url:
+            return {"error": "Cannot determine WS URL"}
+
+        return {
+            "ws_url": ws_url,
+            "gateway_token": sandbox.docker_gateway_token or "",
+            "sandbox_id": sandbox.id,
+        }
+
+    @api.model
+    def auto_process_create_turn(
+        self,
+        sandbox_id,
+        message,
+        is_hint=False,
+        is_auto_hint=False,
+        auto_hint_iteration=0,
+        auto_hint_group_id="",
+    ):
+        """Create a turn record. Mirrors create_turn controller logic."""
+        sandbox = self.browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+
+        model_name = MODEL_DEFAULTS.get(sandbox.model_type, "unknown")
+        next_num = len(sandbox.turn_ids) + 1
+        is_hint_turn = bool(is_hint)
+
+        vals = {
+            "sandbox_id": sandbox.id,
+            "turn_number": next_num,
+            "model_name": model_name,
+            "turn_status": "Pending",
+            "is_hint_turn": is_hint_turn,
+        }
+        if is_hint_turn:
+            vals["hints"] = message
+        else:
+            vals["prompt"] = message
+        vals["prompt_timestamp"] = fields.Datetime.now()
+
+        if is_auto_hint:
+            vals["is_auto_hint"] = True
+            vals["auto_hint_iteration"] = int(auto_hint_iteration or 0)
+            if auto_hint_group_id:
+                vals["auto_hint_group_id"] = auto_hint_group_id
+
+        turn = self.env["talos.turn"].create(vals)
+
+        if sandbox.session_status == "not_started":
+            sandbox.sudo().write({"session_status": "in_progress"})
+
+        return {"turn_id": turn.id}
+
+    @api.model
+    def auto_process_save_response(
+        self,
+        turn_id,
+        response,
+        tool_calls_json="",
+        partial=False,
+    ):
+        """Save response to a turn. Mirrors save_response controller logic."""
+        turn = self.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        vals = {
+            "response": response or "",
+            "turn_status": "Streaming" if partial else "Completed",
+        }
+        if tool_calls_json:
+            vals["tool_calls"] = tool_calls_json
+        vals["response_timestamp"] = fields.Datetime.now()
+
+        turn.write(vals)
+        return {"success": True}
+
+    @api.model
+    def auto_process_save_trajectory(self, sandbox_id, turn_id, trajectory_json):
+        """Save full trajectory JSON from chat.history to the turn."""
+        turn = self.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        if trajectory_json:
+            if isinstance(trajectory_json, list):
+                trajectory_json = json.dumps(trajectory_json, ensure_ascii=False)
+            turn.write({"trajectory_messages": trajectory_json})
+
+        return {"success": True}
+
+    @api.model
+    def auto_process_trigger_hint_eval(self, turn_id, sandbox_id):
+        """Trigger auto-hint evaluation. Same logic as /talos/auto_hint_eval endpoint."""
+        import uuid
+        from ..controllers.auto_hint import _AUTO_HINT_POOL, _auto_hint_eval_bg
+
+        turn = self.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+        if turn.turn_status != "Completed":
+            return {"error": "Turn is not completed"}
+        if not turn.response:
+            return {"error": "Turn has no response"}
+
+        sandbox = self.browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+
+        current_iter = sandbox.auto_hint_iteration or 0
+        if current_iter >= 5:
+            return {"status": "max_retries"}
+
+        group_id = sandbox.auto_hint_group_id or ""
+        if current_iter == 0:
+            group_id = uuid.uuid4().hex
+
+        new_iter = current_iter + 1
+        sandbox.write(
+            {
+                "auto_hint_status": "evaluating",
+                "auto_hint_iteration": new_iter,
+                "auto_hint_group_id": group_id,
+            }
+        )
+
+        db_name = self.env.cr.dbname
+        # Use admin partner for notifications (consumer is headless)
+        notify_partner_id = self.env["res.users"].browse(SUPERUSER_ID).partner_id.id
+
+        def _submit():
+            _AUTO_HINT_POOL.submit(
+                _auto_hint_eval_bg,
+                db_name,
+                sandbox_id,
+                turn_id,
+                group_id,
+                new_iter,
+                notify_partner_id,
+            )
+
+        self.env.cr.postcommit.add(_submit)
+
+        return {"status": "pending", "iteration": new_iter, "group_id": group_id}
+
+    @api.model
+    def auto_process_poll_hint_status(self, sandbox_id):
+        """Read current auto_hint_status and related data for polling."""
+        sandbox = self.browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+
+        result = {
+            "auto_hint_status": sandbox.auto_hint_status or "idle",
+            "auto_hint_iteration": sandbox.auto_hint_iteration or 0,
+            "auto_hint_group_id": sandbox.auto_hint_group_id or "",
+        }
+
+        # Find the last turn and its feedback
+        last_turn = sandbox.turn_ids.sorted("turn_number", reverse=True)[:1]
+        if last_turn:
+            result["last_turn_id"] = last_turn.id
+            result["last_turn_feedback"] = last_turn.feedback or ""
+            result["last_turn_hint_text"] = last_turn.hint_text or ""
+        else:
+            result["last_turn_id"] = 0
+            result["last_turn_feedback"] = ""
+            result["last_turn_hint_text"] = ""
+
+        return result
+
+    @api.model
+    def auto_process_save_feedback(self, turn_id, feedback, hint_text=""):
+        """Save feedback on a turn. Mirrors save_feedback controller logic."""
+        turn = self.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        feedback = (feedback or "").strip().lower()
+        if feedback not in ("satisfied", "unsatisfied"):
+            return {"error": "Invalid feedback: %s" % feedback}
+
+        vals = {"feedback": feedback}
+        if hint_text:
+            vals["hint_text"] = hint_text
+
+        turn.write(vals)
+        return {"success": True}
+
+    @api.model
+    def auto_process_reset_hint_status(self, sandbox_id):
+        """Reset stuck auto_hint_status to idle (used on timeout)."""
+        sandbox = self.browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+        sandbox.write(
+            {
+                "auto_hint_status": "idle",
+                "auto_hint_iteration": 0,
+                "auto_hint_group_id": False,
+            }
+        )
+        return {"success": True}

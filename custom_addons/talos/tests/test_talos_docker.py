@@ -150,19 +150,21 @@ class TestTalosSandboxK8s(TransactionCase):
                 "docker_persona": "priya",
             }
         )
+        cls.task.ensure_sandboxes()
+        cls.sandbox = cls.task.claude_sandbox_id
 
     def test_k8s_start_raises_when_unavailable(self):
         with patch("odoo.addons.talos.models.talos_sandbox_k8s.K8S_AVAILABLE", False):
             with self.assertRaises(UserError):
-                self.env["talos.sandbox.k8s"].deploy_sandbox(self.task)
+                self.env["talos.sandbox.k8s"].deploy_sandbox(self.sandbox)
 
     def test_k8s_destroy_noop_when_unavailable(self):
         with patch("odoo.addons.talos.models.talos_sandbox_k8s.K8S_AVAILABLE", False):
-            self.env["talos.sandbox.k8s"].destroy_sandbox(self.task)
+            self.env["talos.sandbox.k8s"].destroy_sandbox(self.sandbox)
 
     def test_k8s_status_stopped_when_unavailable(self):
         with patch("odoo.addons.talos.models.talos_sandbox_k8s.K8S_AVAILABLE", False):
-            status = self.env["talos.sandbox.k8s"].get_sandbox_status(self.task)
+            status = self.env["talos.sandbox.k8s"].get_sandbox_status(self.sandbox)
             self.assertEqual(status, "stopped")
 
     def test_reconcile_skips_when_no_active_tasks(self):

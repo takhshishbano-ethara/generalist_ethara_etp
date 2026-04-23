@@ -10,6 +10,76 @@ import base64
 
 class TaskForgeTaskController(http.Controller):
 
+    @http.route('/api/v2/taskforge/tasks_group_by_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def tasks_group_by_project(self, **kwargs):
+        try:
+            user_id = request.env.user
+            employee = user_id.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+            team_ids = employee._get_team_employee_ids()
+
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            if kwargs.get('show_all') in [1, '1']:
+                domain = []
+            if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                domain = []
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                          request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                          request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain.append(('project_lead', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                domain.append(('project_qc_reviewer', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                domain.append(('project_tasker', '=', employee.id))
+
+            search = kwargs.get('search')
+            if search:
+                domain += ['|', ('name', 'ilike', search), ('internal_project_name', 'ilike', search)]
+
+            if kwargs.get('status'):
+                if 'all' not in kwargs.get('status'):
+                    status_list = [int(x.strip()) for x in kwargs.get('status').split(',') if x.strip()]
+                    domain += [('stage_id', 'in', status_list)]
+
+            page = int(kwargs.get('page')) if kwargs.get('page') else 1
+            limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
+            offset = (page - 1) * limit
+            total_count = request.env['project.project'].sudo().search_count(domain)
+            if not kwargs.get('page'):
+                limit = total_count
+                offset = 0
+            projects = request.env['project.project'].sudo().search(domain, order='id desc', limit=limit, offset=offset)
+            project_data = []
+            TaskLog = request.env['task.forge.log'].sudo()
+            for p in projects:
+                project_vals = {
+                    'name': p.name or "",
+                    'task_count': 0,
+                    'aht_time': 0,
+                    'task_list': []
+                }
+                tasks = TaskLog.search([('project_id', '=', p.id), ('employee_id', 'in', team_ids)], order='create_date desc')
+                aht_time = 0
+                for t in tasks:
+                    project_vals.get('task_list').append(self._format_task(t))
+                    if t.pause_time:
+                        try:
+                            aht_time += int(t.pause_time)
+                        except (ValueError, TypeError):
+                            pass
+                aht_time = aht_time // 60 if aht_time else 0
+                project_vals['aht_time'] = aht_time
+                project_data.append(project_vals)
+            return return_Response(message="Tasks list", status=200, data={'data': project_data})
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v2/taskforge/tasks', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_tasks(self, **kwargs):
@@ -404,3 +474,64 @@ class TaskForgeTaskController(http.Controller):
             'created_at': str(create_date),
             'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
         }
+
+    @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({'task_id': {'type': 'int', 'required': True}})
+    def delete_task(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            task_id = int(jdata.get('task_id'))
+
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            task = request.env['task.forge.log'].sudo().browse(task_id)
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            role = employee._get_task_forge_role()
+            if role == 'tasker' and task.employee_id.id != employee.id:
+                return return_Response(message="You can only delete your own tasks", status=403)
+            elif role in ('qr', 'ql'):
+                team_ids = employee._get_team_employee_ids()
+                if task.employee_id.id not in team_ids:
+                    return return_Response(message="Access denied: task not in your team", status=403)
+
+            task_name = task.name
+            task_ref = task.sequence
+
+            # Collect counts before deletion
+            blocker_count = len(task.blocker_ids)
+            bug_report_count = len(task.bug_report_ids)
+            validated_bugs = request.env['task.forge.validated.bug'].sudo().search([('task_id', '=', task.id)])
+            images = request.env['task.forge.image'].sudo().search([('task_id', '=', task.id)])
+
+            deleted_counts = {
+                'blockers': blocker_count,
+                'bug_reports': bug_report_count,
+                'validated_bugs': len(validated_bugs),
+                'images': len(images),
+            }
+
+            # 1. Delete validated_bugs (ondelete='set null' — would be orphaned)
+            for blockerr in task.blocker_ids:
+                blockerr.sudo().unlink()
+
+            if validated_bugs:
+                validated_bugs.unlink()
+
+            # 2. Delete images (no ondelete — would be orphaned)
+            if images:
+                images.unlink()
+
+            # 3. Delete task — blockers and bug_reports cascade automatically
+            task.unlink()
+
+            return return_Response(
+                message="Task deleted successfully",
+                status=200)
+        except Exception as e:
+            return return_Response(message=str(e), status=400)

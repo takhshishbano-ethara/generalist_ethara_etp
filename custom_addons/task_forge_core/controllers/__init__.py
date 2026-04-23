@@ -7,3 +7,4 @@ from . import analytics_controllers
 from . import dashboard_controllers
 from . import export_controllers
 from . import notification_controllers
+from . import role_management_controllers

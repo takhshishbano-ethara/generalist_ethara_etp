@@ -34,6 +34,10 @@ const sandboxNotificationService = {
 
             env.bus.trigger("TALOS:GOLDEN_STATUS_CHANGED", payload);
         });
+
+        bus_service.subscribe("talos/auto_hint_result", (payload) => {
+            env.bus.trigger("TALOS:AUTO_HINT_RESULT", payload);
+        });
     },
 };
 

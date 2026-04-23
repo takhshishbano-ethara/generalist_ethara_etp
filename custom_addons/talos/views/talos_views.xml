@@ -13,6 +13,13 @@
                  decoration-success="qc_status == 'passed'"
                  decoration-danger="qc_status == 'failed'"
                  decoration-muted="qc_status == 'pending'"/>
+          <field name="auto_process_status" widget="badge" string="Auto"
+                 decoration-success="auto_process_status == 'done'"
+                 decoration-danger="auto_process_status == 'failed'"
+                 decoration-info="auto_process_status == 'processing'"
+                 decoration-warning="auto_process_status == 'queued'"
+                 decoration-muted="auto_process_status == 'none'"
+                 optional="show"/>
           <field name="claude_status" widget="badge" string="Claude"
                  decoration-success="claude_status == 'running'"
                  decoration-danger="claude_status == 'error'"
@@ -50,6 +57,14 @@
                        decoration-success="qc_status == 'passed'"
                        decoration-danger="qc_status == 'failed'"
                        decoration-muted="qc_status == 'pending'"/>
+                <field name="auto_process_status" widget="badge" readonly="1"
+                       decoration-success="auto_process_status == 'done'"
+                       decoration-danger="auto_process_status == 'failed'"
+                       decoration-info="auto_process_status == 'processing'"
+                       decoration-warning="auto_process_status == 'queued'"
+                       decoration-muted="auto_process_status == 'none'"/>
+                <field name="auto_process_error" readonly="1"
+                       invisible="auto_process_status != 'failed'"/>
               </group>
               <group string="Classification">
                 <field name="heart_taxonomy" widget="many2many_tags" readonly="not is_talos_admin"/>
@@ -161,6 +176,17 @@
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('talos_talos_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('talos_talos_form')})]"/>
+    </record>
+
+    <record model="ir.actions.server" id="talos_action_auto_process">
+      <field name="name">Auto Process Selected</field>
+      <field name="model_id" ref="model_talos_talos"/>
+      <field name="binding_model_id" ref="model_talos_talos"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records.action_publish_auto_process()
+      </field>
     </record>
 
     <record model="ir.ui.view" id="talos_taxonomy_list">

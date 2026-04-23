@@ -442,14 +442,14 @@ class DashboardController(http.Controller):
                 domain = []
                 task_domain = []
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
-                domain = [('project_lead', '=', employee.id)]
-                task_domain = [('employee_id.task_forge_qr_id.task_forge_pl_id', '=', employee.id)]
+                domain.append(('project_lead', '=', employee.id))
+                task_domain.append(('employee_id.task_forge_qr_id.task_forge_pl_id', '=', employee.id))
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
-                domain = [('project_qc_reviewer', '=', employee.id)]
-                task_domain = [('employee_id.task_forge_qr_id', '=', employee.id)]
+                domain.append(('project_qc_reviewer', '=', employee.id))
+                task_domain.append(('employee_id.task_forge_qr_id', '=', employee.id))
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
-                domain = [('project_tasker', '=', employee.id)]
-                task_domain = [('employee_id', '=', employee.id)]
+                domain.append(('project_tasker', '=', employee.id))
+                task_domain.append(('employee_id', '=', employee.id))
 
             search = kwargs.get('search')
             if search:

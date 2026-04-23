@@ -20,7 +20,7 @@
                 <div class="o_talos_chat_messages">
                     <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
                         <t t-if="!msg.pending or msg.text">
-                            <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role} #{msg.isHint ? 'o_talos_msg_hint' : ''}">
+                            <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role} #{msg.isHint ? 'o_talos_msg_hint' : ''} #{msg.isAutoHint ? 'o_talos_auto_hint_msg' : ''} #{msg.isAutoHintVerdict ? 'o_talos_auto_hint_verdict' : ''}">
                                 <div class="o_talos_msg_meta">
                                     <span class="o_talos_msg_role">
                                         <t t-if="msg.isHint">
@@ -309,6 +309,24 @@
                     </div>
                 </t>
 
+                <t t-if="state.autoHintActive">
+                    <div class="o_talos_auto_hint_banner">
+                        <i class="fa fa-spinner fa-spin me-2"/>
+                        <span t-if="state.autoHintStatus === 'evaluating'">
+                            Auto-review: Kimi is evaluating response…
+                        </span>
+                        <span t-elif="state.autoHintStatus === 'sending_hint'">
+                            Auto-review: sending hint (<t t-esc="state.autoHintIteration"/>/<t t-esc="state.autoHintMaxRetries"/>)…
+                        </span>
+                        <span t-elif="state.autoHintStatus === 'streaming'">
+                            Auto-review: waiting for response (<t t-esc="state.autoHintIteration"/>/<t t-esc="state.autoHintMaxRetries"/>)…
+                        </span>
+                        <span t-else="">
+                            Auto-review in progress…
+                        </span>
+                    </div>
+                </t>
+
                 <div class="o_talos_chat_input">
                     <div class="o_talos_chat_input_row">
                         <textarea
@@ -316,7 +334,7 @@
                             t-on-keydown="onKeydown"
                             t-on-input="onMainTextareaInput"
                             placeholder="Type a message..."
-                            t-att-disabled="state.sending or state.streaming or state.qcPending"
+                            t-att-disabled="state.sending or state.streaming or state.qcPending or state.autoHintActive"
                             rows="1"
                             class="o_talos_chat_textarea"
                             t-ref="mainTextarea"
@@ -330,7 +348,7 @@
                         <t t-else="">
                             <button class="btn btn-primary btn-sm o_talos_btn"
                                     t-on-click="onSend"
-                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending">
+                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending or state.autoHintActive">
                                 <i class="fa fa-paper-plane"/>
                             </button>
                         </t>

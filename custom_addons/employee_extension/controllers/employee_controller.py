@@ -1150,7 +1150,6 @@ class EmployeeController(http.Controller):
 
     @http.route('/api/v2/get_on_bench_employees', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
-    # @validate_request({"role_id": {"type": "string", "required": True}})
     @validate_request({})
     def get_on_bench_employees(self, **kwargs):
         temp = []

@@ -42,3 +42,4 @@ CLAUDE.md
 /odoo.conf
 /.sisyphus
 jaeger-ref/
+.repo_cache/

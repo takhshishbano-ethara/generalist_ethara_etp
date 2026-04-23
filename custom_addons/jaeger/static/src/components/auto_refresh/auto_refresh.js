@@ -2,6 +2,7 @@
 
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
+import { useService } from "@web/core/utils/hooks";
 import { Component, onMounted, onPatched, onWillUnmount, useState } from "@odoo/owl";
 
 const POLL_STATUSES = new Set([
@@ -21,6 +22,7 @@ export class JaegerAutoRefresh extends Component {
         this._reloading = false;
         this._failCount = 0;
         this.state = useState({ active: false });
+        this.action = useService("action");
 
         onMounted(() => this._checkAndPoll());
         onPatched(() => this._checkAndPoll());
@@ -60,6 +62,9 @@ export class JaegerAutoRefresh extends Component {
             await this.props.record.load();
             this.props.record.model.notify();
             this._failCount = 0;
+            if (!this._shouldPoll()) {
+                this._stop();
+            }
         } catch (e) {
             this._failCount++;
             if (this._failCount >= MAX_CONSECUTIVE_FAILURES) {
@@ -68,9 +73,6 @@ export class JaegerAutoRefresh extends Component {
             }
         } finally {
             this._reloading = false;
-            if (this._polling) {
-                this._checkAndPoll();
-            }
         }
     }
 
