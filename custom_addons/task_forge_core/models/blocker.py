@@ -194,7 +194,7 @@ class TaskForgeBlocker(models.Model):
                     'message': 'PL escalated blocker "%s" on project "%s". Requires CTO action.' % (
                         self.name, self.project_id.name if self.project_id else ''),
                     'user_id': cto_user.id,
-                    'priority': '3',
+                    'priority': '2',
                     'res_model': 'task.forge.blocker',
                     'res_id': self.id,
                     'project_id': self.project_id.id if self.project_id else False,
