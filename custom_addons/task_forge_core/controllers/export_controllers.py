@@ -886,3 +886,254 @@ class TaskForgeExportController(http.Controller):
         except Exception as e:
             _logger.error('Export employee list failed: %s', str(e))
             return return_Response(message=str(e), status=400)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 8. Blocker Detail Report (single blocker with escalation history)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @http.route('/api/v2/taskforge/export/blocker_detail', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def export_blocker_detail(self, **kwargs):
+        try:
+            import xlsxwriter
+            employee, role, team_ids, project_ids = self._get_scoped_context()
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            blocker_id = kwargs.get('blocker_id')
+            if not blocker_id:
+                return return_Response(message="blocker_id is required", status=400)
+
+            Blocker = request.env['task.forge.blocker'].sudo()
+            blocker = Blocker.browse(int(blocker_id))
+            if not blocker.exists():
+                return return_Response(message="Blocker not found", status=404)
+
+            output = io.BytesIO()
+            wb = xlsxwriter.Workbook(output, {'in_memory': True})
+            fmt = self._get_formats(wb)
+
+            # Extra formats for this report
+            fmt['kv_label'] = wb.add_format({
+                'bold': True, 'font_size': 11, 'font_color': '#1E293B',
+                'bg_color': '#E2E8F0', 'align': 'right', 'valign': 'vcenter',
+                'border': 1, 'border_color': '#CBD5E1', 'font_name': 'Calibri',
+            })
+            fmt['kv_value'] = wb.add_format({
+                'font_size': 11, 'font_color': '#1E293B',
+                'align': 'left', 'valign': 'vcenter', 'text_wrap': True,
+                'border': 1, 'border_color': '#CBD5E1', 'font_name': 'Calibri',
+            })
+            fmt['kv_value_bold'] = wb.add_format({
+                'bold': True, 'font_size': 11, 'font_color': '#1E293B',
+                'align': 'left', 'valign': 'vcenter', 'text_wrap': True,
+                'border': 1, 'border_color': '#CBD5E1', 'font_name': 'Calibri',
+            })
+            fmt['section_header'] = wb.add_format({
+                'bold': True, 'font_size': 13, 'font_color': '#FFFFFF',
+                'bg_color': '#1B2A4A', 'align': 'left', 'valign': 'vcenter',
+                'border': 1, 'border_color': '#CBD5E1', 'font_name': 'Calibri',
+            })
+            fmt['url_fmt'] = wb.add_format({
+                'font_size': 10, 'font_color': '#2E86DE', 'underline': True,
+                'align': 'left', 'valign': 'vcenter', 'text_wrap': True,
+                'border': 1, 'border_color': '#CBD5E1', 'font_name': 'Calibri',
+            })
+            fmt['timeline_arrow'] = wb.add_format({
+                'bold': True, 'font_size': 14, 'font_color': '#2E86DE',
+                'align': 'center', 'valign': 'vcenter', 'font_name': 'Calibri',
+            })
+
+            priority_map = {'0': 'Low', '1': 'Medium', '2': 'High', '3': 'Critical'}
+            state_map = {
+                'pending': 'Pending', 'no_issue': 'No Issue',
+                'escalated_to_pl': 'Escalated to PL', 'escalated_to_cto': 'Escalated to CTO',
+                'resolved': 'Resolved', 'validated': 'Validated as Bug',
+                'ack': 'Acknowledged', 'escalated': 'Escalated',
+            }
+            action_map = {
+                'create': 'Created', 'no_issue': 'Marked No Issue',
+                'escalate': 'Escalated', 'resolve': 'Resolved',
+                'validate_bug': 'Validated as Bug',
+            }
+            role_map = {'tasker': 'Tasker', 'qr': 'QR', 'pl': 'PL', 'cto': 'CTO', '': '—'}
+
+            # ── Sheet 1: Blocker Overview ─────────────────────────────────────
+            ws = wb.add_worksheet('Blocker Overview')
+            ws.set_column(0, 0, 22)
+            ws.set_column(1, 1, 55)
+            ws.set_column(2, 2, 22)
+            ws.set_column(3, 3, 55)
+
+            self._write_title_banner(ws, fmt, 'Blocker Detail Report — #%s' % blocker.id, 4)
+
+            row = 3
+
+            # Section: Basic Info
+            ws.merge_range(row, 0, row, 3, '  Blocker Information', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            info_rows = [
+                ('Blocker ID', str(blocker.id)),
+                ('Summary', blocker.name or ''),
+                ('Status', state_map.get(blocker.state, blocker.state or '')),
+                ('Priority', priority_map.get(blocker.priority, blocker.priority or '')),
+                ('Blocker Type', blocker.blocker_type or ''),
+                ('Escalation Level', (blocker.escalation_level or 'qr').upper()),
+                ('Created', blocker.create_date.strftime('%d %b %Y, %I:%M %p') if blocker.create_date else ''),
+            ]
+            for label, value in info_rows:
+                ws.write(row, 0, label, fmt['kv_label'])
+                ws.write(row, 1, value, fmt['kv_value_bold'] if label in ('Summary', 'Status') else fmt['kv_value'])
+                row += 1
+
+            row += 1
+
+            # Section: People
+            ws.merge_range(row, 0, row, 3, '  People', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            people_rows = [
+                ('Raised By', blocker.employee_id.name if blocker.employee_id else '', 'QR', blocker.qr_id.name if blocker.qr_id else ''),
+                ('PL', blocker.pl_id.name if blocker.pl_id else '', 'Resolved By', blocker.resolved_by_id.name if blocker.resolved_by_id else ''),
+            ]
+            for l1, v1, l2, v2 in people_rows:
+                ws.write(row, 0, l1, fmt['kv_label'])
+                ws.write(row, 1, v1, fmt['kv_value'])
+                ws.write(row, 2, l2, fmt['kv_label'])
+                ws.write(row, 3, v2, fmt['kv_value'])
+                row += 1
+
+            row += 1
+
+            # Section: Task & Project
+            ws.merge_range(row, 0, row, 3, '  Task & Project', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            ws.write(row, 0, 'Task', fmt['kv_label'])
+            ws.write(row, 1, '%s (%s)' % (blocker.task_id.name or '', blocker.task_id.sequence or '') if blocker.task_id else '', fmt['kv_value'])
+            ws.write(row, 2, 'Project', fmt['kv_label'])
+            ws.write(row, 3, blocker.project_id.name if blocker.project_id else '', fmt['kv_value'])
+            row += 2
+
+            # Section: Blocker Reason & Notes
+            ws.merge_range(row, 0, row, 3, '  Details & Notes', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            detail_rows = [
+                ('Blocker Reason', blocker.blocker_reason or ''),
+                ('QR Notes', blocker.qr_notes or ''),
+                ('PL Notes', blocker.pl_notes or ''),
+                ('CTO Notes', blocker.cto_notes or ''),
+                ('Resolution Notes', blocker.resolution_notes or ''),
+            ]
+            for label, value in detail_rows:
+                ws.write(row, 0, label, fmt['kv_label'])
+                ws.merge_range(row, 1, row, 3, value, fmt['kv_value'])
+                if value:
+                    ws.set_row(row, max(20, min(80, len(value) // 3)))
+                row += 1
+
+            row += 1
+
+            # Section: Timestamps
+            ws.merge_range(row, 0, row, 3, '  Timeline', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            ts_format = '%d %b %Y, %I:%M %p'
+            timestamps = [
+                ('Created', blocker.create_date.strftime(ts_format) if blocker.create_date else '', 'QR Action', blocker.qr_action_at.strftime(ts_format) if blocker.qr_action_at else ''),
+                ('PL Action', blocker.pl_action_at.strftime(ts_format) if blocker.pl_action_at else '', 'CTO Action', blocker.cto_action_at.strftime(ts_format) if blocker.cto_action_at else ''),
+                ('Resolved At', blocker.resolved_at.strftime(ts_format) if blocker.resolved_at else '', 'PL Validated', blocker.pl_validated_at.strftime(ts_format) if blocker.pl_validated_at else ''),
+            ]
+            for l1, v1, l2, v2 in timestamps:
+                ws.write(row, 0, l1, fmt['kv_label'])
+                ws.write(row, 1, v1, fmt['kv_value'])
+                ws.write(row, 2, l2, fmt['kv_label'])
+                ws.write(row, 3, v2, fmt['kv_value'])
+                row += 1
+
+            row += 1
+
+            # Section: Attachments
+            ws.merge_range(row, 0, row, 3, '  Attachments & Media', fmt['section_header'])
+            ws.set_row(row, 26)
+            row += 1
+
+            attachments = [
+                ('Blocker Image', blocker.blocker_image_url or ''),
+                ('QR Image', blocker.qr_image_url or ''),
+                ('QR Video', blocker.qr_video_url or ''),
+                ('PL Image', blocker.pl_image_url or ''),
+                ('CTO Image', blocker.cto_image_url or ''),
+            ]
+            for label, url in attachments:
+                ws.write(row, 0, label, fmt['kv_label'])
+                if url:
+                    ws.write_url(row, 1, url, fmt['url_fmt'], string='View / Download')
+                else:
+                    ws.merge_range(row, 1, row, 3, '—', fmt['kv_value'])
+                row += 1
+
+            # Validated Bug
+            if blocker.validated_bug_id:
+                row += 1
+                ws.merge_range(row, 0, row, 3, '  Validated Bug', fmt['section_header'])
+                ws.set_row(row, 26)
+                row += 1
+                bug = blocker.validated_bug_id
+                bug_rows = [
+                    ('Bug ID', str(bug.id)),
+                    ('Title', bug.name or ''),
+                    ('Impact', bug.impact or ''),
+                    ('State', bug.state or ''),
+                    ('Description', bug.bug_description or ''),
+                ]
+                for label, value in bug_rows:
+                    ws.write(row, 0, label, fmt['kv_label'])
+                    ws.merge_range(row, 1, row, 3, value, fmt['kv_value'])
+                    row += 1
+
+            # ── Sheet 2: Escalation Timeline ──────────────────────────────────
+            ws2 = wb.add_worksheet('Escalation Timeline')
+
+            headers = ['#', 'Action', 'From', 'To', 'Action By', 'Notes', 'Image', 'Documents', 'Time']
+            col_types = ['num', 'str', 'str', 'str', 'str', 'str', 'str', 'str', 'str']
+            widths = [5, 18, 10, 10, 22, 40, 30, 35, 22]
+
+            self._write_title_banner(ws2, fmt, 'Escalation Timeline — %s' % (blocker.name or ''), len(headers))
+            self._write_headers(ws2, fmt, headers)
+            for i, w in enumerate(widths):
+                ws2.set_column(i, i, w)
+
+            logs = blocker.escalation_log_ids.sorted('create_date')
+            for idx, log in enumerate(logs, 1):
+                doc_urls = log.document_urls or ''
+                row_data = [
+                    idx,
+                    action_map.get(log.action, log.action or ''),
+                    role_map.get(log.from_role, log.from_role or ''),
+                    role_map.get(log.to_role, log.to_role or ''),
+                    log.action_by_name or '',
+                    log.notes or '',
+                    log.image_url or '',
+                    doc_urls,
+                    log.create_date.strftime('%d %b %Y, %I:%M %p') if log.create_date else '',
+                ]
+                self._write_row(ws2, fmt, idx + 3, row_data, col_types)
+
+            ws2.autofilter(3, 0, 3 + len(logs), len(headers) - 1)
+            ws2.freeze_panes(4, 2)
+
+            s3_url = self._finalize_and_upload(wb, output, 'blocker_detail_%s' % blocker.id)
+
+            return return_Response(message="Blocker detail report generated", status=200,
+                                   data={'download_url': s3_url})
+        except Exception as e:
+            _logger.error('Export blocker detail failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
