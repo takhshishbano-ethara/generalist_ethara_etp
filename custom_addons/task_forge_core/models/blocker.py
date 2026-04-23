@@ -9,7 +9,7 @@ class TaskForgeBlocker(models.Model):
     _order = 'create_date desc'
 
     name = fields.Char(string='Summary', required=True, tracking=True)
-    task_id = fields.Many2one('task.forge.log', string='Task', required=True, ondelete='cascade')
+    task_id = fields.Many2one('task.forge.log', string='Task', ondelete='cascade')
     project_id = fields.Many2one(
         related='task_id.project_id', string='Project', store=True,
     )
