@@ -215,6 +215,8 @@ class TaskForgeBlockerController(http.Controller):
                 domain.append(('state', 'in', [kwargs.get('status')]))
             if kwargs.get('priority'):
                 domain.append(('priority', '=', kwargs.get('priority')))
+            if kwargs.get('employee_id'):
+                domain.append(('employee_id', '=', int(kwargs.get('employee_id'))))
             if kwargs.get('assignee'):
                 domain.append('|')
                 domain.append(('qr_id', '=', int(kwargs.get('assignee'))))
@@ -428,6 +430,55 @@ class TaskForgeBlockerController(http.Controller):
                 message="success",
                 status=200,
                 data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/blockers/stats', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def blocker_stats(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role()
+            team_ids = employee._get_team_employee_ids()
+            Blocker = request.env['task.forge.blocker'].sudo()
+
+            if role == 'admin':
+                base_domain = []
+            elif role == 'pl':
+                base_domain = [('employee_id', 'in', team_ids)]
+            elif role in ('qr', 'ql'):
+                base_domain = [('qr_id', '=', employee.id)]
+            else:
+                base_domain = [('employee_id', '=', employee.id)]
+
+            if kwargs.get('project_id'):
+                base_domain.append(('project_id', '=', int(kwargs.get('project_id'))))
+
+            total = Blocker.search_count(base_domain)
+            pending = Blocker.search_count(base_domain + [('state', '=', 'pending')])
+            escalated_to_pl = Blocker.search_count(base_domain + [('state', '=', 'escalated_to_pl')])
+            escalated_to_cto = Blocker.search_count(base_domain + [('state', '=', 'escalated_to_cto')])
+            resolved = Blocker.search_count(base_domain + [('state', '=', 'resolved')])
+            no_issue = Blocker.search_count(base_domain + [('state', '=', 'no_issue')])
+            validated = Blocker.search_count(base_domain + [('state', '=', 'validated')])
+
+            return return_Response(
+                message="Blocker stats",
+                status=200,
+                data={
+                    'total': total,
+                    'pending': pending,
+                    'escalated_to_pl': escalated_to_pl,
+                    'escalated_to_cto': escalated_to_cto,
+                    'resolved': resolved,
+                    'no_issue': no_issue,
+                    'validated': validated,
+                }
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
