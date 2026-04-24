@@ -23,7 +23,7 @@ NAMESPACE = "talos"
 WS_ROUTER_NAME = "talos-ws-router"
 
 NODE_SELECTOR = {
-    "kubernetes.io/arch": "amd64", 
+    "kubernetes.io/arch": "amd64",
     "ethara.ai/node-pool": "general-purpose",
 }
 
@@ -612,6 +612,9 @@ class TalosSandboxK8s(models.AbstractModel):
                     "-c",
                     "RUN_ID=$(TZ=Asia/Kolkata date +%%Y-%%m-%%d_%%H-%%M-%%S-IST) && "
                     "echo $RUN_ID > /data/session/.talos-run-id && "
+                    "cp /openclaw-config-src/openclaw.json /data/session/openclaw.json && "
+                    "chown 1000:1000 /data/session/openclaw.json && "
+                    "chmod 644 /data/session/openclaw.json && "
                     "chown -R 1000:1000 /data/session /data/browser-profiles; "
                     "aws s3 ls %s >/dev/null 2>&1 && "
                     "aws s3 sync %s /data/browser-profiles/ --no-progress --quiet || true; "
@@ -629,6 +632,11 @@ class TalosSandboxK8s(models.AbstractModel):
                     client.V1VolumeMount(
                         name="browser-profiles",
                         mount_path="/data/browser-profiles",
+                    ),
+                    client.V1VolumeMount(
+                        name="openclaw-config",
+                        mount_path="/openclaw-config-src",
+                        read_only=True,
                     ),
                 ],
                 resources=client.V1ResourceRequirements(
@@ -819,12 +827,6 @@ class TalosSandboxK8s(models.AbstractModel):
                 client.V1VolumeMount(
                     name="openclaw-data",
                     mount_path="/home/node/.openclaw",
-                ),
-                client.V1VolumeMount(
-                    name="openclaw-config",
-                    mount_path="/home/node/.openclaw/openclaw.json",
-                    sub_path="openclaw.json",
-                    read_only=True,
                 ),
                 client.V1VolumeMount(
                     name="gog-config",
@@ -1311,7 +1313,10 @@ class TalosSandboxK8s(models.AbstractModel):
             dep = apps_v1.read_namespaced_deployment(name=name, namespace=NAMESPACE)
         except ApiException as e:
             if e.status == 404:
-                if sandbox_record.docker_status == "starting" and sandbox_record.write_date:
+                if (
+                    sandbox_record.docker_status == "starting"
+                    and sandbox_record.write_date
+                ):
                     elapsed = (
                         fields.Datetime.now() - sandbox_record.write_date
                     ).total_seconds()

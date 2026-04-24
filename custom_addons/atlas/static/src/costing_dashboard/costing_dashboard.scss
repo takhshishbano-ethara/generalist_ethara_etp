@@ -1,0 +1,387 @@
+.o_atlas_costing {
+    padding: 24px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+    font-family: inherit;
+}
+
+.o_atlas_costing_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.o_atlas_costing_title_row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.o_atlas_costing_title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--o-text-color, #212529);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.o_atlas_costing_date_range {
+    font-size: 13px;
+    color: var(--o-text-color-muted, #6c757d);
+    font-weight: 500;
+}
+
+.o_atlas_costing_periods {
+    display: flex;
+    gap: 4px;
+    background: var(--o-gray-100, #f1f3f5);
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.o_atlas_period_btn {
+    padding: 6px 16px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--o-text-color-muted, #6c757d);
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--o-text-color, #212529);
+    }
+
+    &.active {
+        background: #fff;
+        color: var(--o-brand-primary, #714B67);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+}
+
+/* ── Summary Cards ── */
+.o_atlas_costing_summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.o_atlas_summary_card {
+    position: relative;
+    background: #fff;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 10px;
+    padding: 18px 20px;
+    transition: box-shadow 0.15s ease;
+    overflow: hidden;
+
+    &:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    &.grand {
+        background: linear-gradient(135deg, #f8f5ff 0%, #f0e8ff 100%);
+        border-color: rgba(113, 75, 103, 0.2);
+    }
+}
+
+.o_atlas_summary_icon {
+    font-size: 16px;
+    margin-bottom: 6px;
+    opacity: 0.45;
+    color: var(--o-text-color-muted, #6c757d);
+}
+
+.o_atlas_summary_badge {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 4px;
+
+    &.qc {
+        background: rgba(37, 99, 235, 0.1);
+        color: #2563eb;
+    }
+
+    &.trajectory {
+        background: rgba(5, 150, 105, 0.1);
+        color: #059669;
+    }
+
+    &.ai {
+        background: rgba(168, 85, 247, 0.1);
+        color: #a855f7;
+    }
+}
+
+.o_atlas_summary_label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--o-text-color-muted, #6c757d);
+    margin-bottom: 6px;
+}
+
+.o_atlas_summary_value {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+
+    &.sandbox {
+        color: #059669;
+    }
+
+    &.bedrock {
+        color: #2563eb;
+    }
+
+    &.traj-qc {
+        color: #0284c7;
+    }
+
+    &.taskdesc {
+        color: #a855f7;
+    }
+
+    &.golden {
+        color: #d97706;
+    }
+
+    &.grand {
+        color: var(--o-brand-primary, #714B67);
+    }
+}
+
+.o_atlas_summary_sub {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--o-text-color-muted, #6c757d);
+    flex-wrap: wrap;
+
+    strong {
+        color: var(--o-text-color, #212529);
+        font-weight: 600;
+    }
+}
+
+/* ── Loading / Empty ── */
+.o_atlas_costing_loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 0;
+    color: var(--o-text-color-muted, #6c757d);
+}
+
+.o_atlas_costing_empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 0;
+    color: var(--o-text-color-muted, #6c757d);
+
+    p {
+        margin: 0;
+        font-size: 15px;
+    }
+}
+
+/* ── Table ── */
+.o_atlas_costing_table_wrap {
+    background: #fff;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 10px;
+    overflow: hidden;
+    overflow-x: auto;
+}
+
+.o_atlas_costing_table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+
+    thead {
+        background: var(--o-gray-100, #f8f9fa);
+
+        .o_atlas_col_group_row th {
+            text-align: center;
+            border-bottom: 1px solid var(--o-border-color, #dee2e6);
+        }
+
+        .col-group-header {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            padding: 8px 14px;
+            text-align: center;
+            border-left: 2px solid var(--o-border-color, #dee2e6);
+            border-right: 2px solid var(--o-border-color, #dee2e6);
+
+            .fa {
+                font-size: 11px;
+                opacity: 0.6;
+            }
+        }
+
+        .col-group-glm {
+            color: #7c3aed;
+            background: rgba(124, 58, 237, 0.04);
+        }
+
+        .col-group-bedrock {
+            color: #2563eb;
+            background: rgba(37, 99, 235, 0.04);
+        }
+
+        .col-group-traj-qc {
+            color: #0284c7;
+            background: rgba(2, 132, 199, 0.04);
+        }
+
+        .col-group-taskdesc {
+            color: #a855f7;
+            background: rgba(168, 85, 247, 0.04);
+        }
+
+        .col-group-golden {
+            color: #ea580c;
+            background: rgba(234, 88, 12, 0.04);
+        }
+
+        th {
+            padding: 10px 14px;
+            font-weight: 600;
+            color: var(--o-text-color-muted, #6c757d);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            border-bottom: 2px solid var(--o-border-color, #dee2e6);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            transition: color 0.1s;
+
+            &:hover {
+                color: var(--o-text-color, #212529);
+            }
+
+            .fa {
+                font-size: 10px;
+                opacity: 0.5;
+            }
+        }
+    }
+
+    tbody {
+        tr {
+            border-bottom: 1px solid var(--o-border-color, #dee2e6);
+            transition: background 0.1s;
+
+            &:last-child {
+                border-bottom: none;
+            }
+
+            &:hover {
+                background: rgba(113, 75, 103, 0.02);
+            }
+        }
+
+        td {
+            padding: 11px 14px;
+            color: var(--o-text-color, #212529);
+        }
+    }
+
+    tfoot {
+        background: var(--o-gray-100, #f8f9fa);
+        border-top: 2px solid var(--o-border-color, #dee2e6);
+
+        td {
+            padding: 12px 14px;
+            font-weight: 700;
+            color: var(--o-text-color, #212529);
+        }
+    }
+
+    .col-employee {
+        text-align: left;
+        min-width: 160px;
+
+        .fa {
+            color: var(--o-text-color-muted, #6c757d);
+            font-size: 14px;
+        }
+    }
+
+    .col-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        min-width: 64px;
+        padding: 11px 10px;
+    }
+
+    .col-subtotal {
+        font-weight: 600;
+        border-right: 2px solid var(--o-border-color, #dee2e6);
+    }
+
+    .col-glm {
+        background: rgba(124, 58, 237, 0.02);
+    }
+
+    .col-bedrock {
+        background: rgba(37, 99, 235, 0.02);
+    }
+
+    .col-traj-qc {
+        background: rgba(2, 132, 199, 0.02);
+    }
+
+    .col-taskdesc {
+        background: rgba(168, 85, 247, 0.02);
+    }
+
+    .col-golden {
+        background: rgba(234, 88, 12, 0.02);
+    }
+
+    .col-grand {
+        font-weight: 700;
+        color: var(--o-brand-primary, #714B67) !important;
+        background: rgba(113, 75, 103, 0.04);
+    }
+}
+
+/* ── Responsive ── */
+@media (max-width: 992px) {
+    .o_atlas_costing {
+        padding: 16px;
+    }
+
+    .o_atlas_costing_summary {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 576px) {
+    .o_atlas_costing_summary {
+        grid-template-columns: 1fr;
+    }
+}

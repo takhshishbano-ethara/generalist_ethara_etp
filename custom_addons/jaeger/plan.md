@@ -2,8 +2,8 @@
 
 > **Version:** 19.0.0
 > **Date:** 2026-04-22
-> **Status:** Phase 1 implemented, Phase 2 (Stages 3-5) enabled + Stage 3 hardened + Stage 4 production-grade + Human-in-the-Loop Test Config + Parser Fixes (AVA, Mocha) + Hard-SWE Pipeline Mode
-> **Scope:** Stage 1 (repo validation) + Stage 2 (PR collection) + Stage 3 (Docker build) + Stage 4 (test execution) + Stage 5 (dataset finalization) + Test Config overrides + Hard-SWE mode (≥5 files, ≥100 lines)
+> **Status:** Phase 1 implemented, Phase 2 (Stages 3-5) enabled + Stage 3 hardened + Stage 4 production-grade + Human-in-the-Loop Test Config + Parser Fixes (AVA, Mocha) + Hard-SWE Pipeline Mode + Audit Hardening (container leak, auto-reset, 0-valid UX) + Unified Docker Execution + 4-Check Validation
+> **Scope:** Stage 1 (repo validation) + Stage 2 (PR collection) + Stage 3 (Docker build) + Stage 4 (test execution) + Stage 5 (dataset finalization) + Test Config overrides + Hard-SWE mode (≥5 files, ≥100 lines) + 0-valid recovery flow
 > **Module:** `ethara-etp/custom_addons/jaeger/`
 
 ---
@@ -667,6 +667,133 @@ Button: "Download Raw Dataset JSONL" visible in Stage 2 tab when `pr_collection_
 
 ## 17. Changelog
 
+### v20.1.0 (2026-04-23) — 0-Valid UX: Stage Gate + Warning Widget
+
+Fixed three UX issues discovered while testing JAE-0037 (bottlepy/bottle) with 0 valid instances: banner not appearing automatically, green checkmark instead of warning, and no manual override guidance.
+
+#### Root Cause: Stage 4 Gate Too Permissive
+
+The Stage 4 gate (`_check_current_gate()`, line 3304) only checked `test_execution_status == "done"` without verifying `instances_valid_count > 0`. With 0 valid instances, the gate passed and auto-advanced to Stage 5, where `_build_final_dataset()` immediately set `terminal_state = "no_valid_instances"`. This caused three problems:
+1. The recovery banner (added in v20) was in the Stage 4 tab, but by the time the auto-refresh widget polled, the repo was already on Stage 5
+2. The progress widget showed green checkmark for Stage 4 (it was "past")
+3. The operator had to manually untangle terminal_state + stage5 artifacts
+
+**Fix:** Added `instances_valid_count == 0` check to the Stage 4 gate. Repos with 0 valid now stay on `stage4` with `test_execution_status = "done"`. The banner appears automatically and the operator can update config + reset.
+
+#### Progress Widget Warning State
+
+Added a `warning` state to `InstanceProgressWidget` — yellow exclamation-circle icon for Stage 4 when `test_execution_status == "done"` AND `instances_valid_count == 0`. Three files changed:
+- `instance_progress.js`: detect warning condition in stages getter
+- `instance_progress.xml`: `<t t-elif="step.state === 'warning'"><i class="fa fa-exclamation-circle"/></t>`
+- `instance_progress.scss`: `.o_jaeger_progress_step_warning` style (yellow #ffc107)
+
+#### Conflict Resolution with Kshitij's Changes
+
+Pulled Kshitij's commit `c6731db06` which refactored `_execute_docker_run()` into `_docker_run_impl()`. Our `_kill_container()` helper (from v20) conflicted — resolved by removing it. Kshitij's inline `docker rm -f` is sufficient because:
+- `docker rm -f` already sends SIGKILL + removes (equivalent to `docker kill` + `docker rm -f`)
+- Pre-cleanup `docker rm -f` before start handles stale containers from crashed runs
+- `--rm` flag removed from `docker run`, so containers always need explicit cleanup
+
+#### Repos Tested
+
+| Repo ID | Repo | Language | Instances | Valid | Config | Key Finding |
+|---------|------|----------|-----------|-------|--------|-------------|
+| JAE-0037 | bottlepy/bottle | Python | 17 | **2** | `{"test_cmd": "python -m pytest test/ -v"}` | Test dir is `test/` not `tests/`. 15/17 are pre-Python 3.10 PRs (#137-#1188) — `collections.MutableMapping` removed in 3.10, code can't even import on Python 3.11. Not fixable without per-instance base_image overrides (see Wishlist). |
+
+#### Files Changed in v20.1
+
+| File | Changes |
+|------|---------|
+| `jaeger_repository.py` | Stage 4 gate: added `instances_valid_count == 0` check (line ~3307) |
+| `instance_progress.js` | Added `warning` state detection for stage4 with 0 valid |
+| `instance_progress.xml` | Added `fa-exclamation-circle` icon for warning state |
+| `instance_progress.scss` | Added `.o_jaeger_progress_step_warning` style (yellow) |
+| `jaeger_instance.py` | Removed `_kill_container()` helper (superseded by Kshitij's refactor) |
+
+---
+
+### v20.0.0-k (2026-04-23) — Unified Docker Execution + 4-Check Validation (Kshitij)
+
+Commit `c6731db06`. Major refactor of Docker execution and test report validation.
+
+#### Docker Execution Refactor
+
+- **Unified `_docker_run_impl()`:** Extracted shared Docker execution logic from both ORM (`_execute_docker_run`) and standalone (`_execute_docker_run_pure`) paths. ORM path now delegates to `_docker_run_impl()` directly.
+- **Container lifecycle:** Removed `--rm` flag from `docker run`. Added pre-cleanup `docker rm -f` before start. Added timeout cleanup in `except TimeoutExpired` handler.
+- **Patch application hardened:** Added `git checkout -- . && git clean -fd` reset prefix before patch apply. Added `--whitespace=nowarn` to `git apply` commands.
+- **Test command resilience:** Added `|| true` to test commands in `_generate_fix_run_script()` — non-zero exit from test runner no longer kills the container.
+
+#### 4-Check Validation (multi-swe-bench Report.check())
+
+`_generate_test_report()` now implements the same 4-check validation as the reference:
+1. Fix patch result must have >0 tests captured
+2. No regressions (PASS in test-patch → FAIL in fix-patch)
+3. At least one test was fixed (f2p > 0)
+4. No anomalous patterns (PASS in baseline, NONE/SKIP in test, FAIL in fix)
+
+Added `fixed_tests_json` field. Status dicts now include `run` status for full traceability.
+
+#### Early Skip Removed
+
+Run 3 (fix+test patch) now always executes. The early-skip optimization (skip Run 3 when Run 2 has 0 failures) was removed to ensure complete data collection. This trades ~33% more execution time per invalid instance for guaranteed Run 3 data.
+
+#### Base Image Build: BuildKit Secrets
+
+GitHub token is no longer baked into the Docker image via the clone URL. Now uses Docker BuildKit secrets (`--secret id=github_token,src=...`). The Dockerfile uses `--mount=type=secret,id=github_token` in the `RUN git clone` step. Added proxy/CA cert ARGs and ENV for corporate environments.
+
+#### Other Changes
+
+- `filter_prs.py`: Network retry with backoff (`_fetch_commits_with_retry`), token rotation error handling
+- Dataset finalization: includes `s2p_tests`, `n2p_tests`, `fixed_tests`, `run_result`, `test_patch_result`, `fix_patch_result`
+- `instance_id` computed field format changed: `{org}/{repo}:pr-{N}` (was `{org}__{repo}-{N}`)
+- Sandbox: DNS config (8.8.8.8, 1.1.1.1), filestore volume, time limits increased (4h CPU, 8h real)
+
+---
+
+### v20.0.0 (2026-04-23) — Audit Hardening: Container Leak, Auto-Reset, 0-Valid Recovery
+
+Skeptical audit of all 7 pipeline stages found one P0 bug (Docker container leak on timeout), one P1 issue (no auto-reset on config change), and a UX gap (operator has no guided path when 0 valid instances occur).
+
+#### P0: Docker Container Leak on Timeout (SUPERSEDED by v20.0.0-k)
+
+`subprocess.run(..., timeout=X)` kills Python's wait but not the Docker container. Added `_kill_container()` helper with `docker kill` + `docker rm -f`. **Superseded** by Kshitij's refactor in v20.0.0-k which handles this inline with `docker rm -f` in the timeout handler + pre-cleanup before start.
+
+#### P1: Auto-Reset Base Image on Config Change
+
+Override `write()` on `JaegerRepository`. When `test_config_json` changes and `base_image_status == 'built'`, auto-reset to `'none'` and clear `base_image_name`. Uses `setdefault` so explicit `base_image_status` writes aren't overridden.
+
+#### UX: Test Config Tab Moved Before Docker Build
+
+Moved the Test Config page to appear before the Docker Build tab in the XML. Visibility changed from stage3+ to stage2+ — operator can set overrides before building.
+
+#### UX: "0 Valid Instances" Recovery Banner + Reset Button
+
+Red alert banner in Stage 4 tab, visible when `test_execution_status == 'done'` AND `instances_valid_count == 0`. Includes "Reset to Docker Build" button (`action_reset_to_docker_build()`) with confirmation dialog. The method resets:
+- Repo: `current_stage → stage3`, `docker_build_status → pending`, `base_image_status → none`, all test/dataset counters → 0
+- All instances: `docker_build_status → pending`, clears all logs, test results, and validation fields
+
+#### P2: Step 3-4 Output Validation
+
+Added `_validate_step_output()` calls after Steps 3 (issues) and 4 (merged PRs). Step 3 is optional (`if exists()`). Step 4 is required. Validates JSONL file exists and is well-formed.
+
+#### Repos Tested
+
+| Repo ID | Repo | Language | Instances | Valid | Config | Key Finding |
+|---------|------|----------|-----------|-------|--------|-------------|
+| JAE-0034 | tartley/colorama | Python | 5 | **1** | `{"test_cmd": "python -m pytest colorama/tests/ -v", "install_cmd": "pip install -e . && pip install mock"}` | Non-standard test dir + missing `mock` dep. 3 iterations to get right. |
+| JAE-0035 | more-itertools/more-itertools | Python | 39 | **19** | None (auto-detect) | Best hit rate (49%). Zero config needed. |
+| JAE-0036 | aws-cloudformation/cfn-lint | Python | ~2980 | **67** | `{"test_cmd": "python -m pytest test/ -v", "install_cmd": "pip install -e '.[full]'", "env": {"AWS_DEFAULT_REGION": "us-east-1"}}` | First large repo tested. Required AWS env var + non-standard test dir + full extras. |
+
+#### Files Changed in v20
+
+| File | Changes |
+|------|---------|
+| `jaeger_instance.py` | Added `_kill_container()` helper + timeout cleanup (superseded by v20.0.0-k) |
+| `jaeger_repository.py` | `write()` override for auto-reset, `action_reset_to_docker_build()`, Step 3-4 validation |
+| `jaeger_repository_views.xml` | Test Config tab before Docker Build, 0-valid recovery banner in Stage 4 |
+
+---
+
 ### v19.0.0 (2026-04-23) — Hard-SWE Pipeline Mode + Live Step 2 Progress + New Repo Validations
 
 Added `hard_swe` pipeline mode for stricter data quality filtering. Hard-SWE tasks require PRs to modify ≥5 files and contain ≥100 lines of code changes (both fix + test patches combined). Also fixed a critical watchdog timeout bug in Step 2 filtering for large repos, added live per-PR progress counter in the Stage 2 UI tab, and validated pipeline on additional Python repos.
@@ -1234,11 +1361,10 @@ error: failed to get `ascii-canvas` as dependency — Could not resolve host: in
    - **Workaround:** Kill Odoo process, restart manually
    - **Not a bug** — standard Odoo behavior, but important operational knowledge
 
-7. **Base Image Rebuild Not Triggered by Code Changes**
-   - `base_image_status = "built"` is sticky — never resets when code changes
-   - After fixing `_build_base_image()` (e.g., adding PATH env), existing "built" images don't get the fix
-   - **Workaround:** Manually reset `base_image_status` to `none` in DB or UI
-   - **Proper fix:** Track a build version/hash and auto-rebuild when code changes
+7. **~~Base Image Rebuild Not Triggered by Code Changes~~ (PARTIALLY FIXED in v20)**
+   - ~~`base_image_status = "built"` is sticky — never resets when code changes~~
+   - **Fixed:** `write()` override on `JaegerRepository` auto-resets `base_image_status` to `none` when `test_config_json` changes. Operator config changes now trigger automatic rebuild.
+   - **Still open:** Changes to pipeline *code* (e.g., `_build_base_image()` logic) don't trigger rebuild. Would need hash-based cache invalidation.
 
 **P3 — Low (nice to have)**
 
@@ -1251,6 +1377,13 @@ error: failed to get `ascii-canvas` as dependency — Could not resolve host: in
    - If Docker daemon crashes mid-execution, instances are left in an inconsistent state
    - **Workaround:** Manual re-run via "Run Tests" button
    - **Fix:** Add retry logic similar to Stage 3's stuck-build watchdog
+
+#### Wishlist / Won't Fix
+
+1. **Per-Instance Base Image Overrides**
+   - Old PRs in long-lived repos (e.g., bottle #137-#1188, sails #1-#12) need older runtimes (Python 3.9, Node 12) but repo-level config applies to ALL instances. Per-instance `base_image` overrides would require separate base images per Python version, doubling build time.
+   - **Why won't fix:** Even with correct runtime, patches for old PRs often don't apply (`error: patch failed`). The cost/benefit ratio is terrible — engineering per-instance overrides to squeeze 1-2 more valid instances from a repo doesn't move the needle. Scale strategy is more repos (10K+ target), not more instances per repo. Typical yield: 2-19 valid per repo is acceptable.
+   - **Evidence:** bottle (JAE-0037): 15/17 instances are pre-Python 3.10 era. Even with Python 3.9, test patches reference files that don't exist at those old base_sha commits.
 
 #### Files Changed in v17
 

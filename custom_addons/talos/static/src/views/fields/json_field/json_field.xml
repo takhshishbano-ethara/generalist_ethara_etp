@@ -26,55 +26,6 @@
                                             <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
                                         </button>
                                     </t>
-                                    <t t-if="!entry.deleted and !isGoldenField">
-                                        <button class="talos-json-taskdesc-btn"
-                                                t-att-disabled="isAnyActionRunning or entry.taskDescriptionStatus === 'pending'"
-                                                t-on-click="() => this.onGenerateTaskDesc(entry.index)"
-                                                title="Generate task description via AI">
-                                            <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
-                                                <i class="fa fa-spinner fa-spin"/> Describing…
-                                            </t>
-                                            <t t-else="">
-                                                <i class="fa fa-magic"/> Describe 
-                                            </t>
-                                        </button>
-                                        <t t-if="state.taskDescGenerating === entry.index or entry.taskDescriptionStatus === 'pending'">
-                                            <button class="talos-json-abort-btn"
-                                                    t-on-click="() => this.onAbortTaskDesc(entry.index)"
-                                                    title="Abort description generation">
-                                                <i class="fa fa-stop"/> Stop
-                                            </button>
-                                        </t>
-                                    </t>
-                                    <t t-if="!isGoldenField">
-                                        <button class="talos-json-qc-btn"
-                                                t-att-disabled="isAnyActionRunning or entry.qcStatus === 'pending'"
-                                                t-on-click="() => this.onQcEntry(entry.index)"
-                                                t-att-title="hasQcResult ? 'Re-run QC' : 'Run QC on this trajectory'">
-                                            <t t-if="state.qcRunning === entry.index">
-                                                <i class="fa fa-spinner fa-spin"/> QC
-                                            </t>
-                                            <t t-elif="entry.qcStatus === 'pending'">
-                                                <i class="fa fa-spinner fa-spin"/> QC
-                                            </t>
-                                            <t t-elif="hasQcResult and !isQcCollapsed">
-                                                <i class="fa fa-refresh"/> Re-QC
-                                            </t>
-                                            <t t-elif="hasQcResult and isQcCollapsed">
-                                                <i class="fa fa-refresh"/> Re-QC
-                                            </t>
-                                            <t t-else="">
-                                                QC
-                                            </t>
-                                        </button>
-                                        <t t-if="state.qcRunning === entry.index or entry.qcStatus === 'pending'">
-                                            <button class="talos-json-abort-btn"
-                                                    t-on-click="() => this.onAbortQc(entry.index)"
-                                                    title="Abort QC check">
-                                                <i class="fa fa-stop"/> Stop
-                                            </button>
-                                        </t>
-                                    </t>
                                     <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
                                         <button class="talos-json-edit-btn"
                                                 t-att-disabled="isAnyActionRunning"
@@ -83,17 +34,6 @@
                                             <i class="fa fa-pencil"/>
                                         </button>
                                     </t>
-                                    <button class="talos-json-delete-btn"
-                                            t-att-disabled="state.deleting === entry.index or isAnyActionRunning"
-                                            t-on-click="() => this.onDeleteEntry(entry.index)"
-                                            title="Delete this trajectory">
-                                        <t t-if="state.deleting === entry.index">
-                                            <i class="fa fa-spinner fa-spin"/>
-                                        </t>
-                                        <t t-else="">
-                                            <i class="fa fa-times"/>
-                                        </t>
-                                    </button>
                                 </div>
                             </div>
 

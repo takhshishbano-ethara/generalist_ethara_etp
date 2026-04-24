@@ -55,21 +55,25 @@ class TaskForgeBlockerController(http.Controller):
             })
 
         return {
+            'steps_to_reproduce': b.steps_to_reproduce or '',
+            'task_page_affected': b.affected_area or '',
             'id': b.id if b.id else 0,
             'name': b.name if b.name else "",
             'task_id': b.task_id.id if b.task_id else 0,
-            'task_name': b.task_id.name if b.task_id else "",
+            'task_name': b.task_id.name if b.task_id and b.task_id.name else "",
             'project_id': b.project_id.id if b.project_id else 0,
-            'project_name': b.project_id.name if b.project_id else "",
+            'project_name': b.project_id.name if b.project_id and b.project_id.name else "",
             'employee_id': b.employee_id.id if b.employee_id else 0,
-            'employee_name': b.employee_id.name if b.employee_id else "",
+            'employee_name': b.employee_id.name if b.employee_id and b.employee_id.name else "",
             'qr_id': b.qr_id.id if b.qr_id else 0,
-            'qr_name': b.qr_id.name if b.qr_id else "",
+            'qr_name': b.qr_id.name if b.qr_id and b.qr_id.name else "",
             'pl_id': b.pl_id.id if b.pl_id else 0,
-            'pl_name': b.pl_id.name if b.pl_id else "",
+            'pl_name': b.pl_id.name if b.pl_id and b.pl_id.name else "",
             'blocker_reason': b.blocker_reason or '',
             'blocker_type': b.blocker_type or '',
             'priority': b.priority or '',
+            'blocker_issue_id': b.blocker_issue_id.id if b.blocker_issue_id else 0,
+            'blocker_issue': b.blocker_issue_id.name if b.blocker_issue_id and b.blocker_issue_id.name else '',
             'state': b.state or "",
             'escalation_level': b.escalation_level or 'qr',
             'blocker_image_url': b.blocker_image_url or '',
@@ -118,38 +122,45 @@ class TaskForgeBlockerController(http.Controller):
             if role != 'tasker':
                 return return_Response(message="Only Tasker Can Create the Blocker", status=404)
 
-            task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
-            if not task.exists():
-                return return_Response(message="Task not found", status=404)
-
-            blocker_image_url = self._upload_files('image', 'blocker_images')
-            document_urls = self._upload_multiple_files('blocker_documents')
-
-            now = datetime.now()
-            pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
-
-            blocker = Blocker.create({
+            blocker_dict = {
                 'name': kwargs.get('name'),
-                'task_id': task.id,
                 'blocker_reason': kwargs.get('blocker_reason'),
                 'blocker_type': kwargs.get('blocker_type'),
                 'priority': kwargs.get('priority'),
                 'employee_id': employee.id,
                 'qr_id': employee.task_forge_qr_id.id if employee.task_forge_qr_id else False,
                 'pl_id': employee.task_forge_pl_id.id if employee.task_forge_pl_id else False,
-                'blocker_image_url': blocker_image_url,
-                'escalation_level': 'qr',
-            })
+                'escalation_level': 'qr'
+            }
+
+            if kwargs.get('blocker_issue_id'):
+                blocker_dict['blocker_issue_id'] = int(kwargs.get('blocker_issue_id'))
+
+            if kwargs.get('task_id'):
+                task = request.env['task.forge.log'].sudo().browse(int(kwargs.get('task_id')))
+                if not task.exists():
+                    return return_Response(message="Task not found", status=404)
+                blocker_dict['task_id'] = task.id
+                now = datetime.now()
+                pause_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
+                task.write({
+                    'state': 'blocker',
+                    'pause_time': kwargs.get('pause_time') or pause_time_str,
+                })
+
+            blocker_image_url = self._upload_files('image', 'blocker_images')
+            if blocker_image_url:
+                blocker_dict['blocker_image_url'] = blocker_image_url
+
+            document_urls = self._upload_multiple_files('blocker_documents')
+
+            blocker = Blocker.create(blocker_dict)
 
             blocker._log_escalation('tasker', 'qr', 'create',
                                     notes=kwargs.get('blocker_reason') or '',
                                     image_url=blocker_image_url,
                                     document_urls=document_urls)
 
-            task.write({
-                'state': 'blocker',
-                'pause_time': kwargs.get('pause_time') or pause_time_str,
-            })
 
             try:
                 if blocker.qr_id and blocker.qr_id.user_id:
@@ -215,6 +226,8 @@ class TaskForgeBlockerController(http.Controller):
                 domain.append(('state', 'in', [kwargs.get('status')]))
             if kwargs.get('priority'):
                 domain.append(('priority', '=', kwargs.get('priority')))
+            if kwargs.get('employee_id'):
+                domain.append(('employee_id', '=', int(kwargs.get('employee_id'))))
             if kwargs.get('assignee'):
                 domain.append('|')
                 domain.append(('qr_id', '=', int(kwargs.get('assignee'))))
@@ -295,9 +308,18 @@ class TaskForgeBlockerController(http.Controller):
                 current_level = blocker.escalation_level or 'qr'
                 if current_level == 'qr':
                     blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url, document_urls=document_urls)
+
+                    if kwargs.get('priority'):
+                        blocker.priority = kwargs.get('priority')
                     return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
                 elif current_level == 'pl':
                     blocker.action_pl_escalate_to_cto(notes=notes, image_url=image_url, document_urls=document_urls)
+                    blocker.sudo().write({
+                        'steps_to_reproduce': kwargs.get('steps_to_reproduce') or blocker.steps_to_reproduce,
+                        'affected_area': kwargs.get('task_page_affected') or blocker.affected_area,
+                        'priority': kwargs.get('priority') or blocker.priority,
+                    })
+
                     return return_Response(message="Blocker escalated to CTO", status=200, data={'data': self._format_blocker(blocker)})
                 else:
                     return return_Response(message="Blocker is already at highest escalation level (CTO)", status=400)
@@ -431,3 +453,74 @@ class TaskForgeBlockerController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/blockers/stats', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def blocker_stats(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role()
+            team_ids = employee._get_team_employee_ids()
+            Blocker = request.env['task.forge.blocker'].sudo()
+
+            if role == 'admin':
+                base_domain = []
+            elif role == 'pl':
+                base_domain = [('employee_id', 'in', team_ids)]
+            elif role in ('qr', 'ql'):
+                base_domain = [('qr_id', '=', employee.id)]
+            else:
+                base_domain = [('employee_id', '=', employee.id)]
+
+            if kwargs.get('project_id'):
+                base_domain.append(('project_id', '=', int(kwargs.get('project_id'))))
+
+            total = Blocker.search_count(base_domain)
+            pending = Blocker.search_count(base_domain + [('state', '=', 'pending')])
+            escalated_to_pl = Blocker.search_count(base_domain + [('state', '=', 'escalated_to_pl')])
+            escalated_to_cto = Blocker.search_count(base_domain + [('state', '=', 'escalated_to_cto')])
+            resolved = Blocker.search_count(base_domain + [('state', '=', 'resolved')])
+            no_issue = Blocker.search_count(base_domain + [('state', '=', 'no_issue')])
+            validated = Blocker.search_count(base_domain + [('state', '=', 'validated')])
+
+            return return_Response(
+                message="Blocker stats",
+                status=200,
+                data={
+                    'total': total,
+                    'pending': pending,
+                    'escalated_to_pl': escalated_to_pl,
+                    'escalated_to_cto': escalated_to_cto,
+                    'resolved': resolved,
+                    'no_issue': no_issue,
+                    'validated': validated,
+                }
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+
+    @http.route('/api/v2/get_blocker_issues_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_blocker_issues_list(self, **kwargs):
+        temp = []
+        try:
+            blocker_issues = request.env['res.blocker.issues'].sudo().search([])
+            for bi in blocker_issues:
+                temp.append({
+                    'id': bi.id,
+                    'name': bi.name
+                })
+            return return_Response(
+                message="success",
+                status=200,
+                data={'data': temp}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+

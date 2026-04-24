@@ -414,7 +414,6 @@ class TalosChatController(http.Controller):
 
     @http.route("/talos/chat/sandbox_state", type="json", auth="user")
     def sandbox_state(self, sandbox_id=0, **kw):
-        """Return auto-hint loop state for a sandbox (used by frontend on reload)."""
         sandbox_id = int(sandbox_id or 0)
         if not sandbox_id:
             return {"error": "sandbox_id is required"}
@@ -423,8 +422,20 @@ class TalosChatController(http.Controller):
         if not sandbox.exists():
             return {"error": "Sandbox not found"}
 
-        return {
+        result = {
             "auto_hint_status": sandbox.auto_hint_status or "idle",
             "auto_hint_iteration": sandbox.auto_hint_iteration or 0,
             "auto_hint_group_id": sandbox.auto_hint_group_id or "",
         }
+
+        last_turn = sandbox.turn_ids.sorted("turn_number", reverse=True)[:1]
+        if last_turn:
+            result["last_turn_id"] = last_turn.id
+            result["last_turn_feedback"] = last_turn.feedback or ""
+            result["last_turn_hint_text"] = last_turn.hint_text or ""
+        else:
+            result["last_turn_id"] = 0
+            result["last_turn_feedback"] = ""
+            result["last_turn_hint_text"] = ""
+
+        return result
