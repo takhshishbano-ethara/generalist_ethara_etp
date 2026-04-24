@@ -150,7 +150,8 @@ class DashboardController(http.Controller):
                 # ('date_from', '<=', datetime.datetime.now().date()),
                 # ('date_to', '>=', datetime.datetime.now().date())
             ])
-            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue', 'resolved'])])
+            # escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue', 'resolved'])])
+            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('state','in', ['escalated_to_pl'])])
 
             data = request.env['task.forge.log'].sudo().read_group(
                 domain=[('project_id', 'in', current_projects.ids), ('state', 'in', ['completed']), ('end_time', '!=', False)],
@@ -275,7 +276,8 @@ class DashboardController(http.Controller):
 
             # 5. Pending Items
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
-                ('project_id', 'in', current_projects.ids),
+                # ('project_id', 'in', current_projects.ids),
+                ('qr_id', '=', employee.id),
                 ('state','not in', ['no_issue', 'resolved'])
             ])
 

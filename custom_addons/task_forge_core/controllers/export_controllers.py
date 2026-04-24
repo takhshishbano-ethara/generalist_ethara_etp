@@ -244,17 +244,14 @@ class TaskForgeExportController(http.Controller):
     def export_projects(self, **kwargs):
         try:
             import xlsxwriter
-            employee, role, team_ids, project_ids = self._get_scoped_context()
-            if not employee:
-                return return_Response(message="Employee profile not found", status=404)
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
-            if kwargs.get('show_all') in [1, '1']:
-                domain = []
+            domain = []
+            if kwargs.get('active_projects') in [1, '1']:
+                domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
                 domain = []
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
@@ -339,27 +336,36 @@ class TaskForgeExportController(http.Controller):
     def export_tasks(self, **kwargs):
         try:
             import xlsxwriter
-            employee, role, team_ids, project_ids = self._get_scoped_context()
+            user = request.env.user
+            employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
+            team_ids = employee._get_team_employee_ids()
             TaskLog = request.env['task.forge.log'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
+
+            if kwargs.get('employee_id'):
+                domain.append(('employee_id', '=', int(kwargs['employee_id'])))
+
+            if kwargs.get('project_id'):
+                domain.append(('project_id', '=', int(kwargs['project_id'])))
+
+            if kwargs.get('project'):
+                domain.append(('project_id', '=', int(kwargs['project'])))
+
+            if kwargs.get('status'):
+                if kwargs.get('status') != 'all':
+                    domain.append(('state', '=', kwargs['status']))
+
             start_date, end_date = self._get_date_filters(kwargs)
             if start_date:
                 domain.append(('date', '>=', start_date))
             if end_date:
                 domain.append(('date', '<=', end_date))
-            if kwargs.get('project_id'):
-                pid = int(kwargs['project_id'])
-                if pid not in project_ids:
-                    return return_Response(message="Access denied: project not in your scope", status=403)
-                domain.append(('project_id', '=', pid))
-            else:
-                domain.append(('project_id', 'in', project_ids))
 
-            tasks = TaskLog.search(domain, order='date desc, create_date desc')
+            tasks = TaskLog.search(domain, order='create_date desc')
 
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -431,11 +437,7 @@ class TaskForgeExportController(http.Controller):
                     domain = [('state', 'not in', ['no_issue', 'resolved'])]
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
-                domain = [
-                    '|',
-                    ('employee_id', 'in', team_ids),
-                    ('state', '=', 'escalated_to_pl'),
-                ]
+                domain = [('employee_id', 'in', team_ids)]
                 if kwargs.get('active_blocker') in [1, '1']:
                     domain.append(('state', 'not in', ['no_issue', 'resolved']))
             elif role in ('qr', 'ql'):
@@ -527,14 +529,18 @@ class TaskForgeExportController(http.Controller):
     def export_team_overview(self, **kwargs):
         try:
             import xlsxwriter
-            emp, role, team_ids, project_ids = self._get_scoped_context()
-            if not emp:
+            # emp, role, team_ids, project_ids = self._get_scoped_context()
+            # if not emp:
+            #     return return_Response(message="Employee profile not found", status=404)
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
             Employee = request.env['hr.employee'].sudo()
             TaskLog = request.env['task.forge.log'].sudo()
             Blocker = request.env['task.forge.blocker'].sudo()
-
+            team_ids = employee._get_team_employee_ids()
             employees = Employee.browse(team_ids)
 
             start_date, end_date = self._get_date_filters(kwargs)
@@ -623,20 +629,36 @@ class TaskForgeExportController(http.Controller):
     def export_project_team(self, **kwargs):
         try:
             import xlsxwriter
-            employee, role, team_ids, scoped_project_ids = self._get_scoped_context()
-            if not employee:
-                return return_Response(message="Employee profile not found", status=404)
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            employee = user_id.employee_id
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            if kwargs.get('show_all') in [1, '1']:
+                domain = []
+            if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                domain = []
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                          request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                          request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain.append(('project_lead', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                domain.append(('project_qc_reviewer', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                domain.append(('project_tasker', '=', employee.id))
 
             Project = request.env['project.project'].sudo()
             TaskLog = request.env['task.forge.log'].sudo()
             Employee = request.env['hr.employee'].sudo()
 
-            domain = [('id', 'in', scoped_project_ids)]
             if kwargs.get('project_id'):
-                pid = int(kwargs['project_id'])
-                if pid not in scoped_project_ids:
-                    return return_Response(message="Access denied: project not in your scope", status=403)
-                domain = [('id', '=', pid)]
+                domain.append(('id', '=', int(kwargs['project_id'])))
+
             projects = Project.search(domain, order='name asc')
 
             start_date, end_date = self._get_date_filters(kwargs)
@@ -674,7 +696,6 @@ class TaskForgeExportController(http.Controller):
                 members = set()
                 for field in ('project_lead', 'project_qc_reviewer', 'project_tasker', 'project_aire', 'project_swe'):
                     members.update(proj[field].ids)
-                members = members.intersection(set(team_ids))
 
                 role_map = {}
                 for emp_id in proj.project_lead.ids:
@@ -745,19 +766,42 @@ class TaskForgeExportController(http.Controller):
     def export_project_blockers(self, **kwargs):
         try:
             import xlsxwriter
-            employee, role, team_ids, scoped_project_ids = self._get_scoped_context()
-            if not employee:
-                return return_Response(message="Employee profile not found", status=404)
+            user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            if not user_id.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            employee = user_id.employee_id
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            if kwargs.get('active_projects') in [1, '1']:
+                domain = []
+            if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
+                domain = []
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
+                                          request.env.ref('api_auth_gateway.role_pl_stem').id,
+                                          request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain.append(('project_lead', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
+                                          request.env.ref('api_auth_gateway.role_qc_stem').id,
+                                          request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                domain.append(('project_qc_reviewer', '=', employee.id))
+            elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                                          request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                domain.append(('project_tasker', '=', employee.id))
+
+            start_date, end_date = self._get_date_filters(kwargs)
+
+            if start_date:
+                domain.append(('date_start', '>=', start_date))
+
+            if end_date:
+                domain.append(('date_start', '<=', end_date))
+
+            if kwargs.get('project_id'):
+                domain.append(('id', '=', int(kwargs['project_id'])))
 
             Project = request.env['project.project'].sudo()
             Blocker = request.env['task.forge.blocker'].sudo()
-
-            domain = [('id', 'in', scoped_project_ids)]
-            if kwargs.get('project_id'):
-                pid = int(kwargs['project_id'])
-                if pid not in scoped_project_ids:
-                    return return_Response(message="Access denied: project not in your scope", status=403)
-                domain = [('id', '=', pid)]
             projects = Project.search(domain, order='name asc')
 
             output = io.BytesIO()
@@ -771,16 +815,21 @@ class TaskForgeExportController(http.Controller):
 
             for proj in projects:
                 blocker_domain = [('project_id', '=', proj.id)]
+                role = employee._get_task_forge_role()
                 if role == 'pl':
+                    team_ids = employee._get_team_employee_ids()
                     blocker_domain.append(('employee_id', 'in', team_ids))
                 elif role in ('qr', 'ql'):
-                    blocker_domain.extend(['|', ('qr_id', '=', employee.id), ('employee_id', 'in', team_ids)])
-                elif role == 'tasker':
+                    blocker_domain.append(('qr_id', '=', employee.id))
+                else:
                     blocker_domain.append(('employee_id', '=', employee.id))
+
                 if start_date:
                     blocker_domain.append(('create_date', '>=', start_date))
+
                 if end_date:
                     blocker_domain.append(('create_date', '<=', end_date))
+
                 blockers = Blocker.search(blocker_domain, order='create_date desc')
                 if not blockers:
                     continue
@@ -837,11 +886,16 @@ class TaskForgeExportController(http.Controller):
     def export_employee_list(self, **kwargs):
         try:
             import xlsxwriter
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
             Employee = request.env['hr.employee'].sudo()
             TaskLog = request.env['task.forge.log'].sudo()
             Blocker = request.env['task.forge.blocker'].sudo()
-
-            domain = [('task_forge_active', '=', True)]
+            team_ids = employee._get_team_employee_ids()
+            domain = [('id', 'in', team_ids)]
 
             if kwargs.get('role'):
                 domain.append(('user_id.user_role', '=', int(kwargs.get('role'))))

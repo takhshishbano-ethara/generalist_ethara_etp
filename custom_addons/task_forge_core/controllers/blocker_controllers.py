@@ -202,11 +202,8 @@ class TaskForgeBlockerController(http.Controller):
                     domain = [('state', 'not in', ['no_issue', 'resolved'])]
             elif role == 'pl':
                 team_ids = employee._get_team_employee_ids()
-                domain = [
-                    '|',
-                    ('employee_id', 'in', team_ids),
-                    ('state', '=', 'escalated_to_pl'),
-                ]
+                # domain = ['|', ('employee_id', 'in', team_ids), ('state', '=', 'escalated_to_pl')]
+                domain = [('employee_id', 'in', team_ids)]
                 if kwargs.get('active_blocker') in [1, '1']:
                     domain.append(('state', 'not in', ['no_issue', 'resolved']))
             elif role in ('qr', 'ql'):
