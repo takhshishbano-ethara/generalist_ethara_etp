@@ -79,7 +79,7 @@ def _check_text_local(tool, text):
             'rule_id': m.rule_id,
             'rule_category': m.category,
             'offset': m.offset,
-            'length': m.errorLength,
+            'length': m.error_length,
         })
     return issues, corrected
 
@@ -594,7 +594,7 @@ class TaskForgeTaskController(http.Controller):
         TaskLog = request.env['task.forge.log'].sudo()
         tasks = TaskLog.search_count([('employee_id', '=', task.employee_id.id), ('state', 'not in', ['no_issue'])])
         Blocker = request.env['task.forge.blocker'].sudo().search([('task_id', '=', task.id)])
-       
+
         return {
             'id': task.id if task.id else 0,
             'sequence': task.sequence if task.sequence else "",
