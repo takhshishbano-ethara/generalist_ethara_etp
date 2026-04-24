@@ -417,31 +417,50 @@ class TaskForgeExportController(http.Controller):
     def export_blockers(self, **kwargs):
         try:
             import xlsxwriter
-            employee, role, team_ids, project_ids = self._get_scoped_context()
+            user = request.env.user
+            employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
             Blocker = request.env['task.forge.blocker'].sudo()
+            role = employee._get_task_forge_role()
 
             if role == 'admin':
                 domain = []
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain = [('state', 'not in', ['no_issue', 'resolved'])]
             elif role == 'pl':
-                domain = [('employee_id', 'in', team_ids)]
+                team_ids = employee._get_team_employee_ids()
+                domain = [
+                    '|',
+                    ('employee_id', 'in', team_ids),
+                    ('state', '=', 'escalated_to_pl'),
+                ]
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
             elif role in ('qr', 'ql'):
-                domain = ['|', ('qr_id', '=', employee.id), ('employee_id', 'in', team_ids)]
+                domain = [('qr_id', '=', employee.id)]
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
             else:
                 domain = [('employee_id', '=', employee.id)]
+                if kwargs.get('active_blocker') in [1, '1']:
+                    domain.append(('state', 'not in', ['no_issue', 'resolved']))
 
             if kwargs.get('project_id'):
-                pid = int(kwargs['project_id'])
-                if pid not in project_ids:
-                    return return_Response(message="Access denied: project not in your scope", status=403)
-                domain.append(('project_id', '=', pid))
-            else:
-                domain.append(('project_id', 'in', project_ids))
-
+                domain.append(('project_id', '=', int(kwargs.get('project_id'))))
+            if kwargs.get('search'):
+                domain.append(('name', 'ilike', kwargs.get('search')))
             if kwargs.get('state'):
-                domain.append(('state', '=', kwargs['state']))
+                domain.append(('state', 'in', [kwargs.get('status')]))
+            if kwargs.get('priority'):
+                domain.append(('priority', '=', kwargs.get('priority')))
+            if kwargs.get('employee_id'):
+                domain.append(('employee_id', '=', int(kwargs.get('employee_id'))))
+            if kwargs.get('assignee'):
+                domain.append('|')
+                domain.append(('qr_id', '=', int(kwargs.get('assignee'))))
+                domain.append(('pl_id', '=', int(kwargs.get('assignee'))))
 
             start_date, end_date = self._get_date_filters(kwargs)
             if start_date:
