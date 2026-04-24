@@ -180,7 +180,7 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
                 turns = task.turn_ids.filtered(
                     lambda t, sid=session_id: t.session_id == sid
                 ).sorted("turn_number")
-            else:
+            if not session_id or not turns:
                 turns = task.turn_ids.sorted("turn_number")
             conversation_parts = []
             for t in turns:

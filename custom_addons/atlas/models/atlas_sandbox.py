@@ -138,7 +138,18 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
             _SANDBOX_STARTING.discard(sandbox_id)
 
 
-def _run_generation_background(db_name, task_id, session_id, notify_partner_id):
+def _get_current_session_turns(task):
+    glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
+    if glm_sandbox and glm_sandbox.current_session_id:
+        session_turns = task.turn_ids.filtered(
+            lambda t, sid=glm_sandbox.current_session_id: t.session_id == sid
+        ).sorted("turn_number")
+        if session_turns:
+            return session_turns
+    return task.turn_ids.sorted("turn_number")
+
+
+def _run_generation_background(db_name, task_id, notify_partner_id):
     """Background worker: generate goal description + rubric criteria, then notify via bus."""
     try:
         with Registry(db_name).cursor() as cr:
@@ -148,12 +159,15 @@ def _run_generation_background(db_name, task_id, session_id, notify_partner_id):
                 _logger.error("Generation bg: task %s does not exist", task_id)
                 return
 
-            if session_id:
-                turns = task.turn_ids.filtered(
-                    lambda t, sid=session_id: t.session_id == sid
-                ).sorted("turn_number")
-            else:
-                turns = task.turn_ids.sorted("turn_number")
+            turns = _get_current_session_turns(task)
+
+            _logger.info(
+                "Generation bg: task=%s total_turns=%d turns_with_prompt=%d turns_with_response=%d",
+                task_id, len(turns),
+                len([t for t in turns if t.prompt and not t.is_hint_turn]),
+                len([t for t in turns if t.prompt and not t.is_hint_turn and (t.response or t.turn_status == "Completed")]),
+            )
+
             if not turns:
                 task.write({
                     "goal_generation_status": "done",
@@ -237,6 +251,11 @@ def _run_generation_background(db_name, task_id, session_id, notify_partner_id):
                         "Generation bg: created %d rubric criteria for task=%s",
                         created_count, task_id,
                     )
+                    if created_count == 0:
+                        _logger.warning(
+                            "Generation bg: criteria_data had entries but none valid for task=%s",
+                            task_id,
+                        )
                 else:
                     _logger.warning(
                         "Generation bg: rubric parser returned empty criteria for task=%s",
@@ -272,6 +291,189 @@ def _run_generation_background(db_name, task_id, session_id, notify_partner_id):
             )
     except Exception:
         _logger.exception("Generation bg: unhandled error for task=%s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr2:
+                env2 = api.Environment(cr2, SUPERUSER_ID, {})
+                t = env2["atlas.atlas"].browse(task_id)
+                if t.exists():
+                    vals = {}
+                    if t.goal_generation_status == "running":
+                        vals["goal_generation_status"] = "error"
+                    if t.rubric_generation_status == "running":
+                        vals["rubric_generation_status"] = "error"
+                    if vals:
+                        t.write(vals)
+        except Exception:
+            _logger.exception("Generation bg: failed to reset status for task=%s", task_id)
+
+
+def _run_goal_only_background(db_name, task_id, notify_partner_id):
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["atlas.atlas"].browse(task_id)
+            if not task.exists():
+                return
+
+            turns = _get_current_session_turns(task)
+            if not turns:
+                task.write({"goal_generation_status": "done"})
+                return
+
+            from .atlas import generate_description_from_turns
+
+            try:
+                task.write({"goal_generation_status": "running"})
+                cr.commit()
+
+                desc, desc_usage = generate_description_from_turns(env, turns)
+                if desc:
+                    write_vals = {"goal_description": desc, "goal_generation_status": "done"}
+                    d_in = desc_usage.get("input_tokens", 0)
+                    d_out = desc_usage.get("output_tokens", 0)
+                    if d_in or d_out:
+                        write_vals["goal_input_tokens"] = (task.goal_input_tokens or 0) + d_in
+                        write_vals["goal_output_tokens"] = (task.goal_output_tokens or 0) + d_out
+                    task.sudo().write(write_vals)
+                else:
+                    task.write({"goal_generation_status": "done"})
+                cr.commit()
+            except Exception:
+                _logger.exception("Goal-only bg: failed for task=%s", task_id)
+                task.write({"goal_generation_status": "error"})
+                cr.commit()
+
+            partner = None
+            if notify_partner_id:
+                partner = env["res.partner"].browse(notify_partner_id)
+                if not partner.exists():
+                    partner = None
+            if partner:
+                env["bus.bus"]._sendone(
+                    partner,
+                    "atlas/generation_done",
+                    {
+                        "task_id": task_id,
+                        "goal_status": task.goal_generation_status,
+                        "rubric_status": task.rubric_generation_status,
+                    },
+                )
+    except Exception:
+        _logger.exception("Goal-only bg: unhandled error for task=%s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr2:
+                env2 = api.Environment(cr2, SUPERUSER_ID, {})
+                t = env2["atlas.atlas"].browse(task_id)
+                if t.exists() and t.goal_generation_status == "running":
+                    t.write({"goal_generation_status": "error"})
+        except Exception:
+            _logger.exception("Goal-only bg: failed to reset status for task=%s", task_id)
+
+
+def _run_rubric_only_background(db_name, task_id, notify_partner_id):
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["atlas.atlas"].browse(task_id)
+            if not task.exists():
+                return
+
+            turns = _get_current_session_turns(task)
+            if not turns:
+                task.write({"rubric_generation_status": "done"})
+                return
+
+            from .atlas import generate_rubric_from_turns
+
+            try:
+                task.write({"rubric_generation_status": "running"})
+                cr.commit()
+
+                criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
+                if rubric_usage:
+                    r_in = rubric_usage.get("input_tokens", 0)
+                    r_out = rubric_usage.get("output_tokens", 0)
+                    if r_in or r_out:
+                        task.sudo().write({
+                            "rubric_input_tokens": (task.rubric_input_tokens or 0) + r_in,
+                            "rubric_output_tokens": (task.rubric_output_tokens or 0) + r_out,
+                        })
+
+                if criteria_data:
+                    task.sudo().rubric_criterion_ids.unlink()
+                    valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
+                    valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
+                    created_count = 0
+                    for c in criteria_data:
+                        if not isinstance(c, dict) or not c.get("name"):
+                            continue
+                        levels = c.get("levels", [])
+                        cat = c.get("category", "other")
+                        if cat not in valid_cats:
+                            cat = "other"
+                        imp = c.get("importance", "important")
+                        if imp not in valid_imps:
+                            imp = "important"
+                        criterion = env["atlas.rubric.criterion"].sudo().create({
+                            "atlas_id": task.id,
+                            "name": c["name"],
+                            "category": cat,
+                            "importance": imp,
+                            "weight": int(c.get("weight", 5)),
+                            "is_negative": bool(c.get("is_negative", False)),
+                            "suggestion": c.get("suggestion", ""),
+                        })
+                        criterion.level_ids.unlink()
+                        for lv in levels:
+                            if isinstance(lv, dict):
+                                env["atlas.rubric.level"].sudo().create({
+                                    "criterion_id": criterion.id,
+                                    "score": int(lv.get("score", 0)),
+                                    "label": lv.get("label", ""),
+                                })
+                        created_count += 1
+                    _logger.info(
+                        "Rubric-only bg: created %d criteria for task=%s",
+                        created_count, task_id,
+                    )
+                else:
+                    _logger.warning(
+                        "Rubric-only bg: parser returned empty criteria for task=%s",
+                        task_id,
+                    )
+
+                task.write({"rubric_generation_status": "done"})
+                cr.commit()
+            except Exception:
+                _logger.exception("Rubric-only bg: failed for task=%s", task_id)
+                task.write({"rubric_generation_status": "error"})
+                cr.commit()
+
+            partner = None
+            if notify_partner_id:
+                partner = env["res.partner"].browse(notify_partner_id)
+                if not partner.exists():
+                    partner = None
+            if partner:
+                env["bus.bus"]._sendone(
+                    partner,
+                    "atlas/generation_done",
+                    {
+                        "task_id": task_id,
+                        "goal_status": task.goal_generation_status,
+                        "rubric_status": task.rubric_generation_status,
+                    },
+                )
+    except Exception:
+        _logger.exception("Rubric-only bg: unhandled error for task=%s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr2:
+                env2 = api.Environment(cr2, SUPERUSER_ID, {})
+                t = env2["atlas.atlas"].browse(task_id)
+                if t.exists() and t.rubric_generation_status == "running":
+                    t.write({"rubric_generation_status": "error"})
+        except Exception:
+            _logger.exception("Rubric-only bg: failed to reset status for task=%s", task_id)
 
 
 class AtlasSandbox(models.Model):
@@ -646,14 +848,9 @@ class AtlasSandbox(models.Model):
         if not task:
             return
 
-        session_id = self.current_session_id or ""
-        if session_id:
-            turns = task.turn_ids.filtered(
-                lambda t, sid=session_id: t.session_id == sid
-            ).sorted("turn_number")
-        else:
-            turns = task.turn_ids.sorted("turn_number")
-        if not turns:
+        all_turns = task.turn_ids.sorted("turn_number")
+        if not all_turns:
+            _logger.warning("[GENERATION] No turns found for task=%s, skipping", task.id)
             return
 
         task.sudo().write({
@@ -671,13 +868,12 @@ class AtlasSandbox(models.Model):
                 _run_generation_background,
                 db_name,
                 task_id,
-                session_id,
                 notify_partner_id,
             )
 
         _logger.info(
-            "[GENERATION] Queued background goal+rubric generation for task=%s session=%s",
-            task_id, session_id,
+            "[GENERATION] Queued background goal+rubric generation for task=%s total_turns=%d",
+            task_id, len(all_turns),
         )
 
     def _start_k8s(self):

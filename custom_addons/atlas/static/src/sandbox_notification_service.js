@@ -21,6 +21,25 @@ const sandboxNotificationService = {
 
             env.bus.trigger("ATLAS:SANDBOX_STATUS_CHANGED", payload);
         });
+
+        bus_service.subscribe("atlas/generation_done", (payload) => {
+            const goalStatus = payload.goal_status || "done";
+            const rubricStatus = payload.rubric_status || "done";
+            const anyError = goalStatus === "error" || rubricStatus === "error";
+
+            if (anyError) {
+                notification.add(
+                    "Generation completed with errors. Check goal/rubric status.",
+                    { type: "warning" },
+                );
+            } else {
+                notification.add("Goal & rubric generated successfully!", {
+                    type: "success",
+                });
+            }
+
+            env.bus.trigger("ATLAS:GENERATION_DONE", payload);
+        });
     },
 };
 

@@ -385,3 +385,50 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Tabs ── */
+.o_atlas_costing_tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--o-border-color, #dee2e6);
+    padding-bottom: 0;
+}
+
+.o_atlas_costing_tab {
+    padding: 10px 20px;
+    border: none;
+    background: none;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--o-text-color-muted, #6c757d);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    &:hover {
+        color: var(--o-text-color, #212529);
+    }
+
+    &.active {
+        color: var(--o-brand-primary, #714B67);
+        border-bottom-color: var(--o-brand-primary, #714B67);
+    }
+}
+
+.o_atlas_tab_badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--o-gray-100, #f1f3f5);
+    color: var(--o-text-color-muted, #6c757d);
+
+    .active > & {
+        background: rgba(113, 75, 103, 0.1);
+        color: var(--o-brand-primary, #714B67);
+    }
+}

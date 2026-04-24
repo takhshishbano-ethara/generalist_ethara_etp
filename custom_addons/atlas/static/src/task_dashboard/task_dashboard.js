@@ -36,9 +36,16 @@ export class TaskDashboard extends Component {
         this._onSandboxStatusChanged = (ev) => {
             this._handleSandboxStatusChanged(ev.detail);
         };
+        this._onGenerationDone = (ev) => {
+            this._handleGenerationDone(ev.detail);
+        };
         this.env.bus.addEventListener(
             "ATLAS:SANDBOX_STATUS_CHANGED",
             this._onSandboxStatusChanged,
+        );
+        this.env.bus.addEventListener(
+            "ATLAS:GENERATION_DONE",
+            this._onGenerationDone,
         );
 
         onMounted(() => {
@@ -51,6 +58,10 @@ export class TaskDashboard extends Component {
                 "ATLAS:SANDBOX_STATUS_CHANGED",
                 this._onSandboxStatusChanged,
             );
+            this.env.bus.removeEventListener(
+                "ATLAS:GENERATION_DONE",
+                this._onGenerationDone,
+            );
         });
     }
 
@@ -58,6 +69,10 @@ export class TaskDashboard extends Component {
         const sandboxId = payload.sandbox_id;
         delete this.state.loadingSandbox[sandboxId];
         this._loadSandboxes();
+        this.props.record.load();
+    }
+
+    _handleGenerationDone(payload) {
         this.props.record.load();
     }
 
@@ -282,6 +297,7 @@ export class TaskDashboard extends Component {
             await this.orm.call("atlas.sandbox", "action_stop_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
             await this.props.record.load();
+            this.env.bus.trigger("ATLAS:GENERATION_STARTED", { task_id: this.taskId });
         } catch (e) {
             this.notification.add(
                 e.data?.message || e.message || "Failed to stop sandbox",

@@ -11,10 +11,25 @@
                 <div class="text-muted py-3 text-center">Save the task first to add criteria.</div>
             </t>
             <t t-else="">
-                <t t-if="state.generationStatus === 'running'">
-                    <div class="alert alert-info d-flex align-items-center py-2 mb-3">
-                        <i class="fa fa-spinner fa-spin me-2"/>
-                        <span>Generating criteria in background…</span>
+                <t t-if="isGenerating">
+                    <div class="o_generation_progress mb-3">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <i class="fa fa-spinner fa-spin text-primary"/>
+                            <span class="small fw-bold text-primary">
+                                <t t-if="state.goalStatus === 'running' and state.rubricStatus !== 'running'">
+                                    Generating goal description…
+                                </t>
+                                <t t-elif="state.rubricStatus === 'running' and state.goalStatus !== 'running'">
+                                    Generating rubric criteria…
+                                </t>
+                                <t t-else="">
+                                    Generating goal &amp; rubric criteria…
+                                </t>
+                            </span>
+                        </div>
+                        <div class="progress" style="height: 4px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"/>
+                        </div>
                     </div>
                 </t>
 
@@ -39,8 +54,9 @@
                                                     <i t-att-class="'fa ' + categoryMeta(c.category).icon + ' me-1'"/>
                                                     <t t-out="categoryMeta(c.category).label"/>
                                                 </span>
-                                                <span class="o_weight_badge">
-                                                    W:<t t-out="c.weight || 5"/>
+                                                <span class="o_importance_badge"
+                                                      t-att-style="'background:' + importanceColor(c.importance) + '20; color:' + importanceColor(c.importance)">
+                                                    <t t-out="importanceLabel(c.importance)"/>
                                                 </span>
                                                 <t t-if="c.is_negative">
                                                     <span class="badge bg-danger">Negative</span>
@@ -73,15 +89,27 @@
                                         </div>
                                     </t>
 
-                                    <div class="o_card_levels mt-2 d-flex gap-2">
-                                        <t t-foreach="c.levels || []" t-as="lv" t-key="lv.id || lv_index">
-                                            <span class="o_level_chip"
-                                                  t-att-class="{'o_level_pass': lv.score > 0, 'o_level_fail': lv.score === 0}">
-                                                <strong><t t-out="lv.score"/></strong>
-                                                <t t-if="lv.label"> — <t t-out="lv.label"/></t>
-                                            </span>
-                                        </t>
-                                    </div>
+                                    <t t-if="c.category === 'other' and c.custom_category">
+                                        <div class="o_card_custom_cat mt-1">
+                                            <i class="fa fa-tag me-1"/>Criteria: <t t-out="c.custom_category"/>
+                                        </div>
+                                    </t>
+
+                                    <t t-if="c.levels and c.levels.length">
+                                        <div class="o_card_levels mt-2 d-flex flex-wrap gap-1">
+                                            <t t-foreach="c.levels" t-as="lv" t-key="lv.id || lv_index">
+                                                <span class="o_level_chip"
+                                                      t-att-class="{
+                                                          'o_level_zero': lv.score === 0,
+                                                          'o_level_mid': lv.score > 0 and lv.score &lt; (c.levels.length - 1),
+                                                          'o_level_max': lv.score === (c.levels.length - 1),
+                                                      }">
+                                                    <strong><t t-out="lv.score"/></strong>
+                                                    <t t-if="lv.label"> — <t t-out="lv.label"/></t>
+                                                </span>
+                                            </t>
+                                        </div>
+                                    </t>
 
                                     <t t-if="c.qc_status === 'done' or c.qc_status === 'error'">
                                         <div class="o_qc_result mt-2"
@@ -106,7 +134,7 @@
                     </div>
                 </t>
                 <t t-else="">
-                    <t t-if="state.generationStatus !== 'running'">
+                    <t t-if="!isGenerating">
                         <div class="text-muted small py-2 text-center">No criteria defined yet.</div>
                     </t>
                 </t>
@@ -134,7 +162,7 @@
                        placeholder="Describe what this criterion measures"/>
             </div>
 
-            <div class="d-flex gap-2 mb-2">
+            <div class="d-flex gap-2 mb-2 flex-wrap">
                 <select class="form-select form-select-sm"
                         style="max-width: 200px;"
                         t-on-change="(ev) => state.form.category = ev.target.value">
@@ -148,16 +176,34 @@
                         style="max-width: 200px;"
                         t-on-change="(ev) => state.form.importance = ev.target.value">
                     <option value="">Importance</option>
-                    <option value="critically_detrimental" t-att-selected="state.form.importance === 'critically_detrimental'">Critically Detrimental</option>
-                    <option value="detrimental" t-att-selected="state.form.importance === 'detrimental'">Detrimental</option>
-                    <option value="slightly_detrimental" t-att-selected="state.form.importance === 'slightly_detrimental'">Slightly Detrimental</option>
-                    <option value="slightly_important" t-att-selected="state.form.importance === 'slightly_important'">Slightly Important</option>
-                    <option value="important" t-att-selected="state.form.importance === 'important'">Important</option>
-                    <option value="critically_important" t-att-selected="state.form.importance === 'critically_important'">Critically Important</option>
+                    <option value="critically_detrimental" t-att-selected="state.form.importance === 'critically_detrimental'">⬤ Critically Detrimental</option>
+                    <option value="detrimental" t-att-selected="state.form.importance === 'detrimental'">⬤ Detrimental</option>
+                    <option value="slightly_detrimental" t-att-selected="state.form.importance === 'slightly_detrimental'">⬤ Slightly Detrimental</option>
+                    <option value="slightly_important" t-att-selected="state.form.importance === 'slightly_important'">⬤ Slightly Important</option>
+                    <option value="important" t-att-selected="state.form.importance === 'important'">⬤ Important</option>
+                    <option value="critically_important" t-att-selected="state.form.importance === 'critically_important'">⬤ Critically Important</option>
                 </select>
             </div>
 
+            <t t-if="state.form.category === 'other'">
+                <div class="mb-2">
+                    <input type="text" class="form-control form-control-sm"
+                           t-att-value="state.form.custom_category"
+                           t-on-input="(ev) => state.form.custom_category = ev.target.value"
+                           placeholder="Specify custom criteria category (e.g. Safety, Domain Knowledge, Code Quality)"/>
+                </div>
+            </t>
+
             <div class="mb-2">
+                <textarea class="form-control form-control-sm o_suggestion_input"
+                          rows="2"
+                          t-att-value="state.form.suggestion"
+                          t-on-input="(ev) => state.form.suggestion = ev.target.value"
+                          placeholder="Scoring suggestion — how to grade True/False for this criterion"/>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small fw-bold mb-1">Scoring Levels</label>
                 <div class="o_atlas_rubric_levels">
                     <t t-foreach="state.form.levels" t-as="level" t-key="level_index">
                         <div class="d-flex align-items-center gap-1 mb-1">
@@ -168,10 +214,19 @@
                             <input type="text" class="form-control form-control-sm"
                                    t-att-value="level.label"
                                    t-on-input="(ev) => level.label = ev.target.value"
-                                   t-att-placeholder="level.score === 0 ? 'False — failure description' : 'True — success description'"/>
+                                   t-att-placeholder="level.score === 0 ? 'Not Fulfilled' : level.score === 1 ? 'Partially Fulfilled' : 'Fulfilled'"/>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="() => this.onRemoveLevel(level_index)"
+                                    t-att-disabled="state.form.levels.length &lt;= 2"
+                                    title="Remove level">
+                                <i class="fa fa-minus"/>
+                            </button>
                         </div>
                     </t>
                 </div>
+                <button class="btn btn-link btn-sm p-0 mt-1" t-on-click="onAddLevel">
+                    <i class="fa fa-plus me-1"/> Add level
+                </button>
             </div>
 
             <div class="d-flex justify-content-end gap-2">

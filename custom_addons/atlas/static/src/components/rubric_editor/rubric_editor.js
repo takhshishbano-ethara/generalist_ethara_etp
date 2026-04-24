@@ -1,5 +1,5 @@
 /** @odoo-module */
-import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount, onWillRender } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
@@ -22,7 +22,7 @@ const IMPORTANCE_COLORS = {
     critically_important: "#2E7D32",
 };
 
-const POLL_INTERVAL_MS = 4000;
+const POLL_INTERVAL_MS = 3000;
 
 export class RubricEditor extends Component {
     static template = "atlas.RubricEditor";
@@ -34,25 +34,73 @@ export class RubricEditor extends Component {
         this.state = useState({
             criteria: [],
             loading: true,
-            generationStatus: "idle",
+            goalStatus: "idle",
+            rubricStatus: "idle",
+            initialized: false,
             inlineAdd: false,
             editingId: null,
             form: this._emptyForm(),
         });
         this._pollTimer = null;
 
-        onMounted(() => {
-            this._loadCriteria();
+        this._onGenerationStarted = () => {
+            this.state.goalStatus = "running";
+            this.state.rubricStatus = "running";
+            this.state.criteria = [];
             this._startPolling();
+        };
+        this._onGenerationDone = async (ev) => {
+            const payload = ev.detail || {};
+            this.state.goalStatus = payload.goal_status || "done";
+            this.state.rubricStatus = payload.rubric_status || "done";
+            this._stopPolling();
+            await this._loadCriteria();
+            this.props.record.load();
+        };
+
+        this.env.bus.addEventListener("ATLAS:GENERATION_STARTED", this._onGenerationStarted);
+        this.env.bus.addEventListener("ATLAS:GENERATION_DONE", this._onGenerationDone);
+
+        onWillRender(() => {
+            this._syncFromRecord();
+        });
+
+        onMounted(async () => {
+            await this._loadCriteria();
+            await this._fetchServerStatus();
+            if (this.state.goalStatus === "running" || this.state.rubricStatus === "running") {
+                this._startPolling();
+            }
         });
 
         onWillUnmount(() => {
             this._stopPolling();
+            this.env.bus.removeEventListener("ATLAS:GENERATION_STARTED", this._onGenerationStarted);
+            this.env.bus.removeEventListener("ATLAS:GENERATION_DONE", this._onGenerationDone);
         });
     }
 
     get taskId() {
         return this.props.record.resId;
+    }
+
+    get isGenerating() {
+        return this.state.goalStatus === "running" || this.state.rubricStatus === "running";
+    }
+
+    _syncFromRecord() {
+        const recordGoal = this.props.record.data.goal_generation_status;
+        const recordRubric = this.props.record.data.rubric_generation_status;
+        const isRecordRunning = recordGoal === "running" || recordRubric === "running";
+        const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
+        if (isRecordRunning && !isStateRunning) {
+            this.state.goalStatus = recordGoal || this.state.goalStatus;
+            this.state.rubricStatus = recordRubric || this.state.rubricStatus;
+            if (recordRubric === "running") {
+                this.state.criteria = [];
+            }
+            this._startPolling();
+        }
     }
 
     _emptyForm() {
@@ -61,7 +109,6 @@ export class RubricEditor extends Component {
             category: "other",
             custom_category: "",
             importance: "",
-            weight: 5,
             is_negative: false,
             suggestion: "",
             levels: [
@@ -69,6 +116,19 @@ export class RubricEditor extends Component {
                 { score: 1, label: "" },
             ],
         };
+    }
+
+    async _fetchServerStatus() {
+        if (!this.taskId) return;
+        try {
+            const res = await rpc("/atlas/generation/status", { task_id: this.taskId });
+            if (!res || res.error) return;
+            this.state.goalStatus = res.goal_generation_status || "idle";
+            this.state.rubricStatus = res.rubric_generation_status || "idle";
+        } catch {
+            // silent
+        }
+        this.state.initialized = true;
     }
 
     _startPolling() {
@@ -89,19 +149,26 @@ export class RubricEditor extends Component {
             const res = await rpc("/atlas/generation/status", { task_id: this.taskId });
             if (!res || res.error) return;
 
+            const goalStatus = res.goal_generation_status || "idle";
             const rubricStatus = res.rubric_generation_status || "idle";
-            const prevStatus = this.state.generationStatus;
-            this.state.generationStatus = rubricStatus;
+            const prevGoal = this.state.goalStatus;
+            const prevRubric = this.state.rubricStatus;
 
-            if (prevStatus === "running" && (rubricStatus === "done" || rubricStatus === "error")) {
+            this.state.goalStatus = goalStatus;
+            this.state.rubricStatus = rubricStatus;
+
+            if (prevGoal === "running" && goalStatus !== "running") {
+                this.props.record.load();
+            }
+
+            if (prevRubric === "running" && rubricStatus !== "running") {
                 await this._loadCriteria();
                 if (rubricStatus === "done") {
                     this.notification.add("Rubric criteria generated", { type: "success" });
                 }
-                this._stopPolling();
             }
 
-            if (rubricStatus !== "running") {
+            if (goalStatus !== "running" && rubricStatus !== "running") {
                 this._stopPolling();
             }
         } catch {
@@ -121,18 +188,31 @@ export class RubricEditor extends Component {
                 [["atlas_id", "=", this.taskId]],
                 [
                     "id", "name", "category", "custom_category", "importance",
-                    "weight", "is_negative", "suggestion", "sequence",
+                    "is_negative", "suggestion", "sequence",
                     "qc_status", "qc_feedback", "qc_severity",
                 ],
                 { order: "sequence, id" },
             );
-            for (const c of criteria) {
-                c.levels = await this.orm.searchRead(
+            const criterionIds = criteria.map((c) => c.id);
+            let allLevels = [];
+            if (criterionIds.length) {
+                allLevels = await this.orm.searchRead(
                     "atlas.rubric.level",
-                    [["criterion_id", "=", c.id]],
-                    ["id", "score", "label"],
+                    [["criterion_id", "in", criterionIds]],
+                    ["id", "score", "label", "criterion_id"],
                     { order: "score, id" },
                 );
+            }
+            const levelsByCriterion = {};
+            for (const lv of allLevels) {
+                const cId = lv.criterion_id[0];
+                if (!levelsByCriterion[cId]) {
+                    levelsByCriterion[cId] = [];
+                }
+                levelsByCriterion[cId].push(lv);
+            }
+            for (const c of criteria) {
+                c.levels = levelsByCriterion[c.id] || [];
             }
             this.state.criteria = criteria;
         } catch {
@@ -182,7 +262,6 @@ export class RubricEditor extends Component {
             category: c.category || "other",
             custom_category: c.custom_category || "",
             importance: c.importance || "",
-            weight: c.weight || 5,
             is_negative: c.is_negative || false,
             suggestion: c.suggestion || "",
             levels: (c.levels || []).map((l) => ({ ...l })),
@@ -191,6 +270,17 @@ export class RubricEditor extends Component {
 
     onCancelEdit() {
         this.state.editingId = null;
+    }
+
+    onAddLevel() {
+        const levels = this.state.form.levels;
+        const nextScore = levels.length > 0 ? Math.max(...levels.map((l) => l.score)) + 1 : 0;
+        levels.push({ score: nextScore, label: "" });
+    }
+
+    onRemoveLevel(index) {
+        if (this.state.form.levels.length <= 2) return;
+        this.state.form.levels.splice(index, 1);
     }
 
     async onSaveCriteria() {
@@ -205,7 +295,6 @@ export class RubricEditor extends Component {
             category: form.category,
             custom_category: form.category === "other" ? form.custom_category.trim() : "",
             importance: form.importance || false,
-            weight: parseInt(form.weight) || 5,
             is_negative: form.is_negative || false,
             suggestion: (form.suggestion || "").trim(),
         };
@@ -280,7 +369,7 @@ export class RubricEditor extends Component {
                 return;
             }
             this._startQcPoll(criterionId);
-        } catch (e) {
+        } catch {
             c.qc_status = "error";
             c.qc_feedback = "Failed to start QC";
             this.notification.add("Failed to start QC check", { type: "danger" });
@@ -312,16 +401,6 @@ export class RubricEditor extends Component {
             }
         };
         setTimeout(poll, 3000);
-    }
-
-    qcSeverityClass(severity) {
-        const map = {
-            low: "text-success",
-            medium: "text-warning",
-            high: "text-danger",
-            critical: "text-danger fw-bold",
-        };
-        return map[severity] || "";
     }
 
     qcStatusIcon(status) {

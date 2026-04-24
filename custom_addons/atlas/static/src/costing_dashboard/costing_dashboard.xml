@@ -17,147 +17,222 @@
                 </div>
             </div>
 
-            <div t-if="state.totals" class="o_atlas_costing_summary">
-                <div class="o_atlas_summary_card">
-                    <div class="o_atlas_summary_icon"><i class="fa fa-cube"/></div>
-                    <div class="o_atlas_summary_label">GLM</div>
-                    <div class="o_atlas_summary_value sandbox" t-out="formatNumber((state.totals.glm_total) || 0)"/>
-                    <div class="o_atlas_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.glm_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.glm_output)"/></span>
-                    </div>
-                </div>
-                <div class="o_atlas_summary_card">
-                    <div class="o_atlas_summary_icon"><i class="fa fa-check-circle"/></div>
-                    <div class="o_atlas_summary_label">Prompt QC</div>
-                    <div class="o_atlas_summary_value bedrock" t-out="formatNumber((state.totals.qc_total) || 0)"/>
-                    <div class="o_atlas_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.qc_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.qc_output)"/></span>
-                    </div>
-                </div>
-                <div class="o_atlas_summary_card">
-                    <div class="o_atlas_summary_icon"><i class="fa fa-bullseye"/></div>
-                    <div class="o_atlas_summary_label">Goal Generation</div>
-                    <div class="o_atlas_summary_value taskdesc" t-out="formatNumber((state.totals.goal_total) || 0)"/>
-                    <div class="o_atlas_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.goal_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.goal_output)"/></span>
-                    </div>
-                </div>
-                <div class="o_atlas_summary_card">
-                    <div class="o_atlas_summary_icon"><i class="fa fa-list-ol"/></div>
-                    <div class="o_atlas_summary_label">Rubric Generation</div>
-                    <div class="o_atlas_summary_value golden" t-out="formatNumber((state.totals.rubric_total) || 0)"/>
-                    <div class="o_atlas_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.rubric_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.rubric_output)"/></span>
-                    </div>
-                </div>
-                <div class="o_atlas_summary_card grand">
-                    <div class="o_atlas_summary_icon"><i class="fa fa-tachometer"/></div>
-                    <div class="o_atlas_summary_label">Total Tokens</div>
-                    <div class="o_atlas_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
-                    <div class="o_atlas_summary_sub">
-                        <span>GLM: <strong t-out="formatNumber((state.totals.glm_total) || 0)"/></span>
-                        <span>Bedrock: <strong t-out="formatNumber(((state.totals.qc_total) || 0) + ((state.totals.goal_total) || 0) + ((state.totals.rubric_total) || 0))"/></span>
-                    </div>
-                </div>
+            <!-- Model Tabs -->
+            <div class="o_atlas_costing_tabs mb-3">
+                <button t-attf-class="o_atlas_costing_tab #{state.activeTab === 'glm' ? 'active' : ''}"
+                        t-on-click="() => this.onTabChange('glm')">
+                    <i class="fa fa-cube me-1"/>GLM
+                    <span class="o_atlas_tab_badge" t-if="state.totals" t-out="formatNumber(glmTotal)"/>
+                </button>
+                <button t-attf-class="o_atlas_costing_tab #{state.activeTab === 'kimi' ? 'active' : ''}"
+                        t-on-click="() => this.onTabChange('kimi')">
+                    <i class="fa fa-bolt me-1"/>Kimi 2.5
+                    <span class="o_atlas_tab_badge" t-if="state.totals" t-out="formatNumber(kimiTotal)"/>
+                </button>
             </div>
 
-            <div t-if="state.loading" class="o_atlas_costing_loading">
-                <i class="fa fa-spinner fa-spin fa-2x"/>
+            <!-- ===== GLM Tab ===== -->
+            <div t-if="state.activeTab === 'glm'">
+                <div t-if="state.totals" class="o_atlas_costing_summary">
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-cube"/></div>
+                        <div class="o_atlas_summary_label">GLM Sandbox</div>
+                        <div class="o_atlas_summary_value sandbox" t-out="formatNumber(state.totals.glm_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.glm_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.glm_output)"/></span>
+                        </div>
+                    </div>
+                </div>
+
+                <t t-call="atlas.CostingDashboard.GLMTable"/>
             </div>
 
-            <div t-elif="state.rows.length === 0" class="o_atlas_costing_empty">
-                <i class="fa fa-bar-chart fa-3x mb-3"/>
-                <p>No token usage data for this period.</p>
-            </div>
+            <!-- ===== Kimi 2.5 Tab ===== -->
+            <div t-if="state.activeTab === 'kimi'">
+                <div t-if="state.totals" class="o_atlas_costing_summary">
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-check-circle"/></div>
+                        <div class="o_atlas_summary_label">Prompt QC</div>
+                        <div class="o_atlas_summary_value bedrock" t-out="formatNumber(state.totals.qc_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.qc_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.qc_output)"/></span>
+                        </div>
+                    </div>
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-bullseye"/></div>
+                        <div class="o_atlas_summary_label">Goal Generation</div>
+                        <div class="o_atlas_summary_value taskdesc" t-out="formatNumber(state.totals.goal_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.goal_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.goal_output)"/></span>
+                        </div>
+                    </div>
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-list-ol"/></div>
+                        <div class="o_atlas_summary_label">Rubric Generation</div>
+                        <div class="o_atlas_summary_value golden" t-out="formatNumber(state.totals.rubric_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.rubric_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.rubric_output)"/></span>
+                        </div>
+                    </div>
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-shield"/></div>
+                        <div class="o_atlas_summary_label">Rubric QC</div>
+                        <div class="o_atlas_summary_value bedrock" t-out="formatNumber(state.totals.rubric_qc_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.rubric_qc_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.rubric_qc_output)"/></span>
+                        </div>
+                    </div>
+                    <div class="o_atlas_summary_card grand">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-tachometer"/></div>
+                        <div class="o_atlas_summary_label">Kimi 2.5 Total</div>
+                        <div class="o_atlas_summary_value grand" t-out="formatNumber(kimiTotal)"/>
+                    </div>
+                </div>
 
-            <div t-else="" class="o_atlas_costing_table_wrap">
-                <table class="o_atlas_costing_table">
-                    <thead>
-                        <tr class="o_atlas_col_group_row">
-                            <th class="col-employee" rowspan="2" t-on-click="() => this.onSort('employee_name')">
-                                Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
-                            </th>
-                            <th class="col-group-header col-group-glm" colspan="3">GLM</th>
-                            <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
-                            <th class="col-group-header col-group-taskdesc" colspan="3">Goal Gen</th>
-                            <th class="col-group-header col-group-golden" colspan="3">Rubric Gen</th>
-                            <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
-                                Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
-                            </th>
-                        </tr>
+                <t t-call="atlas.CostingDashboard.KimiTable"/>
+            </div>
+        </div>
+    </t>
+
+    <!-- GLM Table -->
+    <t t-name="atlas.CostingDashboard.GLMTable">
+        <div t-if="state.loading" class="o_atlas_costing_loading">
+            <i class="fa fa-spinner fa-spin fa-2x"/>
+        </div>
+        <div t-elif="state.rows.length === 0" class="o_atlas_costing_empty">
+            <i class="fa fa-bar-chart fa-3x mb-3"/>
+            <p>No token usage data for this period.</p>
+        </div>
+        <div t-else="" class="o_atlas_costing_table_wrap">
+            <table class="o_atlas_costing_table">
+                <thead>
+                    <tr>
+                        <th class="col-employee" t-on-click="() => this.onSort('employee_name')">
+                            Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
+                        </th>
+                        <th class="col-num col-glm" t-on-click="() => this.onSort('glm_input')">Input</th>
+                        <th class="col-num col-glm" t-on-click="() => this.onSort('glm_output')">Output</th>
+                        <th class="col-num col-glm col-subtotal" t-on-click="() => this.onSort('glm_total')">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-foreach="sortedRows" t-as="row" t-key="row.employee_id">
                         <tr>
-                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_input')">In</th>
-                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_output')">Out</th>
-                            <th class="col-num col-glm col-subtotal" t-on-click="() => this.onSort('glm_total')">Σ</th>
-
-                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('qc_input')">In</th>
-                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('qc_output')">Out</th>
-                            <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('qc_total')">Σ</th>
-
-                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('goal_input')">In</th>
-                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('goal_output')">Out</th>
-                            <th class="col-num col-taskdesc col-subtotal" t-on-click="() => this.onSort('goal_total')">Σ</th>
-
-                            <th class="col-num col-golden" t-on-click="() => this.onSort('rubric_input')">In</th>
-                            <th class="col-num col-golden" t-on-click="() => this.onSort('rubric_output')">Out</th>
-                            <th class="col-num col-golden col-subtotal" t-on-click="() => this.onSort('rubric_total')">Σ</th>
+                            <td class="col-employee"><i class="fa fa-user-circle me-2"/><t t-out="row.employee_name"/></td>
+                            <td class="col-num col-glm" t-out="formatNumber(row.glm_input)"/>
+                            <td class="col-num col-glm" t-out="formatNumber(row.glm_output)"/>
+                            <td class="col-num col-glm col-subtotal" t-out="formatNumber(row.glm_total)"/>
                         </tr>
-                    </thead>
-                    <tbody>
-                        <t t-foreach="sortedRows" t-as="row" t-key="row.employee_id">
-                            <tr>
-                                <td class="col-employee">
-                                    <i class="fa fa-user-circle me-2"/>
-                                    <t t-out="row.employee_name"/>
-                                </td>
-                                <td class="col-num col-glm" t-out="formatNumber(row.glm_input)"/>
-                                <td class="col-num col-glm" t-out="formatNumber(row.glm_output)"/>
-                                <td class="col-num col-glm col-subtotal" t-out="formatNumber(row.glm_total)"/>
+                    </t>
+                </tbody>
+                <tfoot t-if="state.totals">
+                    <tr>
+                        <td class="col-employee"><strong>Totals</strong></td>
+                        <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_input)"/>
+                        <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_output)"/>
+                        <td class="col-num col-glm col-subtotal" t-out="formatNumber(state.totals.glm_total)"/>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </t>
 
-                                <td class="col-num col-bedrock" t-out="formatNumber(row.qc_input)"/>
-                                <td class="col-num col-bedrock" t-out="formatNumber(row.qc_output)"/>
-                                <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.qc_total)"/>
+    <!-- Kimi 2.5 Table -->
+    <t t-name="atlas.CostingDashboard.KimiTable">
+        <div t-if="state.loading" class="o_atlas_costing_loading">
+            <i class="fa fa-spinner fa-spin fa-2x"/>
+        </div>
+        <div t-elif="state.rows.length === 0" class="o_atlas_costing_empty">
+            <i class="fa fa-bar-chart fa-3x mb-3"/>
+            <p>No token usage data for this period.</p>
+        </div>
+        <div t-else="" class="o_atlas_costing_table_wrap">
+            <table class="o_atlas_costing_table">
+                <thead>
+                    <tr class="o_atlas_col_group_row">
+                        <th class="col-employee" rowspan="2" t-on-click="() => this.onSort('employee_name')">
+                            Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
+                        </th>
+                        <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
+                        <th class="col-group-header col-group-taskdesc" colspan="3">Goal Gen</th>
+                        <th class="col-group-header col-group-golden" colspan="3">Rubric Gen</th>
+                        <th class="col-group-header col-group-bedrock" colspan="3">Rubric QC</th>
+                        <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
+                            Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
+                        </th>
+                    </tr>
+                    <tr>
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('qc_input')">In</th>
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('qc_output')">Out</th>
+                        <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('qc_total')">Σ</th>
 
-                                <td class="col-num col-taskdesc" t-out="formatNumber(row.goal_input)"/>
-                                <td class="col-num col-taskdesc" t-out="formatNumber(row.goal_output)"/>
-                                <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(row.goal_total)"/>
+                        <th class="col-num col-taskdesc" t-on-click="() => this.onSort('goal_input')">In</th>
+                        <th class="col-num col-taskdesc" t-on-click="() => this.onSort('goal_output')">Out</th>
+                        <th class="col-num col-taskdesc col-subtotal" t-on-click="() => this.onSort('goal_total')">Σ</th>
 
-                                <td class="col-num col-golden" t-out="formatNumber(row.rubric_input)"/>
-                                <td class="col-num col-golden" t-out="formatNumber(row.rubric_output)"/>
-                                <td class="col-num col-golden col-subtotal" t-out="formatNumber(row.rubric_total)"/>
+                        <th class="col-num col-golden" t-on-click="() => this.onSort('rubric_input')">In</th>
+                        <th class="col-num col-golden" t-on-click="() => this.onSort('rubric_output')">Out</th>
+                        <th class="col-num col-golden col-subtotal" t-on-click="() => this.onSort('rubric_total')">Σ</th>
 
-                                <td class="col-num col-grand" t-out="formatNumber(row.grand_total)"/>
-                            </tr>
-                        </t>
-                    </tbody>
-                    <tfoot t-if="state.totals">
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_qc_input')">In</th>
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_qc_output')">Out</th>
+                        <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('rubric_qc_total')">Σ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-foreach="sortedRows" t-as="row" t-key="row.employee_id">
                         <tr>
-                            <td class="col-employee"><strong>Totals</strong></td>
-                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_input)"/>
-                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_output)"/>
-                            <td class="col-num col-glm col-subtotal" t-out="formatNumber(state.totals.glm_total)"/>
+                            <td class="col-employee"><i class="fa fa-user-circle me-2"/><t t-out="row.employee_name"/></td>
 
-                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.qc_input)"/>
-                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.qc_output)"/>
-                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.qc_total)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.qc_input)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.qc_output)"/>
+                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.qc_total)"/>
 
-                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.goal_input)"/>
-                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.goal_output)"/>
-                            <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(state.totals.goal_total)"/>
+                            <td class="col-num col-taskdesc" t-out="formatNumber(row.goal_input)"/>
+                            <td class="col-num col-taskdesc" t-out="formatNumber(row.goal_output)"/>
+                            <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(row.goal_total)"/>
 
-                            <td class="col-num col-golden" t-out="formatNumber(state.totals.rubric_input)"/>
-                            <td class="col-num col-golden" t-out="formatNumber(state.totals.rubric_output)"/>
-                            <td class="col-num col-golden col-subtotal" t-out="formatNumber(state.totals.rubric_total)"/>
+                            <td class="col-num col-golden" t-out="formatNumber(row.rubric_input)"/>
+                            <td class="col-num col-golden" t-out="formatNumber(row.rubric_output)"/>
+                            <td class="col-num col-golden col-subtotal" t-out="formatNumber(row.rubric_total)"/>
 
-                            <td class="col-num col-grand" t-out="formatNumber(state.totals.grand_total)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.rubric_qc_input)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.rubric_qc_output)"/>
+                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.rubric_qc_total)"/>
+
+                            <td class="col-num col-grand" t-out="formatNumber((row.qc_total || 0) + (row.goal_total || 0) + (row.rubric_total || 0) + (row.rubric_qc_total || 0))"/>
                         </tr>
-                    </tfoot>
-                </table>
-            </div>
+                    </t>
+                </tbody>
+                <tfoot t-if="state.totals">
+                    <tr>
+                        <td class="col-employee"><strong>Totals</strong></td>
+
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.qc_input)"/>
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.qc_output)"/>
+                        <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.qc_total)"/>
+
+                        <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.goal_input)"/>
+                        <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.goal_output)"/>
+                        <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(state.totals.goal_total)"/>
+
+                        <td class="col-num col-golden" t-out="formatNumber(state.totals.rubric_input)"/>
+                        <td class="col-num col-golden" t-out="formatNumber(state.totals.rubric_output)"/>
+                        <td class="col-num col-golden col-subtotal" t-out="formatNumber(state.totals.rubric_total)"/>
+
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_qc_input)"/>
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_qc_output)"/>
+                        <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.rubric_qc_total)"/>
+
+                        <td class="col-num col-grand" t-out="formatNumber(kimiTotal)"/>
+                    </tr>
+                </tfoot>
+            </table>
         </div>
     </t>
 </templates>

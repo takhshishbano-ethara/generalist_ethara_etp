@@ -159,87 +159,161 @@ def _parse_rubric_table(text):
     code_block = _re.search(r"```(?:markdown)?\s*\n?(.*?)```", text, _re.DOTALL)
     parse_text = code_block.group(1) if code_block else text
 
-    rows = _re.findall(
-        r"\|\s*(N?\d+)\s*\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]*)\|",
-        parse_text,
+    _QC_JUNK_PATTERNS = (
+        "\u2713", "\u2717", "\u2714", "\u2716", "check ", "verdict",
+        "self-qc", "qc note", "verification", "weakest",
     )
-    if not rows:
-        rows = _re.findall(
-            r"\|\s*(N?\d+)\s*\|([^|]+)\|([^|]+)\|([^|]+)\|",
-            parse_text,
-        )
-        rows = [(num, crit, wt, sign, "") for num, crit, wt, sign in rows]
 
-    if not rows:
-        _logger.warning("_parse_rubric_table: no rows matched in %d chars", len(text))
+    def _is_separator(line):
+        stripped = line.strip().strip("|").strip()
+        return bool(_re.match(r"^[\s\-:| ]+$", stripped))
+
+    def _is_header(line):
+        lower = line.lower()
+        return "criterion" in lower or "criteria" in lower or "category" in lower or "importance" in lower
+
+    def _is_qc_junk(line):
+        inner = line.strip().strip("|").strip().lower()
+        return any(inner.startswith(p) for p in _QC_JUNK_PATTERNS)
+
+    table_lines = []
+    for line in parse_text.split("\n"):
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        if _is_separator(stripped):
+            continue
+        if _is_header(stripped):
+            continue
+        if _is_qc_junk(stripped):
+            continue
+        table_lines.append(stripped)
+
+    if not table_lines:
+        _logger.warning("_parse_rubric_table: no table rows found in %d chars", len(text))
         return []
 
-    _logger.info("_parse_rubric_table: found %d raw rows", len(rows))
+    _logger.info("_parse_rubric_table: found %d table lines", len(table_lines))
 
-    IMPORTANCE_MAP = {
-        "critical": "critically_important",
-        "important": "important",
-        "minor": "slightly_important",
+    VALID_IMPS = {
+        "critically_detrimental", "detrimental", "slightly_detrimental",
+        "slightly_important", "important", "critically_important",
     }
-    CATEGORY_KEYWORDS = {
-        "factuality_hallucination": ["hallucin", "factual", "fabricat", "made-up", "invent"],
-        "task_completion": ["complet", "deliver", "accomplish", "finish", "provide", "fix", "resolv"],
-        "instruction_following": ["instruct", "follow", "format", "constraint", "specif", "dependency", "dependenc"],
-        "communication_style": ["communicat", "style", "tone", "readab", "organiz", "formatting", "code block", "bullet"],
+    VALID_CATS = {
+        "factuality_hallucination", "task_completion", "instruction_following",
+        "communication_style", "other",
     }
 
     criteria = []
-    for row_num, criterion_text, weight_text, sign_text, *rest in rows:
-        grounding_text = rest[0].strip() if rest else ""
-        criterion_text = criterion_text.strip()
-        weight_text = weight_text.strip()
-        sign_text = sign_text.strip()
+    for line in table_lines:
+        cols = [c.strip() for c in line.split("|")]
+        cols = [c for c in cols if c]
 
-        if not criterion_text or criterion_text.startswith("---"):
-            continue
-        if "self-contained" in criterion_text.lower() and "specific" in criterion_text.lower():
-            continue
-        if criterion_text.lower().strip("[] ").startswith("criterion"):
+        if len(cols) < 2:
             continue
 
-        is_negative = "❌" in sign_text or (weight_text.lstrip().startswith("-") and not weight_text.lstrip().startswith("--"))
+        first_col = cols[0].strip()
+        has_row_num = bool(_re.match(r"^[NC]?#?\d+\.?$", first_col))
 
-        weight_match = _re.search(r"(\d+)", weight_text)
-        weight = int(weight_match.group(1)) if weight_match else 5
-
-        level_match = _re.search(r"\((\w+)", weight_text)
-        level_str = level_match.group(1).lower() if level_match else ""
-        if is_negative:
-            if level_str == "critical":
-                importance = "critically_detrimental"
-            elif level_str == "important":
-                importance = "detrimental"
-            else:
-                importance = "slightly_detrimental"
+        if has_row_num:
+            data_cols = cols[1:]
         else:
-            importance = IMPORTANCE_MAP.get(level_str, "important")
+            data_cols = cols
 
+        criterion_text = ""
+        for dc in data_cols:
+            dc_stripped = dc.strip()
+            if len(dc_stripped) > 15 and not _re.match(r"^\d+\s*:", dc_stripped):
+                candidate_lower = dc_stripped.lower()
+                if candidate_lower not in VALID_CATS and candidate_lower.replace(" ", "_") not in VALID_IMPS:
+                    if not any(dc_stripped.startswith(p) for p in ("\u2713", "\u2717", "\u2714", "\u2716")):
+                        criterion_text = dc_stripped
+                        break
+
+        if not criterion_text:
+            if data_cols:
+                criterion_text = data_cols[0].strip()
+
+        if not criterion_text or len(criterion_text) < 10:
+            continue
+        if criterion_text.startswith("---"):
+            continue
+        if criterion_text.startswith(("\u2713", "\u2717", "\u2714", "\u2716")):
+            continue
+        if any(kw in criterion_text.lower() for kw in ("self-qc", "qc note", "verification check", "weakest field", "maxraw", "score =")):
+            continue
+
+        full_line = line
         category = "other"
-        lower_name = criterion_text.lower()
-        for cat, keywords in CATEGORY_KEYWORDS.items():
-            if any(kw in lower_name for kw in keywords):
-                category = cat
+        custom_category = ""
+        for dc in data_cols:
+            dc_lower = dc.strip().lower().replace(" ", "_")
+            if dc_lower in VALID_CATS:
+                category = dc_lower
                 break
+            elif dc.strip().lower().startswith("other:"):
+                category = "other"
+                custom_category = dc.strip().split(":", 1)[1].strip()
+                break
+            else:
+                for vc in VALID_CATS:
+                    if vc.replace("_", "") in dc_lower.replace("_", ""):
+                        category = vc
+                        break
+                if category != "other":
+                    break
+
+        importance = "important"
+        for dc in data_cols:
+            dc_lower = dc.strip().lower().replace(" ", "_")
+            if dc_lower in VALID_IMPS:
+                importance = dc_lower
+                break
+            for vi in VALID_IMPS:
+                if vi.replace("_", "") in dc_lower.replace("_", ""):
+                    importance = vi
+                    break
+            if importance != "important":
+                break
+
+        is_negative = "\u274c" in full_line
+
+        levels = []
+        for col in cols:
+            level_matches = _re.findall(r"(\d+)\s*:\s*([^|]+?)(?=\s*\d+\s*:|$)", col)
+            if level_matches:
+                for score_str, label in level_matches:
+                    label = label.strip().rstrip("|").strip()
+                    if label.startswith("\u2014"):
+                        label = label[1:].strip()
+                    levels.append({"score": int(score_str), "label": label})
+
+        if not levels:
+            levels = [
+                {"score": 0, "label": ""},
+                {"score": 1, "label": ""},
+            ]
+
+        suggestion = ""
+        if len(data_cols) >= 2:
+            last_col = data_cols[-1].strip()
+            if last_col and not _re.match(r"^\d+\s*:", last_col) and "\u2705" not in last_col and "\u274c" not in last_col:
+                if last_col.lower() not in VALID_CATS and last_col.lower().replace(" ", "_") not in VALID_IMPS:
+                    if last_col != criterion_text:
+                        suggestion = last_col
 
         criteria.append({
             "name": criterion_text,
             "category": category,
+            "custom_category": custom_category,
             "importance": importance,
-            "weight": weight,
+            "weight": max(lv["score"] for lv in levels) if levels else 2,
             "is_negative": is_negative,
-            "suggestion": grounding_text,
-            "levels": [
-                {"score": 0, "label": "False"},
-                {"score": 1, "label": "True"},
-            ],
+            "suggestion": suggestion,
+            "levels": levels,
         })
 
-    _logger.info("_parse_rubric_table: parsed %d criteria from %d rows", len(criteria), len(rows))
+    _logger.info("_parse_rubric_table: parsed %d criteria", len(criteria))
     return criteria
 
 
@@ -269,7 +343,8 @@ def generate_rubric_from_turns(env, turns, task_id=None):
     conversation_parts = []
     for t in sent_turns:
         conversation_parts.append("User: %s" % t.prompt.strip()[:800])
-        conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
+        if t.response:
+            conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
 
     goal = ""
     if task_id:
@@ -515,6 +590,12 @@ class Atlas(models.Model):
     turn_ids = fields.One2many(
         "atlas.turn", "atlas_id", string="Turn History"
     )
+    has_turns = fields.Boolean(compute="_compute_has_turns")
+
+    @api.depends("turn_ids")
+    def _compute_has_turns(self):
+        for rec in self:
+            rec.has_turns = bool(rec.turn_ids)
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -597,9 +678,6 @@ class Atlas(models.Model):
             "rubric_generation_status": "running",
         })
 
-        glm_sandbox = self.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
-        session_id = glm_sandbox.current_session_id if glm_sandbox else ""
-
         task_id = self.id
         db_name = self.env.cr.dbname
         notify_partner_id = self.env.user.partner_id.id
@@ -612,7 +690,72 @@ class Atlas(models.Model):
                 _run_generation_background,
                 db_name,
                 task_id,
-                session_id,
+                notify_partner_id,
+            )
+
+    def action_regenerate_goal(self):
+        self.ensure_one()
+        turns = self._get_all_turns()
+        if not turns:
+            raise UserError("No user prompts found. Start a sandbox session first.")
+
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        ICP = self.env["ir.config_parameter"].sudo()
+        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+
+        if not api_key:
+            raise UserError("AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
+        if not inference_arn:
+            raise UserError("Bedrock Inference ARN not configured.")
+
+        self.write({"goal_generation_status": "running"})
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        from .atlas_sandbox import _GENERATION_POOL, _run_goal_only_background
+
+        @self.env.cr.postcommit.add
+        def _queue():
+            _GENERATION_POOL.submit(
+                _run_goal_only_background,
+                db_name,
+                task_id,
+                notify_partner_id,
+            )
+
+    def action_regenerate_rubric(self):
+        self.ensure_one()
+        turns = self._get_all_turns()
+        if not turns:
+            raise UserError("No user prompts found. Start a sandbox session first.")
+
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        ICP = self.env["ir.config_parameter"].sudo()
+        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+
+        if not api_key:
+            raise UserError("AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
+        if not inference_arn:
+            raise UserError("Bedrock Inference ARN not configured.")
+
+        self.write({"rubric_generation_status": "running"})
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        from .atlas_sandbox import _GENERATION_POOL, _run_rubric_only_background
+
+        @self.env.cr.postcommit.add
+        def _queue():
+            _GENERATION_POOL.submit(
+                _run_rubric_only_background,
+                db_name,
+                task_id,
                 notify_partner_id,
             )
 

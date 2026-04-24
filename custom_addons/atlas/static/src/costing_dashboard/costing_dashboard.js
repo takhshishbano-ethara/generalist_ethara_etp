@@ -34,6 +34,7 @@ export class CostingDashboard extends Component {
             endDate: "",
             sortField: "grand_total",
             sortAsc: false,
+            activeTab: "glm",
         });
 
         onMounted(() => this._loadData());
@@ -58,6 +59,10 @@ export class CostingDashboard extends Component {
     onPeriodChange(key) {
         this.state.period = key;
         this._loadData();
+    }
+
+    onTabChange(tab) {
+        this.state.activeTab = tab;
     }
 
     onSort(field) {
@@ -91,6 +96,18 @@ export class CostingDashboard extends Component {
     sortIcon(field) {
         if (this.state.sortField !== field) return "fa-sort";
         return this.state.sortAsc ? "fa-sort-asc" : "fa-sort-desc";
+    }
+
+    get glmTotal() {
+        const t = this.state.totals;
+        if (!t) return 0;
+        return (t.glm_total || 0);
+    }
+
+    get kimiTotal() {
+        const t = this.state.totals;
+        if (!t) return 0;
+        return (t.qc_total || 0) + (t.goal_total || 0) + (t.rubric_total || 0) + (t.rubric_qc_total || 0);
     }
 }
 
