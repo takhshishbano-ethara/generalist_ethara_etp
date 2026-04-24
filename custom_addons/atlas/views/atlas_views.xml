@@ -51,6 +51,10 @@
 
             <field name="sandbox_ids" invisible="1"/>
             <field name="glm_session_status" invisible="1"/>
+            <field name="glm_status" invisible="1"/>
+            <field name="goal_generation_status" invisible="1"/>
+            <field name="rubric_generation_status" invisible="1"/>
+            <field name="has_turns" invisible="1"/>
 
             <div class="d-flex gap-3 mt-3" style="min-height: 500px;">
               <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0;">
@@ -58,12 +62,14 @@
               </div>
 
               <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0;">
+                <widget name="atlas_goal_status"/>
                 <div class="border rounded p-3 mb-3">
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="mb-0">Goal</h5>
-                    <button name="action_regenerate_description" type="object"
+                    <button name="action_regenerate_goal" type="object"
                             class="btn btn-sm btn-outline-secondary"
-                            title="Auto-generate goal from user prompts using AI">
+                            title="Regenerate goal description from conversation"
+                            invisible="glm_status in ('running', 'starting') or not has_turns or goal_generation_status == 'running' or rubric_generation_status == 'running'">
                       <i class="fa fa-refresh me-1"/>Regenerate
                     </button>
                   </div>
@@ -73,7 +79,15 @@
                 </div>
 
                 <div class="border rounded p-3">
-                  <h5>Scoring Criteria</h5>
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0">Scoring Criteria</h5>
+                    <button name="action_regenerate_rubric" type="object"
+                            class="btn btn-sm btn-outline-secondary"
+                            title="Regenerate rubric criteria from conversation"
+                            invisible="glm_status in ('running', 'starting') or not has_turns or rubric_generation_status == 'running' or goal_generation_status == 'running'">
+                      <i class="fa fa-refresh me-1"/>Regenerate
+                    </button>
+                  </div>
                   <p class="text-muted small mb-2">Define what "good" and "bad" look like. Each criterion measures one specific thing on a numbered scale.</p>
                   <widget name="atlas_rubric_editor"/>
                 </div>

@@ -63,16 +63,7 @@ class AtlasRubricCriterion(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        records = super().create(vals_list)
-        for rec in records:
-            if not rec.level_ids:
-                self.env["atlas.rubric.level"].create(
-                    [
-                        {"criterion_id": rec.id, "score": 0, "label": ""},
-                        {"criterion_id": rec.id, "score": 1, "label": ""},
-                    ]
-                )
-        return records
+        return super().create(vals_list)
 
 
 class AtlasRubricLevel(models.Model):

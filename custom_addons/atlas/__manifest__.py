@@ -47,6 +47,8 @@
             "atlas/static/src/components/sandbox_card/sandbox_card.js",
             "atlas/static/src/components/sandbox_card/sandbox_card.xml",
             "atlas/static/src/components/sandbox_card/sandbox_card.scss",
+            "atlas/static/src/components/goal_status/goal_status.js",
+            "atlas/static/src/components/goal_status/goal_status.xml",
             "atlas/static/src/components/rubric_editor/rubric_editor.js",
             "atlas/static/src/components/rubric_editor/rubric_editor.xml",
             "atlas/static/src/components/rubric_editor/rubric_editor.scss",

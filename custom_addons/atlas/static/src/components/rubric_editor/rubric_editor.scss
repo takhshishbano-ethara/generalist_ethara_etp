@@ -1,4 +1,10 @@
 .o_atlas_rubric_editor {
+    .o_generation_progress {
+        .progress {
+            border-radius: 2px;
+        }
+    }
+
     .o_atlas_rubric_cards {
         max-height: 500px;
         overflow-y: auto;
@@ -51,21 +57,39 @@
         font-weight: 500;
     }
 
-    .o_weight_badge {
+    .o_importance_badge {
         display: inline-flex;
         align-items: center;
         font-size: 11px;
         padding: 1px 6px;
         border-radius: 4px;
-        background: #e9ecef;
-        color: #495057;
         font-weight: 600;
     }
 
     .o_card_suggestion {
         font-size: 12px;
-        color: #6c757d;
-        font-style: italic;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: #FFF8E1;
+        border-left: 3px solid #FFC107;
+        color: #5D4037;
+    }
+
+    .o_card_custom_cat {
+        font-size: 11px;
+        color: #607D8B;
+        font-weight: 500;
+    }
+
+    .o_suggestion_input {
+        background: #FFF8E1;
+        border-color: #FFC107;
+
+        &:focus {
+            background: #FFF8E1;
+            border-color: #FFA000;
+            box-shadow: 0 0 0 0.2rem rgba(255, 193, 7, 0.25);
+        }
     }
 
     .o_card_actions {
@@ -85,13 +109,17 @@
             background: #f1f3f5;
             color: #495057;
 
-            &.o_level_pass {
-                background: #d4edda;
-                color: #155724;
-            }
-            &.o_level_fail {
+            &.o_level_zero {
                 background: #f8d7da;
                 color: #721c24;
+            }
+            &.o_level_mid {
+                background: #fff3cd;
+                color: #856404;
+            }
+            &.o_level_max {
+                background: #d4edda;
+                color: #155724;
             }
         }
     }
