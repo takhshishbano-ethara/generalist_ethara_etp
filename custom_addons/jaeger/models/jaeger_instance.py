@@ -24,11 +24,11 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
         str: combined stdout + stderr
     """
     return _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
-                            memory_limit, language)
+                            memory_limit, language, network_enabled)
 
 
 def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
-                     memory_limit="4g", language="python"):
+                     memory_limit="4g", language="python", network_enabled=None):
     """Shared Docker execution logic used by both ORM and standalone paths."""
     import subprocess
     import tempfile
@@ -553,8 +553,9 @@ class JaegerInstance(models.Model):
         lang = (self.repository_id.language or "").lower()
         config = self.repository_id._get_effective_config()
         mem = config.get("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
+        network = config.get("network")
         return _docker_run_impl(
-            self.name, self.docker_image_name, mode, patches, timeout, mem, lang,
+            self.name, self.docker_image_name, mode, patches, timeout, mem, lang, network,
         )
 
     def _parse_test_log(self, log_text):
