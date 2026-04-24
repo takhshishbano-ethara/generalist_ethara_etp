@@ -43,3 +43,4 @@ CLAUDE.md
 /.sisyphus
 jaeger-ref/
 .repo_cache/
+custom_addons/jaeger/plan.md

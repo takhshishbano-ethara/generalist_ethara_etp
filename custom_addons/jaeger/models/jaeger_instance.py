@@ -165,31 +165,11 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
             {"test_patch": test_patch}, agent_timeout, memory_limit, lang, network_enabled,
         )
 
-        # Early skip: if test-patch run has 0 failures, f2p is impossible
-        # Parse test_patch results inline to decide whether Run 3 is needed
-        skip_run3 = False
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                inst_check = env["jaeger.instance"].browse(instance_id)
-                test_result_check = inst_check._parse_test_log(test_patch_log)
-                if test_result_check.get("failed_count", 0) == 0:
-                    skip_run3 = True
-                    _logger.info(
-                        "Skipping Run 3 for %s: test-patch has 0 failures, f2p impossible",
-                        inst_name,
-                    )
-        except Exception:
-            pass
-
-        if skip_run3:
-            fix_patch_log = ""
-        else:
-            fix_patch_log = _execute_docker_run_pure(
-                inst_name, docker_image, "fix_patch",
-                {"fix_patch": fix_patch, "test_patch": test_patch},
-                agent_timeout, memory_limit, lang, network_enabled,
-            )
+        fix_patch_log = _execute_docker_run_pure(
+            inst_name, docker_image, "fix_patch",
+            {"fix_patch": fix_patch, "test_patch": test_patch},
+            agent_timeout, memory_limit, lang, network_enabled,
+        )
     except Exception as e:
         _logger.error("Docker execution failed for %s: %s", inst_name, e)
         try:
@@ -235,8 +215,9 @@ def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):
             result["success"] = True
             result["is_valid"] = inst.is_valid
             f2p = inst.f2p_count
+            n2p = inst.n2p_count
             p2p = inst.p2p_count
-            result["summary"] = f"{'valid' if inst.is_valid else 'invalid'} ({f2p} f2p, {p2p} p2p)" if inst.is_valid else (inst.validation_error or "invalid")
+            result["summary"] = f"{'valid' if inst.is_valid else 'invalid'} ({f2p} f2p, {n2p} n2p, {p2p} p2p)" if inst.is_valid else (inst.validation_error or "invalid")
     except Exception as e:
         _logger.error("Write phase failed for %s: %s", instance_id, e)
         result["error"] = f"Write phase: {e}"
@@ -360,6 +341,7 @@ class JaegerInstance(models.Model):
     n2p_tests_json = fields.Text(string="N2P Tests JSON")
     f2p_count = fields.Integer(string="F2P Count", compute="_compute_test_counts")
     p2p_count = fields.Integer(string="P2P Count", compute="_compute_test_counts")
+    n2p_count = fields.Integer(string="N2P Count", compute="_compute_test_counts")
 
     # ── Validation ───────────────────────────────────────────────────────
     is_valid = fields.Boolean(string="Is Valid")
@@ -439,7 +421,7 @@ class JaegerInstance(models.Model):
             else:
                 rec.instance_id = ""
 
-    @api.depends("f2p_tests_json", "p2p_tests_json")
+    @api.depends("f2p_tests_json", "p2p_tests_json", "n2p_tests_json")
     def _compute_test_counts(self):
         for rec in self:
             try:
@@ -450,6 +432,10 @@ class JaegerInstance(models.Model):
                 rec.p2p_count = len(json.loads(rec.p2p_tests_json or "{}"))
             except (json.JSONDecodeError, TypeError):
                 rec.p2p_count = 0
+            try:
+                rec.n2p_count = len(json.loads(rec.n2p_tests_json or "{}"))
+            except (json.JSONDecodeError, TypeError):
+                rec.n2p_count = 0
 
     # ── Test Execution ────────────────────────────────────────────────────
 
@@ -553,9 +539,10 @@ class JaegerInstance(models.Model):
         lang = (self.repository_id.language or "").lower()
         config = self.repository_id._get_effective_config()
         mem = config.get("memory_limit", "8g" if lang in ("rust", "cpp", "c", "java") else "4g")
-        network = config.get("network")
+        network_enabled = config.get("network")
         return _docker_run_impl(
-            self.name, self.docker_image_name, mode, patches, timeout, mem, lang, network,
+            self.name, self.docker_image_name, mode, patches, timeout, mem, lang,
+            network_enabled,
         )
 
     def _parse_test_log(self, log_text):
@@ -858,7 +845,7 @@ class JaegerInstance(models.Model):
         Implements the same 4-check validation as multi-swe-bench Report.check():
           1. Fix patch result must have >0 tests captured
           2. No regressions (PASS in test-patch → FAIL in fix-patch)
-          3. At least one test was fixed (f2p > 0)
+          3. At least one test was fixed (f2p > 0 or n2p > 0)
           4. No anomalous patterns (PASS in baseline, NONE/SKIP in test, FAIL in fix)
 
         State transitions (comparing test_patch run vs fix+test run):
@@ -915,7 +902,7 @@ class JaegerInstance(models.Model):
 
         is_valid = True
         validation_error = ""
-        has_fix_signal = len(f2p) > 0
+        has_fix_signal = len(f2p) > 0 or len(n2p) > 0
         has_regressions = len(regressions) > 0
 
         # Check 1: fix patch result must have captured at least one test
@@ -934,12 +921,13 @@ class JaegerInstance(models.Model):
                 f"after applying the fix patch, they failed: {sorted(regressions)[:5]}"
             )
 
-        # Check 3: fix must actually fix something (f2p > 0)
+        # Check 3: fix must actually fix something (f2p > 0 or n2p > 0)
         if is_valid and not has_fix_signal:
             is_valid = False
             validation_error = (
                 "After applying the fix patch, no test cases transitioned from "
-                "failed to passed (0 f2p tests)."
+                "failed to passed (0 f2p tests) and no new tests were introduced "
+                "that pass (0 n2p tests)."
             )
 
         # Check 4: anomalous pattern — test PASSED in baseline, NONE/SKIP in
