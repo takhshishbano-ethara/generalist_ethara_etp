@@ -22,9 +22,6 @@ from .atlas import (
     _DEFAULT_LITELLM_CONFIG,
     _HEALTH_WAIT_TIMEOUT,
     _HEALTH_POLL_INTERVAL,
-    generate_task_description_sync,
-    _wrap_trajectory_message,
-    _wrap_messages_with_turn_feedback,
 )
 
 _logger = logging.getLogger(__name__)
@@ -35,6 +32,10 @@ _SANDBOX_POOL = ThreadPoolExecutor(
 )
 _SANDBOX_STARTING = set()
 _SANDBOX_LOCK = threading.Lock()
+
+_GENERATION_POOL = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="atlas-generation"
+)
 
 MODEL_TYPES = [
     ("glm", "GLM 5"),
@@ -48,99 +49,6 @@ GATEWAY_PORT_BASE = 19000
 LITELLM_PORT_BASE = 14000
 DB_PORT_BASE = 15432
 
-TRAJECTORY_FIELD_MAP = {
-    "glm": "glm_trajectory",
-}
-
-
-def _mark_task_description_status(db_name, task_id, field_name, status, entry_index=-1):
-    """Update the task_description_status on a trajectory entry."""
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            task = env["atlas.atlas"].browse(task_id)
-            if not task.exists():
-                return
-            raw = task[field_name] or ""
-            if not raw.strip():
-                return
-            data = json.loads(raw)
-            if isinstance(data, list) and data:
-                idx = entry_index if 0 <= entry_index < len(data) else -1
-                if data[idx].get("task_description_status") == "aborted":
-                    return
-                data[idx]["task_description_status"] = status
-                task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
-    except Exception:
-        _logger.exception(
-            "Failed to mark task_description_status=%s for %s task %s",
-            status,
-            field_name,
-            task_id,
-        )
-
-
-def _inject_task_description_bg(
-    db_name, task_id, field_name, messages, entry_index=-1
-):
-    """Background: generate task description via Kimi and inject into saved trajectory."""
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            desc, usage = generate_task_description_sync(env, messages)
-            if usage.get("input_tokens", 0) > 0 or usage.get("output_tokens", 0) > 0:
-                task_rec = env["atlas.atlas"].browse(task_id)
-                if task_rec.exists():
-                    task_rec.write(
-                        {
-                            "taskdesc_input_tokens": (
-                                task_rec.taskdesc_input_tokens or 0
-                            )
-                            + usage.get("input_tokens", 0),
-                            "taskdesc_output_tokens": (
-                                task_rec.taskdesc_output_tokens or 0
-                            )
-                            + usage.get("output_tokens", 0),
-                        }
-                    )
-            if not desc:
-                _mark_task_description_status(
-                    db_name, task_id, field_name, "done", entry_index
-                )
-                return
-            task = env["atlas.atlas"].browse(task_id)
-            if not task.exists():
-                return
-            raw = task[field_name] or ""
-            if not raw.strip():
-                return
-            data = json.loads(raw)
-            if isinstance(data, list) and data:
-                idx = entry_index if 0 <= entry_index < len(data) else -1
-                if data[idx].get("task_description_status") == "aborted":
-                    return
-                mi = data[idx].setdefault("trajectory", {}).setdefault("meta_info", {})
-                mi["task_description"] = desc
-                mi["task_completion_status"] = "success"
-                data[idx]["task_description_status"] = "done"
-            elif isinstance(data, dict):
-                mi = data.setdefault("meta_info", {})
-                mi["task_description"] = desc
-                mi["task_completion_status"] = "success"
-            task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
-            _logger.info(
-                "Injected task_description (%d chars) into %s for task %s",
-                len(desc),
-                field_name,
-                task_id,
-            )
-    except Exception:
-        _logger.exception(
-            "Failed to inject task_description into %s for task %s",
-            field_name,
-            task_id,
-        )
-        _mark_task_description_status(db_name, task_id, field_name, "done", entry_index)
 
 
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
@@ -230,6 +138,142 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
             _SANDBOX_STARTING.discard(sandbox_id)
 
 
+def _run_generation_background(db_name, task_id, session_id, notify_partner_id):
+    """Background worker: generate goal description + rubric criteria, then notify via bus."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["atlas.atlas"].browse(task_id)
+            if not task.exists():
+                _logger.error("Generation bg: task %s does not exist", task_id)
+                return
+
+            if session_id:
+                turns = task.turn_ids.filtered(
+                    lambda t, sid=session_id: t.session_id == sid
+                ).sorted("turn_number")
+            else:
+                turns = task.turn_ids.sorted("turn_number")
+            if not turns:
+                task.write({
+                    "goal_generation_status": "done",
+                    "rubric_generation_status": "done",
+                })
+                return
+
+            from .atlas import generate_description_from_turns, generate_rubric_from_turns
+
+            # --- Goal description ---
+            try:
+                task.write({"goal_generation_status": "running"})
+                cr.commit()
+
+                desc, desc_usage = generate_description_from_turns(env, turns)
+                if desc:
+                    write_vals = {"goal_description": desc, "goal_generation_status": "done"}
+                    d_in = desc_usage.get("input_tokens", 0)
+                    d_out = desc_usage.get("output_tokens", 0)
+                    if d_in or d_out:
+                        write_vals["goal_input_tokens"] = (task.goal_input_tokens or 0) + d_in
+                        write_vals["goal_output_tokens"] = (task.goal_output_tokens or 0) + d_out
+                    task.sudo().write(write_vals)
+                else:
+                    task.write({"goal_generation_status": "done"})
+                cr.commit()
+            except Exception:
+                _logger.exception("Generation bg: goal description failed for task=%s", task_id)
+                task.write({"goal_generation_status": "error"})
+                cr.commit()
+
+            # --- Rubric criteria ---
+            try:
+                task.write({"rubric_generation_status": "running"})
+                cr.commit()
+
+                criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
+                if rubric_usage:
+                    r_in = rubric_usage.get("input_tokens", 0)
+                    r_out = rubric_usage.get("output_tokens", 0)
+                    if r_in or r_out:
+                        task.sudo().write({
+                            "rubric_input_tokens": (task.rubric_input_tokens or 0) + r_in,
+                            "rubric_output_tokens": (task.rubric_output_tokens or 0) + r_out,
+                        })
+
+                if criteria_data:
+                    task.sudo().rubric_criterion_ids.unlink()
+                    valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
+                    valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
+                    created_count = 0
+                    for c in criteria_data:
+                        if not isinstance(c, dict) or not c.get("name"):
+                            continue
+                        levels = c.get("levels", [])
+                        cat = c.get("category", "other")
+                        if cat not in valid_cats:
+                            cat = "other"
+                        imp = c.get("importance", "important")
+                        if imp not in valid_imps:
+                            imp = "important"
+                        criterion = env["atlas.rubric.criterion"].sudo().create({
+                            "atlas_id": task.id,
+                            "name": c["name"],
+                            "category": cat,
+                            "importance": imp,
+                            "weight": int(c.get("weight", 5)),
+                            "is_negative": bool(c.get("is_negative", False)),
+                            "suggestion": c.get("suggestion", ""),
+                        })
+                        criterion.level_ids.unlink()
+                        for lv in levels:
+                            if isinstance(lv, dict):
+                                env["atlas.rubric.level"].sudo().create({
+                                    "criterion_id": criterion.id,
+                                    "score": int(lv.get("score", 0)),
+                                    "label": lv.get("label", ""),
+                                })
+                        created_count += 1
+                    _logger.info(
+                        "Generation bg: created %d rubric criteria for task=%s",
+                        created_count, task_id,
+                    )
+                else:
+                    _logger.warning(
+                        "Generation bg: rubric parser returned empty criteria for task=%s",
+                        task_id,
+                    )
+
+                task.write({"rubric_generation_status": "done"})
+                cr.commit()
+            except Exception:
+                _logger.exception("Generation bg: rubric generation failed for task=%s", task_id)
+                task.write({"rubric_generation_status": "error"})
+                cr.commit()
+
+            # --- Notify frontend via bus ---
+            partner = None
+            if notify_partner_id:
+                partner = env["res.partner"].browse(notify_partner_id)
+                if not partner.exists():
+                    partner = None
+            if partner:
+                env["bus.bus"]._sendone(
+                    partner,
+                    "atlas/generation_done",
+                    {
+                        "task_id": task_id,
+                        "goal_status": task.goal_generation_status,
+                        "rubric_status": task.rubric_generation_status,
+                    },
+                )
+            _logger.info(
+                "Generation bg: completed for task=%s goal=%s rubric=%s",
+                task_id, task.goal_generation_status, task.rubric_generation_status,
+            )
+    except Exception:
+        _logger.exception("Generation bg: unhandled error for task=%s", task_id)
+
+
 class AtlasSandbox(models.Model):
     _name = "atlas.sandbox"
     _description = "Atlas Sandbox"
@@ -270,6 +314,8 @@ class AtlasSandbox(models.Model):
         ],
         default="not_started",
     )
+
+    current_session_id = fields.Char(string="Current Session ID", copy=False)
 
     turn_ids = fields.One2many("atlas.turn", "sandbox_id", string="Turns")
 
@@ -376,150 +422,6 @@ class AtlasSandbox(models.Model):
             LITELLM_PORT_BASE + offset,
             DB_PORT_BASE + offset,
         )
-
-    # ------------------------------------------------------------------
-    # JSONL extraction from OpenClaw container
-    # ------------------------------------------------------------------
-
-    def _read_session_jsonl(self):
-        self.ensure_one()
-        mode = self._deployment_mode()
-        if mode == "k8s":
-            return self._read_jsonl_k8s()
-        return self._read_jsonl_local()
-
-    def _read_jsonl_local(self):
-        self.ensure_one()
-        workdir = self.docker_workdir
-        if not workdir or not os.path.isdir(workdir):
-            return []
-
-        sessions_dir = os.path.join(
-            workdir, "data", "default", "agents", "main", "sessions"
-        )
-        if not os.path.isdir(sessions_dir):
-            _logger.warning(
-                "Sessions dir not found: %s (sandbox=%s)", sessions_dir, self.id
-            )
-            return []
-
-        jsonl_files = sorted(
-            [f for f in os.listdir(sessions_dir) if f.endswith(".jsonl")],
-            key=lambda f: os.path.getmtime(os.path.join(sessions_dir, f)),
-        )
-        if not jsonl_files:
-            _logger.warning("No JSONL files in %s (sandbox=%s)", sessions_dir, self.id)
-            return []
-
-        _logger.info(
-            "Reading %d JSONL file(s) from %s (sandbox=%s)",
-            len(jsonl_files),
-            sessions_dir,
-            self.id,
-        )
-
-        entries = []
-        for fname in jsonl_files:
-            jsonl_path = os.path.join(sessions_dir, fname)
-            with open(jsonl_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        return entries
-
-    def _read_jsonl_k8s(self):
-        self.ensure_one()
-        try:
-            from kubernetes import client as k8s_client, config as k8s_config
-
-            k8s_config.load_incluster_config()
-        except Exception:
-            _logger.warning(
-                "K8s not available for JSONL extraction (sandbox=%s)", self.id
-            )
-            return []
-
-        pod_name = None
-        namespace = "default"
-        try:
-            ns_param = (
-                self.env["ir.config_parameter"]
-                .sudo()
-                .get_param("atlas.k8s_namespace", "atlas")
-                .strip()
-            )
-            if ns_param:
-                namespace = ns_param
-        except Exception:
-            pass
-
-        task_id = self.id
-        label_selector = "app.kubernetes.io/name=atlas-sandbox,task-id=%s" % task_id
-        try:
-            core_v1 = k8s_client.CoreV1Api()
-            pods = core_v1.list_namespaced_pod(
-                namespace=namespace, label_selector=label_selector
-            )
-            for pod in pods.items:
-                phase = (pod.status.phase or "").lower()
-                if phase not in ("failed", "unknown"):
-                    pod_name = pod.metadata.name
-                    break
-        except Exception as e:
-            _logger.warning("Failed to find K8s pod for sandbox %s: %s", self.id, e)
-            return []
-
-        if not pod_name:
-            _logger.warning("No running pod found for sandbox %s", self.id)
-            return []
-
-        try:
-            result = subprocess.run(
-                [
-                    "kubectl",
-                    "exec",
-                    "-n",
-                    namespace,
-                    pod_name,
-                    "-c",
-                    "openclaw",
-                    "--",
-                    "sh",
-                    "-c",
-                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            if result.returncode != 0 or not result.stdout.strip():
-                _logger.warning(
-                    "kubectl exec returned no data for sandbox %s: %s",
-                    self.id,
-                    result.stderr[:200],
-                )
-                return []
-
-            entries = []
-            for line in result.stdout.strip().splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-            return entries
-        except Exception as e:
-            _logger.warning("kubectl exec failed for sandbox %s: %s", self.id, e)
-            return []
-
     _INTERNAL_MSG_FIELDS = {
         "sender",
         "thinkingSignature",
@@ -529,113 +431,6 @@ class AtlasSandbox(models.Model):
         "usage",
     }
     _INTERNAL_BLOCK_FIELDS = {"api", "provider", "model", "usage"}
-
-    @staticmethod
-    def _sanitize_jsonl_message(msg):
-        """Strip internal OpenClaw metadata from a JSONL message before export."""
-        msg = dict(msg)
-
-        for key in AtlasSandbox._INTERNAL_MSG_FIELDS:
-            msg.pop(key, None)
-
-        content = msg.get("content")
-        if isinstance(content, list):
-            cleaned = []
-            for block in content:
-                if isinstance(block, dict):
-                    block = dict(block)
-                    for key in AtlasSandbox._INTERNAL_BLOCK_FIELDS:
-                        block.pop(key, None)
-                    tcid = block.get("toolCallId", "")
-                    if isinstance(tcid, str) and "|" in tcid:
-                        block["toolCallId"] = tcid.split("|", 1)[0]
-                    tc_id = block.get("id", "")
-                    if (
-                        block.get("type") == "tool_use"
-                        and isinstance(tc_id, str)
-                        and "|" in tc_id
-                    ):
-                        block["id"] = tc_id.split("|", 1)[0]
-                cleaned.append(block)
-            msg["content"] = cleaned
-
-        return msg
-
-    def _build_trajectory_from_jsonl(self, entries):
-        self.ensure_one()
-        task = self.atlas_id
-        model_name = ""
-        default = MODEL_DEFAULTS.get(self.model_type)
-        if default:
-            model_name = default.replace("litellm/", "")
-
-        meta_info = {
-            "task_completion_status": "success",
-            "platform": "macOS",
-            "conv_id": str(uuid.uuid4()),
-        }
-
-        messages = []
-        last_kept_id = None
-        seen_user_msg = False
-
-        for entry in entries:
-            entry_type = entry.get("type", "")
-            if entry_type != "message":
-                continue
-
-            msg = entry.get("message", {})
-            role = msg.get("role", "")
-            if not role:
-                continue
-
-            if role == "user":
-                seen_user_msg = True
-            elif role == "system" and not seen_user_msg:
-                continue
-
-            msg = self._sanitize_jsonl_message(msg)
-
-            entry_id = entry.get("id", "")
-            parent_id = last_kept_id if last_kept_id else entry.get("parentId", "")
-
-            delivery_msg = {
-                "type": "message",
-                "id": entry_id,
-                "parentId": parent_id or "",
-                "timestamp": entry.get("timestamp", ""),
-                "message": msg,
-            }
-            messages.append(delivery_msg)
-            last_kept_id = entry_id
-
-        all_turns = self.turn_ids.sorted("turn_number")
-        if all_turns:
-            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
-        else:
-            messages = [_wrap_trajectory_message(m) for m in messages]
-
-        return {"meta_info": meta_info, "messages": messages}
-
-    @staticmethod
-    def _extract_tokens_from_jsonl(entries):
-        total_in = 0
-        total_out = 0
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            usage = entry.get("usage") or {}
-            msg = entry.get("message")
-            if isinstance(msg, dict):
-                usage = usage or msg.get("usage") or {}
-            total_in += int(
-                usage.get("input_tokens", 0) or usage.get("inputTokens", 0) or 0
-            )
-            total_out += int(
-                usage.get("output_tokens", 0) or usage.get("outputTokens", 0) or 0
-            )
-        return total_in, total_out
-
     def _query_litellm_spend(self):
         self.ensure_one()
         import urllib.request
@@ -743,269 +538,6 @@ class AtlasSandbox(models.Model):
                 e,
             )
             return 0, 0
-
-    # ------------------------------------------------------------------
-    # Export
-    # ------------------------------------------------------------------
-
-    def action_export_session(self):
-        self.ensure_one()
-        return {
-            "type": "ir.actions.act_url",
-            "url": "/atlas/chat/export_session?sandbox_id=%d" % self.id,
-            "target": "self",
-        }
-
-    def build_trajectory_json(self):
-        self.ensure_one()
-        task = self.atlas_id
-        model_name = ""
-        all_turns = self.turn_ids.sorted("turn_number")
-        for t in reversed(all_turns):
-            if t.model_name:
-                model_name = t.model_name
-                break
-        if not model_name:
-            default = MODEL_DEFAULTS.get(self.model_type)
-            if default:
-                model_name = default.replace("litellm/", "")
-
-        meta_info = {
-            "task_completion_status": "success",
-            "platform": "macOS",
-            "model": model_name,
-            "conv_id": str(uuid.uuid4()),
-        }
-
-        messages = self._trajectory_from_ws()
-        if messages:
-            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
-        else:
-            messages = self._trajectory_from_events()
-        if not messages:
-            messages = self._trajectory_from_turns()
-
-        return {"meta_info": meta_info, "messages": messages}
-
-    def _trajectory_from_ws(self):
-        self.ensure_one()
-        best_messages = []
-        best_count = 0
-        for t in self.turn_ids.sorted("turn_number", reverse=True):
-            if t.trajectory_messages:
-                try:
-                    ws_messages = json.loads(t.trajectory_messages)
-                    if isinstance(ws_messages, list) and ws_messages:
-                        if len(ws_messages) > best_count:
-                            best_messages = ws_messages
-                            best_count = len(ws_messages)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-        if not best_messages:
-            _logger.debug(
-                "No valid trajectory_messages found in %d turns (sandbox=%s)",
-                len(self.turn_ids),
-                self.id,
-            )
-        return best_messages
-
-    def _trajectory_from_events(self):
-        self.ensure_one()
-        turns = self.turn_ids.sorted("turn_number")
-        messages = []
-        msg_counter = 0
-        parent_id = None
-
-        for t in turns:
-            run_id = t.run_id or ""
-            user_text = (t.prompt or t.hints or "").strip()
-            if t.hints:
-                is_accepted = 1
-                hints = t.hints.strip()
-            else:
-                is_accepted = 0
-                hints = None
-
-            def _next_id():
-                nonlocal msg_counter
-                msg_counter += 1
-                return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-            if user_text:
-                user_id = _next_id()
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": user_id,
-                        "parentId": parent_id,
-                        "timestamp": t.prompt_timestamp
-                        or (t.create_date.isoformat() if t.create_date else ""),
-                        "message": {
-                            "role": "user",
-                            "content": [{"type": "text", "text": user_text}],
-                        },
-                    }
-                )
-                parent_id = user_id
-
-            if t.raw_events:
-                try:
-                    events = json.loads(t.raw_events)
-                    if isinstance(events, list) and events:
-                        pre_count = len(messages)
-                        messages, msg_counter, parent_id = (
-                            self.atlas_id._build_trajectory_from_events(
-                                events,
-                                messages,
-                                msg_counter,
-                                parent_id,
-                                t.model_name or "",
-                            )
-                        )
-                        for idx in range(pre_count, len(messages)):
-                            messages[idx] = _wrap_trajectory_message(
-                                messages[idx], is_accepted, hints
-                            )
-                        continue
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.tool_calls:
-                try:
-                    calls = json.loads(t.tool_calls)
-                    if isinstance(calls, list):
-                        for tc in calls:
-                            tcid = tc.get("toolCallId", "")
-                            call_id = tcid or _next_id()
-                            call_msg = {
-                                "type": "message",
-                                "id": call_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "toolCall",
-                                            "id": tcid or call_id,
-                                            "name": tc.get("name", "unknown"),
-                                            "arguments": tc.get("args", {}),
-                                        }
-                                    ],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(call_msg, is_accepted, hints)
-                            )
-                            parent_id = call_id
-
-                            result_id = ("%s:result" % tcid) if tcid else _next_id()
-                            result_text = tc.get("result")
-                            if isinstance(result_text, dict):
-                                result_text = json.dumps(result_text)
-                            elif result_text is None:
-                                result_text = ""
-                            else:
-                                result_text = str(result_text)
-                            result_msg = {
-                                "type": "message",
-                                "id": result_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "toolResult",
-                                    "toolCallId": tcid or call_id,
-                                    "toolName": tc.get("name", "unknown"),
-                                    "isError": tc.get("isError", False),
-                                    "content": [{"type": "text", "text": result_text}],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(result_msg, is_accepted, hints)
-                            )
-                            parent_id = result_id
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.response:
-                asst_id = _next_id()
-                asst_msg = {
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.response_timestamp
-                    or (t.write_date.isoformat() if t.write_date else ""),
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                }
-                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
-                parent_id = asst_id
-
-        return messages if messages else []
-
-    def _trajectory_from_turns(self):
-        self.ensure_one()
-        turns = self.turn_ids.sorted("turn_number")
-        messages = []
-        msg_counter = 0
-        parent_id = None
-
-        for t in turns:
-            run_id = t.run_id or ""
-            user_text = (t.prompt or t.hints or "").strip()
-            if t.hints:
-                is_accepted = 1
-                hints = t.hints.strip()
-            else:
-                is_accepted = 0
-                hints = None
-
-            def _next_id():
-                nonlocal msg_counter
-                msg_counter += 1
-                return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-            if user_text:
-                user_id = _next_id()
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": user_id,
-                        "parentId": parent_id,
-                        "timestamp": t.prompt_timestamp
-                        or (t.create_date.isoformat() if t.create_date else ""),
-                        "message": {
-                            "role": "user",
-                            "content": [{"type": "text", "text": user_text}],
-                        },
-                    }
-                )
-                parent_id = user_id
-
-            if t.response:
-                asst_id = _next_id()
-                asst_msg = {
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.response_timestamp
-                    or (t.write_date.isoformat() if t.write_date else ""),
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                }
-                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
-                parent_id = asst_id
-
-        return messages
-
     # ------------------------------------------------------------------
     # Lifecycle actions
     # ------------------------------------------------------------------
@@ -1038,10 +570,13 @@ class AtlasSandbox(models.Model):
             _SANDBOX_STARTING.add(self.id)
 
         gateway_token = secrets.token_hex(32)
+        new_session_id = secrets.token_hex(8)
         write_vals = {
             "docker_status": "starting",
             "docker_error": False,
             "docker_gateway_token": gateway_token,
+            "current_session_id": new_session_id,
+            "session_status": "not_started",
         }
         if mode != "k8s":
             gateway_port, litellm_port, db_port = self._allocate_ports()
@@ -1074,7 +609,9 @@ class AtlasSandbox(models.Model):
     def action_stop_sandbox(self):
         self.ensure_one()
 
-        self._export_trajectory_to_task()
+        if self.atlas_id:
+            self._collect_glm_tokens()
+            self._submit_generation_background()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -1082,168 +619,66 @@ class AtlasSandbox(models.Model):
         else:
             self._stop_local()
 
-    def _export_trajectory_to_task(self):
-        self.ensure_one()
-
-        trajectory = None
-
-        jsonl_entries = self._read_session_jsonl()
-        if jsonl_entries:
+    def _collect_glm_tokens(self):
+        task = self.atlas_id
+        if not task:
+            return
+        try:
             _logger.info(
-                "[JSONL-RAW] sandbox=%s entries=%d\n%s",
-                self.id,
-                len(jsonl_entries),
-                json.dumps(jsonl_entries, indent=2, ensure_ascii=False)[:50000],
+                "Querying LiteLLM spend for sandbox=%s litellm_port=%s",
+                self.id, self.docker_litellm_port,
             )
-            trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
-            _logger.info(
-                "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
-                len(jsonl_entries),
-                len(trajectory.get("messages", [])),
-                self.id,
-            )
-        elif self.turn_ids:
-            trajectory = self.build_trajectory_json()
-            _logger.info(
-                "Built trajectory from turns fallback (%d messages, sandbox=%s)",
-                len(trajectory.get("messages", [])),
-                self.id,
-            )
-
-        if trajectory:
-            field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
-            if field_name and self.atlas_id:
-                session_entry = {
-                    "session_id": secrets.token_hex(8),
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "trajectory": trajectory,
-                }
-
-                existing_raw = self.atlas_id[field_name] or ""
-                entries = []
-                if existing_raw.strip():
-                    try:
-                        parsed = json.loads(existing_raw)
-                        if isinstance(parsed, list):
-                            entries = parsed
-                        else:
-                            entries = [
-                                {
-                                    "session_id": "legacy",
-                                    "timestamp": "",
-                                    "trajectory": parsed,
-                                }
-                            ]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                entries.append(session_entry)
-                new_value = json.dumps(entries, indent=2, ensure_ascii=False)
-
-                self.atlas_id.write({field_name: new_value})
-                _logger.info(
-                    "Appended trajectory session %s (%d total entries) to %s for task %s",
-                    session_entry["session_id"],
-                    len(entries),
-                    field_name,
-                    self.atlas_id.id,
-                )
-
-        if self.atlas_id:
             total_in, total_out = self._query_litellm_spend()
-            source = "litellm"
-            if total_in == 0 and total_out == 0:
-                token_entries = jsonl_entries if jsonl_entries else []
-                if token_entries:
-                    total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
-                    source = "jsonl"
-            if total_in > 0 or total_out > 0:
-                token_field_map = {
-                    "glm": ("glm_input_tokens", "glm_output_tokens"),
-                }
-                fields_pair = token_field_map.get(self.model_type)
-                if fields_pair:
-                    self.atlas_id.write(
-                        {
-                            fields_pair[0]: total_in,
-                            fields_pair[1]: total_out,
-                        }
-                    )
-                    _logger.info(
-                        "Saved token usage from %s (in=%d, out=%d) to %s/%s for task %s",
-                        source,
-                        total_in,
-                        total_out,
-                        fields_pair[0],
-                        fields_pair[1],
-                        self.atlas_id.id,
-                    )
-
-        if self.turn_ids:
-            if self.atlas_id:
-                bedrock_in = sum(t.bedrock_input_tokens or 0 for t in self.turn_ids)
-                bedrock_out = sum(t.bedrock_output_tokens or 0 for t in self.turn_ids)
-                if bedrock_in > 0 or bedrock_out > 0:
-                    self.atlas_id.write(
-                        {
-                            "bedrock_input_tokens": (
-                                self.atlas_id.bedrock_input_tokens or 0
-                            )
-                            + bedrock_in,
-                            "bedrock_output_tokens": (
-                                self.atlas_id.bedrock_output_tokens or 0
-                            )
-                            + bedrock_out,
-                        }
-                    )
-                    _logger.info(
-                        "Aggregated bedrock QC tokens (in=%d, out=%d) to task %s",
-                        bedrock_in,
-                        bedrock_out,
-                        self.atlas_id.id,
-                    )
-
-                turn_token_map = {
-                    "glm": (
-                        "glm_input_tokens",
-                        "glm_output_tokens",
-                        "glm_input_tokens",
-                        "glm_output_tokens",
-                    ),
-                }
-                turn_fields = turn_token_map.get(self.model_type)
-                if turn_fields:
-                    turn_in_field, turn_out_field, task_in_field, task_out_field = (
-                        turn_fields
-                    )
-                    t_in = sum(getattr(t, turn_in_field, 0) or 0 for t in self.turn_ids)
-                    t_out = sum(
-                        getattr(t, turn_out_field, 0) or 0 for t in self.turn_ids
-                    )
-                    if t_in > 0 or t_out > 0:
-                        existing_in = getattr(self.atlas_id, task_in_field, 0) or 0
-                        existing_out = getattr(self.atlas_id, task_out_field, 0) or 0
-                        self.atlas_id.write(
-                            {
-                                task_in_field: existing_in + t_in,
-                                task_out_field: existing_out + t_out,
-                            }
-                        )
-                        _logger.info(
-                            "Aggregated %s turn tokens (in=%d, out=%d) to task %s",
-                            self.model_type,
-                            t_in,
-                            t_out,
-                            self.atlas_id.id,
-                        )
-
-            turn_count = len(self.turn_ids)
-            self.turn_ids.unlink()
             _logger.info(
-                "Cleared %d turns for sandbox %s (session isolation)",
-                turn_count,
-                self.id,
+                "LiteLLM spend result: in=%d out=%d for sandbox=%s",
+                total_in, total_out, self.id,
             )
+            if total_in > 0 or total_out > 0:
+                task.sudo().write({
+                    "glm_input_tokens": (task.glm_input_tokens or 0) + total_in,
+                    "glm_output_tokens": (task.glm_output_tokens or 0) + total_out,
+                })
+        except Exception as e:
+            _logger.exception("Failed to collect GLM tokens for sandbox=%s", self.id)
+
+    def _submit_generation_background(self):
+        task = self.atlas_id
+        if not task:
+            return
+
+        session_id = self.current_session_id or ""
+        if session_id:
+            turns = task.turn_ids.filtered(
+                lambda t, sid=session_id: t.session_id == sid
+            ).sorted("turn_number")
+        else:
+            turns = task.turn_ids.sorted("turn_number")
+        if not turns:
+            return
+
+        task.sudo().write({
+            "goal_generation_status": "running",
+            "rubric_generation_status": "running",
+        })
+
+        task_id = task.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        @self.env.cr.postcommit.add
+        def _queue_generation():
+            _GENERATION_POOL.submit(
+                _run_generation_background,
+                db_name,
+                task_id,
+                session_id,
+                notify_partner_id,
+            )
+
+        _logger.info(
+            "[GENERATION] Queued background goal+rubric generation for task=%s session=%s",
+            task_id, session_id,
+        )
 
     def _start_k8s(self):
         if self.docker_status == "running":

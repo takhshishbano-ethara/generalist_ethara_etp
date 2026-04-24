@@ -1261,11 +1261,11 @@ export class AtlasChatWidget extends Component {
                     }
                 }
 
-                await rpc("/atlas/chat/save_trajectory", {
+                await rpc("/atlas/chat/save_response", {
                     turn_id: turnId,
-                    trajectory_messages: JSON.stringify(messages),
+                    tool_calls: JSON.stringify(extractedTools),
                 });
-                console.log(LOG_PREFIX, `📜 save_trajectory done for turn=${turnId}`);
+                console.log(LOG_PREFIX, `📜 tool calls saved for turn=${turnId}`);
                 return;
             } catch (e) {
                 console.error(LOG_PREFIX, `📜 Trajectory attempt ${attempt} failed:`, e);
@@ -1438,7 +1438,18 @@ export class AtlasChatWidget extends Component {
 
         let qcResult = null;
         try {
-            const qcResponse = await rpc("/atlas/qc", { prompt: text });
+            const previousTurns = [];
+            const msgs = this._session.messages;
+            for (let i = 0; i < msgs.length - 1; i++) {
+                const m = msgs[i];
+                if (m.isQc || m.isError) continue;
+                if (m.role === "user") {
+                    const next = msgs[i + 1];
+                    const resp = (next && next.role === "assistant" && !next.isQc && !next.isError) ? next.text : "";
+                    previousTurns.push({ prompt: m.text || "", response: resp });
+                }
+            }
+            const qcResponse = await rpc("/atlas/qc", { prompt: text, previous_turns: previousTurns });
             console.log(LOG_PREFIX, "QC response:", JSON.stringify(qcResponse));
             if (qcResponse.error) {
                 console.warn(LOG_PREFIX, "QC error, passing through:", qcResponse.error);

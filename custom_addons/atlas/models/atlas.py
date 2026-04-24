@@ -1,21 +1,11 @@
-import base64
 import json
 import logging
 import os
-import secrets
-import shutil
 import subprocess
-import tempfile
-import threading
-import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
-from odoo import models, fields, api, SUPERUSER_ID
+from odoo import models, fields, api
 from odoo.exceptions import UserError
 from odoo.modules.module import get_module_path
-from odoo.modules.registry import Registry
 from odoo.tools import config as odoo_config
 
 _logger = logging.getLogger(__name__)
@@ -27,318 +17,27 @@ DB_PORT_BASE = 15432
 _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
 
-_GOLDEN_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="atlas-golden")
-_GOLDEN_GENERATING = set()
-_GOLDEN_LOCK = threading.Lock()
-
-_TASKDESC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="atlas-taskdesc")
-_TASKDESC_GENERATING = set()
-_TASKDESC_LOCK = threading.Lock()
-
-_golden_prompt_cache = None
-_taskdesc_prompt_cache = None
+_prompt_cache = {}
 
 
-def _get_golden_prompt():
-    global _golden_prompt_cache
-    if _golden_prompt_cache is not None:
-        return _golden_prompt_cache
+def _get_prompt(filename):
     mod_path = get_module_path("atlas")
     if not mod_path:
         return ""
-    path = os.path.join(mod_path, "golden_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _golden_prompt_cache = f.read().strip()
-    else:
-        _golden_prompt_cache = ""
-    return _golden_prompt_cache
-
-
-def _get_taskdesc_prompt():
-    global _taskdesc_prompt_cache
-    if _taskdesc_prompt_cache is not None:
-        return _taskdesc_prompt_cache
-    mod_path = get_module_path("atlas")
-    if not mod_path:
-        return ""
-    path = os.path.join(mod_path, "task_description_prompt.md")
-    if os.path.isfile(path):
-        with open(path, "r") as f:
-            _taskdesc_prompt_cache = f.read().strip()
-    else:
-        _taskdesc_prompt_cache = ""
-    return _taskdesc_prompt_cache
-
-
-def _run_golden_generation_background(db_name, task_id, notify_partner_id):
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            task = env["atlas.atlas"].browse(task_id)
-            if not task.exists():
-                _logger.error("Golden gen: task %s does not exist", task_id)
-                return
-
-            glm_traj = task.glm_trajectory or ""
-
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
-
-            dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
-        if not inference_arn:
-            raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Atlas"
-            )
-
-        system_prompt = _get_golden_prompt()
-
-        delivery_schema = ""
-        schema_path = os.path.join(
-            get_module_path("atlas") or "", "Delivery_Schema.json"
-        )
-        if os.path.isfile(schema_path):
-            with open(schema_path, "r") as f:
-                delivery_schema = f.read().strip()
-
-        user_message = (
-            "## Current Date\n%s\n\n"
-            "## Delivery Schema\n```json\n%s\n```\n\n"
-            "## Model Trajectory (GLM)\n%s"
-        ) % (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
-            delivery_schema,
-            glm_traj,
-        )
-
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=65536,
-            temperature=0.7,
-            timeout=1200.0,
-        )
-        _logger.info(
-            "Golden trajectory generated for task %s (%d chars, tokens: %s)",
-            task_id,
-            len(response_text),
-            usage,
-        )
-
-        for attempt in range(3):
-            try:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    task = env["atlas.atlas"].browse(task_id)
-                    if not task.exists():
-                        return
-                    write_vals = {
-                        "golden_trajectory": response_text,
-                        "golden_status": "done",
-                        "golden_error": False,
-                        "golden_started_at": False,
-                    }
-                    g_in = usage.get("input_tokens", 0)
-                    g_out = usage.get("output_tokens", 0)
-                    if g_in > 0 or g_out > 0:
-                        write_vals["golden_input_tokens"] = (
-                            task.golden_input_tokens or 0
-                        ) + g_in
-                        write_vals["golden_output_tokens"] = (
-                            task.golden_output_tokens or 0
-                        ) + g_out
-                    task.write(write_vals)
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "atlas/golden_ready",
-                            {"task_id": task_id, "status": "done"},
-                        )
-                break
-            except Exception as e:
-                if "serialize" in str(e).lower() and attempt < 2:
-                    time.sleep(1 + attempt)
-                    continue
-                raise
-
-    except Exception as e:
-        _logger.exception("Golden trajectory generation failed for task %s", task_id)
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                task = env["atlas.atlas"].browse(task_id)
-                if task.exists():
-                    task.write(
-                        {
-                            "golden_status": "error",
-                            "golden_error": str(e)[:1000],
-                            "golden_started_at": False,
-                        }
-                    )
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "atlas/golden_ready",
-                            {
-                                "task_id": task_id,
-                                "status": "error",
-                                "error": str(e)[:500],
-                            },
-                        )
-        except Exception:
-            _logger.exception(
-                "Failed to write golden error status for task %s", task_id
-            )
-    finally:
-        with _GOLDEN_LOCK:
-            _GOLDEN_GENERATING.discard(task_id)
-
-
-def _run_task_description_background(db_name, task_id, notify_partner_id):
-    try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            task = env["atlas.atlas"].browse(task_id)
-            if not task.exists():
-                _logger.error("Task desc gen: task %s does not exist", task_id)
-                return
-
-            glm_traj = task.glm_trajectory or ""
-
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
-
-            dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
-        if not inference_arn:
-            raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Atlas"
-            )
-
-        system_prompt = _get_taskdesc_prompt()
-
-        user_message = (
-            "## GLM Trajectory\n%s"
-        ) % (glm_traj,)
-
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=4096,
-            temperature=0.5,
-            timeout=300.0,
-        )
-        _logger.info(
-            "Task description generated for task %s (%d chars, tokens: %s)",
-            task_id,
-            len(response_text),
-            usage,
-        )
-
-        for attempt in range(3):
-            try:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    task = env["atlas.atlas"].browse(task_id)
-                    if not task.exists():
-                        return
-                    write_vals = {
-                        "task_description": response_text,
-                        "task_description_status": "done",
-                        "task_description_error": False,
-                    }
-                    t_in = usage.get("input_tokens", 0)
-                    t_out = usage.get("output_tokens", 0)
-                    if t_in > 0 or t_out > 0:
-                        write_vals["taskdesc_input_tokens"] = (
-                            task.taskdesc_input_tokens or 0
-                        ) + t_in
-                        write_vals["taskdesc_output_tokens"] = (
-                            task.taskdesc_output_tokens or 0
-                        ) + t_out
-                    task.write(write_vals)
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "atlas/taskdesc_ready",
-                            {"task_id": task_id, "status": "done"},
-                        )
-                break
-            except Exception as e:
-                if "serialize" in str(e).lower() and attempt < 2:
-                    time.sleep(1 + attempt)
-                    continue
-                raise
-
-    except Exception as e:
-        _logger.exception("Task description generation failed for task %s", task_id)
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                task = env["atlas.atlas"].browse(task_id)
-                if task.exists():
-                    task.write(
-                        {
-                            "task_description_status": "error",
-                            "task_description_error": str(e)[:1000],
-                        }
-                    )
-                    partner = None
-                    if notify_partner_id:
-                        partner = env["res.partner"].browse(notify_partner_id)
-                        if not partner.exists():
-                            partner = None
-                    if partner:
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "atlas/taskdesc_ready",
-                            {
-                                "task_id": task_id,
-                                "status": "error",
-                                "error": str(e)[:500],
-                            },
-                        )
-        except Exception:
-            _logger.exception(
-                "Failed to write task desc error status for task %s", task_id
-            )
-    finally:
-        with _TASKDESC_LOCK:
-            _TASKDESC_GENERATING.discard(task_id)
+    for path in (
+        os.path.join(mod_path, "prompts", filename),
+        os.path.join(mod_path, filename),
+    ):
+        if os.path.isfile(path):
+            mtime = os.path.getmtime(path)
+            cached = _prompt_cache.get(filename)
+            if cached and cached[1] == mtime:
+                return cached[0]
+            with open(path, "r") as f:
+                text = f.read().strip()
+            _prompt_cache[filename] = (text, mtime)
+            return text
+    return ""
 
 
 import re as _re
@@ -356,35 +55,65 @@ def _is_degenerate_output(text):
     return False
 
 
-def generate_task_description_sync(env, messages_json):
+def generate_description_from_turns(env, turns):
+    if not turns:
+        return "", {}
+
+    system_prompt = _get_prompt("description_prompt.md") or _get_prompt("task_description_prompt.md")
+    if not system_prompt:
+        _logger.warning("generate_description_from_turns: no description_prompt.md")
+        return "", {}
+
+    dotenv = _load_dotenv()
+    api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    ICP = env["ir.config_parameter"].sudo()
+    inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+    region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+
+    _logger.info(
+        "generate_description_from_turns: api_key_set=%s arn=%s region=%s",
+        bool(api_key), inference_arn[:60] if inference_arn else "(empty)", region,
+    )
+
+    if not api_key or not inference_arn:
+        _logger.warning(
+            "generate_description_from_turns: missing credentials — "
+            "api_key_set=%s inference_arn='%s' region='%s'",
+            bool(api_key), inference_arn or "(empty)", region,
+        )
+        return "", {}
+
+    seed_prompt = ""
+    prompts = []
+    for t in turns:
+        if t.prompt and not t.is_hint_turn and (t.response or t.turn_status == "Completed"):
+            if not seed_prompt:
+                seed_prompt = t.prompt.strip()
+            prompts.append(t.prompt.strip())
+
+    if not prompts:
+        _logger.warning("generate_description_from_turns: no sent prompts found")
+        return "", {}
+
+    import json as _json
+    messages_text = _json.dumps(
+        [{"role": "user", "content": p} for p in prompts],
+        ensure_ascii=False,
+    )[:16000]
+    user_message = "## Seed Prompt\n%s\n\n## User Prompts\n%s" % (
+        seed_prompt,
+        messages_text,
+    )
+
     try:
-        ICP = env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
-
-        dotenv = _load_dotenv()
-        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-
-        if not api_key or not inference_arn:
-            _logger.warning("generate_task_description_sync: missing credentials")
-            return "", {}
-
-        system_prompt = _get_taskdesc_prompt()
-        if not system_prompt:
-            _logger.warning(
-                "generate_task_description_sync: no task_description_prompt.md"
-            )
-            return "", {}
-
-        if isinstance(messages_json, list):
-            messages_text = json.dumps(messages_json, ensure_ascii=False)[:16000]
-        else:
-            messages_text = str(messages_json)[:16000]
-
-        user_message = ("## Chat Messages\n%s") % (messages_text,)
-
         from ..controllers.llm_assisst_qc import _call_bedrock_converse
+        import time as _time
 
+        _logger.info(
+            "task_desc: calling Kimi arn=%s region=%s prompt_len=%d",
+            inference_arn, region, len(user_message),
+        )
+        t0 = _time.monotonic()
         response_text, usage = _call_bedrock_converse(
             api_key=api_key,
             inference_arn=inference_arn,
@@ -395,107 +124,204 @@ def generate_task_description_sync(env, messages_json):
             temperature=0.3,
             timeout=90.0,
         )
+        elapsed = _time.monotonic() - t0
+        _logger.info(
+            "task_desc: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+            "response_len=%d raw_output=%.500s",
+            elapsed,
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+            len(response_text),
+            response_text,
+        )
         desc = response_text.strip().replace("\n", " ")
 
         if _is_degenerate_output(desc):
             _logger.warning(
-                "generate_task_description_sync: degenerate output detected (%d chars), discarding",
+                "generate_description_from_turns: degenerate output (%d chars), discarding",
                 len(desc),
             )
             return "", usage
 
         _logger.info(
-            "generate_task_description_sync: generated %d chars, tokens=%s",
-            len(desc),
-            usage,
+            "generate_description_from_turns: generated %d chars, tokens=%s",
+            len(desc), usage,
         )
         return desc, usage
     except Exception as e:
-        _logger.warning("generate_task_description_sync failed: %s", e)
-        return "", {}
+        _logger.exception("generate_description_from_turns failed")
+        return "", {"error": str(e)}
 
 
-def _format_tool_result(result):
-    if result is None:
-        return ""
-    if isinstance(result, str):
-        return result
-    try:
-        return json.dumps(result, indent=2, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(result)
+def _parse_rubric_table(text):
+    import re as _re
 
+    code_block = _re.search(r"```(?:markdown)?\s*\n?(.*?)```", text, _re.DOTALL)
+    parse_text = code_block.group(1) if code_block else text
 
-def _wrap_trajectory_message(msg, is_accepted=0, hints=None):
-    role = ""
-    inner = msg.get("message", {})
-    if isinstance(inner, dict):
-        role = inner.get("role", "")
-    if role in ("assistant", "toolResult"):
-        return {
-            "is_accepted": is_accepted,
-            "hints": hints,
-            "message": msg,
-        }
-    return msg
+    rows = _re.findall(
+        r"\|\s*(N?\d+)\s*\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]*)\|",
+        parse_text,
+    )
+    if not rows:
+        rows = _re.findall(
+            r"\|\s*(N?\d+)\s*\|([^|]+)\|([^|]+)\|([^|]+)\|",
+            parse_text,
+        )
+        rows = [(num, crit, wt, sign, "") for num, crit, wt, sign in rows]
 
+    if not rows:
+        _logger.warning("_parse_rubric_table: no rows matched in %d chars", len(text))
+        return []
 
-def _wrap_messages_with_turn_feedback(messages, turns):
-    turn_list = list(turns)
-    if not turn_list:
-        return [_wrap_trajectory_message(m) for m in messages]
+    _logger.info("_parse_rubric_table: found %d raw rows", len(rows))
 
-    turn_feedback = []
-    for t in turn_list:
-        user_text = (t.prompt or t.hints or "").strip()
-        if t.hints:
-            is_accepted = 1
-            hint = (t.hints or "").strip()
+    IMPORTANCE_MAP = {
+        "critical": "critically_important",
+        "important": "important",
+        "minor": "slightly_important",
+    }
+    CATEGORY_KEYWORDS = {
+        "factuality_hallucination": ["hallucin", "factual", "fabricat", "made-up", "invent"],
+        "task_completion": ["complet", "deliver", "accomplish", "finish", "provide", "fix", "resolv"],
+        "instruction_following": ["instruct", "follow", "format", "constraint", "specif", "dependency", "dependenc"],
+        "communication_style": ["communicat", "style", "tone", "readab", "organiz", "formatting", "code block", "bullet"],
+    }
+
+    criteria = []
+    for row_num, criterion_text, weight_text, sign_text, *rest in rows:
+        grounding_text = rest[0].strip() if rest else ""
+        criterion_text = criterion_text.strip()
+        weight_text = weight_text.strip()
+        sign_text = sign_text.strip()
+
+        if not criterion_text or criterion_text.startswith("---"):
+            continue
+        if "self-contained" in criterion_text.lower() and "specific" in criterion_text.lower():
+            continue
+        if criterion_text.lower().strip("[] ").startswith("criterion"):
+            continue
+
+        is_negative = "❌" in sign_text or (weight_text.lstrip().startswith("-") and not weight_text.lstrip().startswith("--"))
+
+        weight_match = _re.search(r"(\d+)", weight_text)
+        weight = int(weight_match.group(1)) if weight_match else 5
+
+        level_match = _re.search(r"\((\w+)", weight_text)
+        level_str = level_match.group(1).lower() if level_match else ""
+        if is_negative:
+            if level_str == "critical":
+                importance = "critically_detrimental"
+            elif level_str == "important":
+                importance = "detrimental"
+            else:
+                importance = "slightly_detrimental"
         else:
-            is_accepted = 0
-            hint = None
-        turn_feedback.append((user_text, is_accepted, hint))
+            importance = IMPORTANCE_MAP.get(level_str, "important")
 
-    wrapped = []
-    current_accepted = 0
-    current_hints = None
-    turn_idx = 0
+        category = "other"
+        lower_name = criterion_text.lower()
+        for cat, keywords in CATEGORY_KEYWORDS.items():
+            if any(kw in lower_name for kw in keywords):
+                category = cat
+                break
 
-    for msg in messages:
-        inner = msg.get("message", {})
-        role = inner.get("role", "") if isinstance(inner, dict) else ""
+        criteria.append({
+            "name": criterion_text,
+            "category": category,
+            "importance": importance,
+            "weight": weight,
+            "is_negative": is_negative,
+            "suggestion": grounding_text,
+            "levels": [
+                {"score": 0, "label": "False"},
+                {"score": 1, "label": "True"},
+            ],
+        })
 
-        if role == "user" and turn_idx < len(turn_feedback):
-            content = inner.get("content", [])
-            user_text = ""
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        user_text = (block.get("text") or "").strip()
-                        break
-            elif isinstance(content, str):
-                user_text = content.strip()
+    _logger.info("_parse_rubric_table: parsed %d criteria from %d rows", len(criteria), len(rows))
+    return criteria
 
-            expected = turn_feedback[turn_idx][0]
-            matched = False
-            if user_text and expected:
-                if user_text == expected:
-                    matched = True
-                elif user_text in expected or expected in user_text:
-                    matched = True
 
-            if matched:
-                current_accepted = turn_feedback[turn_idx][1]
-                current_hints = turn_feedback[turn_idx][2]
-                turn_idx += 1
-            elif user_text:
-                current_accepted = turn_feedback[turn_idx][1]
-                current_hints = turn_feedback[turn_idx][2]
-                turn_idx += 1
+def generate_rubric_from_turns(env, turns, task_id=None):
+    if not turns:
+        return [], {}
 
-        wrapped.append(_wrap_trajectory_message(msg, current_accepted, current_hints))
+    system_prompt = _get_prompt("rubric_prompt.md")
+    if not system_prompt:
+        _logger.warning("generate_rubric_from_turns: no rubric_prompt.md")
+        return [], {}
 
-    return wrapped
+    dotenv = _load_dotenv()
+    api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    ICP = env["ir.config_parameter"].sudo()
+    inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+    region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+
+    if not api_key or not inference_arn:
+        return [], {}
+
+    sent_turns = [t for t in turns if t.prompt and not t.is_hint_turn and (t.response or t.turn_status == "Completed")]
+    if not sent_turns:
+        _logger.warning("generate_rubric_from_turns: no sent turns found (total turns=%d)", len(turns) if hasattr(turns, '__len__') else -1)
+        return [], {}
+
+    conversation_parts = []
+    for t in sent_turns:
+        conversation_parts.append("User: %s" % t.prompt.strip()[:800])
+        conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
+
+    goal = ""
+    if task_id:
+        task_rec = env["atlas.atlas"].browse(task_id)
+        if task_rec.exists():
+            goal = task_rec.goal_description or ""
+
+    user_message = "## Goal\n%s\n\n## Conversation\n%s" % (
+        goal if goal else "(Goal not yet generated — infer from conversation)",
+        "\n".join(conversation_parts),
+    )
+
+    try:
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=4096,
+            temperature=0.3,
+            timeout=120.0,
+        )
+        _logger.info("generate_rubric_from_turns: response_len=%d tokens=%s", len(response_text), usage)
+        _logger.info("generate_rubric_from_turns: first 500 chars: %s", response_text[:500])
+
+        criteria = _parse_rubric_table(response_text)
+
+        if not criteria:
+            _logger.warning("generate_rubric_from_turns: table parse returned empty, trying JSON fallback")
+            import json as _json
+            text = response_text.strip()
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start >= 0 and end > start:
+                text = text[start:end]
+            try:
+                criteria = _json.loads(text)
+                if not isinstance(criteria, list):
+                    criteria = []
+                else:
+                    _logger.info("generate_rubric_from_turns: JSON fallback parsed %d criteria", len(criteria))
+            except (ValueError, _json.JSONDecodeError):
+                _logger.warning("generate_rubric_from_turns: JSON fallback also failed")
+                criteria = []
+
+        return criteria, usage
+    except Exception as e:
+        _logger.warning("generate_rubric_from_turns failed: %s", e)
+        return [], {}
 
 
 def _load_dotenv():
@@ -535,8 +361,22 @@ model_list:
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: bedrock/converse/{kimi_bedrock_arn}
+      aws_region_name: {kimi_aws_region}
+      input_cost_per_token: 0.0000006
+      output_cost_per_token: 0.000003
+
+  - model_name: quiet_sand
+    litellm_params:
+      model: openai/quiet_sand
+      api_base: https://api.llama.com/v1alpha
+      api_key: os.environ/LLAMA_API_KEY
+
 litellm_settings:
   drop_params: true
+  modify_params: true
   telemetry: false
   num_retries: 1
   request_timeout: 900
@@ -635,45 +475,46 @@ class Atlas(models.Model):
     glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
 
-    glm_trajectory = fields.Text(string="GLM 5 Trajectory")
-    golden_trajectory = fields.Text(string="Golden Trajectory")
-    golden_status = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("generating", "Generating"),
-            ("done", "Done"),
-            ("error", "Error"),
-        ],
-        string="Golden Status",
-        default="idle",
+    goal_description = fields.Text(string="Goal Description")
+    rubric_criterion_ids = fields.One2many(
+        "atlas.rubric.criterion", "atlas_id", string="Rubric Criteria"
     )
-    golden_error = fields.Text(string="Golden Error")
-    golden_started_at = fields.Datetime(string="Golden Started At")
 
-    task_description = fields.Text(string="Task Description")
-    task_description_status = fields.Selection(
+    goal_generation_status = fields.Selection(
         [
             ("idle", "Idle"),
-            ("generating", "Generating"),
+            ("running", "Running"),
             ("done", "Done"),
             ("error", "Error"),
         ],
-        string="Task Description Status",
+        string="Goal Generation Status",
         default="idle",
     )
-    task_description_error = fields.Text(string="Task Description Error")
+    rubric_generation_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("running", "Running"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Rubric Generation Status",
+        default="idle",
+    )
 
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
-    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
-    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
+    qc_input_tokens = fields.Integer(string="Prompt QC Input Tokens", default=0)
+    qc_output_tokens = fields.Integer(string="Prompt QC Output Tokens", default=0)
+    goal_input_tokens = fields.Integer(string="Goal Gen Input Tokens", default=0)
+    goal_output_tokens = fields.Integer(string="Goal Gen Output Tokens", default=0)
+    rubric_input_tokens = fields.Integer(string="Rubric Gen Input Tokens", default=0)
+    rubric_output_tokens = fields.Integer(string="Rubric Gen Output Tokens", default=0)
+    rubric_qc_input_tokens = fields.Integer(string="Rubric QC Input Tokens", default=0)
+    rubric_qc_output_tokens = fields.Integer(string="Rubric QC Output Tokens", default=0)
 
-    traj_qc_input_tokens = fields.Integer(string="Traj QC Input Tokens", default=0)
-    traj_qc_output_tokens = fields.Integer(string="Traj QC Output Tokens", default=0)
-    taskdesc_input_tokens = fields.Integer(string="Task Desc Input Tokens", default=0)
-    taskdesc_output_tokens = fields.Integer(string="Task Desc Output Tokens", default=0)
-    golden_input_tokens = fields.Integer(string="Golden Gen Input Tokens", default=0)
-    golden_output_tokens = fields.Integer(string="Golden Gen Output Tokens", default=0)
+    turn_ids = fields.One2many(
+        "atlas.turn", "atlas_id", string="Turn History"
+    )
 
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
@@ -698,11 +539,16 @@ class Atlas(models.Model):
                     {"atlas_id": rec.id, "model_type": "glm"}
                 )
 
-    def _get_all_turns(self):
+    def _get_all_turns(self, current_session_only=True):
         self.ensure_one()
         turns = self.env["atlas.turn"]
         for sandbox in self.sandbox_ids:
-            turns |= sandbox.turn_ids
+            sb_turns = sandbox.turn_ids
+            if current_session_only and sandbox.current_session_id:
+                sb_turns = sb_turns.filtered(
+                    lambda t, sid=sandbox.current_session_id: t.session_id == sid
+                )
+            turns |= sb_turns
         return turns.sorted("turn_number")
 
     def action_view_turns(self):
@@ -716,48 +562,6 @@ class Atlas(models.Model):
             "context": {"default_atlas_id": self.id},
         }
 
-    def action_export_session(self):
-        self.ensure_one()
-        return {
-            "type": "ir.actions.act_url",
-            "url": f"/atlas/chat/export_session?task_id={self.id}",
-            "target": "self",
-        }
-
-    def action_delete_trajectory_entry(self, field_name, entry_index):
-        self.ensure_one()
-        valid_fields = {
-            "glm_trajectory",
-            "golden_trajectory",
-        }
-        if field_name not in valid_fields:
-            raise UserError(f"Invalid trajectory field: {field_name}")
-
-        raw = self[field_name] or ""
-        if not raw.strip():
-            return False
-
-        try:
-            entries = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            raise UserError("Trajectory data is corrupted.")
-
-        if not isinstance(entries, list):
-            raise UserError("Trajectory data is not in multi-session format.")
-
-        if entry_index < 0 or entry_index >= len(entries):
-            raise UserError(f"Invalid entry index: {entry_index}")
-
-        entries.pop(entry_index)
-        self.write(
-            {
-                field_name: json.dumps(entries, indent=2, ensure_ascii=False)
-                if entries
-                else ""
-            }
-        )
-        return True
-
     def action_clear_turns(self):
         self.ensure_one()
         turns = self._get_all_turns()
@@ -765,419 +569,52 @@ class Atlas(models.Model):
         turns.unlink()
         _logger.info("Cleared %d turns for task %s", count, self.id)
 
-    def action_generate_golden_trajectory(self):
+    def action_regenerate_description(self):
         self.ensure_one()
-        if not self.glm_trajectory:
-            raise UserError("GLM trajectory is empty. Stop the GLM sandbox first.")
+        turns = self._get_all_turns()
+        if not turns:
+            raise UserError("No user prompts found. Start a sandbox session first.")
 
-        with _GOLDEN_LOCK:
-            if self.id in _GOLDEN_GENERATING:
-                raise UserError("Golden trajectory generation is already in progress.")
-            _GOLDEN_GENERATING.add(self.id)
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        ICP = self.env["ir.config_parameter"].sudo()
+        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
 
-        self.write(
-            {
-                "golden_status": "generating",
-                "golden_error": False,
-                "golden_started_at": fields.Datetime.now(),
-            }
-        )
-
-        task_id = self.id
-        db_name = self.env.cr.dbname
-        notify_partner_id = self.env.user.partner_id.id
-
-        @self.env.cr.postcommit.add
-        def _queue():
-            _GOLDEN_POOL.submit(
-                _run_golden_generation_background,
-                db_name,
-                task_id,
-                notify_partner_id,
-            )
-
-    def action_generate_task_description(self):
-        self.ensure_one()
-        if not self.glm_trajectory:
+        if not api_key:
             raise UserError(
-                "GLM trajectory is required to generate a task description."
+                "AWS_BEARER_TOKEN_BEDROCK not found in .env file. "
+                "Please set it and restart Odoo."
+            )
+        if not inference_arn:
+            raise UserError(
+                "Bedrock Inference ARN not configured. "
+                "Go to Settings > Technical > System Parameters and set "
+                "'atlas.bedrock_inference_arn' to your Bedrock ARN."
             )
 
-        with _TASKDESC_LOCK:
-            if self.id in _TASKDESC_GENERATING:
-                raise UserError("Task description generation is already in progress.")
-            _TASKDESC_GENERATING.add(self.id)
+        self.write({
+            "goal_generation_status": "running",
+            "rubric_generation_status": "running",
+        })
 
-        self.write(
-            {"task_description_status": "generating", "task_description_error": False}
-        )
+        glm_sandbox = self.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
+        session_id = glm_sandbox.current_session_id if glm_sandbox else ""
 
         task_id = self.id
         db_name = self.env.cr.dbname
         notify_partner_id = self.env.user.partner_id.id
 
+        from .atlas_sandbox import _GENERATION_POOL, _run_generation_background
+
         @self.env.cr.postcommit.add
-        def _queue_taskdesc():
-            _TASKDESC_POOL.submit(
-                _run_task_description_background,
+        def _queue_regeneration():
+            _GENERATION_POOL.submit(
+                _run_generation_background,
                 db_name,
                 task_id,
+                session_id,
                 notify_partner_id,
             )
-
-    def build_trajectory_json(self):
-        self.ensure_one()
-        model_name = ""
-        all_turns = self._get_all_turns().sorted("turn_number")
-        for t in reversed(all_turns):
-            if t.model_name:
-                model_name = t.model_name
-                break
-
-        meta_info = {
-            "task_completion_status": "success",
-            "platform": "macOS",
-            "model": model_name,
-            "conv_id": str(uuid.uuid4()),
-        }
-
-        messages = self._trajectory_from_ws()
-        if messages:
-            messages = _wrap_messages_with_turn_feedback(messages, all_turns)
-        else:
-            messages = self._build_trajectory_fallback()
-
-        return {"meta_info": meta_info, "messages": messages}
-
-    def _trajectory_from_ws(self):
-        self.ensure_one()
-        best_messages = []
-        best_count = 0
-        for t in self._get_all_turns().sorted("turn_number", reverse=True):
-            if t.trajectory_messages:
-                try:
-                    ws_messages = json.loads(t.trajectory_messages)
-                    if isinstance(ws_messages, list) and len(ws_messages) > best_count:
-                        best_messages = ws_messages
-                        best_count = len(ws_messages)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-        return best_messages
-
-    def _build_trajectory_fallback(self):
-        self.ensure_one()
-        messages = []
-        msg_counter = 0
-        parent_id = None
-        prev_hint_text = None
-
-        for t in self._get_all_turns():
-            run_id = t.run_id or ""
-            if t.is_hint_turn and prev_hint_text:
-                is_accepted = 1
-                hints = prev_hint_text
-            else:
-                is_accepted = 0
-                hints = None
-            prev_hint_text = t.hint_text or None
-
-            def _next_id():
-                nonlocal msg_counter
-                msg_counter += 1
-                return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-            if t.prompt:
-                user_id = _next_id()
-                messages.append(
-                    {
-                        "type": "message",
-                        "id": user_id,
-                        "parentId": parent_id,
-                        "timestamp": t.prompt_timestamp
-                        or (t.create_date.isoformat() if t.create_date else ""),
-                        "message": {
-                            "role": "user",
-                            "content": [{"type": "text", "text": t.prompt}],
-                        },
-                    }
-                )
-                parent_id = user_id
-
-            if t.raw_events:
-                try:
-                    events = json.loads(t.raw_events)
-                    if isinstance(events, list) and events:
-                        pre_count = len(messages)
-                        messages, msg_counter, parent_id = (
-                            self._build_trajectory_from_events(
-                                events,
-                                messages,
-                                msg_counter,
-                                parent_id,
-                                t.model_name or "",
-                            )
-                        )
-                        for idx in range(pre_count, len(messages)):
-                            messages[idx] = _wrap_trajectory_message(
-                                messages[idx], is_accepted, hints
-                            )
-                        continue
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.tool_calls:
-                try:
-                    calls = json.loads(t.tool_calls)
-                    if isinstance(calls, list):
-                        for tc in calls:
-                            tcid = tc.get("toolCallId", "")
-                            call_id = tcid or _next_id()
-                            call_msg = {
-                                "type": "message",
-                                "id": call_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [
-                                        {
-                                            "type": "toolCall",
-                                            "id": tcid or call_id,
-                                            "name": tc.get("name", "unknown"),
-                                            "arguments": tc.get("args", {}),
-                                        }
-                                    ],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(call_msg, is_accepted, hints)
-                            )
-                            parent_id = call_id
-
-                            result_id = ("%s:result" % tcid) if tcid else _next_id()
-                            result_msg = {
-                                "type": "message",
-                                "id": result_id,
-                                "parentId": parent_id,
-                                "timestamp": t.response_timestamp
-                                or (t.write_date.isoformat() if t.write_date else ""),
-                                "message": {
-                                    "role": "toolResult",
-                                    "toolCallId": tcid or call_id,
-                                    "toolName": tc.get("name", "unknown"),
-                                    "isError": tc.get("isError", False),
-                                    "content": [
-                                        {
-                                            "type": "text",
-                                            "text": _format_tool_result(
-                                                tc.get("result")
-                                            ),
-                                        }
-                                    ],
-                                },
-                            }
-                            messages.append(
-                                _wrap_trajectory_message(result_msg, is_accepted, hints)
-                            )
-                            parent_id = result_id
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            if t.response:
-                asst_id = _next_id()
-                asst_msg = {
-                    "type": "message",
-                    "id": asst_id,
-                    "parentId": parent_id,
-                    "timestamp": t.response_timestamp
-                    or (t.write_date.isoformat() if t.write_date else ""),
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": t.response}],
-                        "model": t.model_name or "",
-                    },
-                }
-                messages.append(_wrap_trajectory_message(asst_msg, is_accepted, hints))
-                parent_id = asst_id
-
-        return messages
-
-    @staticmethod
-    def _build_trajectory_from_events(
-        events, messages, msg_counter, parent_id, model_name
-    ):
-        pending_tool_calls = {}
-        last_text = ""
-        run_id = ""
-
-        for ev in events:
-            rid = ev.get("runId", "")
-            if rid:
-                run_id = rid
-                break
-
-        def _next_id():
-            nonlocal msg_counter
-            msg_counter += 1
-            return "%s:%d" % (run_id, msg_counter) if run_id else ""
-
-        for ev in events:
-            stream = ev.get("stream", "")
-            data = ev.get("data", {})
-            ts = ev.get("ts", "")
-
-            if stream == "assistant" and data.get("text"):
-                last_text = data["text"]
-
-            elif stream == "tool":
-                phase = data.get("phase", "")
-                tcid = data.get("toolCallId", "")
-
-                if phase == "start" and tcid:
-                    if last_text:
-                        mid = _next_id()
-                        messages.append(
-                            {
-                                "type": "message",
-                                "id": mid,
-                                "parentId": parent_id,
-                                "timestamp": ts,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": [{"type": "text", "text": last_text}],
-                                    "model": model_name,
-                                },
-                            }
-                        )
-                        parent_id = mid
-                        last_text = ""
-
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": tcid,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "toolCall",
-                                        "id": tcid,
-                                        "name": data.get("name", "unknown"),
-                                        "arguments": data.get("args", {}),
-                                    }
-                                ],
-                            },
-                        }
-                    )
-                    parent_id = tcid
-                    pending_tool_calls[tcid] = {
-                        "name": data.get("name", "unknown"),
-                    }
-
-                elif phase == "end" and tcid:
-                    tc_info = pending_tool_calls.pop(tcid, {})
-                    result_id = "%s:result" % tcid
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": result_id,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "toolResult",
-                                "toolCallId": tcid,
-                                "toolName": tc_info.get(
-                                    "name", data.get("name", "unknown")
-                                ),
-                                "isError": bool(data.get("isError")),
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": _format_tool_result(
-                                            data.get(
-                                                "result", data.get("partialResult")
-                                            )
-                                        ),
-                                    }
-                                ],
-                            },
-                        }
-                    )
-                    parent_id = result_id
-
-            elif stream == "lifecycle" and data.get("phase") == "end":
-                if last_text:
-                    mid = _next_id()
-                    messages.append(
-                        {
-                            "type": "message",
-                            "id": mid,
-                            "parentId": parent_id,
-                            "timestamp": ts,
-                            "message": {
-                                "role": "assistant",
-                                "content": [{"type": "text", "text": last_text}],
-                                "model": model_name,
-                            },
-                        }
-                    )
-                    parent_id = mid
-                    last_text = ""
-
-        if last_text:
-            mid = _next_id()
-            messages.append(
-                {
-                    "type": "message",
-                    "id": mid,
-                    "parentId": parent_id,
-                    "timestamp": "",
-                    "message": {
-                        "role": "assistant",
-                        "content": [{"type": "text", "text": last_text}],
-                        "model": model_name,
-                    },
-                }
-            )
-            parent_id = mid
-
-        return messages, msg_counter, parent_id
-
-    def _export_and_clear_turns(self):
-        self.ensure_one()
-        all_turns = self._get_all_turns()
-        if not all_turns:
-            return self.env["ir.attachment"]
-
-        trajectory = self.build_trajectory_json()
-        content = json.dumps(trajectory, indent=2, ensure_ascii=False)
-        filename = "session-%s.json" % self.id
-
-        attachment = self.env["ir.attachment"].create(
-            {
-                "name": filename,
-                "type": "binary",
-                "datas": base64.b64encode(content.encode("utf-8")),
-                "res_model": self._name,
-                "res_id": self.id,
-                "mimetype": "application/json",
-            }
-        )
-        _logger.info(
-            "Auto-exported trajectory (%d bytes, %d messages) for task %s",
-            len(content),
-            len(trajectory.get("messages", [])),
-            self.id,
-        )
-
-        turn_count = len(all_turns)
-        all_turns.unlink()
-        _logger.info("Cleared %d turns for task %s", turn_count, self.id)
-
-        return attachment
 
     def _deployment_mode(self):
         return (
@@ -1195,7 +632,7 @@ class Atlas(models.Model):
 class AtlasTurn(models.Model):
     _name = "atlas.turn"
     _description = "Atlas Turn"
-    _order = "turn_number asc, id asc"
+    _order = "id asc"
 
     sandbox_id = fields.Many2one(
         "atlas.sandbox", string="Sandbox", ondelete="cascade", index=True
@@ -1203,6 +640,10 @@ class AtlasTurn(models.Model):
     atlas_id = fields.Many2one(related="sandbox_id.atlas_id", store=True, readonly=True)
     employee_id = fields.Many2one(
         related="atlas_id.employee_id", store=True, readonly=True
+    )
+    session_id = fields.Char(string="Session ID", index=True)
+    session_label = fields.Char(
+        string="Session", compute="_compute_session_label", store=True
     )
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection([("Pending", "Pending"), ("Completed", "Completed")])
@@ -1214,7 +655,6 @@ class AtlasTurn(models.Model):
     response_timestamp = fields.Char(string="Response Timestamp (ISO)")
     tool_calls = fields.Text(string="Tool Calls (JSON)")
     raw_events = fields.Text(string="Raw WS Events (JSON)")
-    trajectory_messages = fields.Text(string="Trajectory Messages (JSON)")
     qc_severity = fields.Selection(
         [
             ("low", "Low"),
@@ -1226,14 +666,8 @@ class AtlasTurn(models.Model):
     )
     qc_response = fields.Text(string="QC Response (JSON)")
     qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
-    bedrock_input_tokens = fields.Integer(string="Bedrock QC Input Tokens", default=0)
-    bedrock_output_tokens = fields.Integer(string="Bedrock QC Output Tokens", default=0)
-    trajectory_input_tokens = fields.Integer(
-        string="Trajectory Input Tokens", default=0
-    )
-    trajectory_output_tokens = fields.Integer(
-        string="Trajectory Output Tokens", default=0
-    )
+    qc_input_tokens = fields.Integer(string="Prompt QC Input Tokens", default=0)
+    qc_output_tokens = fields.Integer(string="Prompt QC Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
     tool_names = fields.Char(
@@ -1246,6 +680,33 @@ class AtlasTurn(models.Model):
     hints = fields.Text(string="Hints")
     hint_text = fields.Text(string="Hint Text")
     is_hint_turn = fields.Boolean(string="Is Hint Turn", default=False)
+
+    @api.depends("session_id", "atlas_id")
+    def _compute_session_label(self):
+        task_sessions = {}
+        for rec in self:
+            task_id = rec.atlas_id.id if rec.atlas_id else 0
+            sid = rec.session_id or ""
+            if task_id not in task_sessions:
+                all_sids = (
+                    self.env["atlas.turn"]
+                    .search(
+                        [("atlas_id", "=", task_id)],
+                        order="id asc",
+                    )
+                    .mapped("session_id")
+                )
+                seen = []
+                for s in all_sids:
+                    if s and s not in seen:
+                        seen.append(s)
+                task_sessions[task_id] = seen
+
+            sessions = task_sessions.get(task_id, [])
+            if sid and sid in sessions:
+                rec.session_label = "Session %d" % (sessions.index(sid) + 1)
+            else:
+                rec.session_label = "Session"
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):
@@ -1262,5 +723,3 @@ class AtlasTurn(models.Model):
                 except (json.JSONDecodeError, TypeError):
                     pass
             rec.tool_names = ", ".join(names) if names else False
-
-
