@@ -111,6 +111,7 @@ services:
       - ./odoo.conf:/etc/odoo/odoo.conf:ro
       - k3s-kubeconfig:/etc/rancher/k3s:ro
       - odoo-filestore:/root/.local/share/Odoo
+      - /var/run/docker.sock:/var/run/docker.sock   # Docker-out-of-Docker for image builds
     networks:
       - jaeger
 
