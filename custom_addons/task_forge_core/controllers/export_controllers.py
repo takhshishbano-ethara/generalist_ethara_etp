@@ -249,9 +249,9 @@ class TaskForgeExportController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = []
-            if kwargs.get('active_projects') in [1, '1']:
-                domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            if kwargs.get('show_all') in [1, '1']:
+                domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
                 domain = []
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
@@ -266,6 +266,7 @@ class TaskForgeExportController(http.Controller):
                                           request.env.ref('api_auth_gateway.role_tasker_stem').id,
                                           request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
                 domain.append(('project_tasker', '=', employee.id))
+
             start_date, end_date = self._get_date_filters(kwargs)
             if start_date:
                 domain.append(('date_start', '>=', start_date))
@@ -298,8 +299,7 @@ class TaskForgeExportController(http.Controller):
 
             for idx, p in enumerate(projects, 1):
                 task_count = TaskLog.search_count([('project_id', '=', p.id)])
-                blocker_count = Blocker.search_count([
-                    ('project_id', '=', p.id), ('state', 'not in', ['no_issue', 'resolved'])])
+                blocker_count = Blocker.search_count([('project_id', '=', p.id), ('state', 'not in', ['no_issue', 'resolved'])])
                 row = [
                     idx,
                     p.name or '',
