@@ -13,7 +13,7 @@ from odoo.http import request
 from odoo.modules.module import get_module_path
 from odoo.modules.registry import Registry
 
-from ..models.atlas import _load_dotenv
+from ..models.atlas import _load_dotenv, _get_prompt
 
 _logger = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ BEDROCK_CONVERSE_URL = (
 )
 
 _system_prompt_cache = {"text": None, "mtime": 0}
-_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
-_golden_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
+
+_RUBRIC_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="rubric_qc")
 
 
 def _get_system_prompt():
@@ -31,66 +31,21 @@ def _get_system_prompt():
     if not mod_path:
         return ""
 
-    path = os.path.join(mod_path, "system_prompts.md")
-    if not os.path.isfile(path):
-        return ""
+    for filename in ("prompts/qc_prompt.md", "system_prompts.md"):
+        path = os.path.join(mod_path, filename)
+        if not os.path.isfile(path):
+            continue
 
-    mtime = os.path.getmtime(path)
-    if _system_prompt_cache["text"] is not None and _system_prompt_cache["mtime"] == mtime:
+        mtime = os.path.getmtime(path)
+        if _system_prompt_cache["text"] is not None and _system_prompt_cache["mtime"] == mtime:
+            return _system_prompt_cache["text"]
+
+        with open(path, "r") as f:
+            _system_prompt_cache["text"] = f.read().strip()
+        _system_prompt_cache["mtime"] = mtime
         return _system_prompt_cache["text"]
 
-    with open(path, "r") as f:
-        _system_prompt_cache["text"] = f.read().strip()
-    _system_prompt_cache["mtime"] = mtime
-    return _system_prompt_cache["text"]
-
-
-def _get_trajectory_qc_prompt():
-    mod_path = get_module_path("atlas")
-    if not mod_path:
-        return ""
-
-    path = os.path.join(mod_path, "trajectory_qc_prompt.md")
-    if not os.path.isfile(path):
-        return ""
-
-    mtime = os.path.getmtime(path)
-    if _trajectory_qc_prompt_cache["text"] is not None and _trajectory_qc_prompt_cache["mtime"] == mtime:
-        return _trajectory_qc_prompt_cache["text"]
-
-    with open(path, "r") as f:
-        _trajectory_qc_prompt_cache["text"] = f.read().strip()
-    _trajectory_qc_prompt_cache["mtime"] = mtime
-    return _trajectory_qc_prompt_cache["text"]
-
-
-def _get_golden_trajectory_qc_prompt():
-    """Return the base QC prompt with golden-specific addendum appended."""
-    base = _get_trajectory_qc_prompt()
-    if not base:
-        return ""
-
-    mod_path = get_module_path("atlas")
-    if not mod_path:
-        return base
-
-    path = os.path.join(mod_path, "golden_trajectory_qc_prompt.md")
-    if not os.path.isfile(path):
-        return base
-
-    mtime = os.path.getmtime(path)
-    if (
-        _golden_trajectory_qc_prompt_cache["text"] is not None
-        and _golden_trajectory_qc_prompt_cache["mtime"] == mtime
-    ):
-        addendum = _golden_trajectory_qc_prompt_cache["text"]
-    else:
-        with open(path, "r") as f:
-            addendum = f.read().strip()
-        _golden_trajectory_qc_prompt_cache["text"] = addendum
-        _golden_trajectory_qc_prompt_cache["mtime"] = mtime
-
-    return base + "\n\n---\n\n" + addendum
+    return ""
 
 
 def _parse_json_response(text):
@@ -112,58 +67,77 @@ def _parse_json_response(text):
 
 
 def _parse_qc_verdict(text):
-    """Parse the machine-readable JSON block from the QC response.
-
-    The LLM outputs a JSON code block with severity, summary, and per-check
-    results.  We extract the JSON, validate the severity field, and return a
-    normalized dict the frontend can consume directly.
-    """
     parsed = _parse_json_response(text)
-    if not parsed or not isinstance(parsed, dict):
+    if parsed and isinstance(parsed, dict) and parsed.get("severity"):
+        severity = (parsed.get("severity") or "").strip().lower()
+        valid_severities = ("low", "medium", "high", "critical")
+        if severity not in valid_severities:
+            severity = "medium"
+        return {
+            "severity": severity,
+            "summary": parsed.get("summary", ""),
+            "total_fails": int(parsed.get("total_fails", 0)),
+            "total_warns": int(parsed.get("total_warns", 0)),
+            "total_passes": int(parsed.get("total_passes", 0)),
+            "checks": parsed.get("checks", []),
+        }
+
+    verdict_match = re.search(
+        r"Overall\s+Verdict:\s*(PASS|FAIL)", text, re.IGNORECASE
+    )
+    check_rows = re.findall(
+        r"\|\s*\d+\s*\|[^|]+\|\s*(PASS|FAIL)\s*\|([^|]*)\|", text, re.IGNORECASE
+    )
+
+    if not verdict_match and not check_rows:
         return None
 
-    severity = (parsed.get("severity") or "").strip().lower()
-    valid_severities = ("low", "medium", "high", "critical")
-    if severity not in valid_severities:
-        # Fallback: try to infer from old-style OVERALL VERDICT if present
-        verdict_match = re.search(
-            r"OVERALL\s+(?:VERDICT|SEVERITY):\s*(\S+)", text, re.IGNORECASE
-        )
-        if verdict_match:
-            raw = verdict_match.group(1).strip().lower()
-            if raw in valid_severities:
-                severity = raw
-            elif raw == "pass":
-                severity = "low"
-            elif raw == "warn":
-                severity = "medium"
-            elif raw == "fail":
-                severity = "critical"
-            else:
-                severity = "medium"
-        else:
-            severity = "medium"
+    overall = (verdict_match.group(1).strip().upper() if verdict_match else "").upper()
+    fails = sum(1 for r, _ in check_rows if r.strip().upper() == "FAIL")
+    passes = sum(1 for r, _ in check_rows if r.strip().upper() == "PASS")
 
-    total_fails = int(parsed.get("total_fails", 0))
-    total_warns = int(parsed.get("total_warns", 0))
-    total_passes = int(parsed.get("total_passes", 0))
+    if overall == "PASS" and fails == 0:
+        severity = "low"
+    elif fails == 1:
+        severity = "medium"
+    elif fails == 2:
+        severity = "high"
+    elif fails >= 3:
+        severity = "critical"
+    else:
+        severity = "low" if overall == "PASS" else "high"
+
+    checks = []
+    check_names = ["Grammar & Language", "Clear Ask", "Realistic", "Feasible"]
+    for i, (result, finding) in enumerate(check_rows):
+        checks.append({
+            "check": i + 1,
+            "name": check_names[i] if i < len(check_names) else "Check %d" % (i + 1),
+            "verdict": result.strip().upper(),
+            "reason": finding.strip() if result.strip().upper() == "FAIL" else "",
+        })
+
+    rewrite_match = re.search(
+        r"### Suggested Rewrite.*?\n>\s*(.+?)(?:\n\n|\n###|\Z)", text, re.DOTALL
+    )
+    summary_parts = []
+    if fails > 0:
+        failed_names = [c["name"] for c in checks if c["verdict"] == "FAIL"]
+        summary_parts.append("Failed: %s" % ", ".join(failed_names))
+    if rewrite_match:
+        summary_parts.append("Rewrite suggested")
 
     return {
         "severity": severity,
-        "summary": parsed.get("summary", ""),
-        "total_fails": total_fails,
-        "total_warns": total_warns,
-        "total_passes": total_passes,
-        "checks": parsed.get("checks", []),
+        "summary": "; ".join(summary_parts) if summary_parts else ("All checks passed" if overall == "PASS" else ""),
+        "total_fails": fails,
+        "total_warns": 0,
+        "total_passes": passes,
+        "checks": checks,
     }
 
 
 def _is_degenerate(text, threshold=0.8):
-    """Detect repetitive token degeneration (e.g. '!!!...', 'aaa...').
-
-    Returns True when any single character makes up more than *threshold*
-    of the response — a strong signal the model collapsed into a loop.
-    """
     if not text or len(text) < 20:
         return False
     from collections import Counter
@@ -173,132 +147,173 @@ def _is_degenerate(text, threshold=0.8):
     return most_common_count / len(text) >= threshold
 
 
-_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="traj_qc")
-
-
-def _run_trajectory_qc_background(
-    db_name, record_id, field_name, entry_index, trajectory_str
-):
-    """Background worker: run QC via Bedrock and write result into trajectory entry in DB."""
+def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_id, notify_partner_id):
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
+            criterion = env["atlas.rubric.criterion"].browse(criterion_id)
+            if not criterion.exists():
+                return
+
+            task = env["atlas.atlas"].browse(task_id)
+            if not task.exists():
+                criterion.write({"qc_status": "error", "qc_feedback": "Task not found"})
+                return
+
             ICP = env["ir.config_parameter"].sudo()
             inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
             region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
 
-            from ..models.atlas import _load_dotenv as _ld
-            dotenv = _ld()
+            dotenv = _load_dotenv()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
             if not api_key or not inference_arn:
-                _logger.warning("QC bg: missing credentials")
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                criterion.write({"qc_status": "error", "qc_feedback": "Missing Bedrock credentials"})
                 return
 
-            if field_name == "golden_trajectory":
-                system_prompt = _get_golden_trajectory_qc_prompt()
-            else:
-                system_prompt = _get_trajectory_qc_prompt()
+            system_prompt = _get_prompt("rubric_qc_prompt.md")
             if not system_prompt:
-                _logger.warning("QC bg: no trajectory_qc_prompt.md")
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
+                criterion.write({"qc_status": "error", "qc_feedback": "Missing rubric_qc_prompt.md"})
                 return
 
-            if len(trajectory_str) > 50000:
-                trajectory_str = trajectory_str[:50000] + "\n\n[... truncated for length ...]"
+            if session_id:
+                turns = task.turn_ids.filtered(
+                    lambda t, sid=session_id: t.session_id == sid
+                ).sorted("turn_number")
+            else:
+                turns = task.turn_ids.sorted("turn_number")
+            conversation_parts = []
+            for t in turns:
+                if t.prompt and not t.is_hint_turn:
+                    conversation_parts.append("User: %s" % t.prompt.strip()[:800])
+                if t.response:
+                    conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
 
-            total_usage = {"input_tokens": 0, "output_tokens": 0}
+            if not conversation_parts:
+                criterion.write({"qc_status": "error", "qc_feedback": "No conversation data"})
+                return
+
+            all_criteria = task.rubric_criterion_ids.sorted("sequence, id")
+            rubric_rows = []
+            for i, c in enumerate(all_criteria, 1):
+                prefix = "N%d" % (i - len([x for x in all_criteria if not x.is_negative])) if c.is_negative else str(i)
+                sign = "❌" if c.is_negative else "✅"
+                w = "-%d" % c.weight if c.is_negative else "+%d" % c.weight
+                rubric_rows.append("| %s | %s | %s | %s | %s |" % (
+                    prefix, c.name, w, sign, c.suggestion or "",
+                ))
+
+            goal = task.goal_description or "(No goal generated)"
+            rubric_table = (
+                "| # | Criterion | Weight | +/- | Grounding |\n"
+                "|---|-----------|--------|-----|-----------|"
+            )
+            if rubric_rows:
+                rubric_table += "\n" + "\n".join(rubric_rows)
+
+            user_message = "## Goal\n%s\n\n## Rubric\n%s\n\n## Conversation\n%s" % (
+                goal,
+                rubric_table,
+                "\n".join(conversation_parts),
+            )
+
             try:
                 response_text, usage = _call_bedrock_converse(
                     api_key=api_key,
                     inference_arn=inference_arn,
                     region=region,
                     system_prompt=system_prompt,
-                    user_message=trajectory_str,
-                    max_tokens=4096,
+                    user_message=user_message,
+                    max_tokens=1024,
                     temperature=0.3,
+                    timeout=90.0,
                 )
-                total_usage["input_tokens"] += usage.get("input_tokens", 0)
-                total_usage["output_tokens"] += usage.get("output_tokens", 0)
+
                 if _is_degenerate(response_text):
-                    _logger.warning("QC bg: degenerate response, retrying temp=0.1")
                     response_text, usage = _call_bedrock_converse(
                         api_key=api_key,
                         inference_arn=inference_arn,
                         region=region,
                         system_prompt=system_prompt,
-                        user_message=trajectory_str,
-                        max_tokens=4096,
+                        user_message=user_message,
+                        max_tokens=1024,
                         temperature=0.1,
                         top_p=0.7,
+                        timeout=90.0,
                     )
-                    total_usage["input_tokens"] += usage.get("input_tokens", 0)
-                    total_usage["output_tokens"] += usage.get("output_tokens", 0)
-            except Exception as e:
-                _logger.exception("QC bg: Bedrock call failed")
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+            except Exception:
+                _logger.exception("Rubric QC bg: Bedrock call failed for criterion=%s", criterion_id)
+                criterion.write({"qc_status": "error", "qc_feedback": "Bedrock call failed"})
                 return
 
-            _accumulate_tokens(env, record_id, "traj_qc_input_tokens", "traj_qc_output_tokens", total_usage)
+            t_in = usage.get("input_tokens", 0)
+            t_out = usage.get("output_tokens", 0)
+            if t_in or t_out:
+                task.sudo().write({
+                    "rubric_qc_input_tokens": (task.rubric_qc_input_tokens or 0) + t_in,
+                    "rubric_qc_output_tokens": (task.rubric_qc_output_tokens or 0) + t_out,
+                })
 
-            qc_verdict = _parse_qc_verdict(response_text)
-            if qc_verdict:
-                _update_qc_entry(env, record_id, field_name, entry_index, "done", qc_verdict)
-                _logger.info("QC bg: done for record=%s field=%s entry=%s", record_id, field_name, entry_index)
+            verdict_match = re.search(
+                r"Rubric\s+QC\s+Verdict:\s*(PASS|FAIL)", response_text, re.IGNORECASE
+            )
+            check_rows = re.findall(
+                r"\|\s*(?:M?\d+)\s*\|[^|]+\|\s*(PASS|FAIL)\s*\|([^|]*)\|",
+                response_text, re.IGNORECASE,
+            )
+
+            fails = sum(1 for r, _ in check_rows if r.strip().upper() == "FAIL")
+            overall = verdict_match.group(1).strip().upper() if verdict_match else ""
+
+            if overall == "PASS" and fails == 0:
+                severity = "low"
+            elif fails <= 2:
+                severity = "medium"
+            elif fails <= 5:
+                severity = "high"
             else:
-                _update_qc_entry(env, record_id, field_name, entry_index, "error", None)
-                _logger.warning("QC bg: no parseable verdict for record=%s", record_id)
+                severity = "critical"
+
+            issues_match = re.search(
+                r"### Issues.*?\n((?:\d+\..*\n?)+)", response_text
+            )
+            feedback_parts = []
+            if overall:
+                feedback_parts.append("Verdict: %s (%d/%d checks failed)" % (
+                    overall, fails, len(check_rows),
+                ))
+            if issues_match:
+                feedback_parts.append(issues_match.group(1).strip())
+
+            feedback = "\n".join(feedback_parts) if feedback_parts else response_text[:2000]
+
+            for c in all_criteria:
+                c.write({
+                    "qc_status": "done",
+                    "qc_severity": severity,
+                    "qc_feedback": feedback,
+                })
+
+            if notify_partner_id:
+                partner = env["res.partner"].browse(notify_partner_id)
+                if partner.exists():
+                    env["bus.bus"]._sendone(
+                        partner,
+                        "atlas/rubric_qc_done",
+                        {
+                            "task_id": task_id,
+                            "criterion_id": criterion_id,
+                            "qc_status": criterion.qc_status,
+                            "qc_severity": criterion.qc_severity,
+                        },
+                    )
+
+            _logger.info(
+                "Rubric QC bg: done criterion=%s severity=%s",
+                criterion_id, criterion.qc_severity,
+            )
     except Exception:
-        _logger.exception("QC bg: unhandled error for record=%s field=%s entry=%s", record_id, field_name, entry_index)
-
-
-def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):
-    """Write qc_status and qc_result into a specific trajectory entry in DB."""
-    try:
-        task = env["atlas.atlas"].browse(record_id)
-        if not task.exists():
-            return
-        raw = task[field_name] or ""
-        if not raw.strip():
-            return
-        data = json.loads(raw)
-        entries = data if isinstance(data, list) else [data]
-        if entry_index < 0 or entry_index >= len(entries):
-            return
-        if entries[entry_index].get("qc_status") == "aborted":
-            return
-        entries[entry_index]["qc_status"] = qc_status
-        if qc_result:
-            entries[entry_index]["qc_result"] = qc_result
-        elif "qc_result" in entries[entry_index]:
-            del entries[entry_index]["qc_result"]
-        new_value = json.dumps(data, indent=2, ensure_ascii=False)
-        task.write({field_name: new_value})
-    except Exception:
-        _logger.exception("_update_qc_entry failed for record=%s field=%s entry=%s", record_id, field_name, entry_index)
-
-
-def _accumulate_tokens(env, record_id, in_field, out_field, usage):
-    """Add usage tokens to existing task-level counters."""
-    try:
-        t_in = usage.get("input_tokens", 0)
-        t_out = usage.get("output_tokens", 0)
-        if t_in <= 0 and t_out <= 0:
-            return
-        task = env["atlas.atlas"].browse(record_id)
-        if not task.exists():
-            return
-        task.write({
-            in_field: (getattr(task, in_field, 0) or 0) + t_in,
-            out_field: (getattr(task, out_field, 0) or 0) + t_out,
-        })
-    except Exception:
-        _logger.exception(
-            "_accumulate_tokens failed for record=%s %s/%s",
-            record_id, in_field, out_field,
-        )
+        _logger.exception("Rubric QC bg: unhandled error for criterion=%s", criterion_id)
 
 
 def _call_bedrock_converse(
@@ -337,7 +352,7 @@ def _call_bedrock_converse(
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
-    with httpx.Client(http2=False, timeout=timeout) as client:
+    with httpx.Client(http2=True, timeout=timeout) as client:
         resp = client.post(url, json=payload, headers=headers)
 
     if resp.status_code != 200:
@@ -375,11 +390,14 @@ def _call_bedrock_converse(
 class LlmAssistQc(http.Controller):
     @http.route("/atlas/qc", type="json", auth="user")
     def qc_prompt(
-        self, prompt="", system_prompt="", max_tokens=4096, temperature=0.3, **kw
+        self, prompt="", previous_turns=None, system_prompt="",
+        max_tokens=4096, temperature=0.3, **kw
     ):
         prompt = (prompt or "").strip()
         if not prompt:
             return {"error": "prompt is required"}
+
+        user_message = self._build_qc_user_message(prompt, previous_turns)
 
         env = _load_dotenv()
         api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
@@ -402,7 +420,7 @@ class LlmAssistQc(http.Controller):
                 inference_arn=inference_arn,
                 region=region,
                 system_prompt=system_prompt,
-                user_message=prompt,
+                user_message=user_message,
                 max_tokens=int(max_tokens),
                 temperature=float(temperature),
             )
@@ -414,7 +432,7 @@ class LlmAssistQc(http.Controller):
                     inference_arn=inference_arn,
                     region=region,
                     system_prompt=system_prompt,
-                    user_message=prompt,
+                    user_message=user_message,
                     max_tokens=int(max_tokens),
                     temperature=0.1,
                     top_p=0.7,
@@ -439,138 +457,76 @@ class LlmAssistQc(http.Controller):
 
         return result
 
-    @http.route("/atlas/trajectory_qc", type="json", auth="user")
-    def trajectory_qc(self, record_id=0, field_name="", entry_index=-1, **kw):
-        record_id = int(record_id or 0)
-        entry_index = int(entry_index if entry_index is not None else -1)
-        if not record_id or not field_name:
-            return {"error": "record_id and field_name are required"}
+    @staticmethod
+    def _build_qc_user_message(current_prompt, previous_turns=None):
+        if not previous_turns:
+            return current_prompt
 
-        task = request.env["atlas.atlas"].browse(record_id)
+        parts = ["## Previous Conversation Context\n"]
+        for i, turn in enumerate(previous_turns, 1):
+            if not isinstance(turn, dict):
+                continue
+            p = (turn.get("prompt") or "").strip()
+            r = (turn.get("response") or "").strip()
+            if p:
+                parts.append("Turn %d — Prompt: %s" % (i, p[:500]))
+            if r:
+                parts.append("Turn %d — Response: %s" % (i, r[:500]))
+        parts.append("\n## Current Prompt to Evaluate\n%s" % current_prompt)
+        return "\n".join(parts)
+
+    @http.route("/atlas/rubric/qc", type="json", auth="user")
+    def rubric_criterion_qc(self, criterion_id=0, **kw):
+        criterion_id = int(criterion_id or 0)
+        if not criterion_id:
+            return {"error": "criterion_id is required"}
+
+        criterion = request.env["atlas.rubric.criterion"].browse(criterion_id)
+        if not criterion.exists():
+            return {"error": "Criterion not found"}
+
+        task = criterion.atlas_id
         if not task.exists():
-            return {"error": "Task not found"}
+            return {"error": "Task not found for this criterion"}
 
-        raw = task[field_name] or ""
-        if not raw.strip():
-            return {"error": "No trajectory data"}
+        glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
+        session_id = glm_sandbox.current_session_id if glm_sandbox else ""
 
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {"error": "Could not parse trajectory JSON"}
-
-        entries = data if isinstance(data, list) else [data]
-        if entry_index < 0 or entry_index >= len(entries):
-            return {"error": "Invalid entry index"}
-
-        entry = entries[entry_index]
-        traj = entry.get("trajectory", entry)
-        trajectory_str = json.dumps(traj, ensure_ascii=False)
-
-        entries[entry_index]["qc_status"] = "pending"
-        if "qc_result" in entries[entry_index]:
-            del entries[entry_index]["qc_result"]
-        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+        criterion.write({"qc_status": "running", "qc_feedback": False, "qc_severity": False})
 
         db_name = request.env.cr.dbname
+        task_id = task.id
+        notify_partner_id = request.env.user.partner_id.id
 
         def _submit():
-            _QC_POOL.submit(
-                _run_trajectory_qc_background,
-                db_name, record_id, field_name, entry_index, trajectory_str,
+            _RUBRIC_QC_POOL.submit(
+                _run_rubric_criterion_qc_background,
+                db_name,
+                criterion_id,
+                task_id,
+                session_id,
+                notify_partner_id,
             )
 
         request.env.cr.postcommit.add(_submit)
 
-        return {"success": True}
+        return {"success": True, "criterion_id": criterion_id}
 
-    @http.route("/atlas/generate_task_description", type="json", auth="user")
-    def generate_task_description(self, record_id=0, field_name="", entry_index=-1, **kw):
-        """Trigger background task-description generation for a trajectory entry."""
-        record_id = int(record_id or 0)
-        entry_index = int(entry_index if entry_index is not None else -1)
-        if not record_id or not field_name:
-            return {"error": "record_id and field_name are required"}
+    @http.route("/atlas/generation/status", type="json", auth="user")
+    def generation_status(self, task_id=0, **kw):
+        task_id = int(task_id or 0)
+        if not task_id:
+            return {"error": "task_id is required"}
 
-        task = request.env["atlas.atlas"].browse(record_id)
+        task = request.env["atlas.atlas"].browse(task_id)
         if not task.exists():
             return {"error": "Task not found"}
 
-        raw = task[field_name] or ""
-        if not raw.strip():
-            return {"error": "No trajectory data"}
-
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {"error": "Could not parse trajectory JSON"}
-
-        entries = data if isinstance(data, list) else [data]
-        if entry_index < 0 or entry_index >= len(entries):
-            return {"error": "Invalid entry index"}
-
-        entry = entries[entry_index]
-        traj = entry.get("trajectory", entry)
-        messages = traj.get("messages", [])
-
-        entries[entry_index]["task_description_status"] = "pending"
-        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
-
-        db_name = request.env.cr.dbname
-
-        from ..models.atlas import _TASKDESC_POOL
-        from ..models.atlas_sandbox import _inject_task_description_bg
-
-        def _submit():
-            _TASKDESC_POOL.submit(
-                _inject_task_description_bg,
-                db_name, record_id, field_name, messages, entry_index,
-            )
-
-        request.env.cr.postcommit.add(_submit)
-
-        return {"success": True}
-
-    @http.route("/atlas/abort_trajectory_action", type="json", auth="user")
-    def abort_trajectory_action(self, record_id=0, field_name="", entry_index=-1, action_type="", **kw):
-        """Abort a running QC or task-description generation by flipping status to 'aborted'."""
-        record_id = int(record_id or 0)
-        entry_index = int(entry_index if entry_index is not None else -1)
-        if not record_id or not field_name or not action_type:
-            return {"error": "record_id, field_name, and action_type are required"}
-
-        status_key = {
-            "qc": "qc_status",
-            "task_description": "task_description_status",
-        }.get(action_type)
-        if not status_key:
-            return {"error": "action_type must be 'qc' or 'task_description'"}
-
-        task = request.env["atlas.atlas"].browse(record_id)
-        if not task.exists():
-            return {"error": "Task not found"}
-
-        raw = task[field_name] or ""
-        if not raw.strip():
-            return {"error": "No trajectory data"}
-
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {"error": "Could not parse trajectory JSON"}
-
-        entries = data if isinstance(data, list) else [data]
-        if entry_index < 0 or entry_index >= len(entries):
-            return {"error": "Invalid entry index"}
-
-        current_status = entries[entry_index].get(status_key)
-        if current_status != "pending":
-            return {"error": "Action is not currently running"}
-
-        entries[entry_index][status_key] = "aborted"
-        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
-
-        return {"success": True}
+        return {
+            "success": True,
+            "goal_generation_status": task.goal_generation_status or "idle",
+            "rubric_generation_status": task.rubric_generation_status or "idle",
+        }
 
     @http.route(
         "/api/atlas/llm_assist_qc",

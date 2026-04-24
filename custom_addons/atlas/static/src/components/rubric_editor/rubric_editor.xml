@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="atlas.RubricEditor">
+        <div class="o_atlas_rubric_editor">
+            <t t-if="state.loading">
+                <div class="text-center py-3 text-muted">
+                    <i class="fa fa-spinner fa-spin me-1"/> Loading criteria…
+                </div>
+            </t>
+            <t t-elif="!taskId">
+                <div class="text-muted py-3 text-center">Save the task first to add criteria.</div>
+            </t>
+            <t t-else="">
+                <t t-if="state.generationStatus === 'running'">
+                    <div class="alert alert-info d-flex align-items-center py-2 mb-3">
+                        <i class="fa fa-spinner fa-spin me-2"/>
+                        <span>Generating criteria in background…</span>
+                    </div>
+                </t>
+
+                <t t-if="state.criteria.length">
+                    <div class="o_atlas_rubric_cards">
+                        <t t-foreach="state.criteria" t-as="c" t-key="c.id">
+                            <t t-if="state.editingId === c.id">
+                                <t t-call="atlas.RubricEditor.InlineForm"/>
+                            </t>
+                            <t t-else="">
+                                <div class="o_atlas_rubric_card"
+                                     t-att-class="{'o_negative': c.is_negative}">
+                                    <div class="o_card_header d-flex align-items-start gap-2">
+                                        <div class="o_importance_dot"
+                                             t-att-style="'background:' + importanceColor(c.importance)"
+                                             t-att-title="importanceLabel(c.importance)"/>
+                                        <div class="flex-grow-1">
+                                            <div class="o_card_title"><t t-out="c.name"/></div>
+                                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                                <span class="o_cat_badge"
+                                                      t-att-style="'background:' + categoryMeta(c.category).color + '20; color:' + categoryMeta(c.category).color">
+                                                    <i t-att-class="'fa ' + categoryMeta(c.category).icon + ' me-1'"/>
+                                                    <t t-out="categoryMeta(c.category).label"/>
+                                                </span>
+                                                <span class="o_weight_badge">
+                                                    W:<t t-out="c.weight || 5"/>
+                                                </span>
+                                                <t t-if="c.is_negative">
+                                                    <span class="badge bg-danger">Negative</span>
+                                                </t>
+                                            </div>
+                                        </div>
+                                        <div class="o_card_actions d-flex gap-1">
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    t-on-click="() => this.onQcCheck(c.id)"
+                                                    t-att-disabled="c.qc_status === 'running'"
+                                                    title="QC Check">
+                                                <i t-att-class="'fa ' + (c.qc_status === 'running' ? 'fa-spinner fa-spin' : 'fa-check-square-o')"/>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    t-on-click="() => this.onEditCriteria(c.id)"
+                                                    title="Edit">
+                                                <i class="fa fa-pencil"/>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    t-on-click="() => this.onDeleteCriteria(c.id)"
+                                                    title="Delete">
+                                                <i class="fa fa-trash"/>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <t t-if="c.suggestion">
+                                        <div class="o_card_suggestion mt-2">
+                                            <i class="fa fa-lightbulb-o me-1"/><t t-out="c.suggestion"/>
+                                        </div>
+                                    </t>
+
+                                    <div class="o_card_levels mt-2 d-flex gap-2">
+                                        <t t-foreach="c.levels || []" t-as="lv" t-key="lv.id || lv_index">
+                                            <span class="o_level_chip"
+                                                  t-att-class="{'o_level_pass': lv.score > 0, 'o_level_fail': lv.score === 0}">
+                                                <strong><t t-out="lv.score"/></strong>
+                                                <t t-if="lv.label"> — <t t-out="lv.label"/></t>
+                                            </span>
+                                        </t>
+                                    </div>
+
+                                    <t t-if="c.qc_status === 'done' or c.qc_status === 'error'">
+                                        <div class="o_qc_result mt-2"
+                                             t-att-class="{
+                                                 'o_qc_pass': c.qc_severity === 'low',
+                                                 'o_qc_warn': c.qc_severity === 'medium',
+                                                 'o_qc_fail': c.qc_severity === 'high' or c.qc_severity === 'critical',
+                                                 'o_qc_error': c.qc_status === 'error',
+                                             }">
+                                            <i t-att-class="'fa me-1 ' + qcStatusIcon(c.qc_status)"/>
+                                            <t t-if="c.qc_severity">
+                                                <strong class="me-1"><t t-out="c.qc_severity.toUpperCase()"/></strong>
+                                            </t>
+                                            <t t-if="c.qc_feedback">
+                                                <span><t t-out="c.qc_feedback"/></span>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+                        </t>
+                    </div>
+                </t>
+                <t t-else="">
+                    <t t-if="state.generationStatus !== 'running'">
+                        <div class="text-muted small py-2 text-center">No criteria defined yet.</div>
+                    </t>
+                </t>
+
+                <t t-if="state.inlineAdd">
+                    <t t-call="atlas.RubricEditor.InlineForm"/>
+                </t>
+
+                <t t-if="!state.inlineAdd and state.editingId === null">
+                    <button class="btn btn-outline-primary btn-sm mt-3 w-100"
+                            t-on-click="onAddCriteria">
+                        <i class="fa fa-plus me-1"/> Add criteria
+                    </button>
+                </t>
+            </t>
+        </div>
+    </t>
+
+    <t t-name="atlas.RubricEditor.InlineForm">
+        <div class="o_atlas_rubric_card o_inline_form">
+            <div class="mb-2">
+                <input type="text" class="form-control form-control-sm"
+                       t-att-value="state.form.name"
+                       t-on-input="(ev) => state.form.name = ev.target.value"
+                       placeholder="Describe what this criterion measures"/>
+            </div>
+
+            <div class="d-flex gap-2 mb-2">
+                <select class="form-select form-select-sm"
+                        style="max-width: 200px;"
+                        t-on-change="(ev) => state.form.category = ev.target.value">
+                    <option value="factuality_hallucination" t-att-selected="state.form.category === 'factuality_hallucination'">Factuality &amp; Hallucination</option>
+                    <option value="task_completion" t-att-selected="state.form.category === 'task_completion'">Task Completion</option>
+                    <option value="instruction_following" t-att-selected="state.form.category === 'instruction_following'">Instruction Following</option>
+                    <option value="communication_style" t-att-selected="state.form.category === 'communication_style'">Communication Style</option>
+                    <option value="other" t-att-selected="state.form.category === 'other'">Other</option>
+                </select>
+                <select class="form-select form-select-sm"
+                        style="max-width: 200px;"
+                        t-on-change="(ev) => state.form.importance = ev.target.value">
+                    <option value="">Importance</option>
+                    <option value="critically_detrimental" t-att-selected="state.form.importance === 'critically_detrimental'">Critically Detrimental</option>
+                    <option value="detrimental" t-att-selected="state.form.importance === 'detrimental'">Detrimental</option>
+                    <option value="slightly_detrimental" t-att-selected="state.form.importance === 'slightly_detrimental'">Slightly Detrimental</option>
+                    <option value="slightly_important" t-att-selected="state.form.importance === 'slightly_important'">Slightly Important</option>
+                    <option value="important" t-att-selected="state.form.importance === 'important'">Important</option>
+                    <option value="critically_important" t-att-selected="state.form.importance === 'critically_important'">Critically Important</option>
+                </select>
+            </div>
+
+            <div class="mb-2">
+                <div class="o_atlas_rubric_levels">
+                    <t t-foreach="state.form.levels" t-as="level" t-key="level_index">
+                        <div class="d-flex align-items-center gap-1 mb-1">
+                            <span class="badge bg-secondary rounded-circle d-flex align-items-center justify-content-center"
+                                  style="width: 24px; height: 24px; font-size: 11px;">
+                                <t t-out="level.score"/>
+                            </span>
+                            <input type="text" class="form-control form-control-sm"
+                                   t-att-value="level.label"
+                                   t-on-input="(ev) => level.label = ev.target.value"
+                                   t-att-placeholder="level.score === 0 ? 'False — failure description' : 'True — success description'"/>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <button class="btn btn-outline-secondary btn-sm"
+                        t-on-click="state.editingId ? onCancelEdit.bind(this) : onCancelInline.bind(this)">
+                    Cancel
+                </button>
+                <button class="btn btn-primary btn-sm" t-on-click="onSaveCriteria">
+                    Save
+                </button>
+            </div>
+        </div>
+    </t>
+</templates>

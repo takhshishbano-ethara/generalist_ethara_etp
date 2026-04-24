@@ -4,4 +4,5 @@ from . import (
     atlas_domain,
     atlas_sandbox,
     atlas_sandbox_k8s,
+    atlas_rubric,
 )

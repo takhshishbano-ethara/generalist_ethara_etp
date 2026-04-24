@@ -5,6 +5,7 @@ import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 
 const PERIODS = [
+    { key: "day", label: "Today" },
     { key: "week", label: "This Week" },
     { key: "month", label: "This Month" },
     { key: "all", label: "All Time" },

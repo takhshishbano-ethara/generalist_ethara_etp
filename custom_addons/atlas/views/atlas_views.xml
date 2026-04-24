@@ -27,11 +27,9 @@
         <form>
           <sheet>
             <div class="oe_button_box" name="button_box">
-              <button class="oe_stat_button" name="action_generate_golden_trajectory"
-                      type="object" icon="fa-magic"
-                      string="Generate Golden"
-                      invisible="not glm_trajectory"
-                      confirm="This will call Kimi to generate golden trajectories. Continue?"/>
+              <button class="oe_stat_button" name="action_view_turns"
+                      type="object" icon="fa-history"
+                      string="Turn History"/>
             </div>
             <group>
               <group string="Task Details">
@@ -54,40 +52,57 @@
             <field name="sandbox_ids" invisible="1"/>
             <field name="glm_session_status" invisible="1"/>
 
-            <widget name="atlas_task_dashboard"/>
+            <div class="d-flex gap-3 mt-3" style="min-height: 500px;">
+              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0;">
+                <widget name="atlas_task_dashboard"/>
+              </div>
 
-            <group string="Trajectories" colspan="2">
-              <separator string="GLM 5 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="atlas_json" nolabel="1" placeholder="GLM 5 Trajectory" colspan="2"/>
-            </group>
-            <field name="golden_status" invisible="1"/>
-            <field name="golden_error" invisible="1"/>
-            <field name="golden_started_at" invisible="1"/>
-            <group string="Golden Trajectory">
-              <div colspan="2" invisible="golden_status != 'generating'">
-                <span class="text-info">
-                  <i class="fa fa-spinner fa-spin"/> Generating golden trajectory (up to 20 min)…
-                </span>
-                <span class="text-muted ms-2" invisible="not golden_started_at">
-                  Started: <field name="golden_started_at" widget="datetime" readonly="1" nolabel="1" class="d-inline"/>
-                </span>
-              </div>
-              <div colspan="2" invisible="golden_status != 'error'">
-                <div class="d-flex align-items-start gap-2 mb-2">
-                  <span class="text-danger">
-                    <i class="fa fa-exclamation-triangle"/> Generation failed:
-                  </span>
-                  <button class="btn btn-sm btn-outline-warning"
-                          name="action_generate_golden_trajectory" type="object"
-                          invisible="not glm_trajectory"
-                          confirm="Retry golden trajectory generation?">
-                    <i class="fa fa-refresh"/> Retry
-                  </button>
+              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0;">
+                <div class="border rounded p-3 mb-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5 class="mb-0">Goal</h5>
+                    <button name="action_regenerate_description" type="object"
+                            class="btn btn-sm btn-outline-secondary"
+                            title="Auto-generate goal from user prompts using AI">
+                      <i class="fa fa-refresh me-1"/>Regenerate
+                    </button>
+                  </div>
+                  <p class="text-muted small mb-2">What goal does this sequence of messages serve?</p>
+                  <field name="goal_description" nolabel="1"
+                         placeholder="e.g. 'User asks the model to fix a TypeError in their React component's useEffect hook and iterates until the fix works.'"/>
                 </div>
-                <field name="golden_error" nolabel="1" readonly="1"/>
+
+                <div class="border rounded p-3">
+                  <h5>Scoring Criteria</h5>
+                  <p class="text-muted small mb-2">Define what "good" and "bad" look like. Each criterion measures one specific thing on a numbered scale.</p>
+                  <widget name="atlas_rubric_editor"/>
+                </div>
               </div>
-              <field name="golden_trajectory" widget="atlas_json" nolabel="1" placeholder="Golden Trajectory" colspan="2"/>
-            </group>
+            </div>
+
+            <notebook>
+              <page string="Turn History">
+                <field name="turn_ids" readonly="1">
+                  <list default_order="id asc">
+                    <field name="session_label" string="Session"/>
+                    <field name="turn_number" string="Turn"/>
+                    <field name="prompt"/>
+                    <field name="response"/>
+                    <field name="turn_status" widget="badge"
+                           decoration-success="turn_status == 'Completed'"
+                           decoration-warning="turn_status == 'Pending'"/>
+                    <field name="qc_severity" string="QC Status" widget="badge"
+                           decoration-danger="qc_severity == 'critical'"
+                           decoration-warning="qc_severity in ('high', 'medium')"
+                           decoration-success="qc_severity == 'low'"/>
+                    <field name="qc_response" string="QC Feedback"/>
+                    <field name="feedback" widget="badge" optional="show"
+                           decoration-success="feedback == 'satisfied'"
+                           decoration-danger="feedback == 'unsatisfied'"/>
+                  </list>
+                </field>
+              </page>
+            </notebook>
           </sheet>
         </form>
       </field>
@@ -108,25 +123,27 @@
       <field name="name">atlas.turn.list</field>
       <field name="model">atlas.turn</field>
       <field name="arch" type="xml">
-        <list default_order="turn_number asc, id asc">
-          <field name="sandbox_id"/>
-          <field name="atlas_id"/>
-          <field name="employee_id"/>
-          <field name="turn_number"/>
+        <list default_order="id asc">
+          <field name="session_label" string="Session"/>
+          <field name="turn_number" string="Turn"/>
+          <field name="prompt"/>
+          <field name="response"/>
           <field name="turn_status" widget="badge"
                  decoration-success="turn_status == 'Completed'"
                  decoration-warning="turn_status == 'Pending'"/>
-          <field name="prompt_timestamp"/>
-          <field name="response_timestamp"/>
-          <field name="prompt"/>
-          <field name="response"/>
-          <field name="model_name"/>
-          <field name="tool_names"/>
-          <field name="tool_calls" optional="hide" widget="text"/>
-          <field name="qc_severity" optional="show" widget="badge"
+          <field name="qc_severity" string="QC Status" widget="badge"
                  decoration-danger="qc_severity == 'critical'"
                  decoration-warning="qc_severity in ('high', 'medium')"
                  decoration-success="qc_severity == 'low'"/>
+          <field name="qc_response" string="QC Feedback" widget="text" optional="show"/>
+          <field name="feedback" widget="badge" optional="show"
+                 decoration-success="feedback == 'satisfied'"
+                 decoration-danger="feedback == 'unsatisfied'"/>
+          <field name="sandbox_id" optional="hide"/>
+          <field name="atlas_id" optional="hide"/>
+          <field name="employee_id" optional="hide"/>
+          <field name="model_name" optional="hide"/>
+          <field name="tool_names" optional="hide"/>
           <field name="qc_dismiss_reason" optional="hide"/>
         </list>
       </field>
@@ -165,9 +182,6 @@
               </page>
               <page string="Raw Events">
                 <field name="raw_events" nolabel="1" widget="text"/>
-              </page>
-              <page string="Trajectory">
-                <field name="trajectory_messages" nolabel="1" widget="text"/>
               </page>
               <page string="QC">
                 <group>

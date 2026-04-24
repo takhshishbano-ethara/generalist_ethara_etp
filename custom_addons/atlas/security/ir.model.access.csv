@@ -8,3 +8,7 @@ access_atlas_atlas_admin,atlas.atlas.admin,model_atlas_atlas,group_atlas_admin,1
 access_atlas_turn_admin,atlas.turn.admin,model_atlas_turn,group_atlas_admin,1,1,1,1
 access_atlas_sandbox_admin,atlas.sandbox.admin,model_atlas_sandbox,group_atlas_admin,1,1,1,1
 access_atlas_domain_admin,atlas.domain.admin,model_atlas_domain,group_atlas_admin,1,1,1,1
+access_atlas_rubric_criterion_tasker,atlas.rubric.criterion.tasker,model_atlas_rubric_criterion,etp_user_roles.group_tasker,1,1,1,1
+access_atlas_rubric_level_tasker,atlas.rubric.level.tasker,model_atlas_rubric_level,etp_user_roles.group_tasker,1,1,1,1
+access_atlas_rubric_criterion_admin,atlas.rubric.criterion.admin,model_atlas_rubric_criterion,group_atlas_admin,1,1,1,1
+access_atlas_rubric_level_admin,atlas.rubric.level.admin,model_atlas_rubric_level,group_atlas_admin,1,1,1,1
