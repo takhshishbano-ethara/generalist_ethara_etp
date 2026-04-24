@@ -18,6 +18,7 @@
                        decoration-warning="docker_build_status == 'building'"/>
                 <field name="is_valid"/>
                 <field name="f2p_count"/>
+                <field name="n2p_count"/>
                 <field name="p2p_count"/>
                 <field name="delivery_status" widget="badge"/>
             </list>
@@ -114,6 +115,7 @@
                             <group string="State Transitions">
                                 <group>
                                     <field name="f2p_count"/>
+                                    <field name="n2p_count"/>
                                     <field name="p2p_count"/>
                                     <field name="has_fix_signal"/>
                                     <field name="has_regressions"/>

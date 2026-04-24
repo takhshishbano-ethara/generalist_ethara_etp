@@ -293,6 +293,7 @@
                                     <field name="fix_patch_passed_count" string="Fix P"/>
                                     <field name="fix_patch_failed_count" string="Fix F"/>
                                     <field name="f2p_count"/>
+                                    <field name="n2p_count"/>
                                     <field name="p2p_count"/>
                                     <field name="is_valid"/>
                                     <field name="has_regressions"/>
