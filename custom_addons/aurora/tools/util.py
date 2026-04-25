@@ -15,6 +15,7 @@
 # Adapted for the Aurora Pipeline Odoo addon (LGPL-3).
 # Apache 2.0 is forward-compatible with LGPL-3 per ASF/FSF guidance.
 
+import argparse
 import hashlib
 import logging
 import os
@@ -118,3 +119,104 @@ class TokenRotator:
             remaining, reset_ts = client.rate_limiting
             result[tok_hash] = {"remaining": remaining, "reset": reset_ts}
         return result
+
+
+def parse_tokens(tokens: str | list[str] | Path) -> list[str]:
+    """Parse tokens from a string, list, or file path."""
+    if isinstance(tokens, list):
+        return tokens
+    elif isinstance(tokens, str):
+        return [tokens]
+    elif isinstance(tokens, Path):
+        if not tokens.exists() or not tokens.is_file():
+            raise ValueError(f"Token file {tokens} does not exist or is not a file.")
+        with tokens.open("r", encoding="utf-8") as file:
+            return [line.strip() for line in file if line.strip()]
+    return []
+
+
+def _load_env_tokens() -> list[str]:
+    """Load tokens from a .env file (GITHUB_TOKENS=... or GITHUB_TOKEN=...)."""
+    _MAX_PARENT_WALK = 3
+    search_dirs = [Path.cwd()] + list(Path.cwd().parents)[:_MAX_PARENT_WALK]
+    for directory in search_dirs:
+        env_file = directory / ".env"
+        if env_file.is_file():
+            break
+    else:
+        return []
+
+    tokens: list[str] = []
+    with env_file.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key in ("GITHUB_TOKENS", "GITHUB_TOKEN", "GH_TOKEN"):
+                value = value.strip().strip("'\"")
+                for tok in value.split(","):
+                    tok = tok.strip()
+                    if tok:
+                        tokens.append(tok)
+    return tokens
+
+
+def find_default_token_file() -> Path:
+    """Try to find a default token file in the current directory."""
+    possible_files = ["token", "tokens", "token.txt", "tokens.txt"]
+    for file_name in possible_files:
+        file_path = Path.cwd() / file_name
+        if file_path.exists() and file_path.is_file():
+            return file_path
+    return None
+
+
+def get_tokens(tokens) -> list[str]:
+    """Resolve tokens from CLI args, .env file, env vars, or token files."""
+    if tokens is None:
+        env_tokens = _load_env_tokens()
+        if env_tokens:
+            _logger.info(f"Loaded {len(env_tokens)} token(s) from .env file")
+            return env_tokens
+
+        default_token_file = find_default_token_file()
+        if default_token_file is None:
+            for var in ("GITHUB_TOKENS", "GITHUB_TOKEN", "GH_TOKEN"):
+                val = os.environ.get(var, "").strip()
+                if val:
+                    env_list = [t.strip() for t in val.split(",") if t.strip()]
+                    if env_list:
+                        _logger.info(f"Loaded {len(env_list)} token(s) from ${var}")
+                        return env_list
+            raise AuroraPipelineError(
+                "No tokens provided. Pass --tokens, set GITHUB_TOKENS in .env, or create a tokens file."
+            )
+        tokens = default_token_file
+    else:
+        tokens = tokens[0] if len(tokens) == 1 else tokens
+
+    try:
+        token_list = parse_tokens(tokens)
+        if not token_list:
+            raise ValueError("Token list is empty after parsing.")
+    except ValueError as e:
+        _logger.error(f"Error: {e}")
+        raise AuroraPipelineError(str(e)) from e
+
+    if not token_list:
+        raise AuroraPipelineError("No tokens provided.")
+    return token_list
+
+
+def optional_int(value):
+    """argparse type for optional integer arguments."""
+    if value.lower() == "none" or value.lower() == "null" or value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid integer value: {value}")
