@@ -1,0 +1,195 @@
+:root {
+    --aurora-bg: #f8f9fb;
+    --aurora-surface: #ffffff;
+    --aurora-border: #e2e6ea;
+    --aurora-border-light: #eef0f3;
+    --aurora-text: #1a1d21;
+    --aurora-text-secondary: #636b75;
+    --aurora-text-muted: #9ba3ad;
+    --aurora-primary: #2563eb;
+    --aurora-success: #16a34a;
+    --aurora-success-bg: #f0fdf4;
+    --aurora-warning: #d97706;
+    --aurora-warning-bg: #fffbeb;
+    --aurora-danger: #dc2626;
+    --aurora-danger-bg: #fef2f2;
+    --aurora-info: #0891b2;
+    --aurora-info-bg: #ecfeff;
+    --aurora-radius: 6px;
+    --aurora-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.aurora-card {
+    background: var(--aurora-surface);
+    border: 1px solid var(--aurora-border);
+    border-radius: var(--aurora-radius);
+    box-shadow: var(--aurora-shadow);
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.aurora-card-header {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    background: #f9fafb;
+    border-bottom: 1px solid var(--aurora-border-light);
+    color: var(--aurora-text-secondary);
+}
+
+.aurora-card-header-active {
+    background: #eff6ff;
+    color: var(--aurora-primary);
+    border-bottom-color: #bfdbfe;
+}
+
+.aurora-card-header-done {
+    background: var(--aurora-success-bg);
+    color: var(--aurora-success);
+    border-bottom-color: #bbf7d0;
+}
+
+.aurora-card-header-failed {
+    background: var(--aurora-danger-bg);
+    color: var(--aurora-danger);
+    border-bottom-color: #fecaca;
+}
+
+.aurora-card-body {
+    padding: 14px;
+
+    &.p-0 {
+        padding: 0;
+    }
+
+    .btn-link {
+        padding: 0;
+        font-size: 13px;
+    }
+}
+
+.aurora-section-divider {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--aurora-text-muted);
+    padding: 16px 0 6px;
+    margin-top: 8px;
+    border-bottom: 2px solid var(--aurora-border);
+    margin-bottom: 12px;
+}
+
+.aurora-stage-locked {
+    opacity: 0.55;
+    border-style: dashed;
+    background: #fafbfc;
+
+    .aurora-card-header {
+        background: #f3f4f6;
+        color: var(--aurora-text-muted);
+    }
+
+    .aurora-card-body {
+        pointer-events: none;
+    }
+}
+
+.aurora-polling-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--aurora-info);
+    background: var(--aurora-info-bg);
+    border: 1px solid #a5f3fc;
+    border-radius: 12px;
+}
+
+.aurora-pipeline-form {
+    .o_form_sheet_bg {
+        max-width: 100%;
+        margin-right: 0;
+    }
+
+    .o_form_sheet {
+        max-width: 100%;
+    }
+
+    .o_stat_info .o_stat_value {
+        font-size: 20px;
+    }
+}
+
+.aurora-step-logs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.aurora-step-log-entry {
+    border: 1px solid var(--aurora-border-light);
+    border-radius: var(--aurora-radius);
+    overflow: hidden;
+}
+
+.aurora-step-log-label {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--aurora-text-secondary);
+    background: #f4f5f7;
+    border-bottom: 1px solid var(--aurora-border-light);
+}
+
+.aurora-step-log-entry .aurora-log-container {
+    max-height: 150px;
+    border-radius: 0 0 var(--aurora-radius) var(--aurora-radius);
+}
+
+.aurora-log-container {
+    max-height: 400px;
+    overflow-y: auto;
+    background: #1e1e2e;
+    border-radius: 0 0 var(--aurora-radius) var(--aurora-radius);
+
+    .o_field_widget {
+        margin: 0;
+        color: #e4e4e7;
+    }
+
+    textarea,
+    .o_field_text .o_input,
+    .o_field_text .o_readonly,
+    .o_field_text span,
+    .o_field_widget textarea[readonly],
+    .o_field_widget .o_text_overflow {
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #e4e4e7 !important;
+        background: transparent !important;
+        border: none;
+        resize: none;
+        white-space: pre;
+        overflow-x: auto;
+        padding: 12px 14px;
+        min-height: unset;
+    }
+}
+
+.aurora-section-sublabel {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--aurora-text-secondary);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--aurora-border-light);
+}

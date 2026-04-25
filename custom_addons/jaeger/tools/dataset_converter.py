@@ -198,10 +198,12 @@ class MetaSchemaConverter:
             raise ValueError(f"Instance {instance.name} has no base_sha")
         if not instance.language:
             raise ValueError(f"Instance {instance.name} has no language")
-        if not instance.f2p_tests_json or instance.f2p_tests_json == "{}":
+        has_f2p = instance.f2p_tests_json and instance.f2p_tests_json != "{}"
+        has_n2p = instance.n2p_tests_json and instance.n2p_tests_json != "{}"
+        if not has_f2p and not has_n2p:
             raise ValueError(
-                f"Instance {instance.name} has no f2p_tests "
-                "(fail-to-pass tests required for delivery)",
+                f"Instance {instance.name} has no f2p_tests and no n2p_tests "
+                "(at least one required for delivery)",
             )
 
     # -- Field Converters -----------------------------------------------------

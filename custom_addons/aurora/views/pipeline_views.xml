@@ -1,0 +1,538 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_pipeline_view_list" model="ir.ui.view">
+        <field name="name">aurora.pipeline.list</field>
+        <field name="model">aurora.pipeline</field>
+        <field name="arch" type="xml">
+            <list string="Pipeline Runs"
+                  decoration-success="stage == 'done'"
+                  decoration-danger="stage == 'failed'"
+                  decoration-info="stage not in ('draft','done','failed')">
+                <field name="name"/>
+                <field name="github_org"/>
+                <field name="github_repo"/>
+                <field name="detected_lang" optional="show"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="stage" widget="badge"
+                       decoration-success="stage == 'done'"
+                       decoration-danger="stage == 'failed'"
+                       decoration-info="stage not in ('draft','done','failed')"
+                       decoration-muted="stage == 'draft'"/>
+                <field name="phase1_status" widget="badge" string="P1"
+                       decoration-success="phase1_status == 'done'"
+                       decoration-danger="phase1_status == 'failed'"
+                       decoration-info="phase1_status == 'running'"
+                       optional="show"/>
+                <field name="phase2_status" widget="badge" string="P2"
+                       decoration-success="phase2_status == 'done'"
+                       decoration-danger="phase2_status == 'failed'"
+                       decoration-info="phase2_status == 'running'"
+                       optional="show"/>
+                <field name="phase3_status" widget="badge" string="P3"
+                       decoration-success="phase3_status == 'done'"
+                       decoration-danger="phase3_status == 'failed'"
+                       decoration-info="phase3_status == 'running'"
+                       optional="hide"/>
+                <field name="dataset_count" optional="hide"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="aurora_pipeline_view_form" model="ir.ui.view">
+        <field name="name">aurora.pipeline.form</field>
+        <field name="model">aurora.pipeline</field>
+        <field name="arch" type="xml">
+            <form string="Pipeline Run" class="aurora-pipeline-form">
+                <header>
+                    <button name="action_run_pipeline"
+                            string="Run Pipeline"
+                            type="object"
+                            class="btn-primary"
+                            invisible="stage != 'draft'"/>
+                    <button name="action_cancel"
+                            string="Cancel"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="stage in ('draft', 'done', 'failed')"
+                            confirm="Cancel this pipeline run?"/>
+                    <button name="action_reset_to_draft"
+                            string="Reset to Draft"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="stage not in ('done', 'failed')"/>
+                    <field name="stage"
+                           widget="statusbar"
+                           statusbar_visible="draft,fetch_prs,phase2_build,phase3_infer,done"/>
+                </header>
+
+                <div class="alert alert-danger" role="alert"
+                     invisible="stage != 'failed'">
+                    <strong>Pipeline failed.</strong>
+                    <span invisible="not progress_text" class="ms-1">
+                        (<field name="progress_text" nolabel="1" class="d-inline"/>)
+                    </span>
+                    Check the execution log and chatter below for details.
+                </div>
+                <div class="alert alert-success" role="alert"
+                     invisible="stage != 'done'">
+                    <strong>Pipeline complete.</strong> Download outputs from each phase below.
+                </div>
+
+                <sheet>
+                    <field name="active" invisible="1"/>
+                    <field name="is_admin" invisible="1"/>
+                    <field name="use_s3" invisible="1"/>
+                    <field name="phase2_has_registry" invisible="1"/>
+                    <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
+
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" icon="fa-database"
+                                type="object" name="action_download_phase_file"
+                                context="{'phase_number': 1}"
+                                invisible="not phase1_file">
+                            <field name="dataset_count" string="Records" widget="statinfo"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-docker"
+                                type="object" name="action_download_phase_file"
+                                context="{'phase_number': 2}"
+                                invisible="not phase2_file">
+                            <field name="phase2_resolved_count" string="Resolved" widget="statinfo"/>
+                        </button>
+                    </div>
+
+                    <widget name="web_ribbon" title="Failed"
+                            bg_color="text-bg-danger"
+                            invisible="stage != 'failed'"/>
+                    <widget name="web_ribbon" title="Done"
+                            bg_color="text-bg-success"
+                            invisible="stage != 'done'"/>
+
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group string="Repository">
+                            <field name="github_org"/>
+                            <field name="github_repo"/>
+                            <field name="skip_pr_fetch"/>
+                            <field name="detected_lang" invisible="stage == 'draft'"/>
+                        </group>
+                        <group string="Assignment">
+                            <field name="user_id" widget="many2one_avatar_user"/>
+                        </group>
+                    </group>
+
+                    <div class="alert alert-info" role="alert"
+                         invisible="stage in ('draft', 'done', 'failed')">
+                        <strong>Pipeline is running.</strong>
+                        <field name="progress_text" nolabel="1" class="d-inline ms-2"/>
+                        <span class="ms-3 text-muted">
+                            Last heartbeat: <field name="last_heartbeat" nolabel="1" widget="datetime" class="d-inline"/>
+                        </span>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════ -->
+                    <!--            PHASE 1 — Data Collection          -->
+                    <!-- ══════════════════════════════════════════════ -->
+                    <div class="aurora-section-divider">Phase 1 — Data Collection</div>
+
+                    <div class="aurora-card aurora-stage-locked"
+                         invisible="stage != 'draft'">
+                        <div class="aurora-card-header">Data Collection Pipeline</div>
+                        <div class="aurora-card-body text-muted fst-italic">
+                            Waiting to start… Fetches PRs, filters, discovers tags, groups, fetches issues, builds dataset.
+                        </div>
+                    </div>
+
+                    <div class="aurora-card"
+                         invisible="stage == 'draft'">
+                        <div class="aurora-card-header aurora-card-header-active"
+                             invisible="phase1_status != 'running'">Phase 1 — Running</div>
+                        <div class="aurora-card-header aurora-card-header-done"
+                             invisible="phase1_status != 'done'">Phase 1 — Complete</div>
+                        <div class="aurora-card-header aurora-card-header-failed"
+                             invisible="phase1_status != 'failed'">Phase 1 — Failed</div>
+                        <div class="aurora-card-header"
+                             invisible="phase1_status not in ('idle',)">Phase 1 — Idle</div>
+                        <div class="aurora-card-body">
+                            <group>
+                                <group string="Steps">
+                                    <field name="step1_status" widget="badge" string="1. Fetch PRs"
+                                           decoration-success="step1_status == 'done'"
+                                           decoration-danger="step1_status == 'failed'"
+                                           decoration-info="step1_status == 'running'"
+                                           decoration-muted="step1_status == 'idle'"/>
+                                    <field name="step2_status" widget="badge" string="2. Filter PRs"
+                                           decoration-success="step2_status == 'done'"
+                                           decoration-danger="step2_status == 'failed'"
+                                           decoration-info="step2_status == 'running'"
+                                           decoration-muted="step2_status == 'idle'"/>
+                                    <field name="step3_status" widget="badge" string="3. Discover Tags"
+                                           decoration-success="step3_status == 'done'"
+                                           decoration-danger="step3_status == 'failed'"
+                                           decoration-info="step3_status == 'running'"
+                                           decoration-muted="step3_status == 'idle'"/>
+                                    <field name="step4_status" widget="badge" string="4. Group PRs"
+                                           decoration-success="step4_status == 'done'"
+                                           decoration-danger="step4_status == 'failed'"
+                                           decoration-info="step4_status == 'running'"
+                                           decoration-muted="step4_status == 'idle'"/>
+                                    <field name="step5_status" widget="badge" string="5. Fetch Issues"
+                                           decoration-success="step5_status == 'done'"
+                                           decoration-danger="step5_status == 'failed'"
+                                           decoration-info="step5_status == 'running'"
+                                           decoration-muted="step5_status == 'idle'"/>
+                                    <field name="step6_status" widget="badge" string="6. Build Dataset"
+                                           decoration-success="step6_status == 'done'"
+                                           decoration-danger="step6_status == 'failed'"
+                                           decoration-info="step6_status == 'running'"
+                                           decoration-muted="step6_status == 'idle'"/>
+                                </group>
+                                <group string="Results">
+                                    <field name="pr_count" invisible="not pr_count"/>
+                                    <field name="filtered_pr_count" invisible="not filtered_pr_count"/>
+                                    <field name="tag_count" invisible="not tag_count"/>
+                                    <field name="group_count" invisible="not group_count"/>
+                                    <field name="issue_count" invisible="not issue_count"/>
+                                    <field name="dataset_count" invisible="not dataset_count"/>
+                                    <field name="phase1_file" invisible="not phase1_file" string="Output JSONL" widget="char"/>
+                                </group>
+                            </group>
+
+                            <div class="aurora-step-logs mt-3" invisible="step1_status == 'idle'">
+                                <div class="aurora-step-log-entry" invisible="not step1_log">
+                                    <div class="aurora-step-log-label">Step 1 — Fetch PRs</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step1_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="aurora-step-log-entry" invisible="not step2_log">
+                                    <div class="aurora-step-log-label">Step 2 — Filter PRs</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step2_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="aurora-step-log-entry" invisible="not step3_log">
+                                    <div class="aurora-step-log-label">Step 3 — Discover Tags</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step3_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="aurora-step-log-entry" invisible="not step4_log">
+                                    <div class="aurora-step-log-label">Step 4 — Group PRs</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step4_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="aurora-step-log-entry" invisible="not step5_log">
+                                    <div class="aurora-step-log-label">Step 5 — Fetch Issues</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step5_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="aurora-step-log-entry" invisible="not step6_log">
+                                    <div class="aurora-step-log-label">Step 6 — Build Dataset</div>
+                                    <div class="aurora-log-container">
+                                        <field name="step6_log" widget="text" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-2" invisible="not phase1_file">
+                                <button name="action_view_phase_file"
+                                        string="View JSONL"
+                                        type="object"
+                                        icon="fa-eye"
+                                        class="btn-sm btn-secondary me-2"
+                                        context="{'phase_number': 1}"/>
+                                <button name="action_download_phase_file"
+                                        string="Download JSONL"
+                                        type="object"
+                                        icon="fa-download"
+                                        class="btn-sm btn-primary"
+                                        context="{'phase_number': 1}"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════ -->
+                    <!--       PHASE 2 — Docker Build &amp; Test        -->
+                    <!-- ══════════════════════════════════════════════ -->
+                    <div class="aurora-section-divider">Phase 2 — Docker Build &amp; Test Execution</div>
+
+                    <div class="aurora-card aurora-stage-locked"
+                         invisible="phase1_status == 'done'">
+                        <div class="aurora-card-header">Docker Build &amp; Test</div>
+                        <div class="aurora-card-body text-muted fst-italic">
+                            Waiting for Phase 1 to complete…
+                        </div>
+                    </div>
+
+                    <div class="aurora-card"
+                         invisible="phase1_status != 'done'">
+                        <div class="aurora-card-header aurora-card-header-active"
+                             invisible="phase2_status != 'running'">Phase 2 — Running</div>
+                        <div class="aurora-card-header aurora-card-header-done"
+                             invisible="phase2_status != 'done'">Phase 2 — Complete</div>
+                        <div class="aurora-card-header aurora-card-header-failed"
+                             invisible="phase2_status != 'failed'">Phase 2 — Failed</div>
+                         <div class="aurora-card-header"
+                              invisible="phase2_status not in ('idle',)">
+                            Phase 2 —
+                            <span invisible="phase2_has_registry">No Instance Registry</span>
+                            <span invisible="not phase2_has_registry">Ready</span>
+                        </div>
+                        <div class="aurora-card-body">
+                            <div class="alert alert-warning mb-3" role="alert"
+                                 invisible="phase2_has_registry or phase2_status != 'idle'">
+                                <strong>No instance registry found for this repository.</strong>
+                                <span class="d-block mt-1">
+                                    Phase 2 requires a registry file in the multi-swe-bench harness
+                                    to define Docker image builds, test execution scripts, and log parsing.
+                                </span>
+                                <button name="action_create_registry"
+                                        string="Create Instance Registry"
+                                        type="object"
+                                        icon="fa-plus-circle"
+                                        class="btn-sm btn-warning mt-2"/>
+                            </div>
+                            <group>
+                                <group string="Status">
+                                    <field name="phase2_status" widget="badge"
+                                           decoration-success="phase2_status == 'done'"
+                                           decoration-danger="phase2_status == 'failed'"
+                                           decoration-info="phase2_status == 'running'"/>
+                                    <field name="phase2_image_count" invisible="not phase2_image_count"/>
+                                    <field name="phase2_instance_count" invisible="not phase2_instance_count"/>
+                                    <field name="phase2_resolved_count" invisible="not phase2_resolved_count"/>
+                                </group>
+                                <group string="Output">
+                                    <field name="phase2_file" invisible="not phase2_file" string="Report JSONL" widget="char"/>
+                                </group>
+                            </group>
+                            <div class="mt-2" invisible="not phase2_file">
+                                <button name="action_view_phase_file"
+                                        string="View Report"
+                                        type="object"
+                                        icon="fa-eye"
+                                        class="btn-sm btn-secondary me-2"
+                                        context="{'phase_number': 2}"/>
+                                <button name="action_download_phase_file"
+                                        string="Download Report"
+                                        type="object"
+                                        icon="fa-download"
+                                        class="btn-sm btn-primary"
+                                        context="{'phase_number': 2}"/>
+                            </div>
+
+                            <div class="mt-3" invisible="not phase2_result_ids">
+                                <div class="aurora-section-sublabel mb-2">Instance Results</div>
+                                <field name="phase2_result_ids" nolabel="1" readonly="1">
+                                    <list decoration-success="valid == True"
+                                          decoration-danger="valid == False and error_msg"
+                                          decoration-warning="valid == False and not error_msg"
+                                          editable="bottom"
+                                          no_open="1"
+                                          create="0" delete="0">
+                                        <field name="instance_id" string="Instance"/>
+                                        <field name="status_icon" string="Status"/>
+                                        <field name="f2p_count" string="F2P"/>
+                                        <field name="p2p_count" string="P2P"/>
+                                        <field name="s2p_count" string="S2P"/>
+                                        <field name="n2p_count" string="N2P"/>
+                                        <field name="fixed_count" string="Fixed"/>
+                                        <field name="error_msg" string="Error" optional="hide"/>
+                                        <field name="valid" column_invisible="1"/>
+                                    </list>
+                                </field>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════ -->
+                    <!--       PHASE 3 — Trajectory Generation         -->
+                    <!-- ══════════════════════════════════════════════ -->
+                    <div class="aurora-section-divider">Phase 3 — Trajectory Generation</div>
+
+                    <div class="aurora-card aurora-stage-locked"
+                         invisible="phase2_status == 'done'">
+                        <div class="aurora-card-header">Trajectory Generation</div>
+                        <div class="aurora-card-body text-muted fst-italic">
+                            Waiting for Phase 2 to complete…
+                        </div>
+                    </div>
+
+                    <div class="aurora-card"
+                         invisible="phase2_status != 'done'">
+                        <div class="aurora-card-header aurora-card-header-active"
+                             invisible="phase3_status != 'running'">Phase 3 — Running</div>
+                        <div class="aurora-card-header aurora-card-header-done"
+                             invisible="phase3_status != 'done'">Phase 3 — Complete</div>
+                        <div class="aurora-card-header aurora-card-header-failed"
+                             invisible="phase3_status != 'failed'">Phase 3 — Failed</div>
+                        <div class="aurora-card-header"
+                             invisible="phase3_status not in ('idle',)">Phase 3 — Not Yet Implemented</div>
+                        <div class="aurora-card-body">
+                            <group>
+                                <group string="Status">
+                                    <field name="phase3_status" widget="badge"
+                                           decoration-success="phase3_status == 'done'"
+                                           decoration-danger="phase3_status == 'failed'"
+                                           decoration-info="phase3_status == 'running'"/>
+                                    <field name="phase3_inference_count" invisible="not phase3_inference_count"/>
+                                    <field name="phase3_pass_at_k" invisible="not phase3_pass_at_k"/>
+                                </group>
+                                <group string="Output">
+                                    <field name="phase3_file" invisible="not phase3_file" string="Output" widget="char"/>
+                                </group>
+                            </group>
+                            <div class="mt-2" invisible="not phase3_file">
+                                <button name="action_view_phase_file"
+                                        string="View Output"
+                                        type="object"
+                                        icon="fa-eye"
+                                        class="btn-sm btn-secondary me-2"
+                                        context="{'phase_number': 3}"/>
+                                <button name="action_download_phase_file"
+                                        string="Download Output"
+                                        type="object"
+                                        icon="fa-download"
+                                        class="btn-sm btn-primary"
+                                        context="{'phase_number': 3}"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Execution Log ─────────────────────────── -->
+                    <div class="aurora-section-divider">Execution Log</div>
+                    <div class="aurora-card">
+                        <div class="aurora-card-header">Log Output</div>
+                        <div class="aurora-card-body p-0">
+                            <div class="aurora-log-container">
+                                <field name="log" widget="text" readonly="1" nolabel="1"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Output Paths ──────────────────────────── -->
+                    <div class="aurora-section-divider">Output Paths</div>
+                    <div class="aurora-card">
+                        <div class="aurora-card-header">Details</div>
+                        <div class="aurora-card-body">
+                            <group>
+                                <field name="output_dir"/>
+                                <field name="job_name" invisible="not is_admin or not job_name"/>
+                                <field name="dataset_url" widget="url" invisible="not dataset_url"/>
+                                <field name="dataset_filename" invisible="not dataset_filename"/>
+                            </group>
+                        </div>
+                    </div>
+
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_pipeline_view_search" model="ir.ui.view">
+        <field name="name">aurora.pipeline.search</field>
+        <field name="model">aurora.pipeline</field>
+        <field name="arch" type="xml">
+            <search string="Aurora Pipeline">
+                <field name="name"/>
+                <field name="github_org"/>
+                <field name="github_repo"/>
+                <field name="user_id"/>
+                <filter string="My Runs" name="my_runs"
+                        domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter string="Running" name="running"
+                        domain="[('stage', 'not in', ['draft', 'done', 'failed'])]"/>
+                <filter string="Done" name="done"
+                        domain="[('stage', '=', 'done')]"/>
+                <filter string="Failed" name="failed"
+                        domain="[('stage', '=', 'failed')]"/>
+                <separator/>
+                <filter string="Phase 2 Done" name="phase2_done"
+                        domain="[('phase2_status', '=', 'done')]"/>
+                <group>
+                    <filter string="Stage" name="group_stage" context="{'group_by': 'stage'}"/>
+                    <filter string="Assigned To" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Organisation" name="group_org" context="{'group_by': 'github_org'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="aurora_pipeline_preview_form" model="ir.ui.view">
+        <field name="name">aurora.pipeline.preview.form</field>
+        <field name="model">aurora.pipeline.preview</field>
+        <field name="arch" type="xml">
+            <form string="JSONL Preview">
+                <sheet>
+                    <group>
+                        <field name="phase_label" string="Phase"/>
+                        <field name="preview_count" string="Showing"/>
+                        <field name="record_count" string="Total Records"/>
+                    </group>
+                    <separator/>
+                    <div class="aurora-log-container" style="max-height:500px; overflow-y:auto;">
+                        <field name="preview_text" widget="text" readonly="1" nolabel="1"/>
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Close" class="btn-primary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_registry_wizard_form" model="ir.ui.view">
+        <field name="name">aurora.registry.wizard.form</field>
+        <field name="model">aurora.registry.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Instance Registry">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="pipeline_id" invisible="1"/>
+                            <field name="org"/>
+                            <field name="repo"/>
+                            <field name="lang"/>
+                            <field name="filename"/>
+                        </group>
+                    </group>
+                    <separator string="Registry Code"/>
+                    <field name="registry_content" widget="ace" nolabel="1"
+                           options="{'mode': 'python'}"
+                           style="min-height: 500px;"/>
+                </sheet>
+                <footer>
+                    <button name="action_save_registry"
+                            string="Save Registry"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_pipeline_action" model="ir.actions.act_window">
+        <field name="name">Pipeline Runs</field>
+        <field name="res_model">aurora.pipeline</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="aurora_pipeline_view_search"/>
+        <field name="context">{'search_default_my_runs': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Start a new Aurora Pipeline run
+            </p>
+            <p>Configure a GitHub org/repo and run the full 3-phase pipeline: Data Collection → Docker Build → Trajectory Generation.</p>
+        </field>
+    </record>
+
+</odoo>

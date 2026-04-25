@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_aurora_pipeline" model="ir.sequence">
+            <field name="name">Aurora Pipeline</field>
+            <field name="code">aurora.pipeline</field>
+            <field name="prefix">AUR-</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="ir_cron_aurora_watchdog" model="ir.cron">
+            <field name="name">Aurora: Stalled Pipeline Watchdog</field>
+            <field name="model_id" ref="model_aurora_pipeline"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_watchdog_stalled()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_aurora_reconcile" model="ir.cron">
+            <field name="name">Aurora: Reconcile K8s Pipeline Jobs</field>
+            <field name="model_id" ref="model_aurora_pipeline"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_reconcile_pipelines()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_token_health_check" model="ir.cron">
+            <field name="name">Aurora: Token Health Check</field>
+            <field name="model_id" ref="model_aurora_github_token"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_token_health_check()</field>
+            <field name="interval_number">10</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_token_expiry_alert" model="ir.cron">
+            <field name="name">Aurora: Token Expiry Alert</field>
+            <field name="model_id" ref="model_aurora_github_token"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_token_expiry_alert()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_token_orphan_reclaim" model="ir.cron">
+            <field name="name">Aurora: Token Orphan Reclaim</field>
+            <field name="model_id" ref="model_aurora_github_token"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_token_orphan_reclaim()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_pool_metrics" model="ir.cron">
+            <field name="name">Aurora: Pool Metrics</field>
+            <field name="model_id" ref="model_aurora_github_token"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_pool_metrics()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,10 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_aurora_pipeline_admin,aurora.pipeline.admin,model_aurora_pipeline,group_aurora_admin,1,1,1,1
+access_aurora_pipeline_user,aurora.pipeline.user,model_aurora_pipeline,group_aurora_user,1,1,0,0
+access_aurora_github_token_admin,aurora.github.token.admin,model_aurora_github_token,group_aurora_admin,1,1,1,1
+access_aurora_pool_metrics_admin,aurora.pool.metrics.admin,model_aurora_pool_metrics,group_aurora_admin,1,1,1,1
+access_aurora_import_tokens_wizard_admin,aurora.import.tokens.wizard.admin,model_aurora_import_tokens_wizard,group_aurora_admin,1,1,1,1
+access_aurora_pipeline_preview_admin,aurora.pipeline.preview.admin,model_aurora_pipeline_preview,group_aurora_admin,1,1,1,1
+access_aurora_registry_wizard_admin,aurora.registry.wizard.admin,model_aurora_registry_wizard,group_aurora_admin,1,1,1,1
+access_aurora_pipeline_result_admin,aurora.pipeline.result.admin,model_aurora_pipeline_result,group_aurora_admin,1,1,1,1
+access_aurora_pipeline_result_user,aurora.pipeline.result.user,model_aurora_pipeline_result,group_aurora_user,1,0,0,0

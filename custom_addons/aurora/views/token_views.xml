@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!--                    Token List View                            -->
+    <!-- ============================================================ -->
+    <record id="view_aurora_github_token_list" model="ir.ui.view">
+        <field name="name">aurora.github.token.list</field>
+        <field name="model">aurora.github.token</field>
+        <field name="arch" type="xml">
+            <list default_group_by="state" multi_edit="1">
+                <field name="name"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'active'"
+                       decoration-warning="state in ('exhausted', 'quarantined')"
+                       decoration-danger="state in ('expired', 'revoked')"
+                       decoration-info="state == 'draft'"/>
+                <field name="rate_limit_remaining"
+                       decoration-success="rate_limit_remaining &gt; 1000"
+                       decoration-warning="rate_limit_remaining &gt; 100 and rate_limit_remaining &lt;= 1000"
+                       decoration-danger="rate_limit_remaining &lt;= 100"/>
+                <field name="rate_limit_reset"/>
+                <field name="expires_at"/>
+                <field name="leased_by_run_id"/>
+                <field name="last_health_check"/>
+                <field name="consecutive_failure_count"
+                       decoration-danger="consecutive_failure_count &gt; 0"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--                    Token Form View                            -->
+    <!-- ============================================================ -->
+    <record id="view_aurora_github_token_form" model="ir.ui.view">
+        <field name="name">aurora.github.token.form</field>
+        <field name="model">aurora.github.token</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,active,exhausted"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="token" password="True"/>
+                            <field name="token_hash"/>
+                            <field name="expires_at"/>
+                        </group>
+                        <group>
+                            <field name="rate_limit_remaining"/>
+                            <field name="rate_limit_reset"/>
+                            <field name="leased_by_run_id"/>
+                            <field name="leased_at"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="last_health_check"/>
+                            <field name="last_heartbeat"/>
+                            <field name="consecutive_failure_count"/>
+                        </group>
+                        <group>
+                            <field name="imported_at"/>
+                            <field name="imported_by"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--                    Token Search View                          -->
+    <!-- ============================================================ -->
+    <record id="view_aurora_github_token_search" model="ir.ui.view">
+        <field name="name">aurora.github.token.search</field>
+        <field name="model">aurora.github.token</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="state"/>
+                <filter name="active_tokens" string="Active" domain="[('state', '=', 'active')]"/>
+                <filter name="draft_tokens" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="exhausted_tokens" string="Exhausted" domain="[('state', '=', 'exhausted')]"/>
+                <filter name="expired_tokens" string="Expired" domain="[('state', '=', 'expired')]"/>
+                <filter name="quarantined_tokens" string="Quarantined" domain="[('state', '=', 'quarantined')]"/>
+                <filter name="revoked_tokens" string="Revoked" domain="[('state', '=', 'revoked')]"/>
+                <separator/>
+                <filter name="leased" string="Currently Leased" domain="[('leased_by_run_id', '!=', False)]"/>
+                <filter name="available" string="Available" domain="[('state', '=', 'active'), ('leased_by_run_id', '=', False)]"/>
+                <filter name="expiring_soon" string="Expiring Soon" domain="[('expires_at', '!=', False)]"/>
+                <separator/>
+                <group>
+                    <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                    <filter name="group_imported_by" string="Imported By" context="{'group_by': 'imported_by'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--                    Token Action                               -->
+    <!-- ============================================================ -->
+    <record id="action_aurora_github_token" model="ir.actions.act_window">
+        <field name="name">Token Pool</field>
+        <field name="res_model">aurora.github.token</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_aurora_github_token_search"/>
+        <field name="context">{'search_default_group_state': 1}</field>
+    </record>
+
+    <record id="action_server_import_tokens" model="ir.actions.server">
+        <field name="name">Import Tokens</field>
+        <field name="model_id" ref="model_aurora_github_token"/>
+        <field name="binding_model_id" ref="model_aurora_github_token"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = {
+            'type': 'ir.actions.act_window',
+            'res_model': 'aurora.import.tokens.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+        }</field>
+    </record>
+
+    <record id="action_server_export_tokens" model="ir.actions.server">
+        <field name="name">Export Tokens</field>
+        <field name="model_id" ref="model_aurora_github_token"/>
+        <field name="binding_model_id" ref="model_aurora_github_token"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = env['aurora.github.token'].action_export_tokens()</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--                    Import Wizard Views                        -->
+    <!-- ============================================================ -->
+    <record id="view_aurora_import_tokens_wizard_form" model="ir.ui.view">
+        <field name="name">aurora.import.tokens.wizard.form</field>
+        <field name="model">aurora.import.tokens.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="token_file" filename="token_filename"/>
+                    <field name="token_filename" invisible="1"/>
+                </group>
+                <group invisible="not result_message">
+                    <field name="result_message" nolabel="1" widget="text"/>
+                </group>
+                <footer>
+                    <button string="Import" name="action_import" type="object"
+                            class="btn-primary" invisible="result_message"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_aurora_import_tokens_wizard" model="ir.actions.act_window">
+        <field name="name">Import Tokens</field>
+        <field name="res_model">aurora.import.tokens.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>
