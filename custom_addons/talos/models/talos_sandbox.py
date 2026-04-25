@@ -570,7 +570,6 @@ class TalosSandbox(models.Model):
     # delivered trajectory JSON.
     _INTERNAL_MSG_FIELDS = {
         "sender",
-        "thinkingSignature",
         "api",
         "provider",
         "model",
