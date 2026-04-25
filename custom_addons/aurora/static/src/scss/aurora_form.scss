@@ -183,3 +183,13 @@
         min-height: unset;
     }
 }
+
+.aurora-section-sublabel {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--aurora-text-secondary);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--aurora-border-light);
+}

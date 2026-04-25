@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="aurora_menu_root"
+              name="Aurora"
+              web_icon="aurora,static/description/icon.png"
+              sequence="200"/>
+
+    <menuitem id="aurora_menu_pipeline_parent"
+              name="Pipeline"
+              parent="aurora_menu_root"
+              sequence="10"
+              groups="aurora.group_aurora_user"/>
+
+    <menuitem id="aurora_menu_pipeline_runs"
+              name="Pipeline Runs"
+              parent="aurora_menu_pipeline_parent"
+              action="aurora_pipeline_action"
+              sequence="10"/>
+
+    <menuitem id="aurora_menu_config"
+              name="Configuration"
+              parent="aurora_menu_root"
+              sequence="90"
+              groups="aurora.group_aurora_admin"/>
+
+    <menuitem id="aurora_menu_token_pool"
+              name="Token Pool"
+              parent="aurora_menu_config"
+              action="action_aurora_github_token"
+              sequence="5"/>
+
+    <menuitem id="aurora_menu_import_tokens"
+              name="Import Tokens"
+              parent="aurora_menu_config"
+              action="action_aurora_import_tokens_wizard"
+              sequence="6"/>
+
+    <menuitem id="aurora_menu_settings"
+              name="Settings"
+              parent="aurora_menu_config"
+              action="base_setup.action_general_configuration"
+              sequence="10"/>
+</odoo>

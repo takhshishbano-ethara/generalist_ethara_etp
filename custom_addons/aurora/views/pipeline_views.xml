@@ -327,6 +327,28 @@
                                         class="btn-sm btn-primary"
                                         context="{'phase_number': 2}"/>
                             </div>
+
+                            <div class="mt-3" invisible="not phase2_result_ids">
+                                <div class="aurora-section-sublabel mb-2">Instance Results</div>
+                                <field name="phase2_result_ids" nolabel="1" readonly="1">
+                                    <list decoration-success="valid == True"
+                                          decoration-danger="valid == False and error_msg"
+                                          decoration-warning="valid == False and not error_msg"
+                                          editable="bottom"
+                                          no_open="1"
+                                          create="0" delete="0">
+                                        <field name="instance_id" string="Instance"/>
+                                        <field name="status_icon" string="Status"/>
+                                        <field name="f2p_count" string="F2P"/>
+                                        <field name="p2p_count" string="P2P"/>
+                                        <field name="s2p_count" string="S2P"/>
+                                        <field name="n2p_count" string="N2P"/>
+                                        <field name="fixed_count" string="Fixed"/>
+                                        <field name="error_msg" string="Error" optional="hide"/>
+                                        <field name="valid" column_invisible="1"/>
+                                    </list>
+                                </field>
+                            </div>
                         </div>
                     </div>
 
