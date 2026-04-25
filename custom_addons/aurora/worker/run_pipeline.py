@@ -189,15 +189,66 @@ def _post_chatter(registry, uid: Optional[int], rec_id: int, body: str) -> None:
             cr.close()
 
 
+def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
+    """Create aurora.pipeline.result records from Phase 2 output."""
+    cr = None
+    try:
+        from odoo import api, SUPERUSER_ID
+        cr = _open_cursor(registry)
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        Result = env["aurora.pipeline.result"]
+
+        Result.search([("pipeline_id", "=", rec_id)]).unlink()
+
+        for idx, r in enumerate(results):
+            f2p = r.get("f2p", [])
+            p2p = r.get("p2p", [])
+            s2p = r.get("s2p", [])
+            n2p = r.get("n2p", [])
+            fixed = r.get("fixed_tests", [])
+
+            Result.create({
+                "pipeline_id": rec_id,
+                "sequence": idx + 1,
+                "instance_id": r.get("instance_id", ""),
+                "valid": r.get("valid", False),
+                "f2p_count": len(f2p),
+                "p2p_count": len(p2p),
+                "s2p_count": len(s2p),
+                "n2p_count": len(n2p),
+                "fixed_count": len(fixed),
+                "f2p_tests": "\n".join(f2p) if f2p else "",
+                "p2p_tests": "\n".join(p2p) if p2p else "",
+                "s2p_tests": "\n".join(s2p) if s2p else "",
+                "n2p_tests": "\n".join(n2p) if n2p else "",
+                "fixed_tests": "\n".join(fixed) if fixed else "",
+                "error_msg": r.get("error_msg") or r.get("error", ""),
+            })
+
+        cr.commit()
+        _logger.info("Created %d Phase 2 result records for pipeline %d", len(results), rec_id)
+    except Exception:
+        _logger.exception("Failed to create Phase 2 result records for rec=%s", rec_id)
+        if cr:
+            try:
+                cr.rollback()
+            except Exception:
+                pass
+    finally:
+        if cr:
+            cr.close()
+
+
 def _read_config(registry, rec_id: int) -> dict[str, Any]:
     from odoo import api, SUPERUSER_ID
     from odoo.addons.aurora.models.credential_manager import get_encrypted_param_raw
+    from odoo.addons.aurora.tools.util import AuroraPipelineError
     cr = _open_cursor(registry)
     try:
         env = api.Environment(cr, SUPERUSER_ID, {})
         pipeline = env["aurora.pipeline"].browse(rec_id)
         if not pipeline.exists():
-            raise RuntimeError(f"Pipeline record {rec_id} not found")
+            raise AuroraPipelineError(f"Pipeline record {rec_id} not found")
 
         ICP = env["ir.config_parameter"].sudo()
         return {
@@ -284,10 +335,6 @@ def _build_s3_config(cfg: dict) -> dict:
     }
 
 
-def _is_s3_configured(s3_config: dict) -> bool:
-    return bool(s3_config.get("bucket") and s3_config.get("access_key") and s3_config.get("secret_key"))
-
-
 def run_pipeline(registry, db_name: str, rec_id: int):
     if _update_pipeline is None:
         _init_shared_functions()
@@ -304,6 +351,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
     from odoo.addons.aurora.tools.build_dataset import main as build_dataset
     from odoo.addons.aurora.tools.phase2_docker_build import main as run_phase2
     from odoo.addons.aurora.tools.phase2_docker_build import check_instance_registry
+    from odoo.addons.aurora.tools.util import AuroraPipelineError
     from odoo.addons.aurora.models import s3_storage
 
     tokens = None
@@ -359,13 +407,13 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         tokens = _lease_tokens(registry, rec_id, count=3)
         if not tokens:
-            raise RuntimeError(
+            raise AuroraPipelineError(
                 "No GitHub tokens available. Import tokens via Configuration -> Import Tokens."
             )
         _logger.info("Leased %d token(s) for pipeline %d", len(tokens), rec_id)
 
         s3_config = _build_s3_config(cfg)
-        use_s3 = _is_s3_configured(s3_config)
+        use_s3 = s3_storage.is_configured(s3_config)
 
         if use_s3:
             temp_dir = tempfile.mkdtemp(prefix="aurora_")
@@ -621,6 +669,8 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     f"{phase2_result['image_count']} images built"
                 )
                 _bus("phase2_report", "Phase 2 complete")
+
+                _create_phase2_results(registry, rec_id, phase2_result.get("results", []))
 
             except PipelineCancelled:
                 raise

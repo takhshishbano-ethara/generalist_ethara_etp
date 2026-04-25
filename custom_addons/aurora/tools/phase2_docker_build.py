@@ -394,10 +394,12 @@ def main(
                 results.append({
                     "instance_id": inst.pr.id,
                     "valid": is_valid,
-                    "f2p": list(report_data.get("f2p", [])),
-                    "p2p": list(report_data.get("p2p", [])),
-                    "s2p": list(report_data.get("s2p", [])),
-                    "n2p": list(report_data.get("n2p", [])),
+                    "f2p": list(report_data.get("f2p_tests", {}).keys()),
+                    "p2p": list(report_data.get("p2p_tests", {}).keys()),
+                    "s2p": list(report_data.get("s2p_tests", {}).keys()),
+                    "n2p": list(report_data.get("n2p_tests", {}).keys()),
+                    "fixed_tests": list(report_data.get("fixed_tests", {}).keys()),
+                    "error_msg": report_data.get("error_msg", ""),
                 })
             except Exception as exc:
                 _logger.warning("Failed to read report for %s: %s", inst.pr.id, exc)
