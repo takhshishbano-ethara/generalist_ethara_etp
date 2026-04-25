@@ -7,7 +7,7 @@ import uuid
 from github import Auth, Github, GithubException
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 
 from .pipeline_config import GITHUB_LANG_MAP, LANGUAGE_SELECTION
 from .credential_manager import get_encrypted_param
@@ -61,10 +61,6 @@ STEP_SELECTION = [
     ("done", "Done"),
     ("failed", "Failed"),
 ]
-
-PHASE1_STAGES = {"fetch_prs", "filter_prs", "discover_tags", "group_prs", "fetch_issues", "build_dataset"}
-PHASE2_STAGES = {"phase2_build", "phase2_test", "phase2_report"}
-PHASE3_STAGES = {"phase3_infer", "phase3_eval", "phase3_summary"}
 
 TERMINAL_STATES = {"done", "failed"}
 
@@ -177,6 +173,12 @@ class AuroraPipeline(models.Model):
     phase2_resolved_count = fields.Integer(string="Resolved Instances", readonly=True)
     phase2_log = fields.Text(string="Phase 2 Log", readonly=True)
     phase2_has_registry = fields.Boolean(string="Registry Available", readonly=True)
+    phase2_result_ids = fields.One2many(
+        "aurora.pipeline.result",
+        "pipeline_id",
+        string="Phase 2 Results",
+        readonly=True,
+    )
 
     phase3_status = fields.Selection(AUTOMATION_STATUS, default="idle", string="Phase 3 Status")
     phase3_file = fields.Char(string="Phase 3 Output", readonly=True)
@@ -634,19 +636,7 @@ class AuroraPipeline(models.Model):
             "step6_log": False,
             "log": False,
         })
-
-    def action_download_dataset(self):
-        self.ensure_one()
-        if not self.dataset_url:
-            raise UserError("No dataset available to download.")
-        url = self.dataset_url
-        if url.startswith("https://") and ".s3." in url:
-            url = self._presign_s3_url(url)
-        return {
-            "type": "ir.actions.act_url",
-            "url": url,
-            "target": "new",
-        }
+        self.phase2_result_ids.unlink()
 
     def action_download_phase_file(self):
         self.ensure_one()
@@ -719,7 +709,6 @@ class AuroraPipeline(models.Model):
 
     def action_create_registry(self):
         self.ensure_one()
-        import re as _re
 
         org = self.github_org or ""
         repo = self.github_repo or ""
@@ -731,12 +720,8 @@ class AuroraPipeline(models.Model):
                 "creating an instance registry."
             )
 
-        class_name = _re.sub(
-            r'[^a-zA-Z0-9]', '',
-            repo.replace('-', ' ').replace('_', ' ').title(),
-        )
-
-        from .registry_wizard import _TEMPLATE
+        from .registry_wizard import _TEMPLATE, _to_class_name
+        class_name = _to_class_name(repo)
         content = _TEMPLATE.format(
             class_name=class_name, org=org, repo=repo,
         )
@@ -757,27 +742,6 @@ class AuroraPipeline(models.Model):
             "res_model": "aurora.registry.wizard",
             "res_id": wiz.id,
             "view_mode": "form",
-            "target": "new",
-        }
-
-    def action_download_step_file(self):
-        self.ensure_one()
-        step_num = self.env.context.get("step_number")
-        if not step_num or step_num not in range(1, 7):
-            raise UserError("Invalid step number.")
-        file_url = getattr(self, f"step{step_num}_file", "")
-        if not file_url:
-            raise UserError(f"No file available for step {step_num}.")
-        if not file_url.startswith("http"):
-            raise UserError(
-                f"Step {step_num} file is a local path and cannot be downloaded "
-                "from the browser. Configure S3 storage for downloadable files."
-            )
-        if ".s3." in file_url:
-            file_url = self._presign_s3_url(file_url)
-        return {
-            "type": "ir.actions.act_url",
-            "url": file_url,
             "target": "new",
         }
 
