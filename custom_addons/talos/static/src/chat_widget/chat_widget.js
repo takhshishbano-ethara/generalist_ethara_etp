@@ -131,6 +131,7 @@ function _getSession(sandboxId) {
             _heartbeatTimer: null,
             _reconnectAttempts: 0,
             _reconnectTimer: null,
+            _thinkingBuf: "",
             qcPending: false,
             qcResult: null,
             qcDismissReason: "",
@@ -388,7 +389,7 @@ export class TalosChatWidget extends Component {
                     client: { id: "openclaw-control-ui", version: "control-ui", platform: "web", mode: "webchat" },
                     role: "operator",
                     scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
-                    caps: ["tool-events"],
+                    caps: ["tool-events", "thinking-events"],
                     auth: { token },
                     userAgent: navigator.userAgent,
                     locale: navigator.language,
@@ -816,6 +817,16 @@ export class TalosChatWidget extends Component {
                 console.warn(LOG_PREFIX, `🔧 Tool UNKNOWN phase: ${phase} toolCallId=${toolCallId} name=${toolName}`);
             }
             this._syncLiveToolCalls(session, messages, widget);
+        } else if (stream === "thinking") {
+            const thinkingText = data.text || data.delta || "";
+            console.log(LOG_PREFIX, `🧠 THINKING STREAM: len=${thinkingText.length} delta_len=${(data.delta || "").length}`);
+            if (widget) widget.state.activityText = "Thinking…";
+            if (!session._thinkingBuf) session._thinkingBuf = "";
+            if (data.text) {
+                session._thinkingBuf = data.text;
+            } else if (data.delta) {
+                session._thinkingBuf += data.delta;
+            }
         } else if (stream === "lifecycle" && data.phase === "start") {
             console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
             if (widget) widget.state.activityText = "Thinking…";
@@ -1293,6 +1304,25 @@ export class TalosChatWidget extends Component {
                 const messages = res?.result?.messages || res?.messages || [];
                 console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
 
+                let thinkingBlockCount = 0;
+                for (const msg of messages) {
+                    const inner = msg?.message || msg;
+                    const content = inner?.content;
+                    if (Array.isArray(content)) {
+                        for (const block of content) {
+                            if (block?.type === "thinking") {
+                                thinkingBlockCount++;
+                                console.log(LOG_PREFIX, `🧠 [THINKING-DEBUG] Found thinking block in chat.history:`,
+                                    `thinking_len=${(block.thinking || "").length}`,
+                                    `has_thinkingSignature=${!!block.thinkingSignature}`,
+                                    `has_signature=${!!block.signature}`,
+                                    `keys=${Object.keys(block).join(",")}`);
+                            }
+                        }
+                    }
+                }
+                console.log(LOG_PREFIX, `🧠 [THINKING-DEBUG] chat.history total thinking blocks: ${thinkingBlockCount}`);
+
                 if (messages.length === 0) {
                     if (attempt < maxAttempts) {
                         await new Promise(r => setTimeout(r, 1500));
@@ -1326,9 +1356,11 @@ export class TalosChatWidget extends Component {
                     }
                 }
 
+                const trajectoryStr = JSON.stringify(messages);
+                console.log(LOG_PREFIX, `🧠 [THINKING-DEBUG] save_trajectory: ${thinkingBlockCount} thinking blocks, payload_len=${trajectoryStr.length}`);
                 await rpc("/talos/chat/save_trajectory", {
                     turn_id: turnId,
-                    trajectory_messages: JSON.stringify(messages),
+                    trajectory_messages: trajectoryStr,
                 });
                 console.log(LOG_PREFIX, `📜 save_trajectory done for turn=${turnId}`);
                 return;
