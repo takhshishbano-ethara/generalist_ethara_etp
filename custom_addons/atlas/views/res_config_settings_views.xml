@@ -8,14 +8,6 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Atlas" string="Atlas" name="atlas">
-                    <block title="Bedrock LLM Configuration">
-                        <setting string="Inference Profile ARN" help="Full ARN of the AWS Bedrock application inference profile for Kimi K2.5.">
-                            <field name="atlas_bedrock_inference_arn"/>
-                        </setting>
-                        <setting string="Bedrock Region" help="AWS region for the Bedrock endpoint.">
-                            <field name="atlas_bedrock_region"/>
-                        </setting>
-                    </block>
                     <block title="Sandbox Deployment">
                         <setting string="Deployment Mode" help="Local mode uses Docker Compose (admin only). K8s mode creates Kubernetes resources.">
                             <field name="atlas_deployment_mode" widget="radio"/>
@@ -40,29 +32,9 @@
                             <field name="atlas_ws_router_host"/>
                         </setting>
                     </block>
-                    <block title="AWS &amp; Provider Credentials">
-                        <setting string="AWS Bearer Token (Bedrock)" help="AWS bearer token for Bedrock API access inside sandbox containers.">
-                            <field name="atlas_aws_bearer_token" password="True"/>
-                        </setting>
-                        <setting string="AWS Region">
-                            <field name="atlas_aws_region"/>
-                        </setting>
-                        <setting string="Bedrock Model ARN" help="ARN for the Bedrock model used inside OpenClaw containers.">
-                            <field name="atlas_bedrock_model_arn"/>
-                        </setting>
-                        <setting string="LiteLLM Master Key" help="Master key for the LiteLLM proxy sidecar.">
-                            <field name="atlas_litellm_master_key" password="True"/>
-                        </setting>
-                        <setting string="LiteLLM DB Password" help="PostgreSQL password for the LiteLLM database.">
-                            <field name="atlas_litellm_db_password" password="True"/>
-                        </setting>
-                    </block>
                     <block title="Google Auth (Gog)">
                         <setting string="Google OAuth Client Secret (JSON)" help="Paste the full contents of client_secret.json from Google Cloud Console. Required for gog-based Google authentication.">
                             <field name="atlas_gog_client_secret" widget="text"/>
-                        </setting>
-                        <setting string="Gog Keyring Password" help="Password to encrypt the gog file-based keyring. Used for storing Google OAuth tokens securely.">
-                            <field name="atlas_gog_keyring_password" password="True"/>
                         </setting>
                     </block>
                 </app>
