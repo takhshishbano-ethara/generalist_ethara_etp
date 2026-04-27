@@ -641,7 +641,7 @@ def main(
     _logger.info(f"Loaded {len(tags)} tags")
 
     # Load all merged PRs
-    prs_file = out_dir / f"{org}__{repo}_filtered_prs.jsonl"
+    prs_file = out_dir / f"{org}__{repo}_lht_filtered_prs.jsonl"
     if not prs_file.exists():
         raise AuroraPipelineError(f"No PR file found at {prs_file}")
 

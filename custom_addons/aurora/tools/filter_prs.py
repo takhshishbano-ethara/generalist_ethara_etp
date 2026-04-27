@@ -57,9 +57,9 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["aurora"],
-        default="aurora",
-        help="Filter mode.",
+        choices=["swe", "lht"],
+        default="lht",
+        help="Filter mode: swe (require resolved issues) or lht (all merged PRs).",
     )
 
     return parser
@@ -95,7 +95,7 @@ def extract_resolved_issues(pull: dict) -> list[str]:
     return list(resolved_issues)
 
 
-def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool = True, mode: str = "aurora"):
+def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool = True, mode: str = "lht"):
     _logger.info("starting filter to obtain required pull requests")
     _logger.info(f"Output directory: {out_dir}")
     _logger.info(f"All Pull Requests: {prs_file}")
@@ -125,7 +125,10 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
         r = g.get_repo(f"{org}/{repo}")
 
     # Determine output filename based on mode
-    out_filename = f"{org}__{repo}_filtered_prs.jsonl"
+    if mode == "lht":
+        out_filename = f"{org}__{repo}_lht_filtered_prs.jsonl"
+    else:
+        out_filename = f"{org}__{repo}_filtered_prs.jsonl"
 
     with (
         open(
@@ -144,7 +147,7 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
             if pull["state"] != "closed":
                 continue
 
-            if mode == "aurora" and not pull.get("merged_at"):
+            if mode == "lht" and not pull.get("merged_at"):
                 continue
 
             pull["commits"] = []
@@ -161,7 +164,7 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
 
             resolved_issues = extract_resolved_issues(pull)
 
-            if len(resolved_issues) == 0:
+            if mode == "swe" and len(resolved_issues) == 0:
                 continue
 
             pull["resolved_issues"] = resolved_issues

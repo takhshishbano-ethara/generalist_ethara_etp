@@ -215,6 +215,7 @@ class AuroraRegistryWizard(models.TransientModel):
     lang = fields.Char(required=True, readonly=True)
     filename = fields.Char(readonly=True)
     registry_content = fields.Text(string="Registry Code (Python)")
+    edit_mode = fields.Boolean(default=False)
 
     def action_save_registry(self):
         self.ensure_one()
@@ -227,33 +228,37 @@ class AuroraRegistryWizard(models.TransientModel):
 
         org_dir.mkdir(parents=True, exist_ok=True)
 
-        init_file = org_dir / "__init__.py"
-        if not init_file.exists():
-            init_file.write_text(
-                f"from .{repo_safe} import *\n"
-            )
-        else:
-            existing = init_file.read_text()
-            import_line = f"from .{repo_safe} import *"
-            if import_line not in existing:
-                with open(init_file, "a") as f:
-                    f.write(f"\n{import_line}\n")
+        # Only manage __init__.py imports when creating new registries
+        if not self.edit_mode:
+            init_file = org_dir / "__init__.py"
+            if not init_file.exists():
+                init_file.write_text(
+                    f"from .{repo_safe} import *\n"
+                )
+            else:
+                existing = init_file.read_text()
+                import_line = f"from .{repo_safe} import *"
+                if import_line not in existing:
+                    with open(init_file, "a") as f:
+                        f.write(f"\n{import_line}\n")
 
-        lang_init = lang_dir / "__init__.py"
-        if not lang_init.exists():
-            lang_init.write_text(
-                f"from .{self.org} import *\n"
-            )
-        else:
-            existing = lang_init.read_text()
-            import_line = f"from .{self.org} import *"
-            if import_line not in existing:
-                with open(lang_init, "a") as f:
-                    f.write(f"\n{import_line}\n")
+            lang_init = lang_dir / "__init__.py"
+            if not lang_init.exists():
+                lang_init.write_text(
+                    f"from .{self.org} import *\n"
+                )
+            else:
+                existing = lang_init.read_text()
+                import_line = f"from .{self.org} import *"
+                if import_line not in existing:
+                    with open(lang_init, "a") as f:
+                        f.write(f"\n{import_line}\n")
 
         target_file = org_dir / f"{repo_safe}.py"
         target_file.write_text(self.registry_content)
-        _logger.info("Registry file written: %s", target_file)
+
+        action_label = "Updated" if self.edit_mode else "Created"
+        _logger.info("Registry file %s: %s", action_label.lower(), target_file)
 
         self.pipeline_id.write({"phase2_has_registry": True})
 
@@ -261,7 +266,7 @@ class AuroraRegistryWizard(models.TransientModel):
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Registry Created",
+                "title": f"Registry {action_label}",
                 "message": f"Saved to {target_file.relative_to(_HARNESS_REPOS_ROOT)}",
                 "sticky": False,
                 "type": "success",
