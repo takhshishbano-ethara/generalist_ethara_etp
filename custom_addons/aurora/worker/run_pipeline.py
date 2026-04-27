@@ -332,6 +332,7 @@ def _heartbeat_rate_limits(registry, rec_id: int, tokens: list[str]) -> None:
         cr = _open_cursor(registry)
         try:
             AuroraGithubToken.heartbeat_rate_limits(cr, rec_id, summaries)
+            cr.commit()
         finally:
             cr.close()
 

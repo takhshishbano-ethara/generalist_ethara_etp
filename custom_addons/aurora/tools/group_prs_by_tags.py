@@ -69,9 +69,9 @@ from github import GithubException
 from tqdm import tqdm
 
 try:
-    from .util import get_tokens, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 except ImportError:
-    from util import get_tokens, AuroraPipelineError, TokenRotator
+    from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 
 _logger = logging.getLogger(__name__)
 
@@ -232,58 +232,7 @@ def _extract_pr_numbers(message: str) -> list[int]:
 
 
 def _ensure_repo_cloned(org: str, repo: str, cache_dir: str, auth_token: str = "") -> Optional[Path]:
-    """Ensure the repo is cloned as a bare blobless clone. Returns path or None."""
-    cache_path = Path(cache_dir)
-    cache_path.mkdir(parents=True, exist_ok=True)
-    repo_path = cache_path / f"{org}__{repo}.git"
-
-    if repo_path.exists():
-        _logger.info(f"  Fetching latest for cached {org}/{repo}")
-        try:
-            subprocess.run(
-                ["git", "-C", str(repo_path), "fetch", "--tags", "--force", "--quiet"],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            FileNotFoundError,
-        ) as e:
-            _logger.warning(f"  Warning: fetch failed for {org}/{repo}: {e}")
-        return repo_path
-
-    _logger.info(f"  Cloning {org}/{repo} (bare, blobless)...")
-    if auth_token:
-        url = f"https://x-access-token:{auth_token}@github.com/{org}/{repo}.git"
-    else:
-        url = f"https://github.com/{org}/{repo}.git"
-    try:
-        result = subprocess.run(
-            ["git", "clone", "--bare", "--filter=blob:none", url, str(repo_path)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-    except FileNotFoundError:
-        _logger.error(
-            "  Error: git not installed. Ancestry checks and git-log attribution disabled."
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        _logger.error(f"  Error: clone timed out for {org}/{repo}.")
-        return None
-
-    if result.returncode != 0:
-        stderr_safe = result.stderr.strip()
-        if auth_token:
-            stderr_safe = stderr_safe.replace(auth_token, "***")
-        _logger.error(f"  Error: clone failed for {org}/{repo}: {stderr_safe}")
-        return None
-
-    _logger.info(f"  Clone complete for {org}/{repo}")
-    return repo_path
+    return clone_repo_bare(org, repo, cache_dir, auth_token=auth_token)
 
 
 # ---------------------------------------------------------------------------
@@ -628,6 +577,8 @@ def main(
     cache_dir: str = ".repo_cache",
 ):
     _logger.info("starting group PRs by version tags (multi-layered strategy)")
+    validate_name(org, "org")
+    validate_name(repo, "repo")
     _logger.info(f"Output directory: {out_dir}")
     _logger.info(f"Org: {org}")
     _logger.info(f"Repo: {repo}")

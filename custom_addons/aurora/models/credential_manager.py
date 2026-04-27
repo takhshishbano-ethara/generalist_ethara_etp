@@ -22,18 +22,19 @@ ENCRYPTED_PARAMS = frozenset({
 })
 
 _key_cache_lock = threading.Lock()
-_cached_fernet_key: bytes | None = None
-_cached_fernet_key_raw: bytes | None = None
+# Keyed by DB name to support multi-database Odoo deployments.
+_cached_fernet_keys: dict[str, bytes] = {}
+_cached_fernet_keys_raw: dict[str, bytes] = {}
 
 
 def _get_or_create_key(ICP) -> bytes:
-    global _cached_fernet_key
     env_key = os.environ.get("AURORA_ENCRYPTION_KEY", "").strip()
     if env_key:
         return env_key.encode()
+    db_name = ICP.env.cr.dbname
     with _key_cache_lock:
-        if _cached_fernet_key is not None:
-            return _cached_fernet_key
+        if db_name in _cached_fernet_keys:
+            return _cached_fernet_keys[db_name]
     key_str = ICP.get_param("aurora.encryption_key", "")
     if key_str:
         _logger.error(
@@ -42,7 +43,7 @@ def _get_or_create_key(ICP) -> bytes:
         )
         result = key_str.encode()
         with _key_cache_lock:
-            _cached_fernet_key = result
+            _cached_fernet_keys[db_name] = result
         return result
     key = Fernet.generate_key()
     ICP.set_param("aurora.encryption_key", key.decode())
@@ -51,7 +52,7 @@ def _get_or_create_key(ICP) -> bytes:
         "For production, set AURORA_ENCRYPTION_KEY environment variable."
     )
     with _key_cache_lock:
-        _cached_fernet_key = key
+        _cached_fernet_keys[db_name] = key
     return key
 
 
@@ -74,13 +75,13 @@ def _make_fernet(ICP) -> Fernet | MultiFernet:
 
 
 def _get_or_create_key_raw(cr) -> bytes:
-    global _cached_fernet_key_raw
     env_key = os.environ.get("AURORA_ENCRYPTION_KEY", "").strip()
     if env_key:
         return env_key.encode()
+    db_name = cr.dbname if hasattr(cr, "dbname") else "default"
     with _key_cache_lock:
-        if _cached_fernet_key_raw is not None:
-            return _cached_fernet_key_raw
+        if db_name in _cached_fernet_keys_raw:
+            return _cached_fernet_keys_raw[db_name]
     cr.execute(
         "SELECT value FROM ir_config_parameter WHERE key = %s",
         ("aurora.encryption_key",),
@@ -93,7 +94,7 @@ def _get_or_create_key_raw(cr) -> bytes:
         )
         result = row[0].encode()
         with _key_cache_lock:
-            _cached_fernet_key_raw = result
+            _cached_fernet_keys_raw[db_name] = result
         return result
     key = Fernet.generate_key()
     cr.execute(
@@ -104,10 +105,9 @@ def _get_or_create_key_raw(cr) -> bytes:
         """,
         ("aurora.encryption_key", key.decode()),
     )
-    cr.commit()
-    _logger.info("Aurora: generated new Fernet encryption key (raw SQL).")
+    _logger.info("Aurora: generated new Fernet encryption key (raw SQL). Caller must commit.")
     with _key_cache_lock:
-        _cached_fernet_key_raw = key
+        _cached_fernet_keys_raw[db_name] = key
     return key
 
 
@@ -134,7 +134,6 @@ def _make_fernet_raw(cr) -> Fernet | MultiFernet:
 
 
 def encrypt_value(ICP, plaintext: str) -> str:
-    """Encrypt a plaintext string. Returns prefixed ciphertext."""
     if not plaintext:
         return ""
     f = _make_fernet(ICP)

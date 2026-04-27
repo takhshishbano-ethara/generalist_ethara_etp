@@ -19,6 +19,8 @@ import argparse
 import hashlib
 import logging
 import os
+import re
+import subprocess
 import time
 import threading
 from pathlib import Path
@@ -30,6 +32,90 @@ _logger = logging.getLogger(__name__)
 
 class AuroraPipelineError(Exception):
     pass
+
+
+_SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9._-]+$')
+
+
+def validate_name(value: str, label: str = "name") -> str:
+    if not _SAFE_NAME_RE.match(value):
+        raise AuroraPipelineError(
+            f"Invalid {label}: {value!r}. "
+            "Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+        )
+    return value
+
+
+def clone_repo_bare(
+    org: str,
+    repo: str,
+    cache_dir: str,
+    auth_token: str = "",
+    timeout_clone: int = 600,
+    timeout_fetch: int = 300,
+) -> Path | None:
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
+    repo_path = cache_path / f"{org}__{repo}.git"
+
+    if repo_path.exists():
+        _logger.info("Fetching latest for cached %s/%s", org, repo)
+        try:
+            env = _git_env_with_token(auth_token) if auth_token else None
+            subprocess.run(
+                ["git", "-C", str(repo_path), "fetch", "--tags", "--force", "--quiet"],
+                capture_output=True,
+                text=True,
+                timeout=timeout_fetch,
+                env=env,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError) as e:
+            _logger.warning("Warning: fetch failed for %s/%s: %s", org, repo, e)
+        return repo_path
+
+    _logger.info("Cloning %s/%s (bare, blobless)...", org, repo)
+    url = f"https://github.com/{org}/{repo}.git"
+    env = _git_env_with_token(auth_token) if auth_token else None
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--bare", "--filter=blob:none", url, str(repo_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_clone,
+            env=env,
+        )
+    except FileNotFoundError:
+        _logger.error("git not installed. Clone-based operations disabled.")
+        return None
+    except subprocess.TimeoutExpired:
+        _logger.error("Clone timed out for %s/%s.", org, repo)
+        return None
+
+    if result.returncode != 0:
+        stderr_safe = result.stderr.strip()
+        if auth_token:
+            stderr_safe = stderr_safe.replace(auth_token, "***")
+        _logger.error("Clone failed for %s/%s: %s", org, repo, stderr_safe)
+        return None
+
+    _logger.info("Clone complete for %s/%s", org, repo)
+    return repo_path
+
+
+def _git_env_with_token(token: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_ASKPASS"] = "echo"
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    header = f"Authorization: Basic {_b64_token(token)}"
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "http.extraHeader"
+    env["GIT_CONFIG_VALUE_0"] = header
+    return env
+
+
+def _b64_token(token: str) -> str:
+    import base64
+    return base64.b64encode(f"x-access-token:{token}".encode()).decode()
 
 
 _RATE_LIMIT_FLOOR = 50
@@ -165,7 +251,7 @@ def _load_env_tokens() -> list[str]:
     return tokens
 
 
-def find_default_token_file() -> Path:
+def find_default_token_file() -> Path | None:
     """Try to find a default token file in the current directory."""
     possible_files = ["token", "tokens", "token.txt", "tokens.txt"]
     for file_name in possible_files:

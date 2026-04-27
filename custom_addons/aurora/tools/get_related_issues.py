@@ -24,9 +24,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 try:
-    from .util import get_tokens, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, AuroraPipelineError, TokenRotator, validate_name
 except ImportError:
-    from util import get_tokens, AuroraPipelineError, TokenRotator
+    from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name
 
 _logger = logging.getLogger(__name__)
 
@@ -65,13 +65,21 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
 
     org = m.group(1)
     repo = m.group(2)
+    validate_name(org, "org")
+    validate_name(repo, "repo")
     _logger.info(f"Org: {org}")
     _logger.info(f"Repo: {repo}")
 
+    target_issues: set[int] = set()
     with open(filtered_prs_file, "r", encoding="utf-8") as file:
-        filtered_prs = [json.loads(line) for line in file]
-        target_issues = set()
-        for pr in filtered_prs:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pr = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             for issue in pr.get("resolved_issues", []):
                 if isinstance(issue, int):
                     target_issues.add(issue)

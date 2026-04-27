@@ -176,7 +176,6 @@ class AuroraGithubToken(models.Model):
         if not token_summaries:
             return
         AuroraGithubToken._write_rate_limits(cr, run_id, token_summaries)
-        cr.commit()
 
     @staticmethod
     def _write_rate_limits(cr, run_id, token_summaries):
@@ -286,7 +285,7 @@ class AuroraGithubToken(models.Model):
 
         batch_count = 0
         for token_id, status, body, headers, prev_state, prev_fails in results:
-            savepoint_name = f"hc_token_{token_id}"
+            savepoint_name = f"hc_token_{int(token_id)}"
             try:
                 cr.execute(f"SAVEPOINT {savepoint_name}")
                 vals = {"last_health_check": now_utc}

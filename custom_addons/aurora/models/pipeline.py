@@ -24,6 +24,13 @@ except ImportError:
 _k8s_config_lock = threading.Lock()
 _k8s_config_loaded = False
 
+# Track locally-spawned pipeline threads for lifecycle management.
+_local_threads: dict[int, threading.Thread] = {}
+_local_threads_lock = threading.Lock()
+
+# Maximum file size (bytes) allowed for in-memory download via ir.attachment.
+_MAX_DOWNLOAD_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
+
 
 def _load_k8s_config():
     global _k8s_config_loaded
@@ -40,6 +47,21 @@ def _load_k8s_config():
         _k8s_config_loaded = True
 
 _SAFE_GITHUB_NAME = re.compile(r'^[a-zA-Z0-9._-]+$')
+
+
+def _validate_file_path(file_url: str, allowed_base: str) -> str:
+    """Resolve *file_url* and ensure it lives under *allowed_base*.
+
+    Prevents path-traversal attacks where a tampered DB field like
+    ``/etc/shadow`` could be served to the user.
+
+    Returns the resolved absolute path on success; raises UserError otherwise.
+    """
+    real_path = os.path.realpath(file_url)
+    real_base = os.path.realpath(allowed_base)
+    if not real_path.startswith(real_base + os.sep) and real_path != real_base:
+        raise UserError("File path is outside the allowed output directory.")
+    return real_path
 
 STEP_SELECTION = [
     ("draft", "Draft"),
@@ -563,18 +585,26 @@ class AuroraPipeline(models.Model):
         rec_name = self.name
         registry = Registry(db_name)
 
-        self.env.cr.commit()
-
         def _worker():
             import time
             time.sleep(1)
             from ..worker.run_pipeline import run_pipeline
             _logger.info("Pipeline %s (id=%s) starting local execution", rec_name, rec_id)
-            run_pipeline(registry, db_name, rec_id)
+            try:
+                run_pipeline(registry, db_name, rec_id)
+            finally:
+                with _local_threads_lock:
+                    _local_threads.pop(rec_id, None)
 
         t = threading.Thread(target=_worker, name=f"aurora-local-{rec_id}", daemon=True)
-        t.start()
-        _logger.info("Pipeline %s (id=%s) launched in local thread", rec_name, rec_id)
+        with _local_threads_lock:
+            _local_threads[rec_id] = t
+
+        def _start_thread():
+            t.start()
+            _logger.info("Pipeline %s (id=%s) launched in local thread", rec_name, rec_id)
+
+        self.env.cr.postcommit.add(_start_thread)
 
     def action_cancel(self):
         self.ensure_one()
@@ -644,8 +674,33 @@ class AuroraPipeline(models.Model):
         })
         self.phase2_result_ids.unlink()
 
+    def _safe_local_download(self, file_url: str):
+        import base64
+        allowed_base = self._get_config().get("output_dir", "/tmp/aurora_output")
+        local_path = _validate_file_path(file_url, allowed_base)
+        file_size = os.path.getsize(local_path)
+        if file_size > _MAX_DOWNLOAD_FILE_SIZE:
+            raise UserError(
+                f"File too large for in-browser download "
+                f"({file_size / (1024*1024):.0f} MB). "
+                f"Use the server filesystem or S3 storage instead."
+            )
+        with open(local_path, "rb") as f:
+            data = base64.b64encode(f.read())
+        fname = os.path.basename(local_path)
+        attachment = self.env["ir.attachment"].create({
+            "name": fname,
+            "type": "binary",
+            "datas": data,
+            "mimetype": "application/jsonl+json",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "new",
+        }
+
     def action_download_step_file(self):
-        """Download an individual Phase-1 step output file (steps 1-6)."""
         self.ensure_one()
         step = self.env.context.get("step_number")
         field_map = {
@@ -661,21 +716,7 @@ class AuroraPipeline(models.Model):
         if file_url.startswith("file://"):
             file_url = file_url[7:]
         if os.path.isfile(file_url):
-            import base64
-            with open(file_url, "rb") as f:
-                data = base64.b64encode(f.read())
-            fname = os.path.basename(file_url)
-            attachment = self.env["ir.attachment"].create({
-                "name": fname,
-                "type": "binary",
-                "datas": data,
-                "mimetype": "application/jsonl+json",
-            })
-            return {
-                "type": "ir.actions.act_url",
-                "url": f"/web/content/{attachment.id}?download=true",
-                "target": "new",
-            }
+            return self._safe_local_download(file_url)
         if file_url.startswith("https://") and ".s3." in file_url:
             file_url = self._presign_s3_url(file_url)
         return {
@@ -697,21 +738,7 @@ class AuroraPipeline(models.Model):
         if file_url.startswith("file://"):
             file_url = file_url[7:]
         if os.path.isfile(file_url):
-            import base64
-            with open(file_url, "rb") as f:
-                data = base64.b64encode(f.read())
-            fname = os.path.basename(file_url)
-            attachment = self.env["ir.attachment"].create({
-                "name": fname,
-                "type": "binary",
-                "datas": data,
-                "mimetype": "application/jsonl+json",
-            })
-            return {
-                "type": "ir.actions.act_url",
-                "url": f"/web/content/{attachment.id}?download=true",
-                "target": "new",
-            }
+            return self._safe_local_download(file_url)
         if file_url.startswith("https://") and ".s3." in file_url:
             file_url = self._presign_s3_url(file_url)
         return {
@@ -731,7 +758,14 @@ class AuroraPipeline(models.Model):
         file_url = getattr(self, field_name, "")
         if not file_url:
             raise UserError(f"No file available for Phase {phase}.")
+        if self.use_s3:
+            raise UserError(
+                "Preview is not available for S3-stored files. "
+                "Use the Download button instead."
+            )
         local_path = file_url[7:] if file_url.startswith("file://") else file_url
+        allowed_base = self._get_config().get("output_dir", "/tmp/aurora_output")
+        local_path = _validate_file_path(local_path, allowed_base)
         if not os.path.isfile(local_path):
             raise UserError(f"File not found on disk: {local_path}")
 

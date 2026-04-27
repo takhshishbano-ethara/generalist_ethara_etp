@@ -37,6 +37,7 @@ file.  Resume support (existing_ids check) assumes single-process access.
 import argparse
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -49,9 +50,9 @@ from tqdm import tqdm
 from unidiff import PatchSet
 
 try:
-    from .util import get_tokens, optional_int, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, optional_int, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 except ImportError:
-    from util import get_tokens, optional_int, AuroraPipelineError, TokenRotator
+    from util import get_tokens, optional_int, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 
 _logger = logging.getLogger(__name__)
 
@@ -62,81 +63,19 @@ _logger = logging.getLogger(__name__)
 
 
 class RepoCloneCache:
-    """Caches bare blobless git clones for local diff generation.
-
-    When the GitHub compare API refuses to serve a diff (HTTP 406 or other
-    errors for very large diffs), this class clones the repo locally and
-    uses ``git diff`` instead.
-    """
-
     def __init__(self, cache_dir: str = ".repo_cache", auth_token: str = ""):
-        self._cache_dir = Path(cache_dir)
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_dir = cache_dir
         self._auth_token = auth_token
 
-    def _repo_path(self, org: str, repo: str) -> Path:
-        return self._cache_dir / f"{org}__{repo}.git"
-
     def ensure_cloned(self, org: str, repo: str) -> Path:
-        """Clone the repo if not already cached. Returns path to bare clone."""
-        repo_path = self._repo_path(org, repo)
-        if repo_path.exists():
-            # Fetch latest to ensure we have the needed commits
-            _logger.info(f"  Fetching latest for cached {org}/{repo}")
-            try:
-                subprocess.run(
-                    ["git", "-C", str(repo_path), "fetch", "--quiet"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.SubprocessError,
-                FileNotFoundError,
-            ) as e:
-                _logger.warning(f"  Warning: fetch failed for {org}/{repo}: {e}")
-            return repo_path
-
-        _logger.info(f"  Cloning {org}/{repo} (bare, blobless)...")
-        if self._auth_token:
-            url = f"https://x-access-token:{self._auth_token}@github.com/{org}/{repo}.git"
-        else:
-            url = f"https://github.com/{org}/{repo}.git"
-        try:
-            result = subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--bare",
-                    "--filter=blob:none",
-                    url,
-                    str(repo_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                "git is not installed or not on PATH. "
-                "Install git to use clone-based diff fallback."
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"Clone timed out (600s) for {org}/{repo}. "
-                "The repository may be too large."
-            )
-        if result.returncode != 0:
-            stderr_safe = result.stderr.strip()
-            if self._auth_token:
-                stderr_safe = stderr_safe.replace(self._auth_token, "***")
-            raise RuntimeError(f"Failed to clone {org}/{repo}: {stderr_safe}")
-        _logger.info(f"  Clone complete for {org}/{repo}")
-        return repo_path
+        result = clone_repo_bare(
+            org, repo, self._cache_dir, auth_token=self._auth_token,
+        )
+        if result is None:
+            raise RuntimeError(f"Failed to clone {org}/{repo}")
+        return result
 
     def get_diff(self, org: str, repo: str, base_sha: str, head_sha: str) -> str:
-        """Generate diff locally using git diff on the cached bare clone."""
         if not base_sha or not head_sha:
             raise ValueError("base_sha and head_sha must be non-empty")
         repo_path = self.ensure_cloned(org, repo)
@@ -149,14 +88,12 @@ class RepoCloneCache:
             )
         except FileNotFoundError:
             raise RuntimeError(
-                "git is not installed or not on PATH. "
-                "Install git to use clone-based diff fallback."
+                "git is not installed or not on PATH."
             )
         except subprocess.TimeoutExpired:
             raise RuntimeError(
                 f"git diff timed out (120s) for {org}/{repo} "
-                f"({base_sha[:8]}...{head_sha[:8]}). "
-                "The diff may be too large."
+                f"({base_sha[:8]}...{head_sha[:8]})."
             )
         if result.returncode != 0:
             raise RuntimeError(
@@ -416,6 +353,8 @@ def main(
         raise ValueError("No tokens provided")
 
     _logger.info("starting build dataset")
+    validate_name(org, "org")
+    validate_name(repo, "repo")
     _logger.info(f"Output directory: {out_dir}")
     _logger.info(f"Org: {org}")
     _logger.info(f"Repo: {repo}")
@@ -606,6 +545,7 @@ def main(
 
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             f.flush()
+            os.fsync(f.fileno())
             records_written += 1
 
     _logger.info(f"Wrote {records_written} records to {out_file}")

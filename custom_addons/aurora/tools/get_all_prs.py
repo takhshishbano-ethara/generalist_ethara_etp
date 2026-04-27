@@ -75,14 +75,6 @@ def main(tokens: list[str], out_dir: Path, org: str, repo: str):
             if not pull.merged_at:
                 continue
             count += 1
-            if count % _RATE_CHECK_INTERVAL == 0:
-                g = rotator.get_client()
-                remaining, _ = g.rate_limiting
-                if remaining < 100:
-                    _logger.warning(
-                        f"  Rate limit low ({remaining}) at PR #{count}. "
-                        f"Rotating token."
-                    )
             file.write(
                 json.dumps(
                     {

@@ -20,8 +20,8 @@ class AuroraPipelinePreview(models.TransientModel):
 
     @staticmethod
     def _build_preview(file_path, total_count):
-        """Read a JSONL file and return a human-readable preview string."""
         lines = []
+        idx = -1
         with open(file_path, "r") as fh:
             for idx, raw_line in enumerate(fh):
                 if idx >= _MAX_PREVIEW_LINES:
@@ -41,4 +41,5 @@ class AuroraPipelinePreview(models.TransientModel):
                 except json.JSONDecodeError:
                     lines.append(raw_line[:_MAX_CHARS_PER_LINE])
 
-        return "\n---\n".join(lines), min(idx + 1, _MAX_PREVIEW_LINES)
+        preview_count = min(idx + 1, _MAX_PREVIEW_LINES) if idx >= 0 else 0
+        return "\n---\n".join(lines), preview_count
