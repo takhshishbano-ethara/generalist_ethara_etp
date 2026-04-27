@@ -7,3 +7,8 @@ access_jaeger_resolved_issue_user,jaeger.resolved.issue.user,model_jaeger_resolv
 access_jaeger_resolved_issue_admin,jaeger.resolved.issue.admin,model_jaeger_resolved_issue,group_jaeger_admin,1,1,1,1
 access_jaeger_trajectory_run_user,jaeger.trajectory.run.user,model_jaeger_trajectory_run,group_jaeger_user,1,0,0,0
 access_jaeger_trajectory_run_admin,jaeger.trajectory.run.admin,model_jaeger_trajectory_run,group_jaeger_admin,1,1,1,1
+access_jaeger_github_token_user,jaeger.github.token.user,model_jaeger_github_token,group_jaeger_user,1,0,0,0
+access_jaeger_github_token_admin,jaeger.github.token.admin,model_jaeger_github_token,group_jaeger_admin,1,1,1,1
+access_jaeger_pool_metrics_user,jaeger.pool.metrics.user,model_jaeger_pool_metrics,group_jaeger_user,1,0,0,0
+access_jaeger_pool_metrics_admin,jaeger.pool.metrics.admin,model_jaeger_pool_metrics,group_jaeger_admin,1,1,1,1
+access_jaeger_import_tokens_wizard_admin,jaeger.import.tokens.wizard.admin,model_jaeger_import_tokens_wizard,group_jaeger_admin,1,1,1,1

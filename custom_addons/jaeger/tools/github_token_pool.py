@@ -140,19 +140,13 @@ class GitHubTokenPool:
 
 
 def get_token_pool(env):
-    """Get or create the singleton token pool from Odoo config.
+    """Get or create the singleton token pool.
 
-    Reads comma-separated tokens from ir.config_parameter 'jaeger.github_tokens'.
+    Priority:
+    1. If jaeger.github.token has active records → decrypt and use those
+    2. Else → fall back to legacy jaeger.github_tokens comma-separated config param
+
     The singleton is created once per process and shared across all threads.
-
-    Args:
-        env: Odoo environment (used to read ir.config_parameter).
-
-    Returns:
-        GitHubTokenPool instance.
-
-    Raises:
-        UserError: If no tokens are configured.
     """
     global _pool_instance
     with _pool_lock:
@@ -161,9 +155,10 @@ def get_token_pool(env):
 
     from odoo.exceptions import UserError
 
-    ICP = env["ir.config_parameter"].sudo()
-    tokens_str = ICP.get_param("jaeger.github_tokens", "")
-    tokens = [t.strip() for t in tokens_str.split(",") if t.strip()]
+    tokens = _load_tokens_from_model(env)
+
+    if not tokens:
+        tokens = _load_tokens_from_config(env)
 
     if not tokens:
         raise UserError(
@@ -175,6 +170,41 @@ def get_token_pool(env):
             _pool_instance = GitHubTokenPool(tokens)
             _logger.info("GitHub token pool initialized with %d tokens", len(tokens))
         return _pool_instance
+
+
+def _load_tokens_from_model(env):
+    try:
+        TokenModel = env["jaeger.github.token"].sudo()
+        active_tokens = TokenModel.search([("state", "=", "active")])
+        if not active_tokens:
+            return []
+        tokens = []
+        for rec in active_tokens:
+            raw = rec._decrypt_token(rec.token)
+            if raw:
+                tokens.append(raw)
+        if tokens:
+            _logger.info(
+                "Token pool: loaded %d tokens from jaeger.github.token model", len(tokens)
+            )
+        return tokens
+    except Exception:
+        return []
+
+
+def _load_tokens_from_config(env):
+    try:
+        from ..models.credential_manager import get_encrypted_param
+        tokens_str = get_encrypted_param(env, "jaeger.github_tokens", "")
+    except Exception:
+        ICP = env["ir.config_parameter"].sudo()
+        tokens_str = ICP.get_param("jaeger.github_tokens", "")
+    tokens = [t.strip() for t in tokens_str.split(",") if t.strip()]
+    if tokens:
+        _logger.info(
+            "Token pool: loaded %d tokens from legacy config param", len(tokens)
+        )
+    return tokens
 
 
 def reset_pool():

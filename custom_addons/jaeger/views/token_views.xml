@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Token List View -->
+    <record id="view_jaeger_github_token_list" model="ir.ui.view">
+        <field name="name">jaeger.github.token.list</field>
+        <field name="model">jaeger.github.token</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'active'"
+                       decoration-info="state == 'draft'"
+                       decoration-warning="state in ('exhausted', 'quarantined')"
+                       decoration-danger="state in ('expired', 'revoked')"/>
+                <field name="rate_limit_remaining"/>
+                <field name="rate_limit_reset"/>
+                <field name="expires_at"/>
+                <field name="leased_by_repo_id"/>
+                <field name="last_health_check"/>
+                <field name="consecutive_failure_count"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Token Form View -->
+    <record id="view_jaeger_github_token_form" model="ir.ui.view">
+        <field name="name">jaeger.github.token.form</field>
+        <field name="model">jaeger.github.token</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,active"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="token" password="True"/>
+                            <field name="token_hash"/>
+                            <field name="expires_at"/>
+                        </group>
+                        <group>
+                            <field name="rate_limit_remaining"/>
+                            <field name="rate_limit_reset"/>
+                            <field name="leased_by_repo_id"/>
+                            <field name="leased_at"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="last_health_check"/>
+                            <field name="last_heartbeat"/>
+                            <field name="consecutive_failure_count"/>
+                        </group>
+                        <group>
+                            <field name="imported_at"/>
+                            <field name="imported_by"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Token Search View -->
+    <record id="view_jaeger_github_token_search" model="ir.ui.view">
+        <field name="name">jaeger.github.token.search</field>
+        <field name="model">jaeger.github.token</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="state"/>
+                <field name="leased_by_repo_id"/>
+                <filter name="active_tokens" string="Active" domain="[('state', '=', 'active')]"/>
+                <filter name="draft_tokens" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="exhausted_tokens" string="Exhausted" domain="[('state', '=', 'exhausted')]"/>
+                <filter name="quarantined_tokens" string="Quarantined" domain="[('state', '=', 'quarantined')]"/>
+                <filter name="leased" string="Currently Leased" domain="[('leased_by_repo_id', '!=', False)]"/>
+                <separator/>
+                <filter name="expiring_soon" string="Expiring within 7 days"
+                        domain="[('expires_at', '!=', False), ('expires_at', '&lt;=', (context_today() + datetime.timedelta(days=7)).strftime('%%Y-%%m-%%d'))]"/>
+                <group>
+                    <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Token Action -->
+    <record id="action_jaeger_github_token" model="ir.actions.act_window">
+        <field name="name">GitHub Tokens</field>
+        <field name="res_model">jaeger.github.token</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_jaeger_github_token_search"/>
+    </record>
+
+    <!-- Pool Metrics List View -->
+    <record id="view_jaeger_pool_metrics_list" model="ir.ui.view">
+        <field name="name">jaeger.pool.metrics.list</field>
+        <field name="model">jaeger.pool.metrics</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="timestamp"/>
+                <field name="total_tokens"/>
+                <field name="active_count"/>
+                <field name="exhausted_count"/>
+                <field name="expired_count"/>
+                <field name="quarantined_count"/>
+                <field name="leased_count"/>
+                <field name="total_remaining"/>
+                <field name="avg_remaining"/>
+                <field name="pool_utilization"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Pool Metrics Action -->
+    <record id="action_jaeger_pool_metrics" model="ir.actions.act_window">
+        <field name="name">Pool Metrics</field>
+        <field name="res_model">jaeger.pool.metrics</field>
+        <field name="view_mode">list</field>
+    </record>
+</odoo>

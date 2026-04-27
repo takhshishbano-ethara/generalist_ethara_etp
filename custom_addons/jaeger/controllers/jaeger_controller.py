@@ -25,6 +25,12 @@ class JaegerController(http.Controller):
         if not file_path:
             return request.not_found()
 
+        ICP = request.env["ir.config_parameter"].sudo()
+        allowed_base = ICP.get_param("jaeger.output_dir", "/tmp/jaeger_data")
+        real_path = os.path.realpath(file_path)
+        if not real_path.startswith(os.path.realpath(allowed_base)):
+            return request.not_found()
+
         filename = os.path.basename(file_path)
 
         if os.path.isfile(file_path):
@@ -81,6 +87,10 @@ class JaegerController(http.Controller):
 
     @http.route("/jaeger/webhook/trajectory", type="json", auth="public", csrf=False)
     def trajectory_webhook(self, **kwargs):
+        expected = request.env["ir.config_parameter"].sudo().get_param("jaeger.webhook_secret")
+        if not expected or kwargs.get("secret") != expected:
+            return {"error": "unauthorized"}
+
         job_id = kwargs.get("job_id")
         status = kwargs.get("status")
         results = kwargs.get("results", {})
