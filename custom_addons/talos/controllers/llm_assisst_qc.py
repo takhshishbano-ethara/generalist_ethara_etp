@@ -435,6 +435,10 @@ class LlmAssistQc(http.Controller):
     def qc_prompt(
         self, prompt="", system_prompt="", max_tokens=4096, temperature=0.3, **kw
     ):
+        ICP = request.env["ir.config_parameter"].sudo()
+        if ICP.get_param("talos.disable_prompt_qc", "False").lower() == "true":
+            return {"skipped": True, "reason": "Prompt QC disabled in Settings"}
+
         prompt = (prompt or "").strip()
         if not prompt:
             return {"error": "prompt is required"}
@@ -531,6 +535,10 @@ class LlmAssistQc(http.Controller):
 
     @http.route("/talos/trajectory_qc", type="json", auth="user")
     def trajectory_qc(self, record_id=0, field_name="", entry_index=-1, **kw):
+        ICP = request.env["ir.config_parameter"].sudo()
+        if ICP.get_param("talos.disable_trajectory_qc", "False").lower() == "true":
+            return {"skipped": True, "reason": "Trajectory QC disabled in Settings"}
+
         record_id = int(record_id or 0)
         entry_index = int(entry_index if entry_index is not None else -1)
         if not record_id or not field_name:

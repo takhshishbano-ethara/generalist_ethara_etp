@@ -268,7 +268,7 @@ class OpenClawClient:
                     "operator.approvals",
                     "operator.pairing",
                 ],
-                "caps": ["tool-events"],
+                "caps": ["tool-events", "thinking-events"],
                 "auth": {"token": self._gateway_token},
                 "userAgent": "talos-auto-process/1.0",
                 "locale": "en-US",

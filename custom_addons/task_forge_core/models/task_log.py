@@ -42,6 +42,8 @@ class TaskForgeLog(models.Model):
     blocker_reason = fields.Text(string='Blocker Reason')
     quality_score = fields.Integer(string='Quality Score')
     prompt_justification = fields.Text(string='Prompt Justification')
+    prompt_text = fields.Text(string='Prompt')
+    justification_text = fields.Text(string='Justification')
     feedback_note = fields.Text(string='Feedback Note')
 
     blocker_ids = fields.One2many('task.forge.blocker', 'task_id', string='Blockers')

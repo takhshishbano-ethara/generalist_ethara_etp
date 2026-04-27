@@ -589,7 +589,6 @@ def _run_swe_steps_standalone(db_name, repo_id, org, repo_name, tokens, out_dir,
         "pr_collection_step": "",
         "terminal_state": "none",
         "error_message": False,
-        "current_stage": "stage3",
     })
 
 
@@ -598,6 +597,10 @@ class JaegerRepository(models.Model):
     _description = "Jaeger Repository"
     _inherit = ["mail.thread"]
     _order = "create_date desc"
+    _repo_url_unique = models.Constraint(
+        "unique(repo_url)",
+        "Repository URL must be unique.",
+    )
 
     # ── Identity ─────────────────────────────────────────────────────────
     name = fields.Char(

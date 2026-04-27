@@ -226,7 +226,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             {
                 "id": "quiet_sand",
                 "name": "quiet_sand",
-                "reasoning": False,
+                "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 131072,
@@ -235,7 +235,10 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
         ],
     }
     config_dict["agents"] = {
-        "defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")}
+        "defaults": {
+            "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
+            "thinkingDefault": "xhigh",
+        }
     }
 
     return config_dict

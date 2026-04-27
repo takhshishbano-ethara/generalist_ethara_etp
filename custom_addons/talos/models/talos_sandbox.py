@@ -570,7 +570,6 @@ class TalosSandbox(models.Model):
     # delivered trajectory JSON.
     _INTERNAL_MSG_FIELDS = {
         "sender",
-        "thinkingSignature",
         "api",
         "provider",
         "model",
@@ -583,10 +582,23 @@ class TalosSandbox(models.Model):
         """Strip internal OpenClaw metadata from a JSONL message before export."""
         msg = dict(msg)
 
+        content_before = msg.get("content", [])
+        thinking_before = [
+            b for b in (content_before if isinstance(content_before, list) else [])
+            if isinstance(b, dict) and b.get("type") == "thinking"
+        ]
+        if thinking_before:
+            _logger.info(
+                "[THINKING-DEBUG] _sanitize_jsonl_message BEFORE: role=%s thinking_blocks=%d "
+                "first_thinking_len=%d has_signature=%s",
+                msg.get("role", "?"), len(thinking_before),
+                len(thinking_before[0].get("thinking", "")),
+                bool(thinking_before[0].get("thinkingSignature")),
+            )
+
         for key in TalosSandbox._INTERNAL_MSG_FIELDS:
             msg.pop(key, None)
 
-        # Clean pipe-separated toolCallIds and strip internal fields from content blocks
         content = msg.get("content")
         if isinstance(content, list):
             cleaned = []
@@ -607,6 +619,17 @@ class TalosSandbox(models.Model):
                         block["id"] = tc_id.split("|", 1)[0]
                 cleaned.append(block)
             msg["content"] = cleaned
+
+        thinking_after = [
+            b for b in (msg.get("content", []) if isinstance(msg.get("content"), list) else [])
+            if isinstance(b, dict) and b.get("type") == "thinking"
+        ]
+        if thinking_before and not thinking_after:
+            _logger.error(
+                "[THINKING-DEBUG] _sanitize_jsonl_message LOST thinking blocks! "
+                "before=%d after=%d role=%s",
+                len(thinking_before), len(thinking_after), msg.get("role", "?"),
+            )
 
         return msg
 
@@ -838,11 +861,33 @@ class TalosSandbox(models.Model):
 
         messages = self._trajectory_from_ws()
         if messages:
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s build_trajectory_json: using _trajectory_from_ws path (%d messages)",
+                self.id, len(messages),
+            )
+            thinking_count = sum(
+                1 for m in messages
+                for b in (m.get("message", m) if isinstance(m, dict) else {}).get("content", []) or []
+                if isinstance(b, dict) and b.get("type") == "thinking"
+            )
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s ws messages thinking_blocks=%d",
+                self.id, thinking_count,
+            )
             messages = _wrap_messages_with_turn_feedback(messages, all_turns)
         else:
             messages = self._trajectory_from_events()
+            if messages:
+                _logger.info(
+                    "[THINKING-DEBUG] sandbox=%s build_trajectory_json: using _trajectory_from_events path (%d messages)",
+                    self.id, len(messages),
+                )
         if not messages:
             messages = self._trajectory_from_turns()
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s build_trajectory_json: using _trajectory_from_turns path (%d messages)",
+                self.id, len(messages),
+            )
 
         return {"meta_info": meta_info, "messages": messages}
 
@@ -855,17 +900,28 @@ class TalosSandbox(models.Model):
                 try:
                     ws_messages = json.loads(t.trajectory_messages)
                     if isinstance(ws_messages, list) and ws_messages:
-                        # Pick the turn with the most messages (most complete snapshot)
+                        thinking_in_turn = sum(
+                            1 for m in ws_messages
+                            for b in ((m.get("message", m) if isinstance(m, dict) else {}).get("content", []) or [])
+                            if isinstance(b, dict) and b.get("type") == "thinking"
+                        )
+                        _logger.info(
+                            "[THINKING-DEBUG] _trajectory_from_ws: turn=%s turn_number=%s "
+                            "messages=%d thinking_blocks=%d",
+                            t.id, t.turn_number, len(ws_messages), thinking_in_turn,
+                        )
                         if len(ws_messages) > best_count:
                             best_messages = ws_messages
                             best_count = len(ws_messages)
                 except (json.JSONDecodeError, TypeError):
                     continue
         if not best_messages:
-            _logger.debug(
-                "No valid trajectory_messages found in %d turns (sandbox=%s)",
+            _logger.info(
+                "[THINKING-DEBUG] _trajectory_from_ws: NO trajectory_messages found "
+                "in %d turns (sandbox=%s). Turns with trajectory_messages: %s",
                 len(self.turn_ids),
                 self.id,
+                [t.id for t in self.turn_ids if t.trajectory_messages],
             )
         return best_messages
 
@@ -1159,6 +1215,28 @@ class TalosSandbox(models.Model):
         else:
             self._stop_local()
 
+    @staticmethod
+    def _count_thinking_blocks(trajectory):
+        count = 0
+        samples = []
+        for msg_envelope in trajectory.get("messages", []):
+            inner = msg_envelope
+            if isinstance(msg_envelope, dict) and "message" in msg_envelope:
+                inner = msg_envelope["message"]
+            if not isinstance(inner, dict):
+                continue
+            content = inner.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "thinking":
+                    count += 1
+                    samples.append({
+                        "thinking_len": len(block.get("thinking", "")),
+                        "has_signature": bool(block.get("thinkingSignature")),
+                    })
+        return count, samples
+
     def _export_trajectory_to_task(self):
         self.ensure_one()
 
@@ -1166,6 +1244,17 @@ class TalosSandbox(models.Model):
 
         jsonl_entries = self._read_session_jsonl()
         if jsonl_entries:
+            jsonl_thinking = 0
+            for entry in jsonl_entries:
+                msg = entry.get("message", {})
+                if isinstance(msg, dict):
+                    for block in (msg.get("content") or []):
+                        if isinstance(block, dict) and block.get("type") == "thinking":
+                            jsonl_thinking += 1
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s JSONL entries=%d thinking_blocks_in_raw_jsonl=%d",
+                self.id, len(jsonl_entries), jsonl_thinking,
+            )
             _logger.info(
                 "[JSONL-RAW] sandbox=%s entries=%d\n%s",
                 self.id,
@@ -1173,6 +1262,12 @@ class TalosSandbox(models.Model):
                 json.dumps(jsonl_entries, indent=2, ensure_ascii=False)[:50000],
             )
             trajectory = self._build_trajectory_from_jsonl(jsonl_entries)
+            traj_thinking, traj_samples = self._count_thinking_blocks(trajectory)
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s AFTER _build_trajectory_from_jsonl: "
+                "thinking_blocks=%d samples=%s",
+                self.id, traj_thinking, traj_samples[:3],
+            )
             _logger.info(
                 "Built trajectory from JSONL (%d entries, %d messages, sandbox=%s)",
                 len(jsonl_entries),
@@ -1181,6 +1276,12 @@ class TalosSandbox(models.Model):
             )
         elif self.turn_ids:
             trajectory = self.build_trajectory_json()
+            traj_thinking, traj_samples = self._count_thinking_blocks(trajectory)
+            _logger.info(
+                "[THINKING-DEBUG] sandbox=%s AFTER build_trajectory_json (turns fallback): "
+                "thinking_blocks=%d samples=%s",
+                self.id, traj_thinking, traj_samples[:3],
+            )
             _logger.info(
                 "Built trajectory from turns fallback (%d messages, sandbox=%s)",
                 len(trajectory.get("messages", [])),
@@ -1926,7 +2027,7 @@ class TalosSandbox(models.Model):
                 {
                     "id": "quiet_sand",
                     "name": "quiet_sand",
-                    "reasoning": False,
+                    "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {
                         "input": 0,
@@ -1942,7 +2043,10 @@ class TalosSandbox(models.Model):
 
         default_model = MODEL_DEFAULTS.get(self.model_type)
         if default_model:
-            config["agents"] = {"defaults": {"model": default_model}}
+            config["agents"] = {"defaults": {
+                "model": default_model,
+                "thinkingDefault": "xhigh",
+            }}
 
         with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
             json.dump(config, f)
