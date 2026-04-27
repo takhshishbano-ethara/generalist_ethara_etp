@@ -141,7 +141,9 @@ class TestK8sDeploy(TalosTestCase):
 
         deployer = self._get_deployer()
         deployer.deploy_sandbox(self.claude_sandbox)
-        self.assertTrue(mock_core.create_namespaced_secret.called)
+        mock_core.create_namespaced_secret.assert_called()
+        for call in mock_core.create_namespaced_secret.call_args_list:
+            self.assertEqual(call[1]["namespace"], "talos")
 
     @patch(_K8S_MOD + ".K8S_AVAILABLE", True)
     @patch(_K8S_MOD + ".config")
@@ -158,7 +160,9 @@ class TestK8sDeploy(TalosTestCase):
 
         deployer = self._get_deployer()
         deployer.deploy_sandbox(self.claude_sandbox)
-        self.assertTrue(mock_core.create_namespaced_config_map.called)
+        mock_core.create_namespaced_config_map.assert_called()
+        for call in mock_core.create_namespaced_config_map.call_args_list:
+            self.assertEqual(call[1]["namespace"], "talos")
 
     @patch(_K8S_MOD + ".K8S_AVAILABLE", True)
     @patch(_K8S_MOD + ".config")
@@ -175,7 +179,9 @@ class TestK8sDeploy(TalosTestCase):
 
         deployer = self._get_deployer()
         deployer.deploy_sandbox(self.claude_sandbox)
-        self.assertTrue(mock_apps.create_namespaced_deployment.called)
+        mock_apps.create_namespaced_deployment.assert_called()
+        for call in mock_apps.create_namespaced_deployment.call_args_list:
+            self.assertEqual(call[1]["namespace"], "talos")
 
     @patch(_K8S_MOD + ".K8S_AVAILABLE", True)
     @patch(_K8S_MOD + ".config")
@@ -192,7 +198,9 @@ class TestK8sDeploy(TalosTestCase):
 
         deployer = self._get_deployer()
         deployer.deploy_sandbox(self.claude_sandbox)
-        self.assertTrue(mock_core.create_namespaced_service.called)
+        mock_core.create_namespaced_service.assert_called()
+        for call in mock_core.create_namespaced_service.call_args_list:
+            self.assertEqual(call[1]["namespace"], "talos")
 
     @patch(_K8S_MOD + ".K8S_AVAILABLE", True)
     @patch(_K8S_MOD + ".config")

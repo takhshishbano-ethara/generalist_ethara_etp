@@ -355,3 +355,286 @@ class TestBrowserStatus(TalosTestCase):
                 result = ctrl.browser_status(sandbox_id=self.claude_sandbox.id)
         self.assertIn("error", result)
         self.assertIn("timed out", result["error"])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Error-path & edge-case tests (appended)
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestBrowserScreenshotErrorPaths(TalosTestCase):
+
+    def _ctrl(self):
+        from odoo.addons.talos.controllers.browser_auth import TalosBrowserAuthController
+        return TalosBrowserAuthController()
+
+    def _setup_running_sandbox(self):
+        self.claude_sandbox.write({
+            "docker_status": "running",
+            "docker_port": 19999,
+        })
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_screenshot_unexpected_json(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"Content-Type": "application/json"}
+        mock_resp.json.return_value = {"status": "ok"}
+        mock_requests.post.return_value = mock_resp
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_screenshot(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("Unexpected", result["error"])
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_screenshot_generic_exception(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.post.side_effect = RuntimeError("something broke")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_screenshot(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("something broke", result["error"])
+
+
+@tagged("post_install", "-at_install")
+class TestBrowserInjectCookiesErrorPaths(TalosTestCase):
+
+    def _ctrl(self):
+        from odoo.addons.talos.controllers.browser_auth import TalosBrowserAuthController
+        return TalosBrowserAuthController()
+
+    def _setup_running_sandbox(self):
+        self.claude_sandbox.write({
+            "docker_status": "running",
+            "docker_port": 19999,
+        })
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_inject_cookies_empty_string(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.inject_cookies(
+                    sandbox_id=self.claude_sandbox.id, cookies="",
+                )
+        self.assertIn("error", result)
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_inject_cookies_timeout(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.post.side_effect = requests.Timeout("timed out")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.inject_cookies(
+                    sandbox_id=self.claude_sandbox.id,
+                    cookies=[{"name": "a", "value": "1"}],
+                )
+        self.assertIn("error", result)
+        self.assertIn("timed out", result["error"])
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_inject_cookies_connection_error(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.post.side_effect = requests.ConnectionError("refused")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.inject_cookies(
+                    sandbox_id=self.claude_sandbox.id,
+                    cookies=[{"name": "a", "value": "1"}],
+                )
+        self.assertIn("error", result)
+        self.assertIn("connect", result["error"].lower())
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_inject_cookies_generic_exception(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.post.side_effect = RuntimeError("unexpected")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.inject_cookies(
+                    sandbox_id=self.claude_sandbox.id,
+                    cookies=[{"name": "a", "value": "1"}],
+                )
+        self.assertIn("error", result)
+        self.assertIn("unexpected", result["error"])
+
+    def test_inject_cookies_string_without_equals(self):
+        self._setup_running_sandbox()
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.inject_cookies(
+                    sandbox_id=self.claude_sandbox.id, cookies="nopairs",
+                )
+        self.assertIn("error", result)
+        self.assertIn("No valid cookies", result["error"])
+
+
+@tagged("post_install", "-at_install")
+class TestBrowserStatusErrorPaths(TalosTestCase):
+
+    def _ctrl(self):
+        from odoo.addons.talos.controllers.browser_auth import TalosBrowserAuthController
+        return TalosBrowserAuthController()
+
+    def _setup_running_sandbox(self):
+        self.claude_sandbox.write({
+            "docker_status": "running",
+            "docker_port": 19999,
+        })
+
+    def test_status_missing_sandbox_id(self):
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.browser_status(sandbox_id=0)
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_status_no_api_url(self):
+        self.claude_sandbox.write({"docker_status": "running", "docker_port": 0})
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_status(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("API URL", result["error"])
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_status_http_error(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_requests.get.return_value = mock_resp
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_status(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("500", result["error"])
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_status_connection_error(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.get.side_effect = requests.ConnectionError("refused")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_status(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("connect", result["error"].lower())
+
+    @patch(_BROWSER_MOD + ".requests")
+    def test_status_generic_exception(self, mock_requests):
+        self._setup_running_sandbox()
+        mock_requests.get.side_effect = RuntimeError("boom")
+        mock_requests.Timeout = requests.Timeout
+        mock_requests.ConnectionError = requests.ConnectionError
+
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch.object(
+                type(self.claude_sandbox), "_deployment_mode", return_value="local",
+            ):
+                result = ctrl.browser_status(sandbox_id=self.claude_sandbox.id)
+        self.assertIn("error", result)
+        self.assertIn("boom", result["error"])
+
+
+@tagged("post_install", "-at_install")
+class TestBrowserValidateAndApiBaseEdgeCases(TalosTestCase):
+
+    def _ctrl_cls(self):
+        from odoo.addons.talos.controllers.browser_auth import TalosBrowserAuthController
+        return TalosBrowserAuthController
+
+    def test_browser_api_base_local_no_port(self):
+        self.claude_sandbox.write({"docker_port": 0})
+        ctrl_cls = self._ctrl_cls()
+        with patch.object(
+            type(self.claude_sandbox), "_deployment_mode", return_value="local",
+        ):
+            url = ctrl_cls._browser_api_base(self.claude_sandbox)
+        self.assertIsNone(url)
+
+    def test_validate_sandbox_missing_id(self):
+        ctrl_cls = self._ctrl_cls()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            sandbox, err = ctrl_cls._validate_sandbox(0)
+        self.assertIsNone(sandbox)
+        self.assertIn("error", err)
+        self.assertIn("required", err["error"])
+
+    def test_validate_sandbox_not_found(self):
+        ctrl_cls = self._ctrl_cls()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            sandbox, err = ctrl_cls._validate_sandbox(999999)
+        self.assertIsNone(sandbox)
+        self.assertIn("error", err)
+        self.assertIn("Sandbox not found", err["error"])

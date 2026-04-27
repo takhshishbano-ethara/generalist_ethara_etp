@@ -176,8 +176,8 @@ class TestTalosTrajectory(TalosTestCase):
         )
         traj = self.task.build_trajectory_json()
         msgs = traj["messages"]
-        # Should have user msg + at least tool call + tool result pairs
-        self.assertGreater(len(msgs), 2)
+        # user msg + 2 tool calls + 2 tool results = 5
+        self.assertEqual(len(msgs), 5)
 
     def test_build_trajectory_from_events(self):
         """_build_trajectory_from_events parses raw WS events."""
@@ -190,14 +190,14 @@ class TestTalosTrajectory(TalosTestCase):
         messages, counter, parent_id = self.Talos._build_trajectory_from_events(
             events, [], 0, None, "claude-opus-4.7"
         )
-        # Should produce: assistant text, tool call, tool result
+        # assistant text + tool call + tool result = 3
         roles = []
         for m in messages:
             inner = m.get("message", {})
             roles.append(inner.get("role", ""))
         self.assertIn("assistant", roles)
         self.assertIn("toolResult", roles)
-        self.assertGreaterEqual(len(messages), 3)
+        self.assertEqual(len(messages), 3)
 
     def test_build_trajectory_from_events_trailing_text(self):
         """Trailing assistant text without lifecycle end is still emitted."""
@@ -689,3 +689,277 @@ class TestTalosUtilities(TalosTestCase):
                     )
                     self.assertEqual(desc, "")
                     self.assertIn("input_tokens", usage)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 9. _search_is_talos_admin
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestAdminSearch(TalosTestCase):
+
+    def test_search_admin_eq_true_admin(self):
+        with patch.object(type(self.env.user), "has_group", return_value=True):
+            domain = self.task._search_is_talos_admin("=", True)
+            self.assertEqual(domain, [])
+
+    def test_search_admin_eq_true_non_admin(self):
+        with patch.object(type(self.env.user), "has_group", return_value=False):
+            domain = self.task._search_is_talos_admin("=", True)
+            self.assertEqual(domain, [("id", "=", False)])
+
+    def test_search_admin_unsupported_operator(self):
+        with self.assertRaises(ValueError):
+            self.task._search_is_talos_admin(">", True)
+
+    def test_search_admin_neq_false_admin(self):
+        with patch.object(type(self.env.user), "has_group", return_value=True):
+            domain = self.task._search_is_talos_admin("!=", False)
+            self.assertEqual(domain, [])
+
+    def test_search_admin_eq_false_admin(self):
+        with patch.object(type(self.env.user), "has_group", return_value=True):
+            domain = self.task._search_is_talos_admin("=", False)
+            self.assertEqual(domain, [("id", "=", False)])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 10. Generate actions (golden + task description)
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestGenerateActions(TalosTestCase):
+
+    def test_generate_golden_no_persona(self):
+        task = self._create_task(task_id="GG-NOPERSONA")
+        task.write({
+            "claude_trajectory": "data",
+            "glm_trajectory": "data",
+            "persona_id": False,
+        })
+        with self.assertRaises(UserError):
+            task.action_generate_golden_trajectory()
+
+    def test_generate_golden_already_generating(self):
+        from odoo.addons.talos.models.talos import _GOLDEN_GENERATING, _GOLDEN_LOCK
+        task = self._create_task(task_id="GG-DUPE")
+        task.write({
+            "claude_trajectory": "data",
+            "glm_trajectory": "data",
+        })
+        with _GOLDEN_LOCK:
+            _GOLDEN_GENERATING.add(task.id)
+        try:
+            with self.assertRaises(UserError):
+                task.action_generate_golden_trajectory()
+        finally:
+            with _GOLDEN_LOCK:
+                _GOLDEN_GENERATING.discard(task.id)
+
+    def test_generate_golden_sets_status(self):
+        task = self._create_task(task_id="GG-STATUS")
+        task.write({
+            "claude_trajectory": "data",
+            "glm_trajectory": "data",
+        })
+        from odoo.addons.talos.models.talos import _GOLDEN_GENERATING, _GOLDEN_LOCK
+        try:
+            task.action_generate_golden_trajectory()
+            task.invalidate_recordset(["golden_status"])
+            self.assertEqual(task.golden_status, "generating")
+        finally:
+            with _GOLDEN_LOCK:
+                _GOLDEN_GENERATING.discard(task.id)
+
+    def test_generate_taskdesc_already_generating(self):
+        from odoo.addons.talos.models.talos import _TASKDESC_GENERATING, _TASKDESC_LOCK
+        task = self._create_task(task_id="TD-DUPE")
+        task.write({"claude_trajectory": "data"})
+        with _TASKDESC_LOCK:
+            _TASKDESC_GENERATING.add(task.id)
+        try:
+            with self.assertRaises(UserError):
+                task.action_generate_task_description()
+        finally:
+            with _TASKDESC_LOCK:
+                _TASKDESC_GENERATING.discard(task.id)
+
+    def test_generate_taskdesc_sets_status(self):
+        from odoo.addons.talos.models.talos import _TASKDESC_GENERATING, _TASKDESC_LOCK
+        task = self._create_task(task_id="TD-STATUS")
+        task.write({"claude_trajectory": "data"})
+        try:
+            task.action_generate_task_description()
+            task.invalidate_recordset(["task_description_status"])
+            self.assertEqual(task.task_description_status, "generating")
+        finally:
+            with _TASKDESC_LOCK:
+                _TASKDESC_GENERATING.discard(task.id)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 11. action_delete_trajectory_entry — extended coverage
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestDeleteTrajectoryEntry(TalosTestCase):
+
+    def test_delete_entry_not_list(self):
+        self.task.write({"claude_trajectory": json.dumps({"key": "value"})})
+        with self.assertRaises(UserError):
+            self.task.action_delete_trajectory_entry("claude_trajectory", 0)
+
+    def test_delete_entry_negative_index(self):
+        entries = [self._make_session_entry()]
+        self.task.write({"claude_trajectory": json.dumps(entries)})
+        with self.assertRaises(UserError):
+            self.task.action_delete_trajectory_entry("claude_trajectory", -1)
+
+    def test_delete_entry_out_of_bounds(self):
+        entries = [self._make_session_entry()]
+        self.task.write({"claude_trajectory": json.dumps(entries)})
+        with self.assertRaises(UserError):
+            self.task.action_delete_trajectory_entry("claude_trajectory", 1)
+
+    def test_delete_entry_success(self):
+        entries = [
+            self._make_session_entry(session_id="s1"),
+            self._make_session_entry(session_id="s2"),
+            self._make_session_entry(session_id="s3"),
+        ]
+        self.task.write({"claude_trajectory": json.dumps(entries)})
+        result = self.task.action_delete_trajectory_entry("claude_trajectory", 1)
+        self.assertTrue(result)
+        remaining = json.loads(self.task.claude_trajectory)
+        self.assertEqual(len(remaining), 2)
+        self.assertEqual(remaining[0]["session_id"], "s1")
+        self.assertEqual(remaining[1]["session_id"], "s3")
+
+    def test_delete_entry_all_valid_fields(self):
+        valid_fields = [
+            "claude_trajectory", "glm_trajectory",
+            "onePA_trajectory", "onePB_trajectory",
+            "onePC_trajectory", "onePD_trajectory",
+            "golden_trajectory",
+        ]
+        entries = [self._make_session_entry(), self._make_session_entry(session_id="s2")]
+        for field_name in valid_fields:
+            self.task.write({field_name: json.dumps(entries)})
+            result = self.task.action_delete_trajectory_entry(field_name, 0)
+            self.assertTrue(result)
+            remaining = json.loads(self.task[field_name])
+            self.assertEqual(len(remaining), 1)
+
+    def test_delete_entry_empty_field(self):
+        self.task.write({"claude_trajectory": ""})
+        result = self.task.action_delete_trajectory_entry("claude_trajectory", 0)
+        self.assertFalse(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 12. Auto-process (publish + claim) — extended coverage
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestAutoProcessExtended(TalosTestCase):
+
+    def test_publish_eligible_tasks(self):
+        t1 = self._create_task(
+            task_id="PUB-A",
+            auto_process_status="none",
+            initial_prompt="Do task A",
+        )
+        t2 = self._create_task(
+            task_id="PUB-B",
+            auto_process_status="failed",
+            initial_prompt="Do task B",
+        )
+        records = t1 | t2
+        with patch(
+            "odoo.addons.talos.services.rabbitmq_service.batch_publish_auto_process_tasks"
+        ) as mock_pub:
+            records.action_publish_auto_process()
+            mock_pub.assert_called_once()
+            published_ids = mock_pub.call_args[0][0]
+            self.assertIn(t1.id, published_ids)
+            self.assertIn(t2.id, published_ids)
+        t1.invalidate_recordset(["auto_process_status"])
+        t2.invalidate_recordset(["auto_process_status"])
+        self.assertEqual(t1.auto_process_status, "queued")
+        self.assertEqual(t2.auto_process_status, "queued")
+
+    def test_publish_already_processing_filtered(self):
+        t_proc = self._create_task(
+            task_id="PUB-PROC",
+            auto_process_status="processing",
+            initial_prompt="Do it",
+        )
+        t_done = self._create_task(
+            task_id="PUB-DONE",
+            auto_process_status="done",
+            initial_prompt="Do it",
+        )
+        t_queued = self._create_task(
+            task_id="PUB-Q",
+            auto_process_status="queued",
+            initial_prompt="Do it",
+        )
+        records = t_proc | t_done | t_queued
+        with patch(
+            "odoo.addons.talos.services.rabbitmq_service.batch_publish_auto_process_tasks"
+        ) as mock_pub:
+            result = records.action_publish_auto_process()
+            mock_pub.assert_not_called()
+            self.assertIsNone(result)
+
+    def test_claim_task_success_returns_sandbox_info(self):
+        task = self._create_task(
+            task_id="CLAIM-OK",
+            auto_process_status="queued",
+            initial_prompt="Go",
+        )
+        claude_sb = task.claude_sandbox_id
+        claude_sb.turn_ids.unlink()
+        result = self.Talos.auto_process_claim_task(task.id)
+        self.assertFalse(result.get("skip", False))
+        self.assertEqual(result["task_id"], task.id)
+        self.assertEqual(result["sandbox_id"], claude_sb.id)
+        self.assertIn("docker_status", result)
+        self.assertIn("initial_prompt", result)
+
+    def test_claim_task_already_claimed(self):
+        task = self._create_task(
+            task_id="CLAIM-RACE",
+            auto_process_status="queued",
+            initial_prompt="Go",
+        )
+        claude_sb = task.claude_sandbox_id
+        claude_sb.turn_ids.unlink()
+        # First claim succeeds
+        r1 = self.Talos.auto_process_claim_task(task.id)
+        self.assertFalse(r1.get("skip", False))
+        # Second claim: status is now 'processing', not 'queued'
+        r2 = self.Talos.auto_process_claim_task(task.id)
+        self.assertTrue(r2.get("skip"))
+        self.assertIn("status_", r2["reason"])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 13. _get_all_turns
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestGetAllTurns(TalosTestCase):
+
+    def test_get_all_turns_aggregates(self):
+        self._create_turn(sandbox=self.claude_sandbox, turn_number=2, prompt="C2")
+        self._create_turn(sandbox=self.claude_sandbox, turn_number=1, prompt="C1")
+        self._create_turn(sandbox=self.glm_sandbox, turn_number=3, prompt="G3")
+        turns = self.task._get_all_turns()
+        numbers = turns.mapped("turn_number")
+        self.assertEqual(numbers, [1, 2, 3])
+
+    def test_get_all_turns_empty(self):
+        task = self._create_task(task_id="EMPTY-TURNS")
+        turns = task._get_all_turns()
+        self.assertEqual(len(turns), 0)

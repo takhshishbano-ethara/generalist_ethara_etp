@@ -18,3 +18,7 @@ from . import test_controller_costing
 from . import test_rabbitmq_service
 from . import test_ws_client
 from . import test_consumer
+from . import test_background_workers
+from . import test_sandbox_data
+from . import test_sandbox_internals
+from . import test_integration

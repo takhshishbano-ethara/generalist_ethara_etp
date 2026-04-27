@@ -219,9 +219,7 @@ class TestSandboxJSONL(TalosTestCase):
         trajectory = sb._build_trajectory_from_jsonl(entries)
         self.assertIn("meta_info", trajectory)
         self.assertIn("messages", trajectory)
-        # First entry is user, but the system messages before first user are skipped
-        # so we should have at least 1 message
-        self.assertGreaterEqual(len(trajectory["messages"]), 1)
+        self.assertEqual(len(trajectory["messages"]), 2)
 
     def test_build_trajectory_from_jsonl_empty(self):
         sb = self.claude_sandbox

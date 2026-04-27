@@ -261,3 +261,275 @@ class TestOpenClawResponse(TransactionCase):
         r = OpenClawResponse(text="", tool_calls_json="")
         self.assertEqual(r.text, "")
         self.assertEqual(r.tool_calls_json, "")
+
+
+@tagged("post_install", "-at_install")
+class TestHandleRaw(TransactionCase):
+
+    def test_handle_raw_tick_event_ignored(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_raw(json.dumps({"type": "event", "event": "tick"}))
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_handle_raw_health_event_ignored(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_raw(json.dumps({"type": "event", "event": "health"}))
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_handle_raw_rpc_response_success(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            fut = loop.create_future()
+            c._pending_rpcs["rpc-1"] = fut
+
+            c._handle_raw(json.dumps({
+                "type": "res", "id": "rpc-1", "ok": True, "result": {"data": 1},
+            }))
+
+            self.assertTrue(fut.done())
+            self.assertEqual(fut.result()["ok"], True)
+            self.assertNotIn("rpc-1", c._pending_rpcs)
+        finally:
+            loop.close()
+
+    def test_handle_raw_rpc_response_error(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            fut = loop.create_future()
+            c._pending_rpcs["rpc-2"] = fut
+
+            c._handle_raw(json.dumps({
+                "type": "res", "id": "rpc-2", "ok": False,
+                "error": {"message": "bad request"},
+            }))
+
+            self.assertTrue(fut.done())
+            with self.assertRaises(OpenClawError):
+                fut.result()
+            self.assertNotIn("rpc-2", c._pending_rpcs)
+        finally:
+            loop.close()
+
+    def test_handle_raw_rpc_unknown_id_ignored(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_raw(json.dumps({
+            "type": "res", "id": "unknown-999", "ok": True, "result": {},
+        }))
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_handle_raw_chat_event_dispatches(self):
+        c = _make_client()
+        called_with = []
+        original = c._handle_chat_event
+        c._handle_chat_event = lambda payload: called_with.append(payload)
+
+        c._handle_raw(json.dumps({
+            "type": "event", "event": "chat",
+            "payload": {"stream": "assistant", "data": {"text": "hi"}},
+        }))
+
+        self.assertEqual(len(called_with), 1)
+        self.assertEqual(called_with[0]["stream"], "assistant")
+
+    def test_handle_raw_tool_event_logged(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_raw(json.dumps({
+            "type": "event", "event": "session.tool",
+        }))
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_handle_raw_agent_event_logged(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_raw(json.dumps({
+            "type": "event", "event": "agent",
+        }))
+        self.assertEqual(c._stream_buf, "keep")
+
+
+@tagged("post_install", "-at_install")
+class TestHandleChatEvent(TransactionCase):
+
+    def test_chat_stream_assistant_accumulates(self):
+        c = _make_client()
+        c._stream_buf = ""
+        c._handle_chat_event({
+            "stream": "assistant",
+            "data": {"text": "Hello"},
+        })
+        self.assertEqual(c._stream_buf, "Hello")
+
+    def test_chat_heartbeat_in_data_ignored(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_chat_event({
+            "stream": "assistant",
+            "data": {"text": "HEARTBEAT_OK"},
+        })
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_chat_tool_stream_logged(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_chat_event({
+            "stream": "tool",
+            "data": {"phase": "running"},
+        })
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_chat_lifecycle_start(self):
+        c = _make_client()
+        c._stream_buf = "keep"
+        c._handle_chat_event({
+            "stream": "lifecycle",
+            "data": {"phase": "start"},
+        })
+        self.assertEqual(c._stream_buf, "keep")
+
+    def test_chat_lifecycle_end_completes(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            c._response_future = loop.create_future()
+            c._stream_buf = "accumulated text"
+            c._tool_calls = []
+
+            c._handle_chat_event({
+                "stream": "lifecycle",
+                "data": {"phase": "end"},
+            })
+
+            self.assertTrue(c._response_future.done())
+            resp = c._response_future.result()
+            self.assertIsInstance(resp, OpenClawResponse)
+            self.assertEqual(resp.text, "accumulated text")
+        finally:
+            loop.close()
+
+    def test_chat_lifecycle_error_sets_exception(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            c._response_future = loop.create_future()
+
+            c._handle_chat_event({
+                "stream": "lifecycle",
+                "data": {"phase": "error", "message": "something broke"},
+            })
+
+            self.assertTrue(c._response_future.done())
+            with self.assertRaises(OpenClawError):
+                c._response_future.result()
+        finally:
+            loop.close()
+
+    def test_chat_state_final(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            c._response_future = loop.create_future()
+            c._stream_buf = ""
+
+            c._handle_chat_event({
+                "state": "final",
+                "message": {"text": "Final answer"},
+            })
+
+            self.assertTrue(c._response_future.done())
+            resp = c._response_future.result()
+            self.assertIsInstance(resp, OpenClawResponse)
+            self.assertEqual(resp.text, "Final answer")
+        finally:
+            loop.close()
+
+    def test_chat_state_error(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            c._response_future = loop.create_future()
+
+            c._handle_chat_event({
+                "state": "error",
+                "errorMessage": "model overloaded",
+            })
+
+            self.assertTrue(c._response_future.done())
+            with self.assertRaises(OpenClawError):
+                c._response_future.result()
+        finally:
+            loop.close()
+
+    def test_chat_state_aborted(self):
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            c = _make_client()
+            c._response_future = loop.create_future()
+            c._stream_buf = ""
+
+            c._handle_chat_event({"state": "aborted"})
+
+            self.assertTrue(c._response_future.done())
+            resp = c._response_future.result()
+            self.assertIsInstance(resp, OpenClawResponse)
+            self.assertEqual(resp.text, "[Aborted]")
+        finally:
+            loop.close()
+
+
+@tagged("post_install", "-at_install")
+class TestCompleteResponse(TransactionCase):
+
+    def test_complete_response_no_future_no_crash(self):
+        c = _make_client()
+        c._response_future = None
+        c._stream_buf = "buf"
+        c._tool_calls = [{"name": "y"}]
+
+        c._complete_response("text", [])
+
+        self.assertEqual(c._stream_buf, "")
+        self.assertEqual(c._tool_calls, [])
+
+
+@tagged("post_install", "-at_install")
+class TestConnectionLifecycle(TransactionCase):
+
+    def test_require_loop_not_connected(self):
+        c = _make_client()
+        c._loop = None
+        with self.assertRaises(OpenClawError):
+            c._require_loop()
+
+    def test_disconnect_idempotent(self):
+        c = _make_client()
+        c._ws = None
+        c._loop = None
+        c._thread = None
+        c._connected.clear()
+
+        c.disconnect()
+
+        self.assertIsNone(c._ws)
+        self.assertIsNone(c._loop)
+        self.assertIsNone(c._thread)
+        self.assertFalse(c._connected.is_set())

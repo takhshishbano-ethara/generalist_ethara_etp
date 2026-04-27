@@ -246,3 +246,203 @@ class TestGogStatus(TalosTestCase):
             mock_req.env = self.env
             result = ctrl.gog_status(task_id=self.task.id)
         self.assertTrue(result.get("authenticated"))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Error-path & edge-case tests (appended)
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestGogAuthErrorPaths(TalosTestCase):
+
+    def _ctrl(self):
+        from odoo.addons.talos.controllers.gog_auth import TalosGogAuthController
+        return TalosGogAuthController()
+
+    def _task_with_gog(self):
+        task = self._create_task(
+            task_id="GOG-ERR-%s" % (self.env["ir.sequence"].next_by_code("talos.talos") or "001"),
+            email="user@example.com",
+            password="keyring-pw",
+            gog_auth=json.dumps({"installed": {"client_id": "abc"}}),
+        )
+        return task
+
+    # ── start_auth ──────────────────────────────────────────────────
+
+    def test_start_auth_nonexistent_task(self):
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.start_auth(task_id=999999)
+        self.assertIn("error", result)
+        self.assertIn("Task not found", result["error"])
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_start_auth_setup_timeout(self, mock_exec):
+        mock_exec.side_effect = subprocess.TimeoutExpired(cmd="gog", timeout=45)
+        task = self._task_with_gog()
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.start_auth(task_id=task.id)
+        self.assertIn("error", result)
+        self.assertIn("timed out", result["error"].lower())
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_start_auth_no_auth_url_in_response(self, mock_exec):
+        mock_exec.side_effect = [
+            ("setup ok", "", 0),
+            (json.dumps({"status": "ok"}), "", 0),
+        ]
+        task = self._task_with_gog()
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.start_auth(task_id=task.id)
+        self.assertIn("error", result)
+        self.assertIn("auth_url", result["error"].lower())
+
+    # ── exchange_token ──────────────────────────────────────────────
+
+    def test_exchange_nonexistent_task(self):
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.exchange_token(task_id=999999, redirect_url="http://localhost?code=x")
+        self.assertIn("error", result)
+        self.assertIn("Task not found", result["error"])
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_exchange_missing_email(self, mock_exec):
+        task = self._create_task(task_id="GOG-NOEMAIL-EXCH-001")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.exchange_token(task_id=task.id, redirect_url="http://localhost?code=x")
+        self.assertIn("error", result)
+        self.assertIn("email", result["error"].lower())
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_exchange_generic_exception(self, mock_exec):
+        mock_exec.side_effect = RuntimeError("unexpected failure")
+        task = self._create_task(task_id="GOG-EXCEPT-001", email="u@t.com")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.exchange_token(
+                task_id=task.id, redirect_url="http://localhost?code=x",
+            )
+        self.assertIn("error", result)
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_exchange_multiple_config_files(self, mock_exec):
+        file_output = (
+            "---FILE:token.json\ndG9rZW4=\n---ENDFILE\n"
+            "---FILE:credentials.json\nY3JlZA==\n---ENDFILE"
+        )
+        mock_exec.side_effect = [
+            ("ok", "", 0),
+            (file_output, "", 0),
+        ]
+        task = self._create_task(
+            task_id="GOG-MULTI-001",
+            email="user@test.com",
+            gog_auth=json.dumps({"installed": {"client_id": "abc"}}),
+        )
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.exchange_token(
+                task_id=task.id, redirect_url="http://localhost?code=abc",
+            )
+        self.assertTrue(result.get("success"))
+        task.invalidate_recordset()
+        saved = json.loads(task.gog_auth_token)
+        self.assertIn("tokens", saved)
+        self.assertIn("token.json", saved["tokens"])
+        self.assertIn("credentials.json", saved["tokens"])
+
+    # ── status ──────────────────────────────────────────────────────
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_status_not_authenticated_empty_token(self, mock_exec):
+        mock_exec.return_value = ("some output", "", 0)
+        task = self._create_task(task_id="GOG-STAT-EMPTY-001", email="nobody@x.com")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=task.id)
+        self.assertFalse(result.get("authenticated"))
+
+    def test_status_invalid_json_in_token(self):
+        task = self._create_task(task_id="GOG-STAT-BADJSON-001", email="a@b.com")
+        task.sudo().write({"gog_auth_token": "NOT-VALID-JSON{{{"})
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            with patch(_GOG_MOD + "._local_exec") as mock_exec:
+                mock_exec.return_value = ("", "", 0)
+                result = ctrl.gog_status(task_id=task.id)
+        self.assertFalse(result.get("authenticated"))
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_status_gog_cli_shows_email(self, mock_exec):
+        mock_exec.return_value = ("Accounts:\n  user@test.com (gmail,drive)\n", "", 0)
+        task = self._create_task(task_id="GOG-STAT-EMAIL-001", email="user@test.com")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=task.id)
+        self.assertTrue(result.get("authenticated"))
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_status_gog_cli_no_email(self, mock_exec):
+        mock_exec.return_value = ("No accounts configured\n", "", 0)
+        task = self._create_task(task_id="GOG-STAT-NOEML-001", email="missing@x.com")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=task.id)
+        self.assertFalse(result.get("authenticated"))
+
+    @patch(_GOG_MOD + "._local_exec")
+    def test_status_gog_cli_exception(self, mock_exec):
+        mock_exec.side_effect = RuntimeError("cli crashed")
+        task = self._create_task(task_id="GOG-STAT-EXCEPT-001", email="a@b.com")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=task.id)
+        self.assertFalse(result.get("authenticated"))
+
+    def test_status_nonexistent_task(self):
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=999999)
+        self.assertIn("error", result)
+        self.assertIn("Task not found", result["error"])
+
+    def test_status_missing_task_id(self):
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.gog_status(task_id=0)
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+
+@tagged("post_install", "-at_install")
+class TestExtractClientSecretErrorPaths(TalosTestCase):
+
+    def _extract(self, raw):
+        from odoo.addons.talos.controllers.gog_auth import TalosGogAuthController
+        return TalosGogAuthController._extract_client_secret(raw)
+
+    def test_extract_client_secret_non_dict(self):
+        raw = json.dumps([1, 2, 3])
+        secret, err = self._extract(raw)
+        self.assertIsNone(secret)
+        self.assertIn("error", err)
+        self.assertIn("JSON object", err["error"])

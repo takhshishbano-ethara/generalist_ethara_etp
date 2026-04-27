@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+from unittest.mock import patch
 
 from odoo.tests import tagged
 
@@ -75,9 +76,12 @@ class TestChatCreateTurn(TalosTestCase):
         sandbox.write({"session_status": "not_started"})
         self.assertEqual(sandbox.session_status, "not_started")
 
-        self._create_turn(sandbox=sandbox, turn_number=1, prompt="Go")
-        if sandbox.session_status == "not_started":
-            sandbox.sudo().write({"session_status": "in_progress"})
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.create_turn(sandbox_id=sandbox.id, message="Go")
+        self.assertIn("turn_id", result)
+        sandbox.invalidate_recordset()
         self.assertEqual(sandbox.session_status, "in_progress")
 
     def test_create_turn_with_timestamp(self):
@@ -94,11 +98,10 @@ class TestChatCreateTurn(TalosTestCase):
 
     def test_create_turn_empty_message_rejected(self):
         """The controller rejects empty messages with an error dict."""
-        sandbox_id = self.claude_sandbox.id
-        message = ""
-        result = {}
-        if not sandbox_id or not message.strip():
-            result = {"error": "sandbox_id and message are required"}
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.create_turn(sandbox_id=self.claude_sandbox.id, message="")
         self.assertIn("error", result)
         self.assertIn("required", result["error"])
 
@@ -127,17 +130,27 @@ class TestChatSaveResponse(TalosTestCase):
     def test_save_response_partial_streaming(self):
         """partial=True sets status to 'Streaming' when not yet Completed."""
         turn = self._create_turn(turn_number=1, turn_status="Pending")
-        if turn.turn_status != "Completed":
-            turn.write({"response": "partial data", "turn_status": "Streaming"})
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_response(
+                turn_id=turn.id, response="partial data", partial=True,
+            )
+        self.assertTrue(result.get("success"))
+        turn.invalidate_recordset()
         self.assertEqual(turn.turn_status, "Streaming")
 
     def test_save_response_no_downgrade(self):
         """Once 'Completed', a partial=True save does NOT change back to 'Streaming'."""
         turn = self._create_turn(turn_number=1, turn_status="Completed")
-        vals = {"response": "updated text"}
-        if turn.turn_status != "Completed":
-            vals["turn_status"] = "Streaming"
-        turn.write(vals)
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_response(
+                turn_id=turn.id, response="updated text", partial=True,
+            )
+        self.assertTrue(result.get("success"))
+        turn.invalidate_recordset()
         self.assertEqual(turn.turn_status, "Completed")
         self.assertEqual(turn.response, "updated text")
 
@@ -195,11 +208,13 @@ class TestChatSaveQC(TalosTestCase):
 
     def test_save_qc_invalid_severity(self):
         """'extreme' is not a valid severity — validation rejects it."""
-        severity = "extreme"
-        valid = ("low", "medium", "high", "critical")
-        result = {}
-        if severity not in valid:
-            result = {"error": "Invalid severity: %s" % severity}
+        turn = self._create_turn(
+            turn_number=1, turn_status="Completed", prompt="test"
+        )
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_qc(turn_id=turn.id, severity="extreme")
         self.assertIn("error", result)
         self.assertIn("extreme", result["error"])
 
@@ -256,11 +271,11 @@ class TestChatSaveFeedback(TalosTestCase):
 
     def test_save_feedback_invalid(self):
         """'neutral' is not a valid feedback value — rejected."""
-        feedback = "neutral"
-        valid = ("satisfied", "unsatisfied")
-        result = {}
-        if feedback not in valid:
-            result = {"error": "Invalid feedback: %s" % feedback}
+        turn = self._create_turn(turn_number=1, turn_status="Completed")
+        ctrl = TalosChatController()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_feedback(turn_id=turn.id, feedback="neutral")
         self.assertIn("error", result)
         self.assertIn("neutral", result["error"])
 
@@ -593,3 +608,175 @@ class TestSandboxState(TalosTestCase):
         self.assertEqual(result["last_turn_id"], 0)
         self.assertEqual(result["last_turn_feedback"], "")
         self.assertEqual(result["last_turn_hint_text"], "")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Error-path & edge-case tests (appended)
+# ═══════════════════════════════════════════════════════════════════════
+
+@tagged("post_install", "-at_install")
+class TestChatControllerErrorPaths(TalosTestCase):
+    """Error-path tests that exercise the controller methods directly."""
+
+    def _ctrl(self):
+        return TalosChatController()
+
+    # ── create_turn ─────────────────────────────────────────────────
+
+    def test_create_turn_missing_sandbox_id(self):
+        """sandbox_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.create_turn(sandbox_id=0, message="hi")
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_create_turn_nonexistent_sandbox(self):
+        """sandbox_id=999999 → 'Sandbox not found'."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.create_turn(sandbox_id=999999, message="hi")
+        self.assertIn("error", result)
+        self.assertIn("Sandbox not found", result["error"])
+
+    # ── save_response ───────────────────────────────────────────────
+
+    def test_save_response_missing_turn_id(self):
+        """turn_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_response(turn_id=0, response="data")
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_save_response_nonexistent_turn(self):
+        """turn_id=999999 → 'Turn not found'."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_response(turn_id=999999, response="data")
+        self.assertIn("error", result)
+        self.assertIn("Turn not found", result["error"])
+
+    # ── save_qc ─────────────────────────────────────────────────────
+
+    def test_save_qc_missing_turn_id(self):
+        """turn_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_qc(turn_id=0, severity="low")
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_save_qc_invalid_severity(self):
+        """severity='INVALID' → error dict (case-insensitive check)."""
+        turn = self._create_turn(turn_number=1, turn_status="Completed")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_qc(turn_id=turn.id, severity="INVALID")
+        self.assertIn("error", result)
+        self.assertIn("Invalid severity", result["error"])
+
+    # ── save_feedback ───────────────────────────────────────────────
+
+    def test_save_feedback_missing_turn_id(self):
+        """turn_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_feedback(turn_id=0, feedback="satisfied")
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_save_feedback_nonexistent_turn(self):
+        """turn_id=999999 → 'Turn not found'."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_feedback(turn_id=999999, feedback="satisfied")
+        self.assertIn("error", result)
+        self.assertIn("Turn not found", result["error"])
+
+    # ── save_trajectory ─────────────────────────────────────────────
+
+    def test_save_trajectory_missing_turn_id(self):
+        """turn_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_trajectory(turn_id=0, trajectory_messages="[]")
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_save_trajectory_nonexistent_turn(self):
+        """turn_id=999999 → 'Turn not found'."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_trajectory(turn_id=999999, trajectory_messages="[]")
+        self.assertIn("error", result)
+        self.assertIn("Turn not found", result["error"])
+
+    def test_save_trajectory_malformed_json(self):
+        """Malformed trajectory JSON does not crash — gracefully handled."""
+        turn = self._create_turn(turn_number=1, turn_status="Completed")
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.save_trajectory(
+                turn_id=turn.id, trajectory_messages="NOT VALID JSON{{{",
+            )
+        # Should succeed without crash; extraction returns empty
+        self.assertTrue(result.get("success"))
+
+    # ── history ─────────────────────────────────────────────────────
+
+    def test_history_missing_sandbox_id(self):
+        """sandbox_id=0 → error dict."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.chat_history(sandbox_id=0)
+        self.assertIn("error", result)
+        self.assertIn("required", result["error"])
+
+    def test_history_nonexistent_sandbox(self):
+        """sandbox_id=999999 → 'Sandbox not found'."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            result = ctrl.chat_history(sandbox_id=999999)
+        self.assertIn("error", result)
+        self.assertIn("Sandbox not found", result["error"])
+
+    # ── export_session ──────────────────────────────────────────────
+
+    def test_export_session_sandbox_not_found(self):
+        """sandbox_id=999999 → not_found response."""
+        ctrl = self._ctrl()
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            mock_req.not_found.return_value = {"error": "not_found"}
+            result = ctrl.export_session(sandbox_id=999999)
+        mock_req.not_found.assert_called_once()
+        self.assertEqual(result, {"error": "not_found"})
+
+    def test_export_session_by_task_id(self):
+        """task_id exports task trajectory via build_trajectory_json."""
+        task = self._create_task(task_id="EXPORT-TASK-001")
+        ctrl = self._ctrl()
+        fake_traj = {"meta_info": {}, "messages": []}
+        with patch("odoo.http.request") as mock_req:
+            mock_req.env = self.env
+            mock_req.make_response.return_value = "ok-response"
+            with patch.object(
+                type(task), "build_trajectory_json", return_value=fake_traj,
+            ):
+                result = ctrl.export_session(sandbox_id=0, task_id=task.id)
+        self.assertEqual(result, "ok-response")
+        mock_req.make_response.assert_called_once()

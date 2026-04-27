@@ -791,3 +791,529 @@ class TestHelperFunctions(TalosTestCase):
         dt, err = parse_iso8601("2026-06-15T14:30:00.123456Z")
         self.assertIsNotNone(dt)
         self.assertIsNone(err)
+
+
+# ── Hints-mode helpers ───────────────────────────────────────────────────────
+
+
+def _hint_envelope(id_, parentId, role, text, ts):
+    """Return a standard message envelope for use inside hint wrappers."""
+    return {
+        "type": "message",
+        "id": id_,
+        "parentId": parentId,
+        "timestamp": ts,
+        "message": {
+            "role": role,
+            "content": [{"type": "text", "text": text}],
+        },
+    }
+
+
+def _hints_trajectory(**overrides):
+    """Return a minimal valid hints-mode trajectory dict."""
+    traj = {
+        "meta_info": {
+            "task_type": "home_and_organization",
+            "task_description": (
+                "A sufficiently long task description that exceeds fifty characters for the validator"
+            ),
+            "task_completion_status": "success",
+            "system_prompt": "You are a helpful assistant.",
+            "platform": "macOS",
+            "conv_id": "conv-abc-123",
+        },
+        "past_conversations": [
+            _hint_envelope("cc000001", None, "user", "Old question", "2025-12-31T00:00:00Z"),
+            _hint_envelope("cc000002", "cc000001", "assistant", "Old answer", "2025-12-31T00:00:01Z"),
+        ],
+        "messages": [
+            {
+                "is_accepted": 0,
+                "hints": None,
+                "message": _hint_envelope("aabb0001", None, "user", "Hello", "2026-01-01T00:00:00Z"),
+            },
+            {
+                "is_accepted": 0,
+                "hints": "Try rephrasing",
+                "message": _hint_envelope("aabb0002", "aabb0001", "assistant", "Hi!", "2026-01-01T00:00:01Z"),
+            },
+            {
+                "is_accepted": 1,
+                "hints": None,
+                "message": _hint_envelope("aabb0003", "aabb0002", "user", "Thanks", "2026-01-01T00:00:02Z"),
+            },
+        ],
+    }
+    traj.update(overrides)
+    return traj
+
+
+# ── TestHintsMode ────────────────────────────────────────────────────────────
+
+
+@tagged("post_install", "-at_install")
+class TestHintsMode(TalosTestCase):
+    """12 methods testing hints-mode specific validation."""
+
+    # 1
+    def test_hints_mode_valid(self):
+        """Trajectory with past_conversations + proper wrappers → all pass."""
+        checks = _run(_hints_trajectory())
+        fails = [c for c in checks if c["verdict"] == "FAIL"]
+        self.assertEqual(fails, [], f"Unexpected FAILs: {fails}")
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "PASS")
+        c2 = _find_check(checks, "hint_flow_pattern")
+        self.assertIsNotNone(c2)
+        self.assertEqual(c2["verdict"], "PASS")
+
+    # 2
+    def test_hints_mode_missing_past_conversations(self):
+        """past_conversations set to None (key present) → triggers hints mode, FAIL validation."""
+        traj = _hints_trajectory()
+        traj["past_conversations"] = None
+        checks = _run(traj)
+        c = _find_check(checks, "past_conversations")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+
+    # 3
+    def test_hints_mode_past_conversations_non_array(self):
+        """past_conversations is string type → FAIL."""
+        traj = _hints_trajectory()
+        traj["past_conversations"] = "not an array"
+        checks = _run(traj)
+        c = _find_check(checks, "past_conversations")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("str", c["reason"])
+
+    # 4
+    def test_hints_mode_wrapper_missing_is_accepted(self):
+        """Required key is_accepted missing from wrapper → FAIL."""
+        traj = _hints_trajectory()
+        del traj["messages"][0]["is_accepted"]
+        checks = _run(traj)
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("is_accepted", c["reason"])
+
+    # 5
+    def test_hints_mode_wrapper_missing_hints(self):
+        """Required key hints missing from wrapper → FAIL."""
+        traj = _hints_trajectory()
+        del traj["messages"][1]["hints"]
+        checks = _run(traj)
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("hints", c["reason"])
+
+    # 6
+    def test_hints_mode_wrapper_missing_message(self):
+        """Required key message missing from wrapper → FAIL."""
+        traj = _hints_trajectory()
+        del traj["messages"][0]["message"]
+        checks = _run(traj)
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("message", c["reason"])
+
+    # 7
+    def test_hints_mode_is_accepted_not_integer(self):
+        """is_accepted is bool type → FAIL."""
+        traj = _hints_trajectory()
+        traj["messages"][2]["is_accepted"] = True
+        checks = _run(traj)
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("bool", c["reason"])
+
+    # 8
+    def test_hints_mode_is_accepted_invalid_value(self):
+        """is_accepted=2 → FAIL (expected 0 or 1)."""
+        traj = _hints_trajectory()
+        traj["messages"][2]["is_accepted"] = 2
+        checks = _run(traj)
+        c = _find_check(checks, "hint_wrapper")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("expected 0 or 1", c["reason"])
+
+    # 9
+    def test_hints_mode_multiple_accepted(self):
+        """Two entries with is_accepted=1 → FAIL."""
+        traj = _hints_trajectory()
+        traj["messages"][1]["is_accepted"] = 1
+        checks = _run(traj)
+        c = _find_check(checks, "hint_flow_pattern")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("Multiple", c["reason"])
+
+    # 10
+    def test_hints_mode_accepted_not_last(self):
+        """is_accepted=1 at index 0, not last → FAIL."""
+        traj = _hints_trajectory()
+        traj["messages"][0]["is_accepted"] = 1
+        traj["messages"][2]["is_accepted"] = 0
+        checks = _run(traj)
+        c = _find_check(checks, "hint_flow_pattern")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("must be the last element", c["reason"])
+
+    # 11
+    def test_hints_mode_first_entry_has_hint(self):
+        """First entry has non-null hints → WARN."""
+        traj = _hints_trajectory()
+        traj["messages"][0]["hints"] = "Unexpected hint on first entry"
+        checks = _run(traj)
+        c = _find_check(checks, "hint_flow_pattern")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "WARN")
+        self.assertIn("First entry", c["reason"])
+
+    # 12
+    def test_hints_mode_conv_id_required(self):
+        """No conv_id in hints mode → FAIL."""
+        traj = _hints_trajectory()
+        del traj["meta_info"]["conv_id"]
+        checks = _run(traj)
+        c = _find_check(checks, "conv_id")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("required", c["reason"])
+
+
+# ── TestEnvelopeEdgeCases ────────────────────────────────────────────────────
+
+
+@tagged("post_install", "-at_install")
+class TestEnvelopeEdgeCases(TalosTestCase):
+    """12 methods testing envelope and content block edge cases."""
+
+    # 1
+    def test_envelope_non_dict_item(self):
+        """String in messages list → issue on message_envelope."""
+        traj = _minimal_trajectory()
+        traj["messages"] = ["not a dict"]
+        checks = _run(traj)
+        c = _find_check(checks, "message_envelope")
+        self.assertIsNotNone(c)
+        self.assertIn("not an object", c["reason"])
+
+    # 2
+    def test_envelope_duplicate_ids(self):
+        """Same id twice → duplicate issue on parent_id_chain."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["id"] = traj["messages"][0]["id"]
+        checks = _run(traj)
+        c = _find_check(checks, "parent_id_chain")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("Duplicate", c["reason"])
+
+    # 3
+    def test_envelope_parentId_null_non_first(self):
+        """Second message parentId=None → issue on parent_id_chain."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["parentId"] = None
+        checks = _run(traj)
+        c = _find_check(checks, "parent_id_chain")
+        self.assertIsNotNone(c)
+        self.assertIn("parentId is null", c["reason"])
+
+    # 4
+    def test_envelope_parentId_non_string(self):
+        """parentId=123 → issue on message_envelope."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["parentId"] = 123
+        checks = _run(traj)
+        c = _find_check(checks, "message_envelope")
+        self.assertIsNotNone(c)
+        self.assertIn("int", c["reason"])
+
+    # 5
+    def test_envelope_missing_timestamp(self):
+        """No timestamp → issue on message_envelope."""
+        traj = _minimal_trajectory()
+        del traj["messages"][0]["timestamp"]
+        checks = _run(traj)
+        c = _find_check(checks, "message_envelope")
+        self.assertIsNotNone(c)
+        self.assertIn("timestamp", c["reason"])
+
+    # 6
+    def test_envelope_missing_message_field(self):
+        """No message key → issue on message_envelope."""
+        traj = _minimal_trajectory()
+        del traj["messages"][0]["message"]
+        checks = _run(traj)
+        c = _find_check(checks, "message_envelope")
+        self.assertIsNotNone(c)
+        self.assertIn("message", c["reason"])
+
+    # 7
+    def test_content_empty_text_block(self):
+        """text="" → WARN on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][0]["message"]["content"] = [{"type": "text", "text": ""}]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "WARN")
+        self.assertIn("empty", c["reason"])
+
+    # 8
+    def test_content_thinking_block_valid(self):
+        """thinking + thinkingSignature → PASS on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = [
+            {
+                "type": "thinking",
+                "thinking": "Let me think about this...",
+                "thinkingSignature": "sig123",
+            }
+        ]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "PASS")
+
+    # 9
+    def test_content_thinking_block_missing_signature(self):
+        """No thinkingSignature → WARN on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = [
+            {"type": "thinking", "thinking": "Some thought process"}
+        ]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "WARN")
+        self.assertIn("thinkingSignature", c["reason"])
+
+    # 10
+    def test_content_thinking_block_missing_thinking_field(self):
+        """No thinking key → BLOCK/FAIL on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = [
+            {"type": "thinking", "thinkingSignature": "sig123"}
+        ]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("missing 'thinking'", c["reason"])
+
+    # 11
+    def test_content_thinking_block_empty_thinking(self):
+        """thinking="" → WARN on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = [
+            {
+                "type": "thinking",
+                "thinking": "",
+                "thinkingSignature": "sig123",
+            }
+        ]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "WARN")
+        self.assertIn("empty", c["reason"])
+
+    # 12
+    def test_content_thinking_block_non_string_thinking(self):
+        """thinking=123 → BLOCK/FAIL on content_block_structure."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = [
+            {
+                "type": "thinking",
+                "thinking": 123,
+                "thinkingSignature": "sig123",
+            }
+        ]
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("int", c["reason"])
+
+
+# ── TestToolCallEdgeCases ────────────────────────────────────────────────────
+
+
+@tagged("post_install", "-at_install")
+class TestToolCallEdgeCases(TalosTestCase):
+    """6 methods testing toolCall/toolResult content block edge cases."""
+
+    def _traj_with_tool_content(self, content_blocks):
+        """Helper: build trajectory where messages[1] (assistant) has given content."""
+        traj = _minimal_trajectory()
+        traj["messages"][1]["message"]["content"] = content_blocks
+        return traj
+
+    # 1
+    def test_toolCall_nested_format(self):
+        """toolCall with nested toolCall object → valid."""
+        traj = self._traj_with_tool_content([
+            {
+                "type": "toolCall",
+                "toolCall": {
+                    "id": "tc-001",
+                    "name": "web_search",
+                    "arguments": {"query": "cats"},
+                },
+            }
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertNotEqual(c["verdict"], "FAIL")
+
+    # 2
+    def test_toolCall_flat_format(self):
+        """toolCall with id/name directly on block → valid."""
+        traj = self._traj_with_tool_content([
+            {
+                "type": "toolCall",
+                "id": "tc-002",
+                "name": "web_fetch",
+                "arguments": {"url": "https://example.com"},
+            }
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertNotEqual(c["verdict"], "FAIL")
+
+    # 3
+    def test_toolCall_missing_id_and_name(self):
+        """Neither nested toolCall nor id/name on block → BLOCK/FAIL."""
+        traj = self._traj_with_tool_content([
+            {"type": "toolCall", "arguments": {"query": "cats"}}
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("missing", c["reason"].lower())
+
+    # 4
+    def test_toolCall_unrecognized_name(self):
+        """Custom/unknown tool name → WARN on content_block_structure."""
+        traj = self._traj_with_tool_content([
+            {
+                "type": "toolCall",
+                "toolCall": {
+                    "id": "tc-003",
+                    "name": "my_custom_nonexistent_tool",
+                    "arguments": {},
+                },
+            }
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "WARN")
+        self.assertIn("not a recognized tool", c["reason"])
+
+    # 5
+    def test_toolCall_arguments_invalid_json_string(self):
+        """arguments is a string but not valid JSON → BLOCK/FAIL."""
+        traj = self._traj_with_tool_content([
+            {
+                "type": "toolCall",
+                "toolCall": {
+                    "id": "tc-004",
+                    "name": "web_search",
+                    "arguments": "{not valid json",
+                },
+            }
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("not valid JSON", c["reason"])
+
+    # 6
+    def test_toolResult_block_missing_nested(self):
+        """toolResult block without nested toolResult object → BLOCK/FAIL."""
+        traj = self._traj_with_tool_content([
+            {"type": "toolResult", "id": "tr-001", "isError": False}
+        ])
+        checks = _run(traj)
+        c = _find_check(checks, "content_block_structure")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("missing nested", c["reason"].lower())
+
+
+# ── TestMetaInfoEdgeCases ────────────────────────────────────────────────────
+
+
+@tagged("post_install", "-at_install")
+class TestMetaInfoEdgeCases(TalosTestCase):
+    """5 methods testing meta_info field edge cases."""
+
+    # 1
+    def test_task_type_case_mismatch(self):
+        """'Home_And_Organization' (wrong casing) → FAIL with hint."""
+        traj = _minimal_trajectory()
+        traj["meta_info"]["task_type"] = "Home_And_Organization"
+        checks = _run(traj)
+        c = _find_check(checks, "task_type")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("did you mean", c["reason"].lower())
+
+    # 2
+    def test_task_description_non_string(self):
+        """task_description is integer → FAIL."""
+        traj = _minimal_trajectory()
+        traj["meta_info"]["task_description"] = 42
+        checks = _run(traj)
+        c = _find_check(checks, "task_description")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("int", c["reason"])
+
+    # 3
+    def test_system_prompt_non_string(self):
+        """system_prompt is list → FAIL."""
+        traj = _minimal_trajectory()
+        traj["meta_info"]["system_prompt"] = ["not", "a", "string"]
+        checks = _run(traj)
+        c = _find_check(checks, "system_prompt")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+        self.assertIn("list", c["reason"])
+
+    # 4
+    def test_platform_missing(self):
+        """No platform key → FAIL."""
+        traj = _minimal_trajectory()
+        del traj["meta_info"]["platform"]
+        checks = _run(traj)
+        c = _find_check(checks, "platform")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "FAIL")
+
+    # 5
+    def test_session_id_valid_uuid(self):
+        """UUID format session_id → PASS."""
+        traj = _minimal_trajectory()
+        traj["meta_info"]["session_id"] = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        checks = _run(traj)
+        c = _find_check(checks, "session_id")
+        self.assertIsNotNone(c)
+        self.assertEqual(c["verdict"], "PASS")
+        self.assertIn("valid UUID", c["reason"])
