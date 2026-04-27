@@ -29,7 +29,7 @@ const STEPS = [
     },
     {
         key: "glm",
-        label: "GLM 5",
+        label: "Kimi K2.5",
         field: "glm_session_status",
         iconMap: {
             not_started: "fa-microchip",

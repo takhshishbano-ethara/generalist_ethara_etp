@@ -38,7 +38,7 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "GLM 5"),
+    ("glm", "Kimi K2.5"),
     ("1pa", "1PA"),
     ("1pb", "1PB"),
     ("1pc", "1PC"),
@@ -47,7 +47,7 @@ MODEL_TYPES = [
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
-    "glm": "litellm/glm-5",
+    "glm": "litellm/kimi-k2.5",
     "1pa": "litellm/quiet_sand",
     "1pb": "litellm/quiet_sand",
     "1pc": "litellm/quiet_sand",
@@ -98,7 +98,7 @@ def _mark_task_description_status(db_name, task_id, field_name, status, entry_in
 def _inject_task_description_bg(
     db_name, task_id, field_name, seed_prompt, messages, entry_index=-1
 ):
-    """Background: generate task description via Kimi and inject into saved trajectory."""
+    """Background: generate task description via GLM and inject into saved trajectory."""
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -2045,8 +2045,8 @@ class TalosSandbox(models.Model):
                     "maxTokens": 128000,
                 },
                 {
-                    "id": "glm-5",
-                    "name": "glm-5",
+                    "id": "kimi-k2.5",
+                    "name": "kimi-k2.5",
                     "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {
@@ -2080,7 +2080,7 @@ class TalosSandbox(models.Model):
             config["agents"] = {
                 "defaults": {
                     "model": default_model,
-                    "thinkingDefault": "max",
+                    "thinkingDefault": "xhigh",
                     "models": {
                         "litellm/claude-opus-4.7": {
                             "params": {
@@ -2089,10 +2089,10 @@ class TalosSandbox(models.Model):
                                         "type": "adaptive",
                                         "display": "summarized",
                                     },
-                                    "output_config": {"effort": "max"},
+                                    "output_config": {"effort": "xhigh"},
                                 }
                             }
-                        }
+                        },
                     },
                 }
             }

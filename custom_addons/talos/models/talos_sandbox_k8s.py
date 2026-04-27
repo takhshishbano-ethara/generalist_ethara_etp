@@ -215,8 +215,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 "maxTokens": 128000,
             },
             {
-                "id": "glm-5",
-                "name": "glm-5",
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -246,7 +246,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                             "output_config": {"effort": "xhigh"},
                         }
                     }
-                }
+                },
             },
         }
     }

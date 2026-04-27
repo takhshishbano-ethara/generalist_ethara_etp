@@ -577,6 +577,16 @@ export class TalosChatWidget extends Component {
                     return;
                 }
 
+                if (agentStream === "thinking") {
+                    console.log(LOG_PREFIX, `🤖 AGENT THINKING: len=${(agentData.text || "").length} delta_len=${(agentData.delta || "").length}`);
+                    this._handleChatEvent({
+                        stream: "thinking",
+                        message: agentData,
+                        data: agentData,
+                    }, widget);
+                    return;
+                }
+
                 console.log(LOG_PREFIX, `🤖 AGENT [${agentStream}]:`, JSON.stringify(agentData).substring(0, 500));
                 return;
             }
@@ -827,6 +837,12 @@ export class TalosChatWidget extends Component {
             } else if (data.delta) {
                 session._thinkingBuf += data.delta;
             }
+            let msg = messages.findLast(m => m.pending);
+            if (!msg) {
+                msg = { role: "assistant", text: "", html: markup(""), pending: true, isModelResponse: true, turnId: session.currentTurnId };
+                messages.push(msg);
+            }
+            msg.thinkingText = session._thinkingBuf;
         } else if (stream === "lifecycle" && data.phase === "start") {
             console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
             if (widget) widget.state.activityText = "Thinking…";
@@ -843,6 +859,10 @@ export class TalosChatWidget extends Component {
                     msg.text = session._streamBuf;
                     msg.html = markup(renderMarkdown(session._streamBuf));
                 }
+                if (session._thinkingBuf) {
+            msg.thinkingText = session._thinkingBuf;
+            msg.thinkingExpanded = true;
+                }
                 msg.pending = false;
             }
             const toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : null;
@@ -853,6 +873,7 @@ export class TalosChatWidget extends Component {
             }
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
+            session._thinkingBuf = "";
             session._toolCalls = [];
             session._toolCallMap = new Map();
             session._rawEvents = [];
@@ -1910,6 +1931,10 @@ export class TalosChatWidget extends Component {
 
     onToggleTools(msg) {
         msg.toolsExpanded = !msg.toolsExpanded;
+    }
+
+    onToggleThinking(msg) {
+        msg.thinkingExpanded = !msg.thinkingExpanded;
     }
 
     formatToolResult(result) {

@@ -186,6 +186,38 @@
     border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
 
+.o_talos_thinking_section {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.o_talos_thinking_toggle {
+    font-size: 11px;
+    color: #b8860b;
+    text-decoration: none;
+    &:hover { color: #8b6508; }
+}
+
+.o_talos_thinking_live {
+    font-size: 10px;
+    color: #b8860b;
+}
+
+.o_talos_thinking_content {
+    margin-top: 6px;
+    padding: 8px 10px;
+    background: rgba(184, 134, 11, 0.06);
+    border-left: 3px solid rgba(184, 134, 11, 0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--o-text-color-muted, #6c757d);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 .o_talos_tools_toggle {
     font-size: 11px;
     color: var(--o-text-color-muted, #6c757d);

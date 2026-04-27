@@ -137,7 +137,7 @@ def _call_kimi_with_retry(
     temperature=0.3,
 ):
     _logger.info(
-        "%s: calling Kimi sandbox=%s turn=%s iter=%d arn=%s region=%s prompt_len=%d",
+        "%s: calling GLM sandbox=%s turn=%s iter=%d arn=%s region=%s prompt_len=%d",
         label,
         sandbox_id,
         turn_id,
@@ -160,7 +160,7 @@ def _call_kimi_with_retry(
     total_usage["input_tokens"] += usage.get("input_tokens", 0)
     total_usage["output_tokens"] += usage.get("output_tokens", 0)
     _logger.info(
-        "%s: Kimi response sandbox=%s turn=%s iter=%d "
+        "%s: GLM response sandbox=%s turn=%s iter=%d "
         "elapsed=%.2fs in_tokens=%d out_tokens=%d "
         "response_len=%d raw_output=%.500s",
         label,
@@ -204,7 +204,7 @@ def _call_kimi_with_retry(
         total_usage["input_tokens"] += usage.get("input_tokens", 0)
         total_usage["output_tokens"] += usage.get("output_tokens", 0)
         _logger.info(
-            "%s: Kimi retry response sandbox=%s turn=%s iter=%d "
+            "%s: GLM retry response sandbox=%s turn=%s iter=%d "
             "elapsed=%.2fs in_tokens=%d out_tokens=%d "
             "response_len=%d raw_output=%.500s",
             label,
@@ -538,7 +538,7 @@ def _accumulate_kimi_tokens(env, task_id, usage):
             "kimi_eval_output_tokens": (task.kimi_eval_output_tokens or 0) + t_out,
         })
     except Exception:
-        _logger.exception("_accumulate_kimi_tokens failed for task=%s", task_id)
+        _logger.exception("_accumulate_glm_tokens failed for task=%s", task_id)
 
 
 def _push_bus(env, sandbox, notify_partner_id, payload):

@@ -460,7 +460,7 @@ class LlmAssistQc(http.Controller):
 
         try:
             _logger.info(
-                "seed QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                "seed QC: calling GLM arn=%s region=%s prompt_len=%d",
                 inference_arn,
                 region,
                 len(prompt),
@@ -477,7 +477,7 @@ class LlmAssistQc(http.Controller):
             )
             elapsed = time.monotonic() - t0
             _logger.info(
-                "seed QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "seed QC: GLM response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                 "response_len=%d raw_output=%.500s",
                 elapsed,
                 usage.get("input_tokens", 0),
@@ -505,7 +505,7 @@ class LlmAssistQc(http.Controller):
                 )
                 elapsed = time.monotonic() - t0
                 _logger.info(
-                    "seed QC: Kimi retry response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                    "seed QC: GLM retry response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                     "response_len=%d raw_output=%.500s",
                     elapsed,
                     usage.get("input_tokens", 0),
@@ -734,7 +734,7 @@ class LlmAssistQc(http.Controller):
                 )
 
             _logger.info(
-                "legacy QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                "legacy QC: calling GLM arn=%s region=%s prompt_len=%d",
                 inference_arn,
                 region,
                 len(prompt),
@@ -751,7 +751,7 @@ class LlmAssistQc(http.Controller):
             )
             elapsed = time.monotonic() - t0
             _logger.info(
-                "legacy QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "legacy QC: GLM response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                 "response_len=%d raw_output=%.500s",
                 elapsed,
                 usage.get("input_tokens", 0),

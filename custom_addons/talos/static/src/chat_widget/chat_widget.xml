@@ -31,6 +31,24 @@
                                     </span>
                                 </div>
                                 <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.isQc ? 'o_talos_qc_bubble o_talos_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_talos_md' : ''}">
+                                    <t t-if="msg.thinkingText">
+                                        <div class="o_talos_thinking_section">
+                                            <button class="o_talos_thinking_toggle btn btn-link btn-sm p-0"
+                                                    t-on-click="() => this.onToggleThinking(msg)">
+                                                <i t-attf-class="fa fa-chevron-#{msg.thinkingExpanded ? 'down' : 'right'} me-1"/>
+                                                <i class="fa fa-lightbulb-o me-1"/>
+                                                <span>Thinking</span>
+                                                <span t-if="msg.pending" class="o_talos_thinking_live ms-1">
+                                                    <i class="fa fa-circle-o-notch fa-spin"/>
+                                                </span>
+                                            </button>
+                                            <t t-if="msg.thinkingExpanded">
+                                                <div class="o_talos_thinking_content">
+                                                    <t t-out="msg.thinkingText"/>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
                                     <t t-if="msg.isQc">
                                         <div class="o_talos_qc_header">
                                             <span t-attf-class="o_talos_qc_badge o_talos_qc_badge_#{msg.qcSeverity || 'low'}">

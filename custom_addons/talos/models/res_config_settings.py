@@ -13,7 +13,7 @@ class TalosConfigSettings(models.TransientModel):
     talos_bedrock_inference_arn = fields.Char(
         string="Bedrock Inference ARN",
         config_parameter="talos.bedrock_inference_arn",
-        help="Full ARN of the AWS Bedrock application inference profile for Kimi K2.5.",
+        help="Full ARN of the AWS Bedrock application inference profile for GLM 5.",
     )
     talos_bedrock_region = fields.Char(
         string="Bedrock Region",
