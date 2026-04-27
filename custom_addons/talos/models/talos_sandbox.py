@@ -2027,7 +2027,7 @@ class TalosSandbox(models.Model):
                 {
                     "id": "quiet_sand",
                     "name": "quiet_sand",
-                    "reasoning": False,
+                    "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {
                         "input": 0,
