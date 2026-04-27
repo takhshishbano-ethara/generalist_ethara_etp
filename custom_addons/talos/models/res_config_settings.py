@@ -86,6 +86,18 @@ class TalosConfigSettings(models.TransientModel):
         config_parameter="talos.gog_keyring_password",
         help="Password used to encrypt the gog file-based keyring.",
     )
+    talos_disable_prompt_qc = fields.Boolean(
+        string="Disable Prompt QC",
+        config_parameter="talos.disable_prompt_qc",
+        default=False,
+        help="Skip LLM-powered prompt quality checks. Useful for testing and debugging.",
+    )
+    talos_disable_trajectory_qc = fields.Boolean(
+        string="Disable Trajectory QC",
+        config_parameter="talos.disable_trajectory_qc",
+        default=False,
+        help="Skip trajectory validation and LLM-powered trajectory QC. Useful for testing and debugging.",
+    )
 
     @api.depends_context("uid")
     def _compute_talos_docker_available(self):

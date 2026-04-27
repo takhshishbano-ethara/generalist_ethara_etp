@@ -65,6 +65,14 @@
                             <field name="talos_gog_keyring_password" password="True"/>
                         </setting>
                     </block>
+                    <block title="QC &amp; Validation (Debug)">
+                        <setting string="Disable Prompt QC" help="Skip LLM-powered prompt quality checks. Enable this for testing and debugging only.">
+                            <field name="talos_disable_prompt_qc" widget="boolean_toggle"/>
+                        </setting>
+                        <setting string="Disable Trajectory QC" help="Skip trajectory validation and LLM-powered trajectory QC. Enable this for testing and debugging only.">
+                            <field name="talos_disable_trajectory_qc" widget="boolean_toggle"/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>
