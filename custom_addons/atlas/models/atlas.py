@@ -284,6 +284,9 @@ def _parse_rubric_table(text):
                         break
                 if category != "other":
                     break
+                dc_raw = dc.strip()
+                if dc_raw and dc_lower not in VALID_IMPS and len(dc_raw) < 50 and not _re.match(r"^[\d✅❌+\-]+$", dc_raw):
+                    custom_category = dc_raw
 
         importance = "important"
         for dc in data_cols:

@@ -94,8 +94,12 @@ export class RubricEditor extends Component {
         const isRecordRunning = recordGoal === "running" || recordRubric === "running";
         const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
         if (isRecordRunning && !isStateRunning) {
+            const wasRubricIdle = this.state.rubricStatus !== "running" && this.state.rubricStatus !== "done";
             this.state.goalStatus = recordGoal || this.state.goalStatus;
             this.state.rubricStatus = recordRubric || this.state.rubricStatus;
+            if (recordRubric === "running" && wasRubricIdle) {
+                this.state.criteria = [];
+            }
             this._startPolling();
         }
     }

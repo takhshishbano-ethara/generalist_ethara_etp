@@ -89,9 +89,9 @@
                                         </div>
                                     </t>
 
-                                    <t t-if="c.category === 'other' and c.custom_category">
+                                    <t t-if="c.category === 'other'">
                                         <div class="o_card_custom_cat mt-1">
-                                            <i class="fa fa-tag me-1"/>Criteria: <t t-out="c.custom_category"/>
+                                            <i class="fa fa-tag me-1"/>Criteria: <t t-out="c.custom_category || 'General'"/>
                                         </div>
                                     </t>
 
