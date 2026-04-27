@@ -193,6 +193,7 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
 
             all_criteria = task.rubric_criterion_ids.sorted("sequence, id")
             rubric_rows = []
+            target_prefix = ""
             for i, c in enumerate(all_criteria, 1):
                 prefix = "N%d" % (i - len([x for x in all_criteria if not x.is_negative])) if c.is_negative else str(i)
                 sign = "❌" if c.is_negative else "✅"
@@ -200,6 +201,8 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
                 rubric_rows.append("| %s | %s | %s | %s | %s |" % (
                     prefix, c.name, w, sign, c.suggestion or "",
                 ))
+                if c.id == criterion_id:
+                    target_prefix = prefix
 
             goal = task.goal_description or "(No goal generated)"
             rubric_table = (
@@ -209,10 +212,21 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
             if rubric_rows:
                 rubric_table += "\n" + "\n".join(rubric_rows)
 
-            user_message = "## Goal\n%s\n\n## Rubric\n%s\n\n## Conversation\n%s" % (
+            target_name = criterion.name or ""
+            user_message = (
+                "## Goal\n%s\n\n"
+                "## Criterion Under Review\nCriterion %s: %s\n\n"
+                "## Full Rubric (for context)\n%s\n\n"
+                "## Conversation\n%s\n\n"
+                "**IMPORTANT: Focus your QC checks ONLY on criterion %s (\"%s\"). "
+                "Use the full rubric and conversation as context, but your verdict "
+                "and findings must be about this single criterion only.**"
+            ) % (
                 goal,
+                target_prefix, target_name,
                 rubric_table,
                 "\n".join(conversation_parts),
+                target_prefix, target_name,
             )
 
             try:
@@ -285,12 +299,11 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
 
             feedback = "\n".join(feedback_parts) if feedback_parts else response_text[:2000]
 
-            for c in all_criteria:
-                c.write({
-                    "qc_status": "done",
-                    "qc_severity": severity,
-                    "qc_feedback": feedback,
-                })
+            criterion.write({
+                "qc_status": "done",
+                "qc_severity": severity,
+                "qc_feedback": feedback,
+            })
 
             if notify_partner_id:
                 partner = env["res.partner"].browse(notify_partner_id)

@@ -163,21 +163,44 @@ def _parse_rubric_table(text):
         "self-qc", "qc note", "verification", "weakest",
     )
 
+    _SECTION_STOP_PATTERNS = (
+        "### scoring", "## scoring", "### self-qc", "### verification",
+        "### formula", "score range", "maxraw", "score =",
+    )
+
     def _is_separator(line):
         stripped = line.strip().strip("|").strip()
         return bool(_re.match(r"^[\s\-:| ]+$", stripped))
 
     def _is_header(line):
-        lower = line.lower()
-        return "criterion" in lower or "criteria" in lower or "category" in lower or "importance" in lower
+        cols = [c.strip().lower() for c in line.split("|") if c.strip()]
+        header_words = {"criterion", "criteria", "category", "importance", "#", "levels", "suggestion", "+/-"}
+        matches = sum(1 for c in cols if c in header_words)
+        return matches >= 3
 
     def _is_qc_junk(line):
         inner = line.strip().strip("|").strip().lower()
-        return any(inner.startswith(p) for p in _QC_JUNK_PATTERNS)
+        if any(inner.startswith(p) for p in _QC_JUNK_PATTERNS):
+            return True
+        if _re.match(r"^#\d+\s", inner):
+            return True
+        if any(kw in inner for kw in (
+            "self-contained", "objective?", "fact-stable", "total negative",
+            "score range", "interpretation", "poor:", "needs improvement",
+            "excellent:", "good:", "negative?", "negatives?",
+        )):
+            return True
+        return False
 
     table_lines = []
+    hit_stop_section = False
     for line in parse_text.split("\n"):
         stripped = line.strip()
+        lower_stripped = stripped.lower()
+        if any(lower_stripped.startswith(p) for p in _SECTION_STOP_PATTERNS):
+            hit_stop_section = True
+        if hit_stop_section:
+            continue
         if not stripped.startswith("|"):
             continue
         if _is_separator(stripped):
@@ -364,7 +387,7 @@ def generate_rubric_from_turns(env, turns, task_id=None):
             region=region,
             system_prompt=system_prompt,
             user_message=user_message,
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.3,
             timeout=120.0,
         )
@@ -613,10 +636,26 @@ class Atlas(models.Model):
         for sandbox in self.sandbox_ids:
             sb_turns = sandbox.turn_ids
             if current_session_only and sandbox.current_session_id:
-                sb_turns = sb_turns.filtered(
+                session_turns = sb_turns.filtered(
                     lambda t, sid=sandbox.current_session_id: t.session_id == sid
                 )
-            turns |= sb_turns
+                if session_turns:
+                    turns |= session_turns
+                else:
+                    all_sessions = sb_turns.mapped("session_id")
+                    seen = []
+                    for sid in all_sessions:
+                        if sid and sid not in seen:
+                            seen.append(sid)
+                    if seen:
+                        latest_sid = seen[-1]
+                        turns |= sb_turns.filtered(
+                            lambda t, sid=latest_sid: t.session_id == sid
+                        )
+                    else:
+                        turns |= sb_turns
+            else:
+                turns |= sb_turns
         return turns.sorted("turn_number")
 
     def action_view_turns(self):

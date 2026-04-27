@@ -140,13 +140,30 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
 
 def _get_current_session_turns(task):
     glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
-    if glm_sandbox and glm_sandbox.current_session_id:
-        session_turns = task.turn_ids.filtered(
-            lambda t, sid=glm_sandbox.current_session_id: t.session_id == sid
-        ).sorted("turn_number")
-        if session_turns:
-            return session_turns
-    return task.turn_ids.sorted("turn_number")
+    all_turns = task.turn_ids.sorted("turn_number")
+    if not glm_sandbox or not glm_sandbox.current_session_id:
+        return all_turns
+
+    session_turns = all_turns.filtered(
+        lambda t, sid=glm_sandbox.current_session_id: t.session_id == sid
+    )
+    if session_turns:
+        return session_turns
+
+    all_sessions = all_turns.mapped("session_id")
+    seen = []
+    for sid in all_sessions:
+        if sid and sid not in seen:
+            seen.append(sid)
+    if seen:
+        latest_sid = seen[-1]
+        fallback = all_turns.filtered(
+            lambda t, sid=latest_sid: t.session_id == sid
+        )
+        if fallback:
+            return fallback
+
+    return all_turns
 
 
 def _run_generation_background(db_name, task_id, notify_partner_id):

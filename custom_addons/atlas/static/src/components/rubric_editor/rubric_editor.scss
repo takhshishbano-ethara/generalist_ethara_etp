@@ -126,7 +126,7 @@
 
     .o_qc_result {
         font-size: 12px;
-        padding: 6px 10px;
+        padding: 8px 12px;
         border-radius: 6px;
         border: 1px solid transparent;
 
@@ -149,6 +149,50 @@
             background: #f8d7da;
             border-color: #f5c6cb;
             color: #721c24;
+        }
+    }
+
+    .o_qc_severity_badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        padding: 2px 8px;
+        border-radius: 4px;
+
+        &.o_severity_low {
+            background: #c8e6c9;
+            color: #1b5e20;
+        }
+        &.o_severity_medium {
+            background: #fff9c4;
+            color: #f57f17;
+        }
+        &.o_severity_high {
+            background: #ffcdd2;
+            color: #b71c1c;
+        }
+        &.o_severity_critical {
+            background: #b71c1c;
+            color: #fff;
+        }
+    }
+
+    .o_qc_feedback_body {
+        font-size: 12px;
+        line-height: 1.5;
+
+        .o_qc_item {
+            padding: 4px 0 4px 4px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+
+            &:last-child {
+                border-bottom: none;
+            }
+        }
+
+        .o_qc_num {
+            font-weight: 700;
+            margin-right: 2px;
         }
     }
 }

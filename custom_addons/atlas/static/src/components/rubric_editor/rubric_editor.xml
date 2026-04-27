@@ -119,12 +119,22 @@
                                                  'o_qc_fail': c.qc_severity === 'high' or c.qc_severity === 'critical',
                                                  'o_qc_error': c.qc_status === 'error',
                                              }">
-                                            <i t-att-class="'fa me-1 ' + qcStatusIcon(c.qc_status)"/>
-                                            <t t-if="c.qc_severity">
-                                                <strong class="me-1"><t t-out="c.qc_severity.toUpperCase()"/></strong>
-                                            </t>
+                                            <div class="d-flex align-items-center gap-1 mb-1">
+                                                <i t-att-class="'fa me-1 ' + qcStatusIcon(c.qc_status)"/>
+                                                <t t-if="c.qc_severity">
+                                                    <span class="o_qc_severity_badge"
+                                                          t-att-class="{
+                                                              'o_severity_low': c.qc_severity === 'low',
+                                                              'o_severity_medium': c.qc_severity === 'medium',
+                                                              'o_severity_high': c.qc_severity === 'high',
+                                                              'o_severity_critical': c.qc_severity === 'critical',
+                                                          }">
+                                                        <t t-out="c.qc_severity.toUpperCase()"/>
+                                                    </span>
+                                                </t>
+                                            </div>
                                             <t t-if="c.qc_feedback">
-                                                <span><t t-out="c.qc_feedback"/></span>
+                                                <div class="o_qc_feedback_body" t-out="formatQcFeedback(c.qc_feedback)"/>
                                             </t>
                                         </div>
                                     </t>
