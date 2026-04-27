@@ -44,3 +44,6 @@ CLAUDE.md
 jaeger-ref/
 .repo_cache/
 custom_addons/jaeger/plan.md
+
+# ── Aurora Deploy Secrets ────────────────────────────────────────────────────
+custom_addons/aurora/deploy/k8s/secret.yaml

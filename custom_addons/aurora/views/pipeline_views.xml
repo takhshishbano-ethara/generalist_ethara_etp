@@ -85,6 +85,12 @@
                     <field name="is_admin" invisible="1"/>
                     <field name="use_s3" invisible="1"/>
                     <field name="phase2_has_registry" invisible="1"/>
+                    <field name="step1_file" invisible="1"/>
+                    <field name="step2_file" invisible="1"/>
+                    <field name="step3_file" invisible="1"/>
+                    <field name="step4_file" invisible="1"/>
+                    <field name="step5_file" invisible="1"/>
+                    <field name="step6_file" invisible="1"/>
                     <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
 
                     <div class="oe_button_box" name="button_box">
@@ -160,36 +166,78 @@
                         <div class="aurora-card-body">
                             <group>
                                 <group string="Steps">
-                                    <field name="step1_status" widget="badge" string="1. Fetch PRs"
-                                           decoration-success="step1_status == 'done'"
-                                           decoration-danger="step1_status == 'failed'"
-                                           decoration-info="step1_status == 'running'"
-                                           decoration-muted="step1_status == 'idle'"/>
-                                    <field name="step2_status" widget="badge" string="2. Filter PRs"
-                                           decoration-success="step2_status == 'done'"
-                                           decoration-danger="step2_status == 'failed'"
-                                           decoration-info="step2_status == 'running'"
-                                           decoration-muted="step2_status == 'idle'"/>
-                                    <field name="step3_status" widget="badge" string="3. Discover Tags"
-                                           decoration-success="step3_status == 'done'"
-                                           decoration-danger="step3_status == 'failed'"
-                                           decoration-info="step3_status == 'running'"
-                                           decoration-muted="step3_status == 'idle'"/>
-                                    <field name="step4_status" widget="badge" string="4. Group PRs"
-                                           decoration-success="step4_status == 'done'"
-                                           decoration-danger="step4_status == 'failed'"
-                                           decoration-info="step4_status == 'running'"
-                                           decoration-muted="step4_status == 'idle'"/>
-                                    <field name="step5_status" widget="badge" string="5. Fetch Issues"
-                                           decoration-success="step5_status == 'done'"
-                                           decoration-danger="step5_status == 'failed'"
-                                           decoration-info="step5_status == 'running'"
-                                           decoration-muted="step5_status == 'idle'"/>
-                                    <field name="step6_status" widget="badge" string="6. Build Dataset"
-                                           decoration-success="step6_status == 'done'"
-                                           decoration-danger="step6_status == 'failed'"
-                                           decoration-info="step6_status == 'running'"
-                                           decoration-muted="step6_status == 'idle'"/>
+                                    <label for="step1_status" string="1. Fetch PRs"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step1_status" widget="badge" nolabel="1"
+                                               decoration-success="step1_status == 'done'"
+                                               decoration-danger="step1_status == 'failed'"
+                                               decoration-info="step1_status == 'running'"
+                                               decoration-muted="step1_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 1}"
+                                                invisible="not step1_file"/>
+                                    </div>
+                                    <label for="step2_status" string="2. Filter PRs"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step2_status" widget="badge" nolabel="1"
+                                               decoration-success="step2_status == 'done'"
+                                               decoration-danger="step2_status == 'failed'"
+                                               decoration-info="step2_status == 'running'"
+                                               decoration-muted="step2_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 2}"
+                                                invisible="not step2_file"/>
+                                    </div>
+                                    <label for="step3_status" string="3. Discover Tags"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step3_status" widget="badge" nolabel="1"
+                                               decoration-success="step3_status == 'done'"
+                                               decoration-danger="step3_status == 'failed'"
+                                               decoration-info="step3_status == 'running'"
+                                               decoration-muted="step3_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 3}"
+                                                invisible="not step3_file"/>
+                                    </div>
+                                    <label for="step4_status" string="4. Group PRs"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step4_status" widget="badge" nolabel="1"
+                                               decoration-success="step4_status == 'done'"
+                                               decoration-danger="step4_status == 'failed'"
+                                               decoration-info="step4_status == 'running'"
+                                               decoration-muted="step4_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 4}"
+                                                invisible="not step4_file"/>
+                                    </div>
+                                    <label for="step5_status" string="5. Fetch Issues"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step5_status" widget="badge" nolabel="1"
+                                               decoration-success="step5_status == 'done'"
+                                               decoration-danger="step5_status == 'failed'"
+                                               decoration-info="step5_status == 'running'"
+                                               decoration-muted="step5_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 5}"
+                                                invisible="not step5_file"/>
+                                    </div>
+                                    <label for="step6_status" string="6. Build Dataset"/>
+                                    <div class="d-flex align-items-center">
+                                        <field name="step6_status" widget="badge" nolabel="1"
+                                               decoration-success="step6_status == 'done'"
+                                               decoration-danger="step6_status == 'failed'"
+                                               decoration-info="step6_status == 'running'"
+                                               decoration-muted="step6_status == 'idle'"/>
+                                        <button name="action_download_step_file" type="object"
+                                                icon="fa-download" class="btn-sm btn-link p-0 ms-2"
+                                                context="{'step_number': 6}"
+                                                invisible="not step6_file"/>
+                                    </div>
                                 </group>
                                 <group string="Results">
                                     <field name="pr_count" invisible="not pr_count"/>

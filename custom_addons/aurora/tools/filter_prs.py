@@ -164,7 +164,7 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
 
             resolved_issues = extract_resolved_issues(pull)
 
-            if mode == "swe" and len(resolved_issues) == 0:
+            if len(resolved_issues) == 0:
                 continue
 
             pull["resolved_issues"] = resolved_issues
