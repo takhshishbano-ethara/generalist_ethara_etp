@@ -211,12 +211,22 @@ def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
                 "pipeline_id": rec_id,
                 "sequence": idx + 1,
                 "instance_id": r.get("instance_id", ""),
+                "pr_number": r.get("pr_number", 0),
                 "valid": r.get("valid", False),
                 "f2p_count": len(f2p),
                 "p2p_count": len(p2p),
                 "s2p_count": len(s2p),
                 "n2p_count": len(n2p),
                 "fixed_count": len(fixed),
+                "run_passed": r.get("run_passed", 0),
+                "run_failed": r.get("run_failed", 0),
+                "run_skipped": r.get("run_skipped", 0),
+                "test_passed": r.get("test_passed", 0),
+                "test_failed": r.get("test_failed", 0),
+                "test_skipped": r.get("test_skipped", 0),
+                "fix_passed": r.get("fix_passed", 0),
+                "fix_failed": r.get("fix_failed", 0),
+                "fix_skipped": r.get("fix_skipped", 0),
                 "f2p_tests": "\n".join(f2p) if f2p else "",
                 "p2p_tests": "\n".join(p2p) if p2p else "",
                 "s2p_tests": "\n".join(s2p) if s2p else "",
@@ -427,11 +437,11 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             run_number = None
 
         step1_file = out / f"{prefix}_prs.jsonl"
-        step2_file = out / f"{prefix}_filtered_prs.jsonl"
+        step2_file = out / f"{prefix}_lht_filtered_prs.jsonl"
         step3_file = out / f"{prefix}_tags.jsonl"
         step4_file = out / f"{prefix}_tag_groups.jsonl"
         step5_file = out / f"{prefix}_related_issues.jsonl"
-        step6_file = out / f"{prefix}_dataset.jsonl"
+        step6_file = out / f"{prefix}_lht_dataset.jsonl"
 
         s3_folder = cfg.get("s3_folder", "")
 
@@ -520,7 +530,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         result = _run_step(
             2, "step2_status", "filter_prs", "Filtering PRs",
-            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="aurora"),
+            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="lht"),
             step2_file,
         )
         if result is None:
@@ -603,7 +613,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         _check_cancelled()
 
-        has_registry = check_instance_registry(org, repo, cfg["lang"])
+        has_registry = check_instance_registry(org, repo, cfg["lang"], github_token=tokens[0])
         _db_write(_update_pipeline, rec_id, {"phase2_has_registry": has_registry})
 
         if has_registry:
@@ -644,6 +654,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     lang=cfg["lang"],
                     max_workers=4,
                     log_callback=_phase2_log,
+                    github_token=tokens[0],
                 )
 
                 _check_cancelled()
@@ -654,12 +665,27 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
                     phase2_file_ref = s3_storage.upload_file(s3_config, phase2_file_ref, s3_key)
 
+                dataset_jsonl_ref = phase2_result.get("dataset_jsonl", "")
+                if use_s3 and dataset_jsonl_ref and os.path.isfile(dataset_jsonl_ref):
+                    fname = os.path.basename(dataset_jsonl_ref)
+                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+                    dataset_jsonl_ref = s3_storage.upload_file(s3_config, dataset_jsonl_ref, s3_key)
+
+                final_report_json_ref = phase2_result.get("final_report_json", "")
+                if use_s3 and final_report_json_ref and os.path.isfile(final_report_json_ref):
+                    fname = os.path.basename(final_report_json_ref)
+                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+                    final_report_json_ref = s3_storage.upload_file(s3_config, final_report_json_ref, s3_key)
+
                 _db_write(_update_pipeline, rec_id, {
                     "phase2_status": "done",
                     "phase2_file": phase2_file_ref,
                     "phase2_image_count": phase2_result["image_count"],
                     "phase2_instance_count": phase2_result["instance_count"],
                     "phase2_resolved_count": phase2_result["resolved_count"],
+                    "phase2_dataset_file": dataset_jsonl_ref,
+                    "phase2_final_report_file": final_report_json_ref,
+                    "phase2_dataset_count": phase2_result.get("dataset_count", 0),
                     "stage": "phase2_report",
                     "progress_text": "Phase 2 complete",
                 })

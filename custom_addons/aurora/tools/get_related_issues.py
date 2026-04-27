@@ -58,7 +58,7 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
     _logger.info(f"Using {len(tokens)} token(s)")
     _logger.info(f"Pull file: {filtered_prs_file}")
 
-    org_repo_re = re.compile(r"(.+)__(.+?)_filtered_prs.jsonl")
+    org_repo_re = re.compile(r"(.+)__(.+?)_(?:lht_)?filtered_prs.jsonl")
     m = org_repo_re.match(filtered_prs_file.name)
     if not m:
         raise AuroraPipelineError(f"Invalid pull file name: {filtered_prs_file.name}")

@@ -19,6 +19,7 @@ _ALLOWED_COLUMNS = frozenset({
     "phase1_status", "phase1_file",
     "phase2_status", "phase2_file", "phase2_image_count",
     "phase2_instance_count", "phase2_resolved_count",
+    "phase2_dataset_file", "phase2_final_report_file", "phase2_dataset_count",
     "phase2_log", "phase2_has_registry",
     "phase3_status", "phase3_file", "phase3_inference_count",
     "phase3_pass_at_k", "phase3_log",

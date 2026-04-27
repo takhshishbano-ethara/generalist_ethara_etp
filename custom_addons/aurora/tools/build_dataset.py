@@ -28,7 +28,7 @@ For each tag group (version range):
      - If an issue body is empty, substitute with the PR description
   4. Write the final record to JSONL
 
-Outputs: {org}__{repo}_dataset.jsonl
+Outputs: {org}__{repo}_lht_dataset.jsonl
 
 NOTE: This module is NOT safe for concurrent execution on the same output
 file.  Resume support (existing_ids check) assumes single-process access.
@@ -432,7 +432,7 @@ def main(
     _logger.info(f"Loaded {len(tag_groups)} tag groups")
 
     # Load PRs (need full PR data for issue aggregation)
-    prs_file = out_dir / f"{org}__{repo}_filtered_prs.jsonl"
+    prs_file = out_dir / f"{org}__{repo}_lht_filtered_prs.jsonl"
     pr_lookup: dict[int, dict] = {}
     if prs_file.exists():
         with open(prs_file, "r", encoding="utf-8") as f:
@@ -464,7 +464,7 @@ def main(
     _logger.info(f"Loaded {len(all_issues)} related issues")
 
     # Load existing dataset for resume support
-    out_file = out_dir / f"{org}__{repo}_dataset.jsonl"
+    out_file = out_dir / f"{org}__{repo}_lht_dataset.jsonl"
     existing_ids: set[str] = set()
     if out_file.exists():
         with open(out_file, "r", encoding="utf-8") as f:

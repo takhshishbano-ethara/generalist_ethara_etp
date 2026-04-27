@@ -299,6 +299,14 @@
                                         icon="fa-plus-circle"
                                         class="btn-sm btn-warning mt-2"/>
                             </div>
+                            <div class="mb-3"
+                                 invisible="not phase2_has_registry or phase2_status == 'running'">
+                                <button name="action_edit_registry"
+                                        string="Edit Instance Registry"
+                                        type="object"
+                                        icon="fa-pencil"
+                                        class="btn-sm btn-secondary"/>
+                            </div>
                             <group>
                                 <group string="Status">
                                     <field name="phase2_status" widget="badge"
@@ -330,24 +338,47 @@
 
                             <div class="mt-3" invisible="not phase2_result_ids">
                                 <div class="aurora-section-sublabel mb-2">Instance Results</div>
-                                <field name="phase2_result_ids" nolabel="1" readonly="1">
-                                    <list decoration-success="valid == True"
-                                          decoration-danger="valid == False and error_msg"
-                                          decoration-warning="valid == False and not error_msg"
-                                          editable="bottom"
-                                          no_open="1"
-                                          create="0" delete="0">
-                                        <field name="instance_id" string="Instance"/>
-                                        <field name="status_icon" string="Status"/>
-                                        <field name="f2p_count" string="F2P"/>
-                                        <field name="p2p_count" string="P2P"/>
-                                        <field name="s2p_count" string="S2P"/>
-                                        <field name="n2p_count" string="N2P"/>
-                                        <field name="fixed_count" string="Fixed"/>
-                                        <field name="error_msg" string="Error" optional="hide"/>
-                                        <field name="valid" column_invisible="1"/>
-                                    </list>
-                                </field>
+                                <div class="aurora-results-summary d-flex gap-3 mb-2 align-items-center">
+                                    <span class="aurora-badge aurora-badge-total">
+                                        <field name="phase2_instance_count" readonly="1" class="d-inline"/> Total
+                                    </span>
+                                    <span class="aurora-badge aurora-badge-valid">
+                                        <i class="fa fa-check-circle me-1" title="Resolved"/>
+                                        <field name="phase2_resolved_count" readonly="1" class="d-inline"/> Resolved
+                                    </span>
+                                </div>
+                                <div class="aurora-results-table-wrap">
+                                    <field name="phase2_result_ids" nolabel="1" readonly="1">
+                                        <list decoration-success="valid == True"
+                                              decoration-danger="valid == False and error_msg"
+                                              decoration-warning="valid == False and not error_msg"
+                                              no_open="1"
+                                              create="0" delete="0">
+                                            <field name="instance_id" string="Instance"/>
+                                            <field name="pr_number" string="PR #" optional="show"/>
+                                            <field name="status_icon" string="Status"/>
+                                            <field name="f2p_count" string="Fail→Pass" optional="show"/>
+                                            <field name="p2p_count" string="Pass→Pass" optional="show"/>
+                                            <field name="s2p_count" string="Skip→Pass" optional="hide"/>
+                                            <field name="n2p_count" string="None→Pass" optional="hide"/>
+                                            <field name="fixed_count" string="Fixed Tests" optional="show"/>
+                                            <field name="run_passed" string="Base Run Passed" optional="hide"/>
+                                            <field name="run_failed" string="Base Run Failed" optional="hide"/>
+                                            <field name="run_skipped" string="Base Run Skipped" optional="hide"/>
+                                            <field name="run_total" string="Base Run Total" optional="hide"/>
+                                            <field name="test_passed" string="After Test Patch Passed" optional="hide"/>
+                                            <field name="test_failed" string="After Test Patch Failed" optional="hide"/>
+                                            <field name="test_skipped" string="After Test Patch Skipped" optional="hide"/>
+                                            <field name="test_total" string="After Test Patch Total" optional="hide"/>
+                                            <field name="fix_passed" string="After Fix Patch Passed" optional="hide"/>
+                                            <field name="fix_failed" string="After Fix Patch Failed" optional="hide"/>
+                                            <field name="fix_skipped" string="After Fix Patch Skipped" optional="hide"/>
+                                            <field name="fix_total" string="After Fix Patch Total" optional="hide"/>
+                                            <field name="error_msg" string="Error" optional="show" widget="char"/>
+                                            <field name="valid" column_invisible="1"/>
+                                        </list>
+                                    </field>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -494,11 +525,12 @@
         <field name="name">aurora.registry.wizard.form</field>
         <field name="model">aurora.registry.wizard</field>
         <field name="arch" type="xml">
-            <form string="Create Instance Registry">
+            <form string="Instance Registry">
                 <sheet>
                     <group>
                         <group>
                             <field name="pipeline_id" invisible="1"/>
+                            <field name="edit_mode" invisible="1"/>
                             <field name="org"/>
                             <field name="repo"/>
                             <field name="lang"/>

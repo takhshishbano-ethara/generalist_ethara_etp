@@ -5,7 +5,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .util import AuroraPipelineError
 
@@ -18,6 +18,132 @@ _HARNESS_REPOS_ROOT = MULTI_SWE_BENCH_ROOT / "multi_swe_bench" / "harness" / "re
 _INSTANCE_WORKDIR = "instances"
 
 _RANGE_RE = re.compile(r"^(.+)_(\d+)_to_(\d+)$")
+
+_GITHUB_REPO = "EtharaAI/multi-swe-bench"
+_GITHUB_BRANCH = "main"
+_REGISTRY_PATH_PREFIX = "multi_swe_bench/harness/repos"
+
+
+def _get_github_repo(token: str):
+    from github import Auth, Github
+    g = Github(auth=Auth.Token(token))
+    return g.get_repo(_GITHUB_REPO)
+
+
+def _find_org_dir_on_github(lang: str, org: str, token: str) -> Optional[str]:
+    gh_repo = _get_github_repo(token)
+    try:
+        contents = gh_repo.get_contents(
+            f"{_REGISTRY_PATH_PREFIX}/{lang}", ref=_GITHUB_BRANCH,
+        )
+    except Exception:
+        return None
+    if not isinstance(contents, list):
+        return None
+    for entry in contents:
+        if entry.type == "dir" and entry.name.lower() == org.lower():
+            return entry.name
+    return None
+
+
+def _sync_registry_from_github(
+    org: str, repo: str, lang: str, token: str,
+) -> list[str]:
+    """Fetch registry files from GitHub and write to local harness path.
+
+    Returns list of local file paths written.
+    """
+    github_org_name = _find_org_dir_on_github(lang, org, token)
+    if not github_org_name:
+        _logger.warning(
+            "No org directory '%s' found on GitHub under %s/%s",
+            org, _REGISTRY_PATH_PREFIX, lang,
+        )
+        return []
+
+    gh_repo = _get_github_repo(token)
+    dir_path = f"{_REGISTRY_PATH_PREFIX}/{lang}/{github_org_name}"
+    try:
+        entries = gh_repo.get_contents(dir_path, ref=_GITHUB_BRANCH)
+    except Exception:
+        return []
+    if not isinstance(entries, list):
+        return []
+
+    repo_lower = repo.lower().replace("-", "_")
+    matching = []
+    for entry in entries:
+        if entry.type != "file" or not entry.name.endswith(".py"):
+            continue
+        stem = entry.name[:-3].lower()
+        if stem == repo_lower or stem.startswith(f"{repo_lower}_"):
+            matching.append(entry)
+
+    if not matching:
+        _logger.warning(
+            "No registry files for '%s' found on GitHub at %s", repo, dir_path,
+        )
+        return []
+
+    local_org_dir = _HARNESS_REPOS_ROOT / lang / github_org_name
+    local_org_dir.mkdir(parents=True, exist_ok=True)
+
+    written = []
+    for entry in matching:
+        try:
+            file_obj = gh_repo.get_contents(entry.path, ref=_GITHUB_BRANCH)
+            if isinstance(file_obj, list):
+                continue
+            content = file_obj.decoded_content.decode("utf-8")
+        except Exception as exc:
+            _logger.warning("Failed to download %s: %s", entry.path, exc)
+            continue
+
+        local_file = local_org_dir / entry.name
+        local_file.write_text(content, encoding="utf-8")
+        written.append(str(local_file))
+        _logger.info("Synced registry file: %s → %s", entry.path, local_file)
+
+    if written:
+        _ensure_init_files(lang, github_org_name, repo_lower)
+
+    return written
+
+
+def _ensure_init_files(lang: str, org_dir_name: str, repo_safe: str):
+    lang_dir = _HARNESS_REPOS_ROOT / lang
+    org_dir = lang_dir / org_dir_name
+
+    org_init = org_dir / "__init__.py"
+    if not org_init.exists():
+        org_init.write_text(f"from .{repo_safe} import *\n")
+    else:
+        existing = org_init.read_text()
+        import_line = f"from .{repo_safe} import *"
+        if import_line not in existing:
+            with open(org_init, "a") as f:
+                f.write(f"\n{import_line}\n")
+
+    for py_file in org_dir.iterdir():
+        if py_file.suffix != ".py" or py_file.name == "__init__.py":
+            continue
+        stem = py_file.stem
+        if stem.lower() != repo_safe and stem.lower().startswith(f"{repo_safe}_"):
+            existing = org_init.read_text()
+            import_line = f"from .{stem} import *"
+            if import_line not in existing:
+                with open(org_init, "a") as f:
+                    f.write(f"\n{import_line}\n")
+
+    lang_init = lang_dir / "__init__.py"
+    if not lang_init.exists():
+        lang_init.write_text(f"from .{org_dir_name} import *\n")
+    else:
+        existing = lang_init.read_text()
+        import_line = f"from .{org_dir_name} import *"
+        if import_line not in existing:
+            with open(lang_init, "a") as f:
+                f.write(f"\n{import_line}\n")
 
 
 def _ensure_harness_importable():
@@ -68,28 +194,21 @@ def _resolve_org_dir(lang_dir: Path, org: str) -> Optional[Path]:
     return None
 
 
-def check_instance_registry(org: str, repo: str, lang: str) -> bool:
-    _ensure_harness_importable()
-    lang_dir = _HARNESS_REPOS_ROOT / lang
-    if not lang_dir.is_dir():
-        _logger.warning("Language directory not found: %s", lang_dir)
+def check_instance_registry(
+    org: str, repo: str, lang: str, github_token: str = "",
+) -> bool:
+    if not github_token:
+        _logger.warning("No GitHub token provided, cannot check registry on GitHub")
         return False
 
-    org_dir = _resolve_org_dir(lang_dir, org)
-    if org_dir is None:
-        _logger.warning("Org directory not found under: %s", lang_dir)
-        return False
+    synced = _sync_registry_from_github(org, repo, lang, github_token)
+    if synced:
+        _logger.info(
+            "Synced %d registry file(s) from GitHub for %s/%s", len(synced), org, repo,
+        )
+        return True
 
-    repo_lower = repo.lower().replace("-", "_")
-    for candidate in org_dir.iterdir():
-        if candidate.suffix != ".py" or candidate.name == "__init__.py":
-            continue
-        stem_lower = candidate.stem.lower()
-        if stem_lower == repo_lower or stem_lower.startswith(f"{repo_lower}_"):
-            _logger.info("Instance registry found: %s", candidate)
-            return True
-
-    _logger.warning("No registry files matching '%s' in %s", repo, org_dir)
+    _logger.warning("No registry found on GitHub for %s/%s (lang=%s)", org, repo, lang)
     return False
 
 
@@ -262,6 +381,143 @@ def _translate_phase1_jsonl(
     return written
 
 
+def _assemble_dataset(
+    workdir: Path,
+    report_dir: Path,
+    org: str,
+    repo: str,
+    instances: list,
+    phase1_jsonl: str,
+    log_callback: Optional[Callable] = None,
+) -> dict:
+    """Assemble the SWE-bench format dataset JSONL and final_report.json.
+
+    Mirrors the official gen_report.py ``run_dataset()`` flow:
+    1. Reads each per-instance report.json via the official Report class.
+    2. Builds Dataset objects by merging Phase-1 PR data with report data.
+    3. Writes ``final_report.json`` (aggregated summary).
+    4. Writes ``{org}__{repo}_dataset.jsonl`` (full-fat per-instance records).
+    """
+    _report_mod = importlib.import_module("multi_swe_bench.harness.report")
+    _dataset_mod = importlib.import_module("multi_swe_bench.harness.dataset")
+    _pr_mod = importlib.import_module("multi_swe_bench.harness.pull_request")
+    Report = _report_mod.Report
+    FinalReport = _report_mod.FinalReport
+    Dataset = _dataset_mod.Dataset
+
+    raw_dataset: dict = {}
+    with open(phase1_jsonl, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            pr = _pr_mod.PullRequest.from_json(line)
+            raw_dataset[pr.id] = pr
+
+    valid_reports: list = []
+    invalid_reports: list = []
+    failed_ids: list[str] = []
+
+    for inst in instances:
+        dep = inst.dependency()
+        instance_dir = (
+            workdir
+            / inst.pr.org
+            / inst.pr.repo
+            / _INSTANCE_WORKDIR
+            / dep.workdir()
+        )
+        report_path = instance_dir / "report.json"
+
+        if inst.pr.id not in raw_dataset:
+            continue
+
+        if not report_path.exists():
+            failed_ids.append(inst.pr.id)
+            continue
+
+        try:
+            with open(report_path, "r", encoding="utf-8") as rf:
+                report = Report.from_json(rf.read())
+            if report.valid:
+                valid_reports.append(report)
+            else:
+                invalid_reports.append(report)
+        except Exception as exc:
+            _logger.warning(
+                "Failed to deserialize report for %s: %s", inst.pr.id, exc,
+            )
+            failed_ids.append(inst.pr.id)
+
+    # --- final_report.json ---
+    # FinalReport.from_reports expects (valid, invalid, failed_tasks).
+    # We don't have ReportTask objects for failed ones, so build a minimal
+    # FinalReport manually matching the official schema.
+    fr_data = {
+        "total_instances": len(valid_reports) + len(invalid_reports) + len(failed_ids),
+        "submitted_instances": len(valid_reports) + len(invalid_reports) + len(failed_ids),
+        "completed_instances": len(valid_reports) + len(invalid_reports),
+        "incomplete_instances": len(failed_ids),
+        "resolved_instances": len(valid_reports),
+        "unresolved_instances": len(invalid_reports),
+        "empty_patch_instances": 0,
+        "error_instances": len(failed_ids),
+        "submitted_ids": (
+            [r.id for r in valid_reports]
+            + [r.id for r in invalid_reports]
+            + failed_ids
+        ),
+        "completed_ids": (
+            [r.id for r in valid_reports]
+            + [r.id for r in invalid_reports]
+        ),
+        "incomplete_ids": failed_ids,
+        "resolved_ids": [r.id for r in valid_reports],
+        "unresolved_ids": [r.id for r in invalid_reports],
+        "empty_patch_ids": [],
+        "error_ids": failed_ids,
+    }
+
+    final_report_json_path = report_dir / "final_report.json"
+    with open(final_report_json_path, "w", encoding="utf-8") as f:
+        json.dump(fr_data, f, indent=4, ensure_ascii=False)
+
+    _logger.info("Wrote %s", final_report_json_path)
+
+    dataset_records: list = []
+    for report in valid_reports:
+        pr = raw_dataset.get(report.id)
+        if pr is None:
+            continue
+        ds = Dataset.build(pr, report)
+        dataset_records.append(ds)
+
+    dataset_records.sort(reverse=True)
+
+    dataset_jsonl_path = report_dir / f"{org}__{repo}_dataset.jsonl"
+    with open(dataset_jsonl_path, "w", encoding="utf-8") as f:
+        for ds in dataset_records:
+            f.write(ds.json())
+            f.write("\n")
+
+    _logger.info(
+        "Wrote %d dataset records to %s", len(dataset_records), dataset_jsonl_path,
+    )
+
+    if log_callback:
+        log_callback(
+            f"Dataset assembled: {len(dataset_records)} resolved records → "
+            f"{dataset_jsonl_path.name}"
+        )
+
+    return {
+        "final_report_json": str(final_report_json_path),
+        "dataset_jsonl": str(dataset_jsonl_path),
+        "dataset_count": len(dataset_records),
+        "final_report": fr_data,
+    }
+
+
 def main(
     phase1_jsonl: str,
     output_dir: str,
@@ -270,7 +526,8 @@ def main(
     lang: str,
     max_workers: int = 4,
     force_build: bool = False,
-    log_callback: Optional[callable] = None,
+    log_callback: Optional[Callable] = None,
+    github_token: str = "",
 ) -> dict:
     _ensure_harness_importable()
     _check_docker()
@@ -278,10 +535,10 @@ def main(
     if not os.path.isfile(phase1_jsonl):
         raise AuroraPipelineError(f"Phase 1 JSONL not found: {phase1_jsonl}")
 
-    if not check_instance_registry(org, repo, lang):
+    if not check_instance_registry(org, repo, lang, github_token=github_token):
         raise AuroraPipelineError(
-            f"No instance registry found for {org}/{repo} (lang={lang}). "
-            f"Expected at: {_HARNESS_REPOS_ROOT}/{lang}/{org}/{{repo}}*.py"
+            f"No instance registry found for {org}/{repo} (lang={lang}) "
+            f"on GitHub repo {_GITHUB_REPO}."
         )
 
     _import_all_repo_modules(org, repo, lang)
@@ -391,20 +648,36 @@ def main(
                 is_valid = report_data.get("valid", False)
                 if is_valid:
                     resolved += 1
+
+                run_r = report_data.get("run_result") or {}
+                test_r = report_data.get("test_patch_result") or {}
+                fix_r = report_data.get("fix_patch_result") or {}
+
                 results.append({
                     "instance_id": inst.pr.id,
+                    "pr_number": inst.pr.number,
                     "valid": is_valid,
                     "f2p": list(report_data.get("f2p_tests", {}).keys()),
                     "p2p": list(report_data.get("p2p_tests", {}).keys()),
                     "s2p": list(report_data.get("s2p_tests", {}).keys()),
                     "n2p": list(report_data.get("n2p_tests", {}).keys()),
                     "fixed_tests": list(report_data.get("fixed_tests", {}).keys()),
+                    "run_passed": run_r.get("passed_count", 0),
+                    "run_failed": run_r.get("failed_count", 0),
+                    "run_skipped": run_r.get("skipped_count", 0),
+                    "test_passed": test_r.get("passed_count", 0),
+                    "test_failed": test_r.get("failed_count", 0),
+                    "test_skipped": test_r.get("skipped_count", 0),
+                    "fix_passed": fix_r.get("passed_count", 0),
+                    "fix_failed": fix_r.get("failed_count", 0),
+                    "fix_skipped": fix_r.get("skipped_count", 0),
                     "error_msg": report_data.get("error_msg", ""),
                 })
             except Exception as exc:
                 _logger.warning("Failed to read report for %s: %s", inst.pr.id, exc)
                 results.append({
                     "instance_id": inst.pr.id,
+                    "pr_number": inst.pr.number,
                     "valid": False,
                     "error": str(exc),
                 })
@@ -414,6 +687,7 @@ def main(
             )
             results.append({
                 "instance_id": inst.pr.id,
+                "pr_number": inst.pr.number,
                 "valid": False,
                 "error": "no report generated",
             })
@@ -421,6 +695,16 @@ def main(
     with open(final_report_path, "w") as f:
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    dataset_result = _assemble_dataset(
+        workdir=workdir,
+        report_dir=report_dir,
+        org=org,
+        repo=repo,
+        instances=cli_args.instances,
+        phase1_jsonl=translated_jsonl,
+        log_callback=log_callback,
+    )
 
     if log_callback:
         log_callback(
@@ -434,4 +718,7 @@ def main(
         "instance_count": total,
         "resolved_count": resolved,
         "results": results,
+        "final_report_json": dataset_result["final_report_json"],
+        "dataset_jsonl": dataset_result["dataset_jsonl"],
+        "dataset_count": dataset_result["dataset_count"],
     }

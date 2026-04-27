@@ -168,6 +168,9 @@ class AuroraPipeline(models.Model):
 
     phase2_status = fields.Selection(AUTOMATION_STATUS, default="idle", string="Phase 2 Status")
     phase2_file = fields.Char(string="Phase 2 Report", readonly=True)
+    phase2_dataset_file = fields.Char(string="Phase 2 Dataset JSONL", readonly=True)
+    phase2_final_report_file = fields.Char(string="Phase 2 Final Report", readonly=True)
+    phase2_dataset_count = fields.Integer(string="Phase 2 Dataset Records", readonly=True)
     phase2_image_count = fields.Integer(string="Docker Images Built", readonly=True)
     phase2_instance_count = fields.Integer(string="Instances Tested", readonly=True)
     phase2_resolved_count = fields.Integer(string="Resolved Instances", readonly=True)
@@ -618,6 +621,9 @@ class AuroraPipeline(models.Model):
             "phase1_file": False,
             "phase2_status": "idle",
             "phase2_file": False,
+            "phase2_dataset_file": False,
+            "phase2_final_report_file": False,
+            "phase2_dataset_count": 0,
             "phase2_image_count": 0,
             "phase2_instance_count": 0,
             "phase2_resolved_count": 0,
@@ -739,6 +745,50 @@ class AuroraPipeline(models.Model):
         return {
             "type": "ir.actions.act_window",
             "name": f"Create Instance Registry — {org}/{repo}",
+            "res_model": "aurora.registry.wizard",
+            "res_id": wiz.id,
+            "view_mode": "form",
+            "target": "new",
+        }
+
+    def action_edit_registry(self):
+        self.ensure_one()
+
+        org = self.github_org or ""
+        repo = self.github_repo or ""
+        lang = self.detected_lang or ""
+
+        if not org or not repo or not lang:
+            raise UserError(
+                "Organisation, repository and language must be set."
+            )
+
+        from .registry_wizard import _HARNESS_REPOS_ROOT
+
+        repo_safe = repo.replace("-", "_").lower()
+        registry_file = _HARNESS_REPOS_ROOT / lang / org / f"{repo_safe}.py"
+
+        if not registry_file.exists():
+            raise UserError(
+                f"Registry file not found at:\n{registry_file}\n\n"
+                "Use 'Create Instance Registry' to generate one first."
+            )
+
+        content = registry_file.read_text()
+
+        RegistryWiz = self.env["aurora.registry.wizard"]
+        wiz = RegistryWiz.create({
+            "pipeline_id": self.id,
+            "org": org,
+            "repo": repo,
+            "lang": lang,
+            "filename": f"{repo_safe}.py",
+            "registry_content": content,
+            "edit_mode": True,
+        })
+        return {
+            "type": "ir.actions.act_window",
+            "name": f"Edit Instance Registry — {org}/{repo}",
             "res_model": "aurora.registry.wizard",
             "res_id": wiz.id,
             "view_mode": "form",
