@@ -101,4 +101,4 @@ RUN chmod +x src/odoo-bin \
 
 EXPOSE 8071 8100
 
-CMD ["./src/odoo-bin", "-c", "odoo.conf"]
+CMD ["./odoo-bin", "-c", "odoo.conf", "-u", "atlas"]
