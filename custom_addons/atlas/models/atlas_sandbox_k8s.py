@@ -253,7 +253,6 @@ class AtlasSandboxK8s(models.AbstractModel):
             litellm_master_key=litellm_master_key,
             litellm_db_password=litellm_db_password,
             aws_bearer=aws_bearer,
-            llama_api_key=llama_api_key,
         )
 
         self._create_gog_secret(
@@ -324,7 +323,6 @@ class AtlasSandboxK8s(models.AbstractModel):
         litellm_master_key,
         litellm_db_password,
         aws_bearer,
-        llama_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
