@@ -73,10 +73,9 @@ services:
       - "4000"
     environment:
       DATABASE_URL: postgresql://llmproxy:${LITELLM_DB_PASSWORD:-dbpassword9090}@db:5432/litellm
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-talos-litellm}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-atlas-litellm}
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
-      LLAMA_API_KEY: ${LLAMA_API_KEY}
       STORE_MODEL_IN_DB: "True"
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro

@@ -160,12 +160,10 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
                 criterion.write({"qc_status": "error", "qc_feedback": "Task not found"})
                 return
 
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
-
             dotenv = _load_dotenv()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
             if not api_key or not inference_arn:
                 criterion.write({"qc_status": "error", "qc_feedback": "Missing Bedrock credentials"})
@@ -399,17 +397,16 @@ class LlmAssistQc(http.Controller):
 
         user_message = self._build_qc_user_message(prompt, previous_turns)
 
-        env = _load_dotenv()
-        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
         if not api_key:
-            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+            return {"error": "ATLAS_AWS_BEARER_TOKEN_BEDROCK not set in .env"}
 
-        ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+        region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
         if not inference_arn:
-            return {"error": "Bedrock Inference ARN not configured in Settings > Atlas"}
+            return {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env"}
 
         if not system_prompt:
             system_prompt = _get_system_prompt()
@@ -556,24 +553,23 @@ class LlmAssistQc(http.Controller):
             max_tokens = int(jdata.get("max_tokens", 4096))
             temperature = float(jdata.get("temperature", 0.7))
 
-            env = _load_dotenv()
-            api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            dotenv = _load_dotenv()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
             if not api_key:
                 return request.make_json_response(
                     {
-                        "error": "AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "error": "ATLAS_AWS_BEARER_TOKEN_BEDROCK not set in .env",
                         "status": 500,
                     },
                     status=500,
                 )
 
-            ICP = request.env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+            inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
             if not inference_arn:
                 return request.make_json_response(
-                    {"error": "Bedrock Inference ARN not configured", "status": 500},
+                    {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env", "status": 500},
                     status=500,
                 )
 

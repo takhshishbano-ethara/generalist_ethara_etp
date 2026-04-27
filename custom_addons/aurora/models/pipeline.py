@@ -322,7 +322,7 @@ class AuroraPipeline(models.Model):
 
         worker_script = self._get_k8s_setting(
             "worker_script",
-            "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py",
+            "/opt/ethara/app/custom_addons/aurora/worker/run_pipeline.py",
         )
 
         _load_k8s_config()
@@ -643,6 +643,46 @@ class AuroraPipeline(models.Model):
             "log": False,
         })
         self.phase2_result_ids.unlink()
+
+    def action_download_step_file(self):
+        """Download an individual Phase-1 step output file (steps 1-6)."""
+        self.ensure_one()
+        step = self.env.context.get("step_number")
+        field_map = {
+            1: "step1_file", 2: "step2_file", 3: "step3_file",
+            4: "step4_file", 5: "step5_file", 6: "step6_file",
+        }
+        field_name = field_map.get(step)
+        if not field_name:
+            raise UserError("Invalid step number.")
+        file_url = getattr(self, field_name, "")
+        if not file_url:
+            raise UserError(f"No file available for Step {step}.")
+        if file_url.startswith("file://"):
+            file_url = file_url[7:]
+        if os.path.isfile(file_url):
+            import base64
+            with open(file_url, "rb") as f:
+                data = base64.b64encode(f.read())
+            fname = os.path.basename(file_url)
+            attachment = self.env["ir.attachment"].create({
+                "name": fname,
+                "type": "binary",
+                "datas": data,
+                "mimetype": "application/jsonl+json",
+            })
+            return {
+                "type": "ir.actions.act_url",
+                "url": f"/web/content/{attachment.id}?download=true",
+                "target": "new",
+            }
+        if file_url.startswith("https://") and ".s3." in file_url:
+            file_url = self._presign_s3_url(file_url)
+        return {
+            "type": "ir.actions.act_url",
+            "url": file_url,
+            "target": "new",
+        }
 
     def action_download_phase_file(self):
         self.ensure_one()

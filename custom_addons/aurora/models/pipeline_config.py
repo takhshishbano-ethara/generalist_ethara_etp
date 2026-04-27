@@ -193,7 +193,7 @@ class AuroraSettings(models.TransientModel):
     aurora_k8s_worker_script = fields.Char(
         string="Worker Script Path",
         config_parameter="aurora.k8s_worker_script",
-        default="/opt/odoo/custom_addons/aurora/worker/run_pipeline.py",
+        default="/opt/ethara/app/custom_addons/aurora/worker/run_pipeline.py",
         help="Path to run_pipeline.py inside the container.",
     )
     aurora_k8s_odoo_conf = fields.Char(

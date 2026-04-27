@@ -1566,6 +1566,7 @@ class AtlasSandbox(models.Model):
 
         if not env.get("LITELLM_MASTER_KEY"):
             env["LITELLM_MASTER_KEY"] = "sk-atlas-%s" % secrets.token_hex(8)
+        env["ATLAS_LITELLM_MASTER_KEY"] = env["LITELLM_MASTER_KEY"]
 
         gog_kp = self.atlas_id.password or ""
         if gog_kp:

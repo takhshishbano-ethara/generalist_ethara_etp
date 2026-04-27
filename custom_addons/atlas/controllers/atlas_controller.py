@@ -5,12 +5,9 @@ import json
 import random
 import requests
 import os
-from dotenv import load_dotenv
 import logging
 
 _logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 
 class Atlas(http.Controller):

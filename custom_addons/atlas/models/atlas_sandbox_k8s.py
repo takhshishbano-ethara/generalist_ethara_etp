@@ -229,8 +229,6 @@ class AtlasSandboxK8s(models.AbstractModel):
         litellm_db_password = env.get("LITELLM_DB_PASSWORD", "").strip()
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
-        llama_api_key = env.get("LLAMA_API_KEY", "").strip()
-
         openclaw_image = self._get_config_param(
             "atlas.openclaw_image",
             "426628337772.dkr.ecr.ap-south-1.amazonaws.com/talos-q1-coding:v1.0.0",
@@ -341,7 +339,6 @@ class AtlasSandboxK8s(models.AbstractModel):
                 "LITELLM_MASTER_KEY": litellm_master_key,
                 "LITELLM_DB_PASSWORD": litellm_db_password,
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
-                "LLAMA_API_KEY": llama_api_key,
             },
         )
         try:
@@ -760,7 +757,7 @@ class AtlasSandboxK8s(models.AbstractModel):
             command=["litellm", "--config", "/app/config.yaml", "--port", "4000"],
             env=[
                 client.V1EnvVar(
-                    name="LITELLM_MASTER_KEY",
+                    name="ATLAS_LITELLM_MASTER_KEY",
                     value_from=client.V1EnvVarSource(
                         secret_key_ref=client.V1SecretKeySelector(
                             name=secret_name,
@@ -789,15 +786,6 @@ class AtlasSandboxK8s(models.AbstractModel):
                 client.V1EnvVar(name="STORE_MODEL_IN_DB", value="False"),
                 client.V1EnvVar(name="DISABLE_SCHEMA_UPDATE", value="true"),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
-                client.V1EnvVar(
-                    name="LLAMA_API_KEY",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name=secret_name,
-                            key="LLAMA_API_KEY",
-                        ),
-                    ),
-                ),
             ],
             volume_mounts=[
                 client.V1VolumeMount(

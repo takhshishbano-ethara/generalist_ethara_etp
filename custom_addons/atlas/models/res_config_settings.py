@@ -10,17 +10,6 @@ _logger = logging.getLogger(__name__)
 class AtlasConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
-    atlas_bedrock_inference_arn = fields.Char(
-        string="Bedrock Inference ARN",
-        config_parameter="atlas.bedrock_inference_arn",
-        help="Full ARN of the AWS Bedrock application inference profile for Kimi K2.5.",
-    )
-    atlas_bedrock_region = fields.Char(
-        string="Bedrock Region",
-        config_parameter="atlas.bedrock_region",
-        default="ap-south-1",
-        help="AWS region for the Bedrock endpoint (e.g. ap-south-1).",
-    )
     atlas_docker_available = fields.Boolean(
         string="Docker Available",
         compute="_compute_atlas_docker_available",
@@ -54,37 +43,10 @@ class AtlasConfigSettings(models.TransientModel):
         "(e.g. atlas-ws.yourdomain.com). Browser connects to "
         "wss://<host>/sandbox/<task_id>/. Leave empty to skip Ingress creation.",
     )
-    atlas_aws_bearer_token = fields.Char(
-        string="AWS Bearer Token (Bedrock)",
-        config_parameter="atlas.aws_bearer_token",
-    )
-    atlas_aws_region = fields.Char(
-        string="AWS Region",
-        config_parameter="atlas.aws_region",
-        default="ap-south-1",
-    )
-    atlas_bedrock_model_arn = fields.Char(
-        string="Bedrock Model ARN",
-        config_parameter="atlas.bedrock_model_arn",
-        help="ARN for the Bedrock model used inside OpenClaw containers.",
-    )
-    atlas_litellm_master_key = fields.Char(
-        string="LiteLLM Master Key",
-        config_parameter="atlas.litellm_master_key",
-    )
-    atlas_litellm_db_password = fields.Char(
-        string="LiteLLM DB Password",
-        config_parameter="atlas.litellm_db_password",
-    )
     atlas_gog_client_secret = fields.Char(
         string="Google OAuth Client Secret (JSON)",
         config_parameter="atlas.gog_client_secret",
         help="Paste the full contents of client_secret.json from Google Cloud Console.",
-    )
-    atlas_gog_keyring_password = fields.Char(
-        string="Gog Keyring Password",
-        config_parameter="atlas.gog_keyring_password",
-        help="Password used to encrypt the gog file-based keyring.",
     )
 
     @api.depends_context("uid")
