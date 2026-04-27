@@ -622,9 +622,6 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      thinking:
-        type: enabled
-        budget_tokens: 4096
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 

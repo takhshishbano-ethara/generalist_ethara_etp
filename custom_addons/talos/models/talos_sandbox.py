@@ -2045,7 +2045,7 @@ class TalosSandbox(models.Model):
         if default_model:
             config["agents"] = {"defaults": {
                 "model": default_model,
-                "thinkingDefault": "high",
+                "thinkingDefault": "xhigh",
             }}
 
         with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
