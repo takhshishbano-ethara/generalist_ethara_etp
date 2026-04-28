@@ -2093,6 +2093,13 @@ class TalosSandbox(models.Model):
                                 }
                             }
                         },
+                        "litellm/kimi-k2.5": {
+                            "params": {
+                                "extra_body": {
+                                    "thinking": {"type": "enabled"},
+                                }
+                            }
+                        },
                     },
                 }
             }
