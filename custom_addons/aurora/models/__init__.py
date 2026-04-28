@@ -3,6 +3,7 @@ from . import pipeline_config
 from . import s3_storage
 from . import pipeline_executor
 from . import pipeline
+from . import pipeline_result
 from . import github_token
 from . import pool_metrics
 from . import import_tokens_wizard

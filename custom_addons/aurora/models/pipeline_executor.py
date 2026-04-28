@@ -1,10 +1,3 @@
-"""Aurora pipeline DB helpers — single source of truth.
-
-Lightweight raw-SQL functions used by cron jobs, the pipeline model,
-and the K8s worker (``aurora.worker.run_pipeline``).  All DB-helper
-functions live here; the worker imports them directly.
-"""
-
 import logging
 import os
 from datetime import datetime, timezone
@@ -26,17 +19,13 @@ _ALLOWED_COLUMNS = frozenset({
     "phase1_status", "phase1_file",
     "phase2_status", "phase2_file", "phase2_image_count",
     "phase2_instance_count", "phase2_resolved_count",
+    "phase2_dataset_file", "phase2_final_report_file", "phase2_dataset_count",
     "phase2_log", "phase2_has_registry",
     "phase3_status", "phase3_file", "phase3_inference_count",
     "phase3_pass_at_k", "phase3_log",
 })
 
 _MAX_LOG_SIZE = 500_000
-
-
-def _open_cursor(db_name):
-    from odoo.modules.registry import Registry
-    return Registry(db_name).cursor()
 
 
 def _update_pipeline(cr: Any, rec_id: int, vals: dict[str, Any]) -> None:
@@ -84,45 +73,6 @@ def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> Non
 def _fail_pipeline(cr: Any, rec_id: int, step_field: str, exc) -> None:
     _update_pipeline(cr, rec_id, {step_field: "failed", "stage": "failed"})
     _append_log(cr, rec_id, f"FAILED ({step_field}): {exc}")
-
-
-def _post_chatter(db_name: str, uid: Optional[int], rec_id: int, body: str) -> None:
-    cr = None
-    try:
-        from odoo import api, SUPERUSER_ID
-        cr = _open_cursor(db_name)
-        env = api.Environment(cr, uid or SUPERUSER_ID, {})
-        rec = env["aurora.pipeline"].browse(rec_id)
-        rec.message_post(body=body, message_type="comment", subtype_xmlid="mail.mt_note")
-        cr.commit()
-    except Exception:
-        _logger.exception("Failed to post chatter message for rec=%s", rec_id)
-    finally:
-        if cr:
-            cr.close()
-
-
-def _notify_bus(db_name: str, rec_id: int, stage: str, progress_text: Optional[str] = None) -> None:
-    cr = None
-    try:
-        from odoo import api, SUPERUSER_ID
-        cr = _open_cursor(db_name)
-        env = api.Environment(cr, SUPERUSER_ID, {})
-        env['bus.bus']._sendone(
-            f'aurora_pipeline_{rec_id}',
-            'aurora_pipeline_update',
-            {
-                'pipeline_id': rec_id,
-                'stage': stage,
-                'progress_text': progress_text or '',
-            },
-        )
-        cr.commit()
-    except Exception:
-        _logger.warning("Failed to send bus notification for rec=%s", rec_id, exc_info=True)
-    finally:
-        if cr:
-            cr.close()
 
 
 def _count_jsonl_lines(filepath: Optional[str]) -> int:

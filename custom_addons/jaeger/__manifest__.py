@@ -19,7 +19,7 @@ Supports 10,000+ repos with RabbitMQ-based durable job processing.
     "website": "https://www.ethara.ai",
     "depends": ["base", "mail", "web"],
     "external_dependencies": {
-        "python": ["github", "unidiff", "boto3"],
+        "python": ["github", "unidiff", "boto3", "cryptography", "openpyxl"],
     },
     "data": [
         "security/jaeger_security.xml",
@@ -30,6 +30,8 @@ Supports 10,000+ repos with RabbitMQ-based durable job processing.
         "views/jaeger_run_views.xml",
         "views/jaeger_repository_views.xml",
         "views/res_config_settings_views.xml",
+        "views/token_views.xml",
+        "views/import_tokens_wizard_views.xml",
         "views/jaeger_menus.xml",
         "views/import_repos_wizard_views.xml",
     ],

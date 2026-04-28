@@ -7,7 +7,7 @@ import uuid
 from github import Auth, Github, GithubException
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 
 from .pipeline_config import GITHUB_LANG_MAP, LANGUAGE_SELECTION
 from .credential_manager import get_encrypted_param
@@ -23,6 +23,13 @@ except ImportError:
 
 _k8s_config_lock = threading.Lock()
 _k8s_config_loaded = False
+
+# Track locally-spawned pipeline threads for lifecycle management.
+_local_threads: dict[int, threading.Thread] = {}
+_local_threads_lock = threading.Lock()
+
+# Maximum file size (bytes) allowed for in-memory download via ir.attachment.
+_MAX_DOWNLOAD_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
 
 
 def _load_k8s_config():
@@ -40,6 +47,21 @@ def _load_k8s_config():
         _k8s_config_loaded = True
 
 _SAFE_GITHUB_NAME = re.compile(r'^[a-zA-Z0-9._-]+$')
+
+
+def _validate_file_path(file_url: str, allowed_base: str) -> str:
+    """Resolve *file_url* and ensure it lives under *allowed_base*.
+
+    Prevents path-traversal attacks where a tampered DB field like
+    ``/etc/shadow`` could be served to the user.
+
+    Returns the resolved absolute path on success; raises UserError otherwise.
+    """
+    real_path = os.path.realpath(file_url)
+    real_base = os.path.realpath(allowed_base)
+    if not real_path.startswith(real_base + os.sep) and real_path != real_base:
+        raise UserError("File path is outside the allowed output directory.")
+    return real_path
 
 STEP_SELECTION = [
     ("draft", "Draft"),
@@ -61,10 +83,6 @@ STEP_SELECTION = [
     ("done", "Done"),
     ("failed", "Failed"),
 ]
-
-PHASE1_STAGES = {"fetch_prs", "filter_prs", "discover_tags", "group_prs", "fetch_issues", "build_dataset"}
-PHASE2_STAGES = {"phase2_build", "phase2_test", "phase2_report"}
-PHASE3_STAGES = {"phase3_infer", "phase3_eval", "phase3_summary"}
 
 TERMINAL_STATES = {"done", "failed"}
 
@@ -172,11 +190,20 @@ class AuroraPipeline(models.Model):
 
     phase2_status = fields.Selection(AUTOMATION_STATUS, default="idle", string="Phase 2 Status")
     phase2_file = fields.Char(string="Phase 2 Report", readonly=True)
+    phase2_dataset_file = fields.Char(string="Phase 2 Dataset JSONL", readonly=True)
+    phase2_final_report_file = fields.Char(string="Phase 2 Final Report", readonly=True)
+    phase2_dataset_count = fields.Integer(string="Phase 2 Dataset Records", readonly=True)
     phase2_image_count = fields.Integer(string="Docker Images Built", readonly=True)
     phase2_instance_count = fields.Integer(string="Instances Tested", readonly=True)
     phase2_resolved_count = fields.Integer(string="Resolved Instances", readonly=True)
     phase2_log = fields.Text(string="Phase 2 Log", readonly=True)
     phase2_has_registry = fields.Boolean(string="Registry Available", readonly=True)
+    phase2_result_ids = fields.One2many(
+        "aurora.pipeline.result",
+        "pipeline_id",
+        string="Phase 2 Results",
+        readonly=True,
+    )
 
     phase3_status = fields.Selection(AUTOMATION_STATUS, default="idle", string="Phase 3 Status")
     phase3_file = fields.Char(string="Phase 3 Output", readonly=True)
@@ -317,7 +344,7 @@ class AuroraPipeline(models.Model):
 
         worker_script = self._get_k8s_setting(
             "worker_script",
-            "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py",
+            "/opt/ethara/app/custom_addons/aurora/worker/run_pipeline.py",
         )
 
         _load_k8s_config()
@@ -558,18 +585,26 @@ class AuroraPipeline(models.Model):
         rec_name = self.name
         registry = Registry(db_name)
 
-        self.env.cr.commit()
-
         def _worker():
             import time
             time.sleep(1)
             from ..worker.run_pipeline import run_pipeline
             _logger.info("Pipeline %s (id=%s) starting local execution", rec_name, rec_id)
-            run_pipeline(registry, db_name, rec_id)
+            try:
+                run_pipeline(registry, db_name, rec_id)
+            finally:
+                with _local_threads_lock:
+                    _local_threads.pop(rec_id, None)
 
         t = threading.Thread(target=_worker, name=f"aurora-local-{rec_id}", daemon=True)
-        t.start()
-        _logger.info("Pipeline %s (id=%s) launched in local thread", rec_name, rec_id)
+        with _local_threads_lock:
+            _local_threads[rec_id] = t
+
+        def _start_thread():
+            t.start()
+            _logger.info("Pipeline %s (id=%s) launched in local thread", rec_name, rec_id)
+
+        self.env.cr.postcommit.add(_start_thread)
 
     def action_cancel(self):
         self.ensure_one()
@@ -616,6 +651,9 @@ class AuroraPipeline(models.Model):
             "phase1_file": False,
             "phase2_status": "idle",
             "phase2_file": False,
+            "phase2_dataset_file": False,
+            "phase2_final_report_file": False,
+            "phase2_dataset_count": 0,
             "phase2_image_count": 0,
             "phase2_instance_count": 0,
             "phase2_resolved_count": 0,
@@ -634,17 +672,56 @@ class AuroraPipeline(models.Model):
             "step6_log": False,
             "log": False,
         })
+        self.phase2_result_ids.unlink()
 
-    def action_download_dataset(self):
-        self.ensure_one()
-        if not self.dataset_url:
-            raise UserError("No dataset available to download.")
-        url = self.dataset_url
-        if url.startswith("https://") and ".s3." in url:
-            url = self._presign_s3_url(url)
+    def _safe_local_download(self, file_url: str):
+        import base64
+        allowed_base = self._get_config().get("output_dir", "/tmp/aurora_output")
+        local_path = _validate_file_path(file_url, allowed_base)
+        file_size = os.path.getsize(local_path)
+        if file_size > _MAX_DOWNLOAD_FILE_SIZE:
+            raise UserError(
+                f"File too large for in-browser download "
+                f"({file_size / (1024*1024):.0f} MB). "
+                f"Use the server filesystem or S3 storage instead."
+            )
+        with open(local_path, "rb") as f:
+            data = base64.b64encode(f.read())
+        fname = os.path.basename(local_path)
+        attachment = self.env["ir.attachment"].create({
+            "name": fname,
+            "type": "binary",
+            "datas": data,
+            "mimetype": "application/jsonl+json",
+        })
         return {
             "type": "ir.actions.act_url",
-            "url": url,
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "new",
+        }
+
+    def action_download_step_file(self):
+        self.ensure_one()
+        step = self.env.context.get("step_number")
+        field_map = {
+            1: "step1_file", 2: "step2_file", 3: "step3_file",
+            4: "step4_file", 5: "step5_file", 6: "step6_file",
+        }
+        field_name = field_map.get(step)
+        if not field_name:
+            raise UserError("Invalid step number.")
+        file_url = getattr(self, field_name, "")
+        if not file_url:
+            raise UserError(f"No file available for Step {step}.")
+        if file_url.startswith("file://"):
+            file_url = file_url[7:]
+        if os.path.isfile(file_url):
+            return self._safe_local_download(file_url)
+        if file_url.startswith("https://") and ".s3." in file_url:
+            file_url = self._presign_s3_url(file_url)
+        return {
+            "type": "ir.actions.act_url",
+            "url": file_url,
             "target": "new",
         }
 
@@ -661,21 +738,7 @@ class AuroraPipeline(models.Model):
         if file_url.startswith("file://"):
             file_url = file_url[7:]
         if os.path.isfile(file_url):
-            import base64
-            with open(file_url, "rb") as f:
-                data = base64.b64encode(f.read())
-            fname = os.path.basename(file_url)
-            attachment = self.env["ir.attachment"].create({
-                "name": fname,
-                "type": "binary",
-                "datas": data,
-                "mimetype": "application/jsonl+json",
-            })
-            return {
-                "type": "ir.actions.act_url",
-                "url": f"/web/content/{attachment.id}?download=true",
-                "target": "new",
-            }
+            return self._safe_local_download(file_url)
         if file_url.startswith("https://") and ".s3." in file_url:
             file_url = self._presign_s3_url(file_url)
         return {
@@ -695,7 +758,14 @@ class AuroraPipeline(models.Model):
         file_url = getattr(self, field_name, "")
         if not file_url:
             raise UserError(f"No file available for Phase {phase}.")
+        if self.use_s3:
+            raise UserError(
+                "Preview is not available for S3-stored files. "
+                "Use the Download button instead."
+            )
         local_path = file_url[7:] if file_url.startswith("file://") else file_url
+        allowed_base = self._get_config().get("output_dir", "/tmp/aurora_output")
+        local_path = _validate_file_path(local_path, allowed_base)
         if not os.path.isfile(local_path):
             raise UserError(f"File not found on disk: {local_path}")
 
@@ -719,7 +789,6 @@ class AuroraPipeline(models.Model):
 
     def action_create_registry(self):
         self.ensure_one()
-        import re as _re
 
         org = self.github_org or ""
         repo = self.github_repo or ""
@@ -731,12 +800,8 @@ class AuroraPipeline(models.Model):
                 "creating an instance registry."
             )
 
-        class_name = _re.sub(
-            r'[^a-zA-Z0-9]', '',
-            repo.replace('-', ' ').replace('_', ' ').title(),
-        )
-
-        from .registry_wizard import _TEMPLATE
+        from .registry_wizard import _TEMPLATE, _to_class_name
+        class_name = _to_class_name(repo)
         content = _TEMPLATE.format(
             class_name=class_name, org=org, repo=repo,
         )
@@ -760,24 +825,47 @@ class AuroraPipeline(models.Model):
             "target": "new",
         }
 
-    def action_download_step_file(self):
+    def action_edit_registry(self):
         self.ensure_one()
-        step_num = self.env.context.get("step_number")
-        if not step_num or step_num not in range(1, 7):
-            raise UserError("Invalid step number.")
-        file_url = getattr(self, f"step{step_num}_file", "")
-        if not file_url:
-            raise UserError(f"No file available for step {step_num}.")
-        if not file_url.startswith("http"):
+
+        org = self.github_org or ""
+        repo = self.github_repo or ""
+        lang = self.detected_lang or ""
+
+        if not org or not repo or not lang:
             raise UserError(
-                f"Step {step_num} file is a local path and cannot be downloaded "
-                "from the browser. Configure S3 storage for downloadable files."
+                "Organisation, repository and language must be set."
             )
-        if ".s3." in file_url:
-            file_url = self._presign_s3_url(file_url)
+
+        from .registry_wizard import _HARNESS_REPOS_ROOT
+
+        repo_safe = repo.replace("-", "_").lower()
+        registry_file = _HARNESS_REPOS_ROOT / lang / org / f"{repo_safe}.py"
+
+        if not registry_file.exists():
+            raise UserError(
+                f"Registry file not found at:\n{registry_file}\n\n"
+                "Use 'Create Instance Registry' to generate one first."
+            )
+
+        content = registry_file.read_text()
+
+        RegistryWiz = self.env["aurora.registry.wizard"]
+        wiz = RegistryWiz.create({
+            "pipeline_id": self.id,
+            "org": org,
+            "repo": repo,
+            "lang": lang,
+            "filename": f"{repo_safe}.py",
+            "registry_content": content,
+            "edit_mode": True,
+        })
         return {
-            "type": "ir.actions.act_url",
-            "url": file_url,
+            "type": "ir.actions.act_window",
+            "name": f"Edit Instance Registry — {org}/{repo}",
+            "res_model": "aurora.registry.wizard",
+            "res_id": wiz.id,
+            "view_mode": "form",
             "target": "new",
         }
 

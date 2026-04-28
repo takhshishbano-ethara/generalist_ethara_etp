@@ -1,5 +1,5 @@
 /** @odoo-module */
-import { Component, useState, onMounted, onWillUnmount, onWillRender } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount, onWillRender, markup } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
@@ -94,9 +94,10 @@ export class RubricEditor extends Component {
         const isRecordRunning = recordGoal === "running" || recordRubric === "running";
         const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
         if (isRecordRunning && !isStateRunning) {
+            const wasRubricIdle = this.state.rubricStatus !== "running" && this.state.rubricStatus !== "done";
             this.state.goalStatus = recordGoal || this.state.goalStatus;
             this.state.rubricStatus = recordRubric || this.state.rubricStatus;
-            if (recordRubric === "running") {
+            if (recordRubric === "running" && wasRubricIdle) {
                 this.state.criteria = [];
             }
             this._startPolling();
@@ -410,6 +411,19 @@ export class RubricEditor extends Component {
             error: "fa-exclamation-triangle",
         };
         return map[status] || "";
+    }
+
+    formatQcFeedback(text) {
+        if (!text) return "";
+        let html = text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        html = html.replace(/^(\d+)\.\s+/gm, '<div class="o_qc_item"><span class="o_qc_num">$1.</span> ');
+        html = html.replace(/(<div class="o_qc_item">.*?)(?=<div class="o_qc_item">|$)/gs, "$1</div>");
+        html = html.replace(/\n/g, "<br/>");
+        return markup(html);
     }
 }
 

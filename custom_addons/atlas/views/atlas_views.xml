@@ -74,8 +74,14 @@
                     </button>
                   </div>
                   <p class="text-muted small mb-2">What goal does this sequence of messages serve?</p>
-                  <field name="goal_description" nolabel="1"
-                         placeholder="e.g. 'User asks the model to fix a TypeError in their React component's useEffect hook and iterates until the fix works.'"/>
+                  <div invisible="goal_generation_status == 'running'">
+                    <field name="goal_description" nolabel="1"
+                           placeholder="e.g. 'User asks the model to fix a TypeError in their React component's useEffect hook and iterates until the fix works.'"/>
+                  </div>
+                  <div invisible="goal_generation_status != 'running'" class="d-flex align-items-center gap-2 text-muted py-3">
+                    <i class="fa fa-spinner fa-spin"/>
+                    <span>Generating goal from conversation…</span>
+                  </div>
                 </div>
 
                 <div class="border rounded p-3">

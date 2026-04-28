@@ -160,12 +160,10 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
                 criterion.write({"qc_status": "error", "qc_feedback": "Task not found"})
                 return
 
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
-
             dotenv = _load_dotenv()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
             if not api_key or not inference_arn:
                 criterion.write({"qc_status": "error", "qc_feedback": "Missing Bedrock credentials"})
@@ -195,6 +193,7 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
 
             all_criteria = task.rubric_criterion_ids.sorted("sequence, id")
             rubric_rows = []
+            target_prefix = ""
             for i, c in enumerate(all_criteria, 1):
                 prefix = "N%d" % (i - len([x for x in all_criteria if not x.is_negative])) if c.is_negative else str(i)
                 sign = "❌" if c.is_negative else "✅"
@@ -202,6 +201,8 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
                 rubric_rows.append("| %s | %s | %s | %s | %s |" % (
                     prefix, c.name, w, sign, c.suggestion or "",
                 ))
+                if c.id == criterion_id:
+                    target_prefix = prefix
 
             goal = task.goal_description or "(No goal generated)"
             rubric_table = (
@@ -211,10 +212,21 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
             if rubric_rows:
                 rubric_table += "\n" + "\n".join(rubric_rows)
 
-            user_message = "## Goal\n%s\n\n## Rubric\n%s\n\n## Conversation\n%s" % (
+            target_name = criterion.name or ""
+            user_message = (
+                "## Goal\n%s\n\n"
+                "## Criterion Under Review\nCriterion %s: %s\n\n"
+                "## Full Rubric (for context)\n%s\n\n"
+                "## Conversation\n%s\n\n"
+                "**IMPORTANT: Focus your QC checks ONLY on criterion %s (\"%s\"). "
+                "Use the full rubric and conversation as context, but your verdict "
+                "and findings must be about this single criterion only.**"
+            ) % (
                 goal,
+                target_prefix, target_name,
                 rubric_table,
                 "\n".join(conversation_parts),
+                target_prefix, target_name,
             )
 
             try:
@@ -287,12 +299,11 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
 
             feedback = "\n".join(feedback_parts) if feedback_parts else response_text[:2000]
 
-            for c in all_criteria:
-                c.write({
-                    "qc_status": "done",
-                    "qc_severity": severity,
-                    "qc_feedback": feedback,
-                })
+            criterion.write({
+                "qc_status": "done",
+                "qc_severity": severity,
+                "qc_feedback": feedback,
+            })
 
             if notify_partner_id:
                 partner = env["res.partner"].browse(notify_partner_id)
@@ -399,17 +410,16 @@ class LlmAssistQc(http.Controller):
 
         user_message = self._build_qc_user_message(prompt, previous_turns)
 
-        env = _load_dotenv()
-        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
         if not api_key:
-            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+            return {"error": "ATLAS_AWS_BEARER_TOKEN_BEDROCK not set in .env"}
 
-        ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+        region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
         if not inference_arn:
-            return {"error": "Bedrock Inference ARN not configured in Settings > Atlas"}
+            return {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env"}
 
         if not system_prompt:
             system_prompt = _get_system_prompt()
@@ -556,24 +566,23 @@ class LlmAssistQc(http.Controller):
             max_tokens = int(jdata.get("max_tokens", 4096))
             temperature = float(jdata.get("temperature", 0.7))
 
-            env = _load_dotenv()
-            api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            dotenv = _load_dotenv()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
             if not api_key:
                 return request.make_json_response(
                     {
-                        "error": "AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "error": "ATLAS_AWS_BEARER_TOKEN_BEDROCK not set in .env",
                         "status": 500,
                     },
                     status=500,
                 )
 
-            ICP = request.env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+            inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
             if not inference_arn:
                 return request.make_json_response(
-                    {"error": "Bedrock Inference ARN not configured", "status": 500},
+                    {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env", "status": 500},
                     status=500,
                 )
 

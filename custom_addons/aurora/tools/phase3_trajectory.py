@@ -1,9 +1,6 @@
-import logging
 from typing import Optional
 
 from .util import AuroraPipelineError
-
-_logger = logging.getLogger(__name__)
 
 
 def main(

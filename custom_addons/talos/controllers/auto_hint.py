@@ -137,7 +137,7 @@ def _call_kimi_with_retry(
     temperature=0.3,
 ):
     _logger.info(
-        "%s: calling Kimi sandbox=%s turn=%s iter=%d arn=%s region=%s prompt_len=%d",
+        "%s: calling GLM sandbox=%s turn=%s iter=%d arn=%s region=%s prompt_len=%d",
         label,
         sandbox_id,
         turn_id,
@@ -160,7 +160,7 @@ def _call_kimi_with_retry(
     total_usage["input_tokens"] += usage.get("input_tokens", 0)
     total_usage["output_tokens"] += usage.get("output_tokens", 0)
     _logger.info(
-        "%s: Kimi response sandbox=%s turn=%s iter=%d "
+        "%s: GLM response sandbox=%s turn=%s iter=%d "
         "elapsed=%.2fs in_tokens=%d out_tokens=%d "
         "response_len=%d raw_output=%.500s",
         label,
@@ -204,7 +204,7 @@ def _call_kimi_with_retry(
         total_usage["input_tokens"] += usage.get("input_tokens", 0)
         total_usage["output_tokens"] += usage.get("output_tokens", 0)
         _logger.info(
-            "%s: Kimi retry response sandbox=%s turn=%s iter=%d "
+            "%s: GLM retry response sandbox=%s turn=%s iter=%d "
             "elapsed=%.2fs in_tokens=%d out_tokens=%d "
             "response_len=%d raw_output=%.500s",
             label,
@@ -241,81 +241,87 @@ def _auto_hint_eval_bg(
     max_retries = 3
     for attempt in range(max_retries):
         try:
+            # Phase 1: read all inputs (short cursor)
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
 
-            sandbox = env["talos.sandbox"].browse(sandbox_id)
-            if not sandbox.exists():
-                _logger.error("auto_hint bg: sandbox %s does not exist", sandbox_id)
-                _push_error_by_partner(env, sandbox_id, iteration, notify_partner_id)
-                return
+                sandbox = env["talos.sandbox"].browse(sandbox_id)
+                if not sandbox.exists():
+                    _logger.error("auto_hint bg: sandbox %s does not exist", sandbox_id)
+                    _push_error_by_partner(env, sandbox_id, iteration, notify_partner_id)
+                    return
 
-            turn = env["talos.turn"].browse(turn_id)
-            if not turn.exists():
-                _logger.error("auto_hint bg: turn %s does not exist", turn_id)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
+                turn = env["talos.turn"].browse(turn_id)
+                if not turn.exists():
+                    _logger.error("auto_hint bg: turn %s does not exist", turn_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                    return
 
-            task = sandbox.talos_id
-            if not task.exists():
-                _logger.error("auto_hint bg: task not found for sandbox %s", sandbox_id)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
-                return
+                task = sandbox.talos_id
+                if not task.exists():
+                    _logger.error("auto_hint bg: task not found for sandbox %s", sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                    return
 
-            task_id = task.id
+                task_id = task.id
 
-            persona = task.persona_id
-            soul_md = ""
-            memory_md = ""
-            if persona:
-                soul_md = (persona.soul_md or "")[:5000]
-                memory_md = (persona.memory_md or "")[:5000]
-            agent_md = (task.agent_md or "")[:5000]
+                persona = task.persona_id
+                soul_md = ""
+                memory_md = ""
+                if persona:
+                    soul_md = (persona.soul_md or "")[:5000]
+                    memory_md = (persona.memory_md or "")[:5000]
+                agent_md = (task.agent_md or "")[:5000]
 
-            prompt_text, response_text_raw = _extract_last_prompt_and_response(
-                turn, sandbox
-            )
+                prompt_text, response_text_raw = _extract_last_prompt_and_response(
+                    turn, sandbox
+                )
 
-            conversation_str = ""
-            if turn.trajectory_messages:
-                try:
-                    traj_msgs = json.loads(turn.trajectory_messages)
-                    if isinstance(traj_msgs, list) and traj_msgs:
-                        conversation_str = _format_conversation(traj_msgs)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                conversation_str = ""
+                if turn.trajectory_messages:
+                    try:
+                        traj_msgs = json.loads(turn.trajectory_messages)
+                        if isinstance(traj_msgs, list) and traj_msgs:
+                            conversation_str = _format_conversation(traj_msgs)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
-            if not conversation_str:
-                all_turns = sandbox.turn_ids.sorted("turn_number")
-                fallback_msgs = []
-                for t in all_turns:
-                    if t.prompt:
-                        fallback_msgs.append(
-                            {"message": {"role": "user", "content": [{"type": "text", "text": t.prompt}]}}
-                        )
-                    if t.hints:
-                        fallback_msgs.append(
-                            {"message": {"role": "user", "content": [{"type": "text", "text": t.hints}]}}
-                        )
-                    if t.response:
-                        fallback_msgs.append(
-                            {"message": {"role": "assistant", "content": [{"type": "text", "text": t.response}]}}
-                        )
-                conversation_str = _format_conversation(fallback_msgs)
+                if not conversation_str:
+                    all_turns = sandbox.turn_ids.sorted("turn_number")
+                    fallback_msgs = []
+                    for t in all_turns:
+                        if t.prompt:
+                            fallback_msgs.append(
+                                {"message": {"role": "user", "content": [{"type": "text", "text": t.prompt}]}}
+                            )
+                        if t.hints:
+                            fallback_msgs.append(
+                                {"message": {"role": "user", "content": [{"type": "text", "text": t.hints}]}}
+                            )
+                        if t.response:
+                            fallback_msgs.append(
+                                {"message": {"role": "assistant", "content": [{"type": "text", "text": t.response}]}}
+                            )
+                    conversation_str = _format_conversation(fallback_msgs)
 
-            if len(conversation_str) > 30000:
-                conversation_str = conversation_str[-30000:]
+                if len(conversation_str) > 30000:
+                    conversation_str = conversation_str[-30000:]
 
-            ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+                ICP = env["ir.config_parameter"].sudo()
+                inference_arn = (ICP.get_param("talos.bedrock_inference_arn") or "").strip()
+                region = (ICP.get_param("talos.bedrock_region") or "ap-south-1").strip()
+
+            # cursor closed here — all DB reads are done
 
             dotenv = _load_dotenv()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
             if not api_key or not inference_arn:
                 _logger.warning("auto_hint bg: missing Bedrock credentials")
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
             total_usage = {"input_tokens": 0, "output_tokens": 0}
@@ -323,7 +329,10 @@ def _auto_hint_eval_bg(
             sat_template = _get_satisfactory_prompt()
             if not sat_template:
                 _logger.warning("auto_hint bg: no auto_hint_satisfactory.md")
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
             sat_message = (
@@ -336,6 +345,7 @@ def _auto_hint_eval_bg(
                 .replace("{memory_md}", memory_md or "(not provided)")
             )
 
+            # Phase 2: call Bedrock (long-running, no cursor held)
             try:
                 eval_response = _call_kimi_with_retry(
                     api_key, inference_arn, region, sat_message,
@@ -347,8 +357,11 @@ def _auto_hint_eval_bg(
                     "auto_hint eval: Bedrock call failed sandbox=%s turn=%s iter=%d",
                     sandbox_id, turn_id, iteration,
                 )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
             eval_parsed = _parse_json_response(eval_response)
@@ -358,8 +371,11 @@ def _auto_hint_eval_bg(
                     "sandbox=%s turn=%s iter=%d raw=%.500s",
                     len(eval_response), sandbox_id, turn_id, iteration, eval_response,
                 )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
             satisfied = eval_parsed.get("satisfied", False)
@@ -372,26 +388,28 @@ def _auto_hint_eval_bg(
                 sandbox_id, turn_id, iteration, satisfied, persona_flag, reasoning,
             )
 
-            sandbox = env["talos.sandbox"].browse(sandbox_id)
-            turn = env["talos.turn"].browse(turn_id)
-
+            # Phase 3: write results back (fresh cursor)
             if satisfied:
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                if turn.exists():
-                    turn.write({"feedback": "satisfied"})
-                if sandbox.exists():
-                    sandbox.write({
-                        "auto_hint_status": "idle",
-                        "auto_hint_iteration": 0,
-                        "auto_hint_group_id": False,
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    turn = env["talos.turn"].browse(turn_id)
+                    if turn.exists():
+                        turn.write({"feedback": "satisfied"})
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    if sandbox.exists():
+                        sandbox.write({
+                            "auto_hint_status": "idle",
+                            "auto_hint_iteration": 0,
+                            "auto_hint_group_id": False,
+                        })
+                    _push_bus(env, sandbox, notify_partner_id, {
+                        "sandbox_id": sandbox_id,
+                        "status": "satisfied",
+                        "iteration": iteration,
+                        "reasoning": reasoning,
+                        "persona_flag": persona_flag,
                     })
-                _push_bus(env, sandbox, notify_partner_id, {
-                    "sandbox_id": sandbox_id,
-                    "status": "satisfied",
-                    "iteration": iteration,
-                    "reasoning": reasoning,
-                    "persona_flag": persona_flag,
-                })
                 _logger.info(
                     "auto_hint bg: satisfied sandbox=%s turn=%s iter=%d",
                     sandbox_id, turn_id, iteration,
@@ -401,8 +419,11 @@ def _auto_hint_eval_bg(
             hint_template = _get_hint_gen_prompt()
             if not hint_template:
                 _logger.warning("auto_hint bg: no auto_hint_gen.md")
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
 
             eval_report_str = json.dumps(eval_parsed, ensure_ascii=False)
@@ -429,11 +450,12 @@ def _auto_hint_eval_bg(
                     "auto_hint gen: Bedrock call failed sandbox=%s turn=%s iter=%d",
                     sandbox_id, turn_id, iteration,
                 )
-                _accumulate_kimi_tokens(env, task.id, total_usage)
-                _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    sandbox = env["talos.sandbox"].browse(sandbox_id)
+                    _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
-
-            _accumulate_kimi_tokens(env, task.id, total_usage)
 
             hint_parsed = _parse_json_response(hint_response)
             hint = ""
@@ -447,42 +469,45 @@ def _auto_hint_eval_bg(
                 sandbox_id, turn_id, iteration, hint,
             )
 
-            sandbox = env["talos.sandbox"].browse(sandbox_id)
-            turn = env["talos.turn"].browse(turn_id)
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                _accumulate_kimi_tokens(env, task_id, total_usage)
+                turn = env["talos.turn"].browse(turn_id)
+                sandbox = env["talos.sandbox"].browse(sandbox_id)
 
-            if turn.exists():
-                turn.write({"feedback": "unsatisfied", "hint_text": hint})
+                if turn.exists():
+                    turn.write({"feedback": "unsatisfied", "hint_text": hint})
 
-            if iteration >= 5:
-                if sandbox.exists():
-                    sandbox.write({"auto_hint_status": "max_retries"})
-                _push_bus(env, sandbox, notify_partner_id, {
-                    "sandbox_id": sandbox_id,
-                    "status": "max_retries",
-                    "iteration": iteration,
-                    "reasoning": reasoning,
-                    "hint": hint,
-                })
-                _logger.info(
-                    "auto_hint bg: max_retries sandbox=%s iter=%d",
-                    sandbox_id, iteration,
-                )
-            else:
-                if sandbox.exists():
-                    sandbox.write({"auto_hint_status": "sending_hint"})
-                _push_bus(env, sandbox, notify_partner_id, {
-                    "sandbox_id": sandbox_id,
-                    "status": "unsatisfied",
-                    "iteration": iteration,
-                    "reasoning": reasoning,
-                    "hint": hint,
-                    "turn_id": turn_id,
-                    "group_id": group_id,
-                })
-                _logger.info(
-                    "auto_hint bg: unsatisfied sandbox=%s turn=%s iter=%d hint=%.80s",
-                    sandbox_id, turn_id, iteration, hint,
-                )
+                if iteration >= 5:
+                    if sandbox.exists():
+                        sandbox.write({"auto_hint_status": "max_retries"})
+                    _push_bus(env, sandbox, notify_partner_id, {
+                        "sandbox_id": sandbox_id,
+                        "status": "max_retries",
+                        "iteration": iteration,
+                        "reasoning": reasoning,
+                        "hint": hint,
+                    })
+                    _logger.info(
+                        "auto_hint bg: max_retries sandbox=%s iter=%d",
+                        sandbox_id, iteration,
+                    )
+                else:
+                    if sandbox.exists():
+                        sandbox.write({"auto_hint_status": "sending_hint"})
+                    _push_bus(env, sandbox, notify_partner_id, {
+                        "sandbox_id": sandbox_id,
+                        "status": "unsatisfied",
+                        "iteration": iteration,
+                        "reasoning": reasoning,
+                        "hint": hint,
+                        "turn_id": turn_id,
+                        "group_id": group_id,
+                    })
+                    _logger.info(
+                        "auto_hint bg: unsatisfied sandbox=%s turn=%s iter=%d hint=%.80s",
+                        sandbox_id, turn_id, iteration, hint,
+                    )
             return
         except Exception as e:
             err_str = str(e).lower()
@@ -513,7 +538,7 @@ def _accumulate_kimi_tokens(env, task_id, usage):
             "kimi_eval_output_tokens": (task.kimi_eval_output_tokens or 0) + t_out,
         })
     except Exception:
-        _logger.exception("_accumulate_kimi_tokens failed for task=%s", task_id)
+        _logger.exception("_accumulate_glm_tokens failed for task=%s", task_id)
 
 
 def _push_bus(env, sandbox, notify_partner_id, payload):

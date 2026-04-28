@@ -17,4 +17,10 @@
               groups="jaeger.group_jaeger_admin"/>
     <menuitem id="menu_jaeger_settings" name="Settings" parent="menu_jaeger_config"
               action="action_jaeger_config_settings" sequence="10"/>
+    <menuitem id="menu_jaeger_tokens" name="GitHub Tokens" parent="menu_jaeger_config"
+              action="action_jaeger_github_token" sequence="20"/>
+    <menuitem id="menu_jaeger_import_tokens" name="Import Tokens" parent="menu_jaeger_config"
+              action="action_jaeger_import_tokens_wizard" sequence="30"/>
+    <menuitem id="menu_jaeger_pool_metrics" name="Pool Metrics" parent="menu_jaeger_config"
+              action="action_jaeger_pool_metrics" sequence="40"/>
 </odoo>

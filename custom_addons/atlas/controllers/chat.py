@@ -90,14 +90,19 @@ class AtlasChatController(http.Controller):
 
         turn.write(vals)
 
-        if not partial and turn.sandbox_id and turn.sandbox_id.atlas_id:
-            self._update_goal_description(turn.sandbox_id.atlas_id)
-
         return {"success": True}
 
     @staticmethod
     def _update_goal_description(task):
-        turns = task.turn_ids.sorted("turn_number")
+        glm_sandbox = task.sandbox_ids.filtered(
+            lambda s: s.model_type == "glm"
+        )[:1]
+        if glm_sandbox and glm_sandbox.current_session_id:
+            turns = task.turn_ids.filtered(
+                lambda t, sid=glm_sandbox.current_session_id: t.session_id == sid
+            ).sorted("turn_number")
+        else:
+            turns = task.turn_ids.sorted("turn_number")
         prompts = [t.prompt for t in turns if t.prompt and not t.is_hint_turn]
         if not prompts:
             return

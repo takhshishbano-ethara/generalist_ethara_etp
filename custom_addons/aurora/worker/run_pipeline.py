@@ -189,15 +189,76 @@ def _post_chatter(registry, uid: Optional[int], rec_id: int, body: str) -> None:
             cr.close()
 
 
+def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
+    """Create aurora.pipeline.result records from Phase 2 output."""
+    cr = None
+    try:
+        from odoo import api, SUPERUSER_ID
+        cr = _open_cursor(registry)
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        Result = env["aurora.pipeline.result"]
+
+        Result.search([("pipeline_id", "=", rec_id)]).unlink()
+
+        for idx, r in enumerate(results):
+            f2p = r.get("f2p", [])
+            p2p = r.get("p2p", [])
+            s2p = r.get("s2p", [])
+            n2p = r.get("n2p", [])
+            fixed = r.get("fixed_tests", [])
+
+            Result.create({
+                "pipeline_id": rec_id,
+                "sequence": idx + 1,
+                "instance_id": r.get("instance_id", ""),
+                "pr_number": r.get("pr_number", 0),
+                "valid": r.get("valid", False),
+                "f2p_count": len(f2p),
+                "p2p_count": len(p2p),
+                "s2p_count": len(s2p),
+                "n2p_count": len(n2p),
+                "fixed_count": len(fixed),
+                "run_passed": r.get("run_passed", 0),
+                "run_failed": r.get("run_failed", 0),
+                "run_skipped": r.get("run_skipped", 0),
+                "test_passed": r.get("test_passed", 0),
+                "test_failed": r.get("test_failed", 0),
+                "test_skipped": r.get("test_skipped", 0),
+                "fix_passed": r.get("fix_passed", 0),
+                "fix_failed": r.get("fix_failed", 0),
+                "fix_skipped": r.get("fix_skipped", 0),
+                "f2p_tests": "\n".join(f2p) if f2p else "",
+                "p2p_tests": "\n".join(p2p) if p2p else "",
+                "s2p_tests": "\n".join(s2p) if s2p else "",
+                "n2p_tests": "\n".join(n2p) if n2p else "",
+                "fixed_tests": "\n".join(fixed) if fixed else "",
+                "error_msg": r.get("error_msg") or r.get("error", ""),
+            })
+
+        cr.commit()
+        _logger.info("Created %d Phase 2 result records for pipeline %d", len(results), rec_id)
+    except Exception:
+        _logger.exception("Failed to create Phase 2 result records for rec=%s", rec_id)
+        if cr:
+            try:
+                cr.rollback()
+            except Exception:
+                pass
+    finally:
+        if cr:
+            cr.close()
+
+
 def _read_config(registry, rec_id: int) -> dict[str, Any]:
     from odoo import api, SUPERUSER_ID
     from odoo.addons.aurora.models.credential_manager import get_encrypted_param_raw
+    from odoo.addons.aurora.tools.util import AuroraPipelineError
     cr = _open_cursor(registry)
     try:
         env = api.Environment(cr, SUPERUSER_ID, {})
         pipeline = env["aurora.pipeline"].browse(rec_id)
         if not pipeline.exists():
-            raise RuntimeError(f"Pipeline record {rec_id} not found")
+            raise AuroraPipelineError(f"Pipeline record {rec_id} not found")
 
         ICP = env["ir.config_parameter"].sudo()
         return {
@@ -271,6 +332,7 @@ def _heartbeat_rate_limits(registry, rec_id: int, tokens: list[str]) -> None:
         cr = _open_cursor(registry)
         try:
             AuroraGithubToken.heartbeat_rate_limits(cr, rec_id, summaries)
+            cr.commit()
         finally:
             cr.close()
 
@@ -282,10 +344,6 @@ def _build_s3_config(cfg: dict) -> dict:
         "secret_key": cfg["s3_secret_key"],
         "region": cfg["s3_region"],
     }
-
-
-def _is_s3_configured(s3_config: dict) -> bool:
-    return bool(s3_config.get("bucket") and s3_config.get("access_key") and s3_config.get("secret_key"))
 
 
 def run_pipeline(registry, db_name: str, rec_id: int):
@@ -304,6 +362,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
     from odoo.addons.aurora.tools.build_dataset import main as build_dataset
     from odoo.addons.aurora.tools.phase2_docker_build import main as run_phase2
     from odoo.addons.aurora.tools.phase2_docker_build import check_instance_registry
+    from odoo.addons.aurora.tools.util import AuroraPipelineError
     from odoo.addons.aurora.models import s3_storage
 
     tokens = None
@@ -359,13 +418,13 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         tokens = _lease_tokens(registry, rec_id, count=3)
         if not tokens:
-            raise RuntimeError(
+            raise AuroraPipelineError(
                 "No GitHub tokens available. Import tokens via Configuration -> Import Tokens."
             )
         _logger.info("Leased %d token(s) for pipeline %d", len(tokens), rec_id)
 
         s3_config = _build_s3_config(cfg)
-        use_s3 = _is_s3_configured(s3_config)
+        use_s3 = s3_storage.is_configured(s3_config)
 
         if use_s3:
             temp_dir = tempfile.mkdtemp(prefix="aurora_")
@@ -379,11 +438,11 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             run_number = None
 
         step1_file = out / f"{prefix}_prs.jsonl"
-        step2_file = out / f"{prefix}_filtered_prs.jsonl"
+        step2_file = out / f"{prefix}_lht_filtered_prs.jsonl"
         step3_file = out / f"{prefix}_tags.jsonl"
         step4_file = out / f"{prefix}_tag_groups.jsonl"
         step5_file = out / f"{prefix}_related_issues.jsonl"
-        step6_file = out / f"{prefix}_dataset.jsonl"
+        step6_file = out / f"{prefix}_lht_dataset.jsonl"
 
         s3_folder = cfg.get("s3_folder", "")
 
@@ -472,7 +531,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         result = _run_step(
             2, "step2_status", "filter_prs", "Filtering PRs",
-            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="aurora"),
+            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="lht"),
             step2_file,
         )
         if result is None:
@@ -555,7 +614,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         _check_cancelled()
 
-        has_registry = check_instance_registry(org, repo, cfg["lang"])
+        has_registry = check_instance_registry(org, repo, cfg["lang"], github_token=tokens[0])
         _db_write(_update_pipeline, rec_id, {"phase2_has_registry": has_registry})
 
         if has_registry:
@@ -596,6 +655,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     lang=cfg["lang"],
                     max_workers=4,
                     log_callback=_phase2_log,
+                    github_token=tokens[0],
                 )
 
                 _check_cancelled()
@@ -606,12 +666,27 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
                     phase2_file_ref = s3_storage.upload_file(s3_config, phase2_file_ref, s3_key)
 
+                dataset_jsonl_ref = phase2_result.get("dataset_jsonl", "")
+                if use_s3 and dataset_jsonl_ref and os.path.isfile(dataset_jsonl_ref):
+                    fname = os.path.basename(dataset_jsonl_ref)
+                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+                    dataset_jsonl_ref = s3_storage.upload_file(s3_config, dataset_jsonl_ref, s3_key)
+
+                final_report_json_ref = phase2_result.get("final_report_json", "")
+                if use_s3 and final_report_json_ref and os.path.isfile(final_report_json_ref):
+                    fname = os.path.basename(final_report_json_ref)
+                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+                    final_report_json_ref = s3_storage.upload_file(s3_config, final_report_json_ref, s3_key)
+
                 _db_write(_update_pipeline, rec_id, {
                     "phase2_status": "done",
                     "phase2_file": phase2_file_ref,
                     "phase2_image_count": phase2_result["image_count"],
                     "phase2_instance_count": phase2_result["instance_count"],
                     "phase2_resolved_count": phase2_result["resolved_count"],
+                    "phase2_dataset_file": dataset_jsonl_ref,
+                    "phase2_final_report_file": final_report_json_ref,
+                    "phase2_dataset_count": phase2_result.get("dataset_count", 0),
                     "stage": "phase2_report",
                     "progress_text": "Phase 2 complete",
                 })
@@ -621,6 +696,8 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                     f"{phase2_result['image_count']} images built"
                 )
                 _bus("phase2_report", "Phase 2 complete")
+
+                _create_phase2_results(registry, rec_id, phase2_result.get("results", []))
 
             except PipelineCancelled:
                 raise

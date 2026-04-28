@@ -24,7 +24,7 @@
                     <div class="o_talos_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/>
                     <div class="o_talos_summary_sub">
                         <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
-                        <span>GLM: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
+                        <span>Kimi: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
                         <span>1P: <strong t-out="formatNumber(state.totals.oneP_total)"/></span>
                     </div>
                     <div class="o_talos_summary_badge trajectory">Trajectory</div>
@@ -97,7 +97,7 @@
                                 Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
                             </th>
                             <th class="col-group-header col-group-claude" colspan="3">Claude</th>
-                            <th class="col-group-header col-group-glm" colspan="3">GLM</th>
+                            <th class="col-group-header col-group-glm" colspan="3">Kimi</th>
                             <th class="col-group-header col-group-oneP" colspan="3">1P</th>
                             <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
                             <th class="col-group-header col-group-traj-qc" colspan="3">Traj QC</th>

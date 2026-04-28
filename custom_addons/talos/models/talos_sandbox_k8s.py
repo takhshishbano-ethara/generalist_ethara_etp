@@ -5,7 +5,7 @@ import secrets
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from .talos import _load_dotenv, _DEFAULT_LITELLM_CONFIG
+from .talos import _DEFAULT_LITELLM_CONFIG, _load_dotenv
 from .talos_sandbox import MODEL_DEFAULTS
 
 _logger = logging.getLogger(__name__)
@@ -215,8 +215,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 "maxTokens": 128000,
             },
             {
-                "id": "glm-5",
-                "name": "glm-5",
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -226,7 +226,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             {
                 "id": "quiet_sand",
                 "name": "quiet_sand",
-                "reasoning": False,
+                "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                 "contextWindow": 131072,
@@ -235,7 +235,27 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
         ],
     }
     config_dict["agents"] = {
-        "defaults": {"model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")}
+        "defaults": {
+            "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
+            "thinkingDefault": "xhigh",
+            "models": {
+                "litellm/claude-opus-4.7": {
+                    "params": {
+                        "extra_body": {
+                            "thinking": {"type": "adaptive", "display": "summarized"},
+                            "output_config": {"effort": "xhigh"},
+                        }
+                    }
+                },
+                "litellm/kimi-k2.5": {
+                    "params": {
+                        "extra_body": {
+                            "thinking": {"type": "enabled"},
+                        }
+                    }
+                },
+            },
+        }
     }
 
     return config_dict
@@ -557,7 +577,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name="talos-litellm-config-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=cm,
+                )
+            else:
                 raise
 
     def _create_deployment(

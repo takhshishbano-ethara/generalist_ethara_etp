@@ -435,6 +435,10 @@ class LlmAssistQc(http.Controller):
     def qc_prompt(
         self, prompt="", system_prompt="", max_tokens=4096, temperature=0.3, **kw
     ):
+        ICP = request.env["ir.config_parameter"].sudo()
+        if ICP.get_param("talos.disable_prompt_qc", "False").lower() == "true":
+            return {"skipped": True, "reason": "Prompt QC disabled in Settings"}
+
         prompt = (prompt or "").strip()
         if not prompt:
             return {"error": "prompt is required"}
@@ -456,7 +460,7 @@ class LlmAssistQc(http.Controller):
 
         try:
             _logger.info(
-                "seed QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                "seed QC: calling GLM arn=%s region=%s prompt_len=%d",
                 inference_arn,
                 region,
                 len(prompt),
@@ -473,7 +477,7 @@ class LlmAssistQc(http.Controller):
             )
             elapsed = time.monotonic() - t0
             _logger.info(
-                "seed QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "seed QC: GLM response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                 "response_len=%d raw_output=%.500s",
                 elapsed,
                 usage.get("input_tokens", 0),
@@ -501,7 +505,7 @@ class LlmAssistQc(http.Controller):
                 )
                 elapsed = time.monotonic() - t0
                 _logger.info(
-                    "seed QC: Kimi retry response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                    "seed QC: GLM retry response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                     "response_len=%d raw_output=%.500s",
                     elapsed,
                     usage.get("input_tokens", 0),
@@ -531,6 +535,10 @@ class LlmAssistQc(http.Controller):
 
     @http.route("/talos/trajectory_qc", type="json", auth="user")
     def trajectory_qc(self, record_id=0, field_name="", entry_index=-1, **kw):
+        ICP = request.env["ir.config_parameter"].sudo()
+        if ICP.get_param("talos.disable_trajectory_qc", "False").lower() == "true":
+            return {"skipped": True, "reason": "Trajectory QC disabled in Settings"}
+
         record_id = int(record_id or 0)
         entry_index = int(entry_index if entry_index is not None else -1)
         if not record_id or not field_name:
@@ -726,7 +734,7 @@ class LlmAssistQc(http.Controller):
                 )
 
             _logger.info(
-                "legacy QC: calling Kimi arn=%s region=%s prompt_len=%d",
+                "legacy QC: calling GLM arn=%s region=%s prompt_len=%d",
                 inference_arn,
                 region,
                 len(prompt),
@@ -743,7 +751,7 @@ class LlmAssistQc(http.Controller):
             )
             elapsed = time.monotonic() - t0
             _logger.info(
-                "legacy QC: Kimi response elapsed=%.2fs in_tokens=%d out_tokens=%d "
+                "legacy QC: GLM response elapsed=%.2fs in_tokens=%d out_tokens=%d "
                 "response_len=%d raw_output=%.500s",
                 elapsed,
                 usage.get("input_tokens", 0),

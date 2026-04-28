@@ -66,9 +66,8 @@ def generate_description_from_turns(env, turns):
 
     dotenv = _load_dotenv()
     api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-    ICP = env["ir.config_parameter"].sudo()
-    inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-    region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+    inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+    region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
     _logger.info(
         "generate_description_from_turns: api_key_set=%s arn=%s region=%s",
@@ -164,21 +163,44 @@ def _parse_rubric_table(text):
         "self-qc", "qc note", "verification", "weakest",
     )
 
+    _SECTION_STOP_PATTERNS = (
+        "### scoring", "## scoring", "### self-qc", "### verification",
+        "### formula", "score range", "maxraw", "score =",
+    )
+
     def _is_separator(line):
         stripped = line.strip().strip("|").strip()
         return bool(_re.match(r"^[\s\-:| ]+$", stripped))
 
     def _is_header(line):
-        lower = line.lower()
-        return "criterion" in lower or "criteria" in lower or "category" in lower or "importance" in lower
+        cols = [c.strip().lower() for c in line.split("|") if c.strip()]
+        header_words = {"criterion", "criteria", "category", "importance", "#", "levels", "suggestion", "+/-"}
+        matches = sum(1 for c in cols if c in header_words)
+        return matches >= 3
 
     def _is_qc_junk(line):
         inner = line.strip().strip("|").strip().lower()
-        return any(inner.startswith(p) for p in _QC_JUNK_PATTERNS)
+        if any(inner.startswith(p) for p in _QC_JUNK_PATTERNS):
+            return True
+        if _re.match(r"^#\d+\s", inner):
+            return True
+        if any(kw in inner for kw in (
+            "self-contained", "objective?", "fact-stable", "total negative",
+            "score range", "interpretation", "poor:", "needs improvement",
+            "excellent:", "good:", "negative?", "negatives?",
+        )):
+            return True
+        return False
 
     table_lines = []
+    hit_stop_section = False
     for line in parse_text.split("\n"):
         stripped = line.strip()
+        lower_stripped = stripped.lower()
+        if any(lower_stripped.startswith(p) for p in _SECTION_STOP_PATTERNS):
+            hit_stop_section = True
+        if hit_stop_section:
+            continue
         if not stripped.startswith("|"):
             continue
         if _is_separator(stripped):
@@ -262,6 +284,9 @@ def _parse_rubric_table(text):
                         break
                 if category != "other":
                     break
+                dc_raw = dc.strip()
+                if dc_raw and dc_lower not in VALID_IMPS and len(dc_raw) < 50 and not _re.match(r"^[\d✅❌+\-]+$", dc_raw):
+                    custom_category = dc_raw
 
         importance = "important"
         for dc in data_cols:
@@ -328,9 +353,8 @@ def generate_rubric_from_turns(env, turns, task_id=None):
 
     dotenv = _load_dotenv()
     api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-    ICP = env["ir.config_parameter"].sudo()
-    inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
-    region = (ICP.get_param("atlas.bedrock_region") or "ap-south-1").strip()
+    inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+    region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
 
     if not api_key or not inference_arn:
         return [], {}
@@ -366,7 +390,7 @@ def generate_rubric_from_turns(env, turns, task_id=None):
             region=region,
             system_prompt=system_prompt,
             user_message=user_message,
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.3,
             timeout=120.0,
         )
@@ -402,14 +426,7 @@ def generate_rubric_from_turns(env, turns, task_id=None):
 def _load_dotenv():
     env = os.environ.copy()
 
-    root = None
-    conf_path = odoo_config.rcfile
-    if conf_path:
-        root = os.path.dirname(os.path.abspath(conf_path))
-    if not root:
-        root = os.getcwd()
-
-    dotenv_path = os.path.join(root, ".env")
+    dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
     if os.path.isfile(dotenv_path):
         with open(dotenv_path) as f:
             for line in f:
@@ -421,6 +438,8 @@ def _load_dotenv():
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
+                if key.startswith("ATLAS_"):
+                    key = key[len("ATLAS_"):]
                 env[key] = value
         _logger.debug("Loaded .env from %s", dotenv_path)
 
@@ -443,12 +462,6 @@ model_list:
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
-  - model_name: quiet_sand
-    litellm_params:
-      model: openai/quiet_sand
-      api_base: https://api.llama.com/v1alpha
-      api_key: os.environ/LLAMA_API_KEY
-
 litellm_settings:
   drop_params: true
   modify_params: true
@@ -458,7 +471,7 @@ litellm_settings:
   stream_timeout: 60
 
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
+  master_key: os.environ/ATLAS_LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 """
@@ -626,10 +639,26 @@ class Atlas(models.Model):
         for sandbox in self.sandbox_ids:
             sb_turns = sandbox.turn_ids
             if current_session_only and sandbox.current_session_id:
-                sb_turns = sb_turns.filtered(
+                session_turns = sb_turns.filtered(
                     lambda t, sid=sandbox.current_session_id: t.session_id == sid
                 )
-            turns |= sb_turns
+                if session_turns:
+                    turns |= session_turns
+                else:
+                    all_sessions = sb_turns.mapped("session_id")
+                    seen = []
+                    for sid in all_sessions:
+                        if sid and sid not in seen:
+                            seen.append(sid)
+                    if seen:
+                        latest_sid = seen[-1]
+                        turns |= sb_turns.filtered(
+                            lambda t, sid=latest_sid: t.session_id == sid
+                        )
+                    else:
+                        turns |= sb_turns
+            else:
+                turns |= sb_turns
         return turns.sorted("turn_number")
 
     def action_view_turns(self):
@@ -658,19 +687,16 @@ class Atlas(models.Model):
 
         dotenv = _load_dotenv()
         api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        ICP = self.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
 
         if not api_key:
             raise UserError(
-                "AWS_BEARER_TOKEN_BEDROCK not found in .env file. "
+                "ATLAS_AWS_BEARER_TOKEN_BEDROCK not found in .env file. "
                 "Please set it and restart Odoo."
             )
         if not inference_arn:
             raise UserError(
-                "Bedrock Inference ARN not configured. "
-                "Go to Settings > Technical > System Parameters and set "
-                "'atlas.bedrock_inference_arn' to your Bedrock ARN."
+                "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file."
             )
 
         self.write({
@@ -701,13 +727,12 @@ class Atlas(models.Model):
 
         dotenv = _load_dotenv()
         api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        ICP = self.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
 
         if not api_key:
-            raise UserError("AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
+            raise UserError("ATLAS_AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
         if not inference_arn:
-            raise UserError("Bedrock Inference ARN not configured.")
+            raise UserError("ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file.")
 
         self.write({"goal_generation_status": "running"})
 
@@ -734,13 +759,12 @@ class Atlas(models.Model):
 
         dotenv = _load_dotenv()
         api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        ICP = self.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("atlas.bedrock_inference_arn") or "").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
 
         if not api_key:
-            raise UserError("AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
+            raise UserError("ATLAS_AWS_BEARER_TOKEN_BEDROCK not found in .env file.")
         if not inference_arn:
-            raise UserError("Bedrock Inference ARN not configured.")
+            raise UserError("ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file.")
 
         self.write({"rubric_generation_status": "running"})
 

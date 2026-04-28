@@ -1,1 +1,15 @@
-# -*- coding: utf-8 -*-
+from . import test_smoke
+from . import test_is_degenerate_output
+from . import test_parse_rubric_table
+from . import test_atlas_domain
+from . import test_atlas_rubric_criterion
+from . import test_atlas_rubric_level
+from . import test_res_config_settings
+from . import test_atlas_atlas_model
+from . import test_atlas_turn
+from . import test_generate_description_from_turns
+from . import test_generate_rubric_from_turns
+from . import test_call_bedrock_converse
+from . import test_atlas_sandbox
+from . import test_security_access
+from . import test_security_boundaries

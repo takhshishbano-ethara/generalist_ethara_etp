@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="aurora_res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">aurora.res.config.settings.form</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Aurora Pipeline"
+                     string="Aurora Pipeline"
+                     name="aurora"
+                     groups="aurora.group_aurora_admin">
+
+                    <block title="Output &amp; Cache">
+                        <setting string="Output Directory"
+                                 help="Filesystem path for intermediate JSONL files.">
+                            <field name="aurora_output_dir"/>
+                        </setting>
+                        <setting string="Clone Cache Directory"
+                                 help="Bare-clone cache used by git operations.">
+                            <field name="aurora_cache_dir"/>
+                        </setting>
+                    </block>
+
+                    <block title="S3 Storage">
+                        <setting string="S3 Bucket"
+                                 help="AWS S3 bucket for pipeline outputs. Leave empty to keep files local only.">
+                            <field name="aurora_s3_bucket"/>
+                        </setting>
+                        <setting string="S3 Access Key">
+                            <field name="aurora_s3_access_key" password="True"/>
+                        </setting>
+                        <setting string="S3 Secret Key">
+                            <field name="aurora_s3_secret_key" password="True"/>
+                        </setting>
+                        <setting string="S3 Region">
+                            <field name="aurora_s3_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting string="S3 Folder"
+                                 help="Optional folder prefix inside the bucket. Leave empty for root. Example: 'production/pipelines'">
+                            <field name="aurora_s3_folder" placeholder="e.g. production/pipelines"/>
+                        </setting>
+                    </block>
+
+                    <block title="Pipeline Tunables">
+                        <setting string="Delay on Error (seconds)">
+                            <field name="aurora_delay_on_error"/>
+                        </setting>
+                        <setting string="Retry Attempts">
+                            <field name="aurora_retry_attempts"/>
+                        </setting>
+                        <setting string="Max Tags">
+                            <field name="aurora_max_tags"/>
+                        </setting>
+                        <setting string="Window Days"
+                                 help="Date-range fallback window for PR-to-tag attribution.">
+                            <field name="aurora_window_days"/>
+                        </setting>
+                    </block>
+
+                    <block title="Language Detection">
+                        <setting string="Detection Mode"
+                                 help="Automatic: detect the repo's primary language via GitHub API when pipeline starts. Manual: use the dropdown below.">
+                            <field name="aurora_lang_detection_mode" widget="radio"/>
+                        </setting>
+                        <setting string="Language Label"
+                                 help="Used only when Detection Mode is Manual."
+                                 invisible="aurora_lang_detection_mode == 'automatic'">
+                            <field name="aurora_lang"/>
+                        </setting>
+                    </block>
+
+                    <block title="Concurrency">
+                        <setting string="Max Active Pipeline Runs">
+                            <field name="aurora_max_active_tasks"/>
+                        </setting>
+                    </block>
+
+                    <block title="Kubernetes (EKS)">
+                        <setting string="K8s Namespace">
+                            <field name="aurora_k8s_namespace" placeholder="ethara"/>
+                        </setting>
+                        <setting string="Docker Image"
+                                 help="Same Odoo image used by the web pods, with a different entrypoint for pipeline workers.">
+                            <field name="aurora_k8s_image" placeholder="426628337772.dkr.ecr.ap-south-1.amazonaws.com/odoo:latest"/>
+                        </setting>
+                        <setting string="Service Account">
+                            <field name="aurora_k8s_service_account" placeholder="aurora-worker"/>
+                        </setting>
+                        <setting string="Node Pool">
+                            <field name="aurora_k8s_node_pool" placeholder="general-purpose"/>
+                        </setting>
+                        <setting string="Kueue Queue Name"
+                                 help="Kueue LocalQueue for pipeline admission control.">
+                            <field name="aurora_k8s_kueue_queue" placeholder="aurora-pipelines"/>
+                        </setting>
+                        <setting string="EFS PVC Name"
+                                 help="ReadWriteMany PVC for shared git repo cache across pipeline pods.">
+                            <field name="aurora_k8s_efs_pvc" placeholder="aurora-repo-cache"/>
+                        </setting>
+                        <setting string="CPU Request">
+                            <field name="aurora_k8s_cpu_request" placeholder="1"/>
+                        </setting>
+                        <setting string="Memory Request">
+                            <field name="aurora_k8s_memory_request" placeholder="2Gi"/>
+                        </setting>
+                        <setting string="Memory Limit">
+                            <field name="aurora_k8s_memory_limit" placeholder="4Gi"/>
+                        </setting>
+                        <setting string="Job Deadline (seconds)"
+                                 help="Hard kill for pipeline pods after this many seconds.">
+                            <field name="aurora_k8s_deadline_seconds"/>
+                        </setting>
+                        <setting string="Worker Script Path"
+                                 help="Path to run_pipeline.py inside the container.">
+                            <field name="aurora_k8s_worker_script"/>
+                        </setting>
+                        <setting string="Odoo Config Path"
+                                 help="Path to odoo.conf inside the worker pod. Leave blank for default.">
+                            <field name="aurora_k8s_odoo_conf"/>
+                        </setting>
+                        <setting string="Worker ConfigMap Name"
+                                 help="ConfigMap containing odoo.conf. Mounted at /etc/odoo/ in worker pods.">
+                            <field name="aurora_k8s_configmap" placeholder="aurora-worker-config"/>
+                        </setting>
+                        <setting string="Worker Secret Name"
+                                 help="K8s Secret containing AURORA_ENCRYPTION_KEY. Injected as env var.">
+                            <field name="aurora_k8s_secret" placeholder="aurora-secrets"/>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

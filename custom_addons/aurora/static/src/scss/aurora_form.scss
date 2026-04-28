@@ -183,3 +183,217 @@
         min-height: unset;
     }
 }
+
+.aurora-section-sublabel {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--aurora-text-secondary);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--aurora-border-light);
+}
+
+/* ── Phase 2 Results Summary Badges ─────────────────────── */
+
+.aurora-results-summary {
+    font-size: 12px;
+    font-weight: 600;
+
+    .aurora-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        line-height: 1.4;
+    }
+
+    .aurora-badge-total {
+        background: var(--aurora-bg);
+        color: var(--aurora-text-secondary);
+        border: 1px solid var(--aurora-border);
+    }
+
+    .aurora-badge-valid {
+        background: var(--aurora-success-bg);
+        color: var(--aurora-success);
+        border: 1px solid #bbf7d0;
+    }
+
+    .aurora-badge-invalid {
+        background: var(--aurora-danger-bg);
+        color: var(--aurora-danger);
+        border: 1px solid #fecaca;
+    }
+}
+
+/* ── Phase 2 Results Table ──────────────────────────────── */
+
+.aurora-pipeline-form .aurora-card-body {
+
+    .aurora-results-table-wrap {
+        border: 1px solid var(--aurora-border);
+        border-radius: var(--aurora-radius);
+        overflow: hidden;
+        box-shadow: var(--aurora-shadow);
+
+        /* Clean scrollbar for small screens */
+        overflow-x: auto;
+
+        &::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        &::-webkit-scrollbar-track {
+            background: var(--aurora-bg);
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: var(--aurora-border);
+            border-radius: 3px;
+
+            &:hover {
+                background: var(--aurora-text-muted);
+            }
+        }
+    }
+
+    .aurora-results-table-wrap .o_field_one2many,
+    .aurora-results-table-wrap .o_field_one2many .o_list_renderer {
+        overflow: visible;
+    }
+
+    .aurora-results-table-wrap .o_list_table {
+        table-layout: fixed;
+        width: 100%;
+        margin-bottom: 0;
+        border-collapse: collapse;
+
+        /* ── Header ── */
+        thead th {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--aurora-text-secondary);
+            background: var(--aurora-bg);
+            border-bottom: 2px solid var(--aurora-border);
+            padding: 6px 10px;
+            white-space: nowrap;
+        }
+
+        /* ── Body cells ── */
+        tbody td {
+            padding: 6px 10px;
+            font-size: 12px;
+            color: var(--aurora-text);
+            border-bottom: 1px solid var(--aurora-border-light);
+            vertical-align: middle;
+        }
+
+        /* ── Row hover ── */
+        tbody tr:hover td {
+            background: var(--aurora-bg);
+        }
+
+        /* ── Decoration rows (Odoo adds these classes) ── */
+        tbody tr.text-success td:first-child {
+            border-left: 3px solid var(--aurora-success);
+        }
+
+        tbody tr.text-danger td:first-child {
+            border-left: 3px solid var(--aurora-danger);
+        }
+
+        /* ── Instance ID column ── */
+        th[data-name="instance_id"],
+        td[data-name="instance_id"] {
+            min-width: 180px;
+        }
+
+        /* ── Status icon column ── */
+        th[data-name="status_icon"],
+        td[data-name="status_icon"] {
+            max-width: 100px;
+            text-align: center;
+        }
+
+        /* ── Error message column — truncate ── */
+        th[data-name="error_msg"],
+        td[data-name="error_msg"] {
+            max-width: 280px;
+        }
+
+        td[data-name="error_msg"] {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+
+            /* Ensure nested Odoo field spans also truncate */
+            .o_field_widget,
+            .o_field_widget span,
+            .o_field_widget .o_field_char_content {
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                max-width: 100%;
+            }
+        }
+
+        /* ── Numeric count columns — centered ── */
+        th[data-name="f2p_count"],
+        th[data-name="p2p_count"],
+        th[data-name="s2p_count"],
+        th[data-name="n2p_count"],
+        th[data-name="fixed_count"],
+        th[data-name="run_passed"],
+        th[data-name="run_failed"],
+        th[data-name="run_skipped"],
+        th[data-name="run_total"],
+        th[data-name="test_passed"],
+        th[data-name="test_failed"],
+        th[data-name="test_skipped"],
+        th[data-name="test_total"],
+        th[data-name="fix_passed"],
+        th[data-name="fix_failed"],
+        th[data-name="fix_skipped"],
+        th[data-name="fix_total"],
+        td[data-name="f2p_count"],
+        td[data-name="p2p_count"],
+        td[data-name="s2p_count"],
+        td[data-name="n2p_count"],
+        td[data-name="fixed_count"],
+        td[data-name="run_passed"],
+        td[data-name="run_failed"],
+        td[data-name="run_skipped"],
+        td[data-name="run_total"],
+        td[data-name="test_passed"],
+        td[data-name="test_failed"],
+        td[data-name="test_skipped"],
+        td[data-name="test_total"],
+        td[data-name="fix_passed"],
+        td[data-name="fix_failed"],
+        td[data-name="fix_skipped"],
+        td[data-name="fix_total"] {
+            text-align: center;
+            max-width: 80px;
+        }
+
+        /* ── PR number column ── */
+        th[data-name="pr_number"],
+        td[data-name="pr_number"] {
+            max-width: 90px;
+            text-align: center;
+        }
+
+        /* ── Remove last row bottom border ── */
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+    }
+}

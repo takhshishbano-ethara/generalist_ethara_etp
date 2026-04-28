@@ -40,16 +40,15 @@
             <field name="priority">10</field>
         </record>
 
-        <!-- Auto-advance: check stage gates and advance repos -->
-        <!-- Phase 2-7: disabled (would auto-advance past stage2 into disabled stages) -->
+        <!-- Auto-advance: safety net for stage transitions missed by inline gate checks -->
         <record id="jaeger_cron_auto_advance" model="ir.cron">
             <field name="name">Jaeger: Auto-advance Stages</field>
             <field name="model_id" ref="model_jaeger_repository"/>
             <field name="code">model._cron_auto_advance_stages()</field>
-            <field name="interval_number">10</field>
+            <field name="interval_number">30</field>
             <field name="interval_type">minutes</field>
 
-            <field name="active" eval="False"/>
+            <field name="active" eval="True"/>
             <field name="priority">15</field>
         </record>
 
@@ -87,6 +86,49 @@
 
             <field name="active" eval="True"/>
             <field name="priority">5</field>
+        </record>
+        <!-- Token Health Check: probe GitHub rate_limit API, update state -->
+        <record id="jaeger_cron_token_health_check" model="ir.cron">
+            <field name="name">Jaeger: Token Health Check</field>
+            <field name="model_id" ref="model_jaeger_github_token"/>
+            <field name="code">model._cron_token_health_check()</field>
+            <field name="interval_number">10</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Token Expiry Alert: notify admins of tokens expiring within 7 days -->
+        <record id="jaeger_cron_token_expiry_alert" model="ir.cron">
+            <field name="name">Jaeger: Token Expiry Alert</field>
+            <field name="model_id" ref="model_jaeger_github_token"/>
+            <field name="code">model._cron_token_expiry_alert()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+            <field name="priority">10</field>
+        </record>
+
+        <!-- Token Orphan Reclaim: release tokens still leased to finished/failed repos -->
+        <record id="jaeger_cron_token_orphan_reclaim" model="ir.cron">
+            <field name="name">Jaeger: Token Orphan Reclaim</field>
+            <field name="model_id" ref="model_jaeger_github_token"/>
+            <field name="code">model._cron_token_orphan_reclaim()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Token Pool Metrics: snapshot pool state for monitoring -->
+        <record id="jaeger_cron_pool_metrics" model="ir.cron">
+            <field name="name">Jaeger: Pool Metrics Snapshot</field>
+            <field name="model_id" ref="model_jaeger_github_token"/>
+            <field name="code">model._cron_pool_metrics()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">15</field>
         </record>
     </data>
 </odoo>
