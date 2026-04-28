@@ -140,7 +140,7 @@ class AuroraSettings(models.TransientModel):
     aurora_k8s_namespace = fields.Char(
         string="K8s Namespace",
         config_parameter="aurora.k8s_namespace",
-        default="ethara",
+        default="aurora",
     )
     aurora_k8s_image = fields.Char(
         string="K8s Docker Image",
@@ -199,19 +199,20 @@ class AuroraSettings(models.TransientModel):
     aurora_k8s_odoo_conf = fields.Char(
         string="Odoo Config Path (in container)",
         config_parameter="aurora.k8s_odoo_conf",
-        help="Path to odoo.conf inside the worker pod. Leave blank for /etc/odoo/odoo.conf.",
+        default="/etc/odoo/odoo.conf",
+        help="Path to odoo.conf inside the worker pod.",
     )
     aurora_k8s_configmap = fields.Char(
         string="Worker ConfigMap Name",
         config_parameter="aurora.k8s_configmap",
-        default="aurora-worker-config",
-        help="ConfigMap containing odoo.conf for worker pods. Mounted at /etc/odoo/.",
+        default="",
+        help="Optional ConfigMap for extra config. Leave empty if odoo.conf is provided via the Secret.",
     )
     aurora_k8s_secret = fields.Char(
         string="Worker Secret Name",
         config_parameter="aurora.k8s_secret",
-        default="aurora-secrets",
-        help="K8s Secret containing AURORA_ENCRYPTION_KEY. Injected as env var.",
+        default="aurora-odoo-config",
+        help="K8s Secret containing odoo.conf (DB credentials, addons path, etc.). Mounted at /etc/odoo/.",
     )
 
     @api.onchange("aurora_lang_detection_mode")
