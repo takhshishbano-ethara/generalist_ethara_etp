@@ -26,7 +26,7 @@
             <field name="code">model._cron_reconcile_pipelines()</field>
             <field name="interval_number">1</field>
             <field name="interval_type">minutes</field>
-            <field name="active">False</field>
+            <field name="active">True</field>
         </record>
 
         <record id="ir_cron_token_health_check" model="ir.cron">
