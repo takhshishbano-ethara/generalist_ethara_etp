@@ -689,8 +689,7 @@ class TaskForgeTaskController(http.Controller):
     @http.route('/api/v2/taskforge/tasks/grammar_check', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
-        'prompt': {'type': 'str', 'required': True},
-        'justification': {'type': 'str', 'required': True},
+        'prompt': {'type': 'str', 'required': True}
     })
     def grammar_check(self, **kwargs):
         try:
@@ -698,8 +697,8 @@ class TaskForgeTaskController(http.Controller):
             prompt = (jdata.get('prompt') or '').strip()
             justification = (jdata.get('justification') or '').strip()
 
-            if not prompt and not justification:
-                return return_Response(message="Both prompt and justification are empty.", status=400)
+            # if not prompt and not justification:
+            #     return return_Response(message="Both prompt and justification are empty.", status=400)
 
             result = {'is_perfect': True, 'prompt': None, 'justification': None}
 
