@@ -336,7 +336,7 @@ class TaskForgeBlockerController(http.Controller):
                         blocker.priority = kwargs.get('priority')
                     return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
                 elif current_level == 'pl':
-                    blocker.action_pl_escalate_to_cto(notes=notes, image_urls=image_urls, document_urls=document_urls)
+                    blocker.action_pl_escalate_to_cto(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                     blocker.sudo().write({
                         'steps_to_reproduce': kwargs.get('steps_to_reproduce') or blocker.steps_to_reproduce,
                         'affected_area': kwargs.get('task_page_affected') or blocker.affected_area,
@@ -350,9 +350,9 @@ class TaskForgeBlockerController(http.Controller):
             elif action == 'resolve':
                 current_level = blocker.escalation_level or 'qr'
                 if current_level in ('qr', 'pl') and role in ('pl', 'admin'):
-                    blocker.action_pl_resolve(notes=notes, image_urls=image_urls, document_urls=document_urls)
+                    blocker.action_pl_resolve(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 elif current_level == 'cto' and role == 'admin':
-                    blocker.action_cto_resolve(notes=notes, image_urls=image_urls, document_urls=document_urls)
+                    blocker.action_cto_resolve(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 else:
                     return return_Response(message="Cannot resolve at this level with your role", status=403)
                 return return_Response(message="Blocker resolved", status=200, data={'data': self._format_blocker(blocker)})
@@ -366,7 +366,7 @@ class TaskForgeBlockerController(http.Controller):
                     'impact': kwargs.get('impact', 'medium'),
                     'impact_details': kwargs.get('impact_details', ''),
                 }
-                bug = blocker.action_cto_validate_bug(bug_data, notes=notes, image_urls=image_urls, document_urls=document_urls)
+                bug = blocker.action_cto_validate_bug(bug_data, notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 return return_Response(
                     message="Bug validated",
                     status=200,

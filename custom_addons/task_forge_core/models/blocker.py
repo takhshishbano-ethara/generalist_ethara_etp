@@ -151,8 +151,7 @@ class TaskForgeBlocker(models.Model):
                 'project_id': self.project_id.id if self.project_id else False,
             })
 
-    def action_pl_resolve(self, notes=None, image_urls=None, document_urls=None):
-        """PL resolves the blocker."""
+    def action_pl_resolve(self, notes=None, image_urls=None, video_urls=None, document_urls=None):
         self.ensure_one()
         employee = self.env.user.employee_id
         vals = {
@@ -168,8 +167,12 @@ class TaskForgeBlocker(models.Model):
             existing = self.pl_image_urls or ''
             all_urls = [u for u in existing.split(',') if u] + image_urls
             vals['pl_image_urls'] = ','.join(all_urls)
+        if video_urls:
+            existing = self.qr_video_urls or ''
+            all_urls = [u for u in existing.split(',') if u] + video_urls
+            vals['qr_video_urls'] = ','.join(all_urls)
         self.write(vals)
-        self._log_escalation('pl', '', 'resolve', notes=notes or '', image_urls=image_urls, document_urls=document_urls)
+        self._log_escalation('pl', '', 'resolve', notes=notes or '', image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
         self.task_id.write({'state': 'in_progress'})
 
         if self.employee_id.user_id:
@@ -183,8 +186,7 @@ class TaskForgeBlocker(models.Model):
                 'project_id': self.project_id.id if self.project_id else False,
             })
 
-    def action_pl_escalate_to_cto(self, notes=None, image_urls=None, document_urls=None):
-        """PL escalates blocker to CTO."""
+    def action_pl_escalate_to_cto(self, notes=None, image_urls=None, video_urls=None, document_urls=None):
         self.ensure_one()
         vals = {
             'state': 'escalated_to_cto',
@@ -197,8 +199,12 @@ class TaskForgeBlocker(models.Model):
             existing = self.pl_image_urls or ''
             all_urls = [u for u in existing.split(',') if u] + image_urls
             vals['pl_image_urls'] = ','.join(all_urls)
+        if video_urls:
+            existing = self.qr_video_urls or ''
+            all_urls = [u for u in existing.split(',') if u] + video_urls
+            vals['qr_video_urls'] = ','.join(all_urls)
         self.write(vals)
-        self._log_escalation('pl', 'cto', 'escalate', notes=notes or '', image_urls=image_urls, document_urls=document_urls)
+        self._log_escalation('pl', 'cto', 'escalate', notes=notes or '', image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
         self.task_id.write({'state': 'escalated'})
 
         cto_role = self.env.ref('api_auth_gateway.role_cto_technical', raise_if_not_found=False)
@@ -216,8 +222,7 @@ class TaskForgeBlocker(models.Model):
                     'project_id': self.project_id.id if self.project_id else False,
                 })
 
-    def action_cto_resolve(self, notes=None, image_urls=None, document_urls=None):
-        """CTO resolves the blocker."""
+    def action_cto_resolve(self, notes=None, image_urls=None, video_urls=None, document_urls=None):
         self.ensure_one()
         employee = self.env.user.employee_id
         vals = {
@@ -233,8 +238,12 @@ class TaskForgeBlocker(models.Model):
             existing = self.cto_image_urls or ''
             all_urls = [u for u in existing.split(',') if u] + image_urls
             vals['cto_image_urls'] = ','.join(all_urls)
+        if video_urls:
+            existing = self.qr_video_urls or ''
+            all_urls = [u for u in existing.split(',') if u] + video_urls
+            vals['qr_video_urls'] = ','.join(all_urls)
         self.write(vals)
-        self._log_escalation('cto', '', 'resolve', notes=notes or '', image_urls=image_urls, document_urls=document_urls)
+        self._log_escalation('cto', '', 'resolve', notes=notes or '', image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
         self.task_id.write({'state': 'in_progress'})
 
         if self.employee_id.user_id:
@@ -248,8 +257,7 @@ class TaskForgeBlocker(models.Model):
                 'project_id': self.project_id.id if self.project_id else False,
             })
 
-    def action_cto_validate_bug(self, bug_data, notes=None, image_urls=None, document_urls=None):
-        """CTO validates blocker as a formal bug."""
+    def action_cto_validate_bug(self, bug_data, notes=None, image_urls=None, video_urls=None, document_urls=None):
         self.ensure_one()
 
         bug = self.env['task.forge.validated.bug'].sudo().create({
@@ -282,8 +290,12 @@ class TaskForgeBlocker(models.Model):
             existing = self.cto_image_urls or ''
             all_urls = [u for u in existing.split(',') if u] + image_urls
             vals['cto_image_urls'] = ','.join(all_urls)
+        if video_urls:
+            existing = self.qr_video_urls or ''
+            all_urls = [u for u in existing.split(',') if u] + video_urls
+            vals['qr_video_urls'] = ','.join(all_urls)
         self.write(vals)
-        self._log_escalation('cto', '', 'validate_bug', notes=notes or '', image_urls=image_urls, document_urls=document_urls)
+        self._log_escalation('cto', '', 'validate_bug', notes=notes or '', image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
         self.task_id.write({'state': 'escalated'})
 
         return bug
