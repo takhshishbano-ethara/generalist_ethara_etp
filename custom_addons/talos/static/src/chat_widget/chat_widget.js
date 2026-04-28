@@ -486,7 +486,7 @@ export class TalosChatWidget extends Component {
 
             if (frame.type === "event" && (frame.event === "session.tool" || frame.event === "tool")) {
                 console.group(`${LOG_PREFIX} 🔧 TOOL EVENT [${frame.event}]`);
-                console.log("Full payload:", JSON.stringify(frame.payload).substring(0, 2000));
+                console.log("Full payload:", JSON.stringify(frame.payload || null).substring(0, 2000));
                 console.groupEnd();
                 const toolPayload = frame.payload || {};
                 this._handleChatEvent({
@@ -597,7 +597,7 @@ export class TalosChatWidget extends Component {
             }
 
             if (frame.type === "event") {
-                console.log(LOG_PREFIX, "📨 UNHANDLED EVENT:", frame.event, "payload:", JSON.stringify(frame.payload).substring(0, 1000));
+                console.log(LOG_PREFIX, "📨 UNHANDLED EVENT:", frame.event, "payload:", JSON.stringify(frame.payload || null).substring(0, 1000));
             }
 
             if (frame.type === "res" && frame.id && this._session.wsConnected) {
@@ -807,14 +807,14 @@ export class TalosChatWidget extends Component {
             const phase = data.phase || "";
             const toolCallId = data.toolCallId || "";
             const toolName = data.name || "";
-            console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args).substring(0, 300)}`);
+            console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args || null).substring(0, 300)}`);
             if (phase === "start" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, args: data.args, phase: "start", source_event: "chat.tool" });
                 if (widget) widget.state.activityText = `Running ${toolName}…`;
                 console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
             } else if (phase === "end" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, result: data.result ?? data.error ?? data.partialResult, isError: !!(data.isError || data.error), phase: "end", source_event: "chat.tool" });
-                console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result).substring(0, 300)}`);
+                console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result || null).substring(0, 300)}`);
                 if (toolName === "browser" && widget) {
                     this._checkBrowserToolForLogin(data, widget);
                 }
@@ -950,7 +950,7 @@ export class TalosChatWidget extends Component {
             console.log("stream _toolCalls:", session._toolCalls.length, session._toolCalls.map(t => t.name));
             console.log("raw events:", session._rawEvents.length);
             console.log("current turn ID:", session.currentTurnId);
-            console.log("full message:", JSON.stringify(payload.message).substring(0, 2000));
+            console.log("full message:", JSON.stringify(payload.message || null).substring(0, 2000));
             console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
