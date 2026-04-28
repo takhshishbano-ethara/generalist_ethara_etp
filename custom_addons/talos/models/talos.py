@@ -630,6 +630,8 @@ model_list:
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
+      reasoning_effort: high
+      allowed_openai_params: ["reasoning_effort"]
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 

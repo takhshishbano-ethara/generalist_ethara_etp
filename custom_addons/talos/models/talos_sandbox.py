@@ -2081,26 +2081,6 @@ class TalosSandbox(models.Model):
                 "defaults": {
                     "model": default_model,
                     "thinkingDefault": "xhigh",
-                    "models": {
-                        "litellm/claude-opus-4.7": {
-                            "params": {
-                                "extra_body": {
-                                    "thinking": {
-                                        "type": "adaptive",
-                                        "display": "summarized",
-                                    },
-                                    "output_config": {"effort": "xhigh"},
-                                }
-                            }
-                        },
-                        "litellm/kimi-k2.5": {
-                            "params": {
-                                "extra_body": {
-                                    "thinking": {"type": "enabled"},
-                                }
-                            }
-                        },
-                    },
                 }
             }
 
