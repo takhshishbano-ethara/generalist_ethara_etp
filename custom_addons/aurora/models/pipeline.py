@@ -327,7 +327,7 @@ class AuroraPipeline(models.Model):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes Python package is not installed on this server.")
 
-        namespace = self._get_k8s_setting("namespace", "ethara")
+        namespace = self._get_k8s_setting("namespace", "aurora")
         image = self._get_k8s_setting("image")
         service_account = self._get_k8s_setting("service_account", "aurora-worker")
         node_pool = self._get_k8s_setting("node_pool", "")
@@ -355,36 +355,23 @@ class AuroraPipeline(models.Model):
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
         ]
 
-        odoo_conf = self._get_k8s_setting("odoo_conf", "")
+        odoo_conf = self._get_k8s_setting("odoo_conf", "/etc/odoo/odoo.conf")
         if odoo_conf:
             env_vars.append(k8s_client.V1EnvVar(name="ODOO_CONF", value=odoo_conf))
-
-        secret_name = self._get_k8s_setting("secret", "aurora-secrets")
-        if secret_name:
-            for secret_key in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "AURORA_ENCRYPTION_KEY"):
-                env_vars.append(
-                    k8s_client.V1EnvVar(
-                        name=secret_key,
-                        value_from=k8s_client.V1EnvVarSource(
-                            secret_key_ref=k8s_client.V1SecretKeySelector(
-                                name=secret_name,
-                                key=secret_key,
-                                optional=True,
-                            ),
-                        ),
-                    ),
-                )
 
         volume_mounts = []
         volumes = []
 
-        configmap_name = self._get_k8s_setting("configmap", "aurora-worker-config")
-        if configmap_name:
+        # Mount the K8s Secret containing odoo.conf as a volume.
+        # The Secret is expected to have a key "odoo.conf" whose value is
+        # the full Odoo configuration file (DB credentials, addons path, etc.).
+        secret_name = self._get_k8s_setting("secret", "aurora-odoo-config")
+        if secret_name:
             volumes.append(
                 k8s_client.V1Volume(
                     name="odoo-config",
-                    config_map=k8s_client.V1ConfigMapVolumeSource(
-                        name=configmap_name,
+                    secret=k8s_client.V1SecretVolumeSource(
+                        secret_name=secret_name,
                     ),
                 ),
             )
@@ -392,6 +379,24 @@ class AuroraPipeline(models.Model):
                 k8s_client.V1VolumeMount(
                     name="odoo-config",
                     mount_path="/etc/odoo",
+                    read_only=True,
+                ),
+            )
+
+        configmap_name = self._get_k8s_setting("configmap", "")
+        if configmap_name:
+            volumes.append(
+                k8s_client.V1Volume(
+                    name="odoo-config-extra",
+                    config_map=k8s_client.V1ConfigMapVolumeSource(
+                        name=configmap_name,
+                    ),
+                ),
+            )
+            volume_mounts.append(
+                k8s_client.V1VolumeMount(
+                    name="odoo-config-extra",
+                    mount_path="/etc/odoo/extra",
                     read_only=True,
                 ),
             )
@@ -613,7 +618,7 @@ class AuroraPipeline(models.Model):
 
         if self.job_name and K8S_AVAILABLE:
             try:
-                namespace = self._get_k8s_setting("namespace", "ethara")
+                namespace = self._get_k8s_setting("namespace", "aurora")
                 _load_k8s_config()
                 batch_v1 = k8s_client.BatchV1Api()
                 batch_v1.delete_namespaced_job(
@@ -930,7 +935,7 @@ class AuroraPipeline(models.Model):
             return
 
         namespace = self.env["ir.config_parameter"].sudo().get_param(
-            "aurora.k8s_namespace", "ethara",
+            "aurora.k8s_namespace", "aurora",
         )
 
         try:
@@ -1033,7 +1038,7 @@ class AuroraPipeline(models.Model):
             if rec.job_name and K8S_AVAILABLE:
                 try:
                     namespace = self.env["ir.config_parameter"].sudo().get_param(
-                        "aurora.k8s_namespace", "ethara",
+                        "aurora.k8s_namespace", "aurora",
                     )
                     _load_k8s_config()
                     batch_v1 = k8s_client.BatchV1Api()
