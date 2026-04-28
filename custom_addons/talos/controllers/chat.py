@@ -116,6 +116,32 @@ class TalosChatController(http.Controller):
 
         return {"success": True}
 
+    @http.route("/talos/chat/mark_timeout", type="json", auth="user")
+    def mark_timeout(self, turn_id=0, timeout_seconds=300, **kw):
+        turn_id = int(turn_id or 0)
+        if not turn_id:
+            return {"error": "turn_id is required"}
+
+        turn = request.env["talos.turn"].browse(turn_id)
+        if not turn.exists():
+            return {"error": "Turn not found"}
+
+        # Don't downgrade a Completed turn - late response won the race.
+        if turn.turn_status == "Completed":
+            return {"success": True, "status": "Completed", "already_completed": True}
+
+        vals = {"turn_status": "TimedOut"}
+        if not turn.response:
+            vals["response"] = "[Response timed out after %ss]" % int(timeout_seconds or 300)
+        turn.write(vals)
+
+        _logger.warning(
+            "Talos chat turn %s marked TimedOut after %ss",
+            turn_id,
+            timeout_seconds,
+        )
+        return {"success": True, "status": "TimedOut"}
+
     @http.route("/talos/chat/save_qc", type="json", auth="user")
     def save_qc(
         self,

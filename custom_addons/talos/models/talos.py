@@ -1574,7 +1574,12 @@ class TalosTurn(models.Model):
     )
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection(
-        [("Pending", "Pending"), ("Streaming", "Streaming"), ("Completed", "Completed")]
+        [
+            ("Pending", "Pending"),
+            ("Streaming", "Streaming"),
+            ("Completed", "Completed"),
+            ("TimedOut", "Timed Out"),
+        ]
     )
     prompt = fields.Text(string="Prompt")
     response = fields.Text(string="Response")
