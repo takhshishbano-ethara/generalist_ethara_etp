@@ -353,6 +353,12 @@ class AuroraPipeline(models.Model):
         env_vars = [
             k8s_client.V1EnvVar(name="PIPELINE_ID", value=str(self.id)),
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
+            # Required: container runs `python <worker_script>` directly,
+            # so `odoo` and `odoo.addons.aurora` are not on sys.path.
+            k8s_client.V1EnvVar(
+                name="PYTHONPATH",
+                value="/opt/ethara/app/src:/opt/ethara/app:/opt/ethara/app/custom_addons",
+            ),
         ]
 
         odoo_conf = self._get_k8s_setting("odoo_conf", "/etc/odoo/odoo.conf")
