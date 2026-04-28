@@ -219,6 +219,9 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
             # --- Rubric criteria ---
             try:
                 task.write({"rubric_generation_status": "running"})
+                # Clear previous criteria before generating new ones so stale
+                # data from an earlier session never persists.
+                task.sudo().rubric_criterion_ids.unlink()
                 cr.commit()
 
                 criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
@@ -232,7 +235,6 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
                         })
 
                 if criteria_data:
-                    task.sudo().rubric_criterion_ids.unlink()
                     valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
                     valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
                     created_count = 0
@@ -405,6 +407,7 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
 
             try:
                 task.write({"rubric_generation_status": "running"})
+                task.sudo().rubric_criterion_ids.unlink()
                 cr.commit()
 
                 criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
@@ -418,7 +421,6 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
                         })
 
                 if criteria_data:
-                    task.sudo().rubric_criterion_ids.unlink()
                     valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
                     valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
                     created_count = 0
