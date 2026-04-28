@@ -34,6 +34,7 @@ function renderMarkdown(text) {
 const LOG_PREFIX = "[talos-chat]";
 const STREAM_WORD_THRESHOLD = 5;
 const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
+const CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 
 const LOGIN_URL_PATTERNS = [
     /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
@@ -485,7 +486,7 @@ export class TalosChatWidget extends Component {
 
             if (frame.type === "event" && (frame.event === "session.tool" || frame.event === "tool")) {
                 console.group(`${LOG_PREFIX} 🔧 TOOL EVENT [${frame.event}]`);
-                console.log("Full payload:", JSON.stringify(frame.payload).substring(0, 2000));
+                console.log("Full payload:", JSON.stringify(frame.payload || null).substring(0, 2000));
                 console.groupEnd();
                 const toolPayload = frame.payload || {};
                 this._handleChatEvent({
@@ -596,7 +597,7 @@ export class TalosChatWidget extends Component {
             }
 
             if (frame.type === "event") {
-                console.log(LOG_PREFIX, "📨 UNHANDLED EVENT:", frame.event, "payload:", JSON.stringify(frame.payload).substring(0, 1000));
+                console.log(LOG_PREFIX, "📨 UNHANDLED EVENT:", frame.event, "payload:", JSON.stringify(frame.payload || null).substring(0, 1000));
             }
 
             if (frame.type === "res" && frame.id && this._session.wsConnected) {
@@ -798,25 +799,22 @@ export class TalosChatWidget extends Component {
                 session._lastFlushedWordCount = 0;
             }
 
-            session._streamBuf = data.text || "";
-            const wordCount = session._streamBuf.split(/\s+/).length;
-                if (wordCount - session._lastFlushedWordCount >= STREAM_WORD_THRESHOLD) {
-                msg.text = session._streamBuf;
-                msg.html = markup(renderMarkdown(session._streamBuf));
-                session._lastFlushedWordCount = wordCount;
-            }
+            session._streamBuf = data.text;
+            msg.text = session._streamBuf;
+            msg.html = markup(renderMarkdown(session._streamBuf));
+            session._lastFlushedWordCount = session._streamBuf.split(/\s+/).length;
         } else if (stream === "tool") {
             const phase = data.phase || "";
             const toolCallId = data.toolCallId || "";
             const toolName = data.name || "";
-            console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args).substring(0, 300)}`);
+            console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args || null).substring(0, 300)}`);
             if (phase === "start" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, args: data.args, phase: "start", source_event: "chat.tool" });
                 if (widget) widget.state.activityText = `Running ${toolName}…`;
                 console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
             } else if (phase === "end" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, result: data.result ?? data.error ?? data.partialResult, isError: !!(data.isError || data.error), phase: "end", source_event: "chat.tool" });
-                console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result).substring(0, 300)}`);
+                console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result || null).substring(0, 300)}`);
                 if (toolName === "browser" && widget) {
                     this._checkBrowserToolForLogin(data, widget);
                 }
@@ -843,6 +841,9 @@ export class TalosChatWidget extends Component {
                 messages.push(msg);
             }
             msg.thinkingText = session._thinkingBuf;
+            if (msg.thinkingExpanded === undefined) {
+                msg.thinkingExpanded = true;
+            }
         } else if (stream === "lifecycle" && data.phase === "start") {
             console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
             if (widget) widget.state.activityText = "Thinking…";
@@ -855,13 +856,13 @@ export class TalosChatWidget extends Component {
             console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
-                if (session._streamBuf) {
+                if (session._streamBuf && session._streamBuf.length > (msg.text || "").length) {
                     msg.text = session._streamBuf;
                     msg.html = markup(renderMarkdown(session._streamBuf));
                 }
                 if (session._thinkingBuf) {
             msg.thinkingText = session._thinkingBuf;
-            msg.thinkingExpanded = true;
+            msg.thinkingExpanded = false;
                 }
                 msg.pending = false;
             }
@@ -935,8 +936,9 @@ export class TalosChatWidget extends Component {
                 if (widget) widget.state.activityText = "";
                 const msg = messages.findLast(m => m.pending);
                 if (msg) {
-                    msg.text += text;
-                    msg.html = markup(renderMarkdown(msg.text));
+                    session._streamBuf = (session._streamBuf || "") + text;
+                    msg.text = session._streamBuf;
+                    msg.html = markup(renderMarkdown(session._streamBuf));
                 }
             }
         } else if (state === "final") {
@@ -948,11 +950,14 @@ export class TalosChatWidget extends Component {
             console.log("stream _toolCalls:", session._toolCalls.length, session._toolCalls.map(t => t.name));
             console.log("raw events:", session._rawEvents.length);
             console.log("current turn ID:", session.currentTurnId);
-            console.log("full message:", JSON.stringify(payload.message).substring(0, 2000));
+            console.log("full message:", JSON.stringify(payload.message || null).substring(0, 2000));
             console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
-                if (finalText) msg.text = finalText;
+                if (finalText) {
+                    msg.text = finalText;
+                    session._streamBuf = finalText;
+                }
                 msg.html = markup(renderMarkdown(msg.text));
                 msg.pending = false;
             }
@@ -1483,6 +1488,7 @@ export class TalosChatWidget extends Component {
             clearInterval(session._incrementalSaveTimer);
             session._incrementalSaveTimer = null;
         }
+        this._clearChatTimeout();
     }
 
     async _saveIncremental() {
@@ -1873,6 +1879,86 @@ export class TalosChatWidget extends Component {
         this._session.streaming = true;
         this.state.streaming = true;
         this._startIncrementalSave();
+        this._startChatTimeout();
+        this._scrollToBottom();
+    }
+
+    _startChatTimeout() {
+        this._clearChatTimeout();
+        const turnId = this._session.currentTurnId;
+        this._session.chatTimeoutHandle = setTimeout(() => {
+            this._handleChatTimeout(turnId);
+        }, CHAT_TIMEOUT_MS);
+    }
+
+    _clearChatTimeout() {
+        if (this._session.chatTimeoutHandle) {
+            clearTimeout(this._session.chatTimeoutHandle);
+            this._session.chatTimeoutHandle = null;
+        }
+    }
+
+    _handleChatTimeout(turnId) {
+        if (!this._session.streaming) return;
+        if (turnId && turnId !== this._session.currentTurnId) return;
+
+        console.warn(LOG_PREFIX, "⏱️ chat timeout after", CHAT_TIMEOUT_MS, "ms turn=", turnId);
+
+        try {
+            if (this._session.ws && this._session.wsConnected) {
+                const abortMsg = {
+                    type: "req",
+                    id: nextId(),
+                    method: "chat.abort",
+                    params: { sessionKey: "odoo:sandbox:" + this.props.sandboxId },
+                };
+                this._session.ws.send(JSON.stringify(abortMsg));
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "chat.abort on timeout failed:", e);
+        }
+
+        const messages = this._session.messages;
+        const session = this._session;
+        const timeoutNote = "⏱️ Response timed out after 5 minutes. Please try again.";
+        let msg = messages.findLast(m => m.pending);
+        const partial = session._streamBuf || (msg ? msg.text : "");
+        const finalText = partial ? partial + "\n\n" + timeoutNote : timeoutNote;
+        if (msg) {
+            msg.pending = false;
+            msg.isError = true;
+            msg.isTimeout = true;
+            msg.text = finalText;
+            msg.html = markup(renderMarkdown(finalText));
+        } else {
+            messages.push({
+                role: "assistant",
+                text: finalText,
+                html: markup(renderMarkdown(finalText)),
+                isError: true,
+                isTimeout: true,
+                pending: false,
+            });
+        }
+
+        session._streamBuf = "";
+        session._lastFlushedWordCount = 0;
+        session.streaming = false;
+        this._stopIncrementalSave();
+        this.state.streaming = false;
+        this.state.sending = false;
+        this.state.activityText = "";
+        this._clearChatTimeout();
+
+        if (turnId) {
+            rpc("/talos/chat/mark_timeout", {
+                turn_id: turnId,
+                timeout_seconds: Math.floor(CHAT_TIMEOUT_MS / 1000),
+            }).catch(e => console.warn(LOG_PREFIX, "mark_timeout RPC failed:", e));
+        }
+
+        session.currentTurnId = null;
+        session.currentRunId = null;
         this._scrollToBottom();
     }
 
