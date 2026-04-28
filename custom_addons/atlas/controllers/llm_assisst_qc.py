@@ -541,10 +541,9 @@ class LlmAssistQc(http.Controller):
     @http.route(
         "/api/atlas/llm_assist_qc",
         type="http",
-        auth="public",
+        auth="user",
         methods=["POST"],
-        csrf=False,
-        cors="*",
+        csrf=True,
     )
     def llm_assist_qc_legacy(self, **params):
         try:
@@ -571,7 +570,7 @@ class LlmAssistQc(http.Controller):
             if not api_key:
                 return request.make_json_response(
                     {
-                        "error": "ATLAS_AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "error": "Bedrock credentials not configured",
                         "status": 500,
                     },
                     status=500,
@@ -582,7 +581,7 @@ class LlmAssistQc(http.Controller):
 
             if not inference_arn:
                 return request.make_json_response(
-                    {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env", "status": 500},
+                    {"error": "Bedrock model not configured", "status": 500},
                     status=500,
                 )
 
@@ -612,5 +611,5 @@ class LlmAssistQc(http.Controller):
         except Exception as e:
             _logger.exception("llm_assist_qc error")
             return request.make_json_response(
-                {"error": str(e), "status": 500}, status=500
+                {"error": "Internal server error", "status": 500}, status=500
             )

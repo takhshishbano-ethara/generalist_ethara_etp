@@ -6,20 +6,61 @@ import random
 import requests
 import os
 import logging
+from urllib.parse import urlparse
 
 _logger = logging.getLogger(__name__)
 
+# URL schemes and domain suffixes accepted by the JSONL import endpoint.
+# Extend this tuple when new trusted sources are introduced.
+_ALLOWED_URL_SCHEMES = ("https",)
+_ALLOWED_URL_DOMAIN_SUFFIXES = (
+    ".amazonaws.com",
+    ".s3.amazonaws.com",
+    ".storage.googleapis.com",
+    ".blob.core.windows.net",
+)
+
+
+def _is_url_allowed(url):
+    """Return True only when *url* points to a trusted, non-internal host."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    if parsed.scheme not in _ALLOWED_URL_SCHEMES:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return False
+
+    # Block obvious internal/link-local/metadata ranges
+    _BLOCKED_HOSTS = (
+        "localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
+        "[::1]", "metadata.google.internal",
+    )
+    if hostname in _BLOCKED_HOSTS:
+        return False
+    if hostname.endswith(".internal") or hostname.endswith(".local"):
+        return False
+
+    if not any(hostname.endswith(suffix) for suffix in _ALLOWED_URL_DOMAIN_SUFFIXES):
+        return False
+
+    return True
+
 
 class Atlas(http.Controller):
-    @http.route('/api/get_jsonl_data', type='http', auth='public', methods=['POST'], csrf=False, cors='*')
+    @http.route('/api/get_jsonl_data', type='http', auth='user', methods=['POST'], csrf=True)
     def method_get_jsonl_data(self, **params):
         try:
             try:
                 jdata = json.loads(request.httprequest.stream.read())
-            except:
+            except Exception:
                 try:
                     jdata = json.loads(request.httprequest.data)
-                except:
+                except Exception:
                     jdata = {}
             if 'url' not in jdata:
                 return http.Response(
@@ -35,7 +76,20 @@ class Atlas(http.Controller):
                 )
             url = str(jdata['url'])
 
-            response = requests.get(url, timeout=60)
+            if not _is_url_allowed(url):
+                _logger.warning(
+                    "JSONL import rejected URL (failed allowlist): %s", url[:200],
+                )
+                return http.Response(
+                    json.dumps({
+                        'message': 'URL not allowed. Only HTTPS URLs to approved cloud storage domains are accepted.',
+                        'status': 403,
+                    }),
+                    content_type='application/json',
+                    status=403
+                )
+
+            response = requests.get(url, timeout=60, allow_redirects=False)
             response.raise_for_status()  # fail fast if error
 
             data = []
@@ -146,8 +200,9 @@ class Atlas(http.Controller):
                 status=200
             )
         except Exception as e:
+            _logger.exception("JSONL import failed")
             return http.Response(
-                json.dumps({'error': str(e), 'status': 500}),
+                json.dumps({'error': 'Internal server error', 'status': 500}),
                 content_type='application/json',
                 status=500
             )
