@@ -7,144 +7,90 @@ from datetime import datetime, date, timedelta
 import json
 import base64
 import logging
-import requests as http_requests
 
 _logger = logging.getLogger(__name__)
 
-_grammar_tool = None
-_grammar_tool_failed = False
+GRAMMAR_CHECK_SYSTEM_PROMPT = """You are an expert English language reviewer. Analyze the given text for:
+- Grammar errors
+- Spelling mistakes
+- Punctuation issues
+- Style/clarity problems
 
-LANGUAGETOOL_API = 'https://api.languagetool.org/v2/check'
+Return ONLY a valid JSON object with this exact structure:
+{
+  "error_percentage": <number 0-100>,
+  "is_correct": <true if 0 errors, false otherwise>,
+  "corrected_text": "<the fully corrected version of the text>",
+  "issue_count": <total number of issues found>,
+  "issues": [
+    {
+      "category": "<grammar|misspelling|punctuation|style>",
+      "original_text": "<the problematic word or phrase>",
+      "corrected_text": "<the correction>",
+      "message": "<brief explanation of the error>"
+    }
+  ],
+  "summary": {
+    "grammar": <count>,
+    "misspelling": <count>,
+    "punctuation": <count>,
+    "style": <count>
+  }
+}
+
+Rules:
+- error_percentage = (issue_count / total_words) * 100, capped at 100
+- If no issues found, return is_correct=true, error_percentage=0, empty issues array
+- Be thorough but not pedantic — flag real errors, not stylistic preferences
+- corrected_text must be the complete fixed version of the input"""
 
 
-def _get_tool():
-    """Try local language_tool_python. If Java fails, mark as unavailable."""
-    global _grammar_tool, _grammar_tool_failed
-    if _grammar_tool_failed:
-        return None
-    if _grammar_tool is not None:
-        return _grammar_tool
+def _check_text_with_kimi(text):
     try:
-        import language_tool_python
-        _grammar_tool = language_tool_python.LanguageTool('en-US')
-        return _grammar_tool
-    except Exception as e:
-        _logger.warning('Local LanguageTool unavailable (Java issue): %s. Using HTTP API fallback.', e)
-        _grammar_tool_failed = True
-        return None
+        from odoo.addons.valor.models.kimi_eval import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
+    except ImportError:
+        try:
+            from odoo.addons.preference_ranking.controllers.llm_actions import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
+        except ImportError:
+            raise Exception("Kimi K2.5 module not available. Install valor or preference_ranking module.")
 
+    api_key = get_kimi_api_key()
+    result = call_kimi_sync(
+        api_key,
+        DEFAULT_KIMI_MODEL,
+        GRAMMAR_CHECK_SYSTEM_PROMPT,
+        text,
+        response_format="json",
+        temperature=0.1,
+    )
 
-def _categorize_match_obj(match):
-    """Categorize a language_tool_python Match object."""
-    rule_category = match.category.lower() if match.category else ''
-    rid = match.rule_id.lower() if match.rule_id else ''
-    if 'spell' in rule_category or 'typo' in rid or 'morfologik' in rid:
-        return 'misspelling'
-    if 'typograph' in rule_category or 'punctuat' in rule_category:
-        return 'typographical'
-    if 'style' in rule_category or 'redundan' in rule_category:
-        return 'style'
-    return 'grammar'
+    response_text = result.get('text', '')
+    if not response_text:
+        return {
+            'original': text,
+            'corrected': text,
+            'is_correct': True,
+            'error_percentage': 0,
+            'issue_count': 0,
+            'issues': [],
+            'summary': {},
+        }
 
-
-def _categorize_match_api(category_name, rule_id):
-    """Categorize from raw API response strings."""
-    cat = (category_name or '').lower()
-    rid = (rule_id or '').lower()
-    if 'spell' in cat or 'typo' in rid or 'morfologik' in rid:
-        return 'misspelling'
-    if 'typograph' in cat or 'punctuat' in cat:
-        return 'typographical'
-    if 'style' in cat or 'redundan' in cat:
-        return 'style'
-    return 'grammar'
-
-
-def _check_text_local(tool, text):
-    """Check text using local language_tool_python library."""
-    import language_tool_python
-    matches = tool.check(text)
-    corrected = language_tool_python.utils.correct(text, matches)
-    issues = []
-    for m in matches:
-        start = m.offset_in_context
-        end = start + m.error_length
-        original = m.context[start:end] if m.context else ''
-        issues.append({
-            'category': _categorize_match_obj(m),
-            'message': m.message,
-            'text': original,
-            'suggestions': m.replacements[:5],
-            'suggestion_text': ', '.join(m.replacements[:3]),
-            'rule_id': m.rule_id,
-            'rule_category': m.category,
-            'offset': m.offset,
-            'length': m.error_length,
-        })
-    return issues, corrected
-
-
-def _check_text_api(text):
-    """Fallback: check text via LanguageTool public HTTP API."""
-    resp = http_requests.post(LANGUAGETOOL_API, data={
-        'text': text, 'language': 'en-US',
-    }, timeout=30)
-    resp.raise_for_status()
-    result = resp.json()
-
-    issues = []
-    corrected = text
-    offset_shift = 0
-
-    for match in result.get('matches', []):
-        offset = match.get('offset', 0)
-        length = match.get('length', 0)
-        error_text = text[offset:offset + length] if offset + length <= len(text) else ''
-        replacements = [r.get('value', '') for r in match.get('replacements', [])[:5]]
-        rule = match.get('rule', {})
-        category = rule.get('category', {}).get('name', '')
-        rule_id = rule.get('id', '')
-
-        issues.append({
-            'category': _categorize_match_api(category, rule_id),
-            'message': match.get('message', ''),
-            'text': error_text,
-            'suggestions': replacements,
-            'suggestion_text': ', '.join(replacements[:3]),
-            'rule_id': rule_id,
-            'rule_category': category,
-            'offset': offset,
-            'length': length,
-        })
-
-        if replacements:
-            adj_offset = offset + offset_shift
-            corrected = corrected[:adj_offset] + replacements[0] + corrected[adj_offset + length:]
-            offset_shift += len(replacements[0]) - length
-
-    return issues, corrected
-
-
-def _check_text(text):
-    """Check text — tries local Java tool first, falls back to HTTP API."""
-    tool = _get_tool()
-    if tool:
-        issues, corrected = _check_text_local(tool, text)
-    else:
-        issues, corrected = _check_text_api(text)
-
-    summary = {}
-    for issue in issues:
-        cat = issue['category']
-        summary[cat] = summary.get(cat, 0) + 1
+    try:
+        if '```' in response_text:
+            response_text = response_text.split('```json')[-1].split('```')[0] if '```json' in response_text else response_text.split('```')[1].split('```')[0]
+        parsed = json.loads(response_text.strip())
+    except (json.JSONDecodeError, IndexError):
+        parsed = {}
 
     return {
         'original': text,
-        'corrected': corrected,
-        'is_correct': len(issues) == 0,
-        'issue_count': len(issues),
-        'issues': issues,
-        'summary': summary,
+        'corrected': parsed.get('corrected_text', text),
+        'is_correct': parsed.get('is_correct', True),
+        'error_percentage': parsed.get('error_percentage', 0),
+        'issue_count': parsed.get('issue_count', 0),
+        'issues': parsed.get('issues', []),
+        'summary': parsed.get('summary', {}),
     }
 
 
@@ -697,28 +643,25 @@ class TaskForgeTaskController(http.Controller):
             prompt = (jdata.get('prompt') or '').strip()
             justification = (jdata.get('justification') or '').strip()
 
-            # if not prompt and not justification:
-            #     return return_Response(message="Both prompt and justification are empty.", status=400)
-
             result = {'is_perfect': True, 'prompt': None, 'justification': None}
 
             if prompt:
-                result['prompt'] = _check_text(prompt)
+                result['prompt'] = _check_text_with_kimi(prompt)
                 if not result['prompt']['is_correct']:
                     result['is_perfect'] = False
 
             if justification:
-                result['justification'] = _check_text(justification)
+                result['justification'] = _check_text_with_kimi(justification)
                 if not result['justification']['is_correct']:
                     result['is_perfect'] = False
 
             if result['is_perfect']:
-                return return_Response(message="Success. No issues found.", status=200, data=result)
+                return return_Response(message="No issues found.", status=200, data=result)
 
             total = (result.get('prompt') or {}).get('issue_count', 0) + \
                     (result.get('justification') or {}).get('issue_count', 0)
             return return_Response(
-                message="Found %d issue(s). Please review and correct." % total,
+                message="Found %d issue(s)." % total,
                 status=200,
                 data=result,
             )

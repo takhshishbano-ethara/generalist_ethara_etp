@@ -89,8 +89,8 @@ class EmployeeController(http.Controller):
             ResUsers = request.env['res.users'].sudo()
 
             email = jdata.get('email', '').strip().lower()
-            # if not email.endswith('@ethara.ai'):
-            #     return return_Response(message="Email must be @ethara.ai domain", status=400)
+            if not email.endswith('@ethara.ai'):
+                return return_Response(message="Email must be @ethara.ai domain", status=400)
 
             existing_user = ResUsers.search([('login', '=', email)], limit=1)
             if existing_user:
@@ -259,8 +259,8 @@ class EmployeeController(http.Controller):
                         if not name or name == '':
                             error_msg = f"Row {idx}: name is missing"
 
-                        # if not email or not email.endswith('@ethara.ai'):
-                        #     error_msg = f"Row {idx}: invalid ethara.ai email"
+                        if not email or not email.endswith('@ethara.ai'):
+                            error_msg = f"Row {idx}: invalid ethara.ai email"
 
                         if ResUsers.search_count([('login', '=', email)]):
                             error_msg = f"Row {idx}: {email} already exists"
@@ -372,9 +372,9 @@ class EmployeeController(http.Controller):
                     if not name or name == '':
                         errors.append(f"Row {idx}: name is missing")
                         continue
-                    # if not email or not email.endswith('@ethara.ai'):
-                    #     errors.append(f"Row {idx}: invalid ethara.ai email")
-                    #     continue
+                    if not email or not email.endswith('@ethara.ai'):
+                        errors.append(f"Row {idx}: invalid ethara.ai email")
+                        continue
 
                     if ResUsers.search_count([('login', '=', email)]):
                         errors.append(f"Row {idx}: {email} already exists")
