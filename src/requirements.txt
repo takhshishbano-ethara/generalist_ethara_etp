@@ -69,3 +69,8 @@ xlwt==1.3.0
 zeep==4.2.1
 zope.event==6.1
 zope.interface==8.2
+docker
+kubernetes
+tqdm
+GitPython
+dataclasses_json
