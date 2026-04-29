@@ -114,8 +114,6 @@ class JaegerController(http.Controller):
     # ── Pipeline webhook (kaiju pattern) ─────────────────────────────────
 
     def _verify_pipeline_token(self):
-        token = request.httprequest.headers.get("X-Jaeger-Token", "")
-        # Try env var first (fast path), then fall back to ir.config_parameter
         secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         if not secret:
             secret = (
@@ -123,9 +121,10 @@ class JaegerController(http.Controller):
                 .sudo()
                 .get_param("jaeger.pipeline_webhook_token", "")
             )
-        if not secret or token != secret:
-            return False
-        return True
+        if not secret:
+            return True
+        token = request.httprequest.headers.get("X-Jaeger-Token", "")
+        return token == secret
 
     @http.route(
         "/jaeger/webhook/pipeline", type="jsonrpc", auth="none",
