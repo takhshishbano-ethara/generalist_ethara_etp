@@ -114,6 +114,8 @@ def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
                 subprocess.run(["docker", "rm", "-f", container_name],
                                capture_output=True, timeout=30)
                 raise
+            finally:
+                _cleanup_container(container_name)
     else:
         cmd.append(docker_image)
         cmd.extend(["bash", "-c", "cd /testbed && bash /jaeger/fix-run.sh"])
@@ -125,8 +127,22 @@ def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
             subprocess.run(["docker", "rm", "-f", container_name],
                            capture_output=True, timeout=30)
             raise
+        finally:
+            _cleanup_container(container_name)
 
     return result.stdout + "\n" + result.stderr
+
+
+def _cleanup_container(container_name):
+    """Remove a stopped Docker container. Best-effort, no-raise."""
+    import subprocess
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            capture_output=True, timeout=30,
+        )
+    except Exception:
+        pass
 
 
 def _run_instance_tests_standalone(db_name, instance_id, agent_timeout):

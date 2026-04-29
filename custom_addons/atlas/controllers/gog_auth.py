@@ -8,8 +8,12 @@ and copied to sandbox pods via the gog-setup init container.
 import json
 import logging
 import os
+import re
+import secrets
 import subprocess
 import tempfile
+import time
+from urllib.parse import urlparse, parse_qs
 
 from odoo import http
 from odoo.http import request
@@ -19,6 +23,14 @@ _logger = logging.getLogger(__name__)
 _GOG_TIMEOUT = 45
 _GOG_SERVICES = "gmail,calendar,drive,contacts,sheets,docs"
 _GOG_BIN = "/usr/local/bin/gog"
+
+# Restrictive email regex used purely as argv-injection guard before passing
+# user input to the gog CLI as a positional argument. Not an RFC 5322 validator.
+_EMAIL_ARGV_SAFE_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+# OAuth state TTL (seconds). Short-lived: enough for a user to finish consent.
+_OAUTH_STATE_TTL = 600
+_OAUTH_STATE_PARAM_KEY = "atlas.gog.oauth_state.%d"
 
 
 def _gog_config_dir(task_id):
@@ -63,6 +75,47 @@ def _collect_gog_files(config_dir):
             except Exception:
                 _logger.debug("[GogAuth] could not read %s", abs_path)
     return collected
+
+
+def _safe_email_or_none(email):
+    """Reject anything that could be interpreted as a gog CLI flag or shell meta.
+
+    gog CLI takes email as a positional argument; a value starting with '-'
+    would be parsed as an option. Also blocks whitespace/control chars that
+    could confuse argument parsers even with shell=False.
+    """
+    if not email or not isinstance(email, str):
+        return None
+    if not _EMAIL_ARGV_SAFE_RE.match(email):
+        return None
+    return email
+
+
+def _put_oauth_state(env, task_id, state):
+    """Persist a freshly-generated OAuth state token with TTL marker."""
+    key = _OAUTH_STATE_PARAM_KEY % int(task_id)
+    value = "%d:%s" % (int(time.time()), state)
+    env["ir.config_parameter"].sudo().set_param(key, value)
+
+
+def _pop_oauth_state(env, task_id):
+    """Retrieve + delete stored OAuth state. Returns state string or None if
+    missing / expired / malformed."""
+    key = _OAUTH_STATE_PARAM_KEY % int(task_id)
+    icp = env["ir.config_parameter"].sudo()
+    raw = icp.get_param(key)
+    if not raw:
+        return None
+    try:
+        ts_str, state = raw.split(":", 1)
+        ts = int(ts_str)
+    except (ValueError, AttributeError):
+        icp.search([("key", "=", key)]).unlink()
+        return None
+    icp.search([("key", "=", key)]).unlink()
+    if (time.time() - ts) > _OAUTH_STATE_TTL:
+        return None
+    return state
 
 
 class AtlasGogAuthController(http.Controller):
@@ -119,10 +172,10 @@ class AtlasGogAuthController(http.Controller):
             _logger.warning("[GogAuth] start_auth validation failed: %s", err)
             return err
 
-        email = task.email
+        email = _safe_email_or_none(task.email)
         if not email:
-            _logger.warning("[GogAuth] task %s has no email", task_id)
-            return {"error": "Task has no email configured"}
+            _logger.warning("[GogAuth] task %s has no argv-safe email", task_id)
+            return {"error": "Task has no valid email configured"}
 
         client_secret, cs_err = self._extract_client_secret(task.gog_auth)
         if cs_err:
@@ -157,7 +210,7 @@ class AtlasGogAuthController(http.Controller):
                 rc, stdout.strip()[:300], stderr.strip()[:300],
             )
             stdout, stderr, rc = _gog_exec(
-                [_GOG_BIN, "auth", "credentials", "set", cs_path],
+                [_GOG_BIN, "auth", "credentials", "set", "--", cs_path],
                 config_dir, keyring_pw,
             )
             _logger.info(
@@ -173,10 +226,11 @@ class AtlasGogAuthController(http.Controller):
         try:
             stdout, stderr, rc = _gog_exec(
                 [
-                    _GOG_BIN, "auth", "add", email,
+                    _GOG_BIN, "auth", "add",
                     "--services", _GOG_SERVICES,
                     "--remote", "--step", "1", "--force-consent",
                     "--redirect-uri", "http://localhost", "--json",
+                    "--", email,
                 ],
                 config_dir, keyring_pw,
             )
@@ -190,7 +244,7 @@ class AtlasGogAuthController(http.Controller):
                     "[GogAuth] step 1 FAILED: rc=%s stderr=%s stdout=%s",
                     rc, stderr.strip(), stdout.strip(),
                 )
-                return {"error": "gog auth step 1 failed: %s" % (stderr.strip() or stdout.strip())}
+                return {"error": "gog auth step 1 failed. Contact your administrator."}
 
             data = None
             try:
@@ -220,15 +274,23 @@ class AtlasGogAuthController(http.Controller):
                 _logger.warning("[GogAuth] No auth_url in gog response: %s", data)
                 return {"error": "No auth_url in gog response", "data": data}
 
+            # OAuth state: server-generated 256-bit token; client MUST echo it
+            # back in exchange_token or the exchange is rejected. Prevents
+            # OAuth-code injection / login-CSRF.
+            state = secrets.token_urlsafe(32)
+            _put_oauth_state(request.env, task.id, state)
+            separator = "&" if "?" in auth_url else "?"
+            auth_url = "%s%sstate=%s" % (auth_url, separator, state)
+
             _logger.info("[GogAuth] step 1 SUCCESS auth_url=%s", auth_url[:100])
             return {"auth_url": auth_url, "email": email}
 
         except subprocess.TimeoutExpired:
             _logger.error("[GogAuth] step 1 timed out after %ss", _GOG_TIMEOUT)
             return {"error": "gog auth step 1 timed out"}
-        except Exception as exc:
+        except Exception:
             _logger.exception("[GogAuth] step 1 unexpected error")
-            return {"error": str(exc)}
+            return {"error": "gog auth step 1 unexpected error. Contact your administrator."}
 
     @http.route("/atlas/gog/exchange_token", type="json", auth="user")
     def exchange_token(self, task_id=0, redirect_url="", **kw):
@@ -241,12 +303,40 @@ class AtlasGogAuthController(http.Controller):
             _logger.warning("[GogAuth] exchange_token validation failed: %s", err)
             return err
 
-        email = task.email
+        email = _safe_email_or_none(task.email)
         if not email:
-            return {"error": "Task has no email configured"}
+            return {"error": "Task has no valid email configured"}
 
-        if not redirect_url:
+        if not redirect_url or not isinstance(redirect_url, str):
             return {"error": "redirect_url is required (the localhost URL after auth)"}
+
+        # Shape check: reject anything that isn't an http(s) URL before it
+        # reaches the gog CLI as a flag value. Blocks argv injection via a
+        # redirect_url starting with "-" or "--".
+        try:
+            parsed = urlparse(redirect_url)
+        except Exception:
+            return {"error": "redirect_url is malformed"}
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return {"error": "redirect_url must be an http(s) URL"}
+
+        # OAuth state: must match exactly the token start_auth handed out.
+        qs = parse_qs(parsed.query or "")
+        client_state_list = qs.get("state") or []
+        client_state = client_state_list[0] if client_state_list else ""
+        expected_state = _pop_oauth_state(request.env, task.id)
+        if not expected_state:
+            _logger.warning(
+                "[GogAuth] exchange_token rejected: no pending OAuth state for task %s",
+                task.id,
+            )
+            return {"error": "OAuth session expired or not initiated. Please start authentication again."}
+        if not client_state or not secrets.compare_digest(client_state, expected_state):
+            _logger.warning(
+                "[GogAuth] exchange_token rejected: OAuth state mismatch for task %s",
+                task.id,
+            )
+            return {"error": "OAuth state mismatch. Please start authentication again."}
 
         config_dir = _gog_config_dir(task.id)
         keyring_pw = task.password or ""
@@ -259,11 +349,12 @@ class AtlasGogAuthController(http.Controller):
         try:
             stdout, stderr, rc = _gog_exec(
                 [
-                    _GOG_BIN, "auth", "add", email,
+                    _GOG_BIN, "auth", "add",
                     "--services", _GOG_SERVICES,
                     "--remote", "--step", "2", "--force-consent",
                     "--redirect-uri", "http://localhost",
                     "--auth-url", redirect_url,
+                    "--", email,
                 ],
                 config_dir, keyring_pw,
             )
@@ -277,7 +368,7 @@ class AtlasGogAuthController(http.Controller):
                     "[GogAuth] step 2 FAILED: rc=%s stderr=%s stdout=%s",
                     rc, stderr.strip(), stdout.strip(),
                 )
-                return {"error": "Token exchange failed: %s" % (stderr.strip() or stdout.strip())}
+                return {"error": "Token exchange failed. Contact your administrator."}
 
             gog_auth_data = _collect_gog_files(config_dir)
 
@@ -299,9 +390,9 @@ class AtlasGogAuthController(http.Controller):
         except subprocess.TimeoutExpired:
             _logger.error("[GogAuth] step 2 timed out after %ss", _GOG_TIMEOUT)
             return {"error": "Token exchange timed out"}
-        except Exception as exc:
+        except Exception:
             _logger.exception("[GogAuth] step 2 unexpected error")
-            return {"error": str(exc)}
+            return {"error": "Token exchange unexpected error. Contact your administrator."}
 
     @http.route("/atlas/gog/status", type="json", auth="user")
     def gog_status(self, task_id=0, **kw):

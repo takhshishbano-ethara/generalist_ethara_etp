@@ -5,7 +5,7 @@ import os
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from . import evaluation_executor
+from . import dataset_resolver, evaluation_executor
 
 _logger = logging.getLogger(__name__)
 
@@ -130,6 +130,26 @@ class AuroraEvaluation(models.Model):
         help="Repos in the dataset that have no harness implementation.",
     )
 
+    instance_ids = fields.One2many(
+        "aurora.evaluation.instance",
+        "evaluation_id",
+        string="Instances",
+    )
+    instance_count = fields.Integer(compute="_compute_instance_count")
+
+    s3_run_number = fields.Integer(
+        string="S3 Run #",
+        readonly=True,
+        copy=False,
+        help="Incrementing run number chosen for this evaluation's S3 layout: "
+             "{folder}/aurora_phase2/{org}__{repo}/run_{N}/pr-{pr}/<artifact>.",
+    )
+
+    @api.depends("instance_ids")
+    def _compute_instance_count(self):
+        for rec in self:
+            rec.instance_count = len(rec.instance_ids)
+
     is_admin = fields.Boolean(compute="_compute_is_admin")
 
     @api.depends_context("uid")
@@ -176,7 +196,11 @@ class AuroraEvaluation(models.Model):
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
-        if not os.path.isfile(self.dataset_file):
+        try:
+            local_dataset = dataset_resolver.resolve_to_local(self.env, self.dataset_file)
+        except Exception as exc:
+            raise UserError(f"Failed to fetch remote dataset: {self.dataset_file}\n{exc}") from exc
+        if not os.path.isfile(local_dataset):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         ICP = self.env["ir.config_parameter"].sudo()
@@ -202,7 +226,7 @@ class AuroraEvaluation(models.Model):
 
         if not self.patch_file:
             patch_path = os.path.join(self.output_dir, "patches.jsonl")
-            self._generate_patch_file(self.dataset_file, patch_path)
+            self._generate_patch_file(local_dataset, patch_path)
             self.patch_file = patch_path
 
         self.write({
@@ -281,13 +305,20 @@ class AuroraEvaluation(models.Model):
         if not self.output_dir or not self.dataset_file:
             raise UserError("Output directory and dataset file are required.")
 
+        try:
+            local_dataset = dataset_resolver.resolve_to_local(self.env, self.dataset_file)
+        except Exception as exc:
+            raise UserError(f"Failed to fetch remote dataset: {self.dataset_file}\n{exc}") from exc
+        if not os.path.isfile(local_dataset):
+            raise UserError(f"Dataset file not found: {self.dataset_file}")
+
         self.write({"report_status": "running"})
 
         db_name = self.env.cr.dbname
         rec_id = self.id
         output_dir = self.output_dir
         workdir = self.workdir
-        dataset_file = self.dataset_file
+        dataset_file = local_dataset
         max_workers = self.max_workers_run or 4
 
         def _run_regen():

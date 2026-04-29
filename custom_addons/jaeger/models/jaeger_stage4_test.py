@@ -122,14 +122,19 @@ class JaegerRepositoryStage4(models.Model):
             _append_log_standalone(db_name, repo_id,
                 f"Test execution complete: {valid_count} valid, {invalid_count} invalid, {error_count} errors")
 
-        vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False,
-                "cancel_requested": False}
-        if valid_count == 0 and completed > 0:
-            vals["terminal_state"] = "no_valid_instances"
-            vals["error_message"] = (
-                "All %d tested instances are invalid — no fix signal detected."
-                % completed
-            )
+        if cancelled:
+            vals = {"test_execution_status": "failed", "terminal_state": "none",
+                    "error_message": "Cancelled by user after %d/%d instances" % (completed, total),
+                    "cancel_requested": False}
+        else:
+            vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False,
+                    "cancel_requested": False}
+            if valid_count == 0 and completed > 0:
+                vals["terminal_state"] = "no_valid_instances"
+                vals["error_message"] = (
+                    "All %d tested instances are invalid — no fix signal detected."
+                    % completed
+                )
         try:
             gate_ok, _ = self._check_current_gate()
             if gate_ok:

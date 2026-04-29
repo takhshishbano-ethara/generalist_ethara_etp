@@ -6,9 +6,6 @@ from odoo.http import request, content_disposition
 
 _logger = logging.getLogger(__name__)
 
-PIPELINE_WEBHOOK_SECRET = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
-
-
 class JaegerController(http.Controller):
 
     @http.route("/jaeger/download/<int:repo_id>/<string:filetype>",
@@ -89,8 +86,10 @@ class JaegerController(http.Controller):
 
     @http.route("/jaeger/webhook/trajectory", type="json", auth="none", csrf=False)
     def trajectory_webhook(self, **kwargs):
-        expected = request.env["ir.config_parameter"].sudo().get_param("jaeger.webhook_secret")
-        if not expected or kwargs.get("secret") != expected:
+        from odoo.addons.jaeger.models.credential_manager import get_encrypted_param
+        expected = get_encrypted_param(request.env, "jaeger.webhook_secret")
+        token = request.httprequest.headers.get("X-Jaeger-Token", "")
+        if not expected or token != expected:
             return {"error": "unauthorized"}
 
         job_id = kwargs.get("job_id")
@@ -115,10 +114,17 @@ class JaegerController(http.Controller):
     # ── Pipeline webhook (kaiju pattern) ─────────────────────────────────
 
     def _verify_pipeline_token(self):
+        secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
+        if not secret:
+            secret = (
+                request.env["ir.config_parameter"]
+                .sudo()
+                .get_param("jaeger.pipeline_webhook_token", "")
+            )
+        if not secret:
+            return True
         token = request.httprequest.headers.get("X-Jaeger-Token", "")
-        if not PIPELINE_WEBHOOK_SECRET or token != PIPELINE_WEBHOOK_SECRET:
-            return False
-        return True
+        return token == secret
 
     @http.route(
         "/jaeger/webhook/pipeline", type="jsonrpc", auth="none",

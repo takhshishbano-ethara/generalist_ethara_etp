@@ -8,6 +8,7 @@ class JaegerConfigSettings(models.TransientModel):
 
     _ENCRYPTED_FIELD_MAP = {
         "jaeger_github_tokens": "jaeger.github_tokens",
+        "jaeger_webhook_secret": "jaeger.webhook_secret",
     }
 
     # ── GitHub ────────────────────────────────────────────────────────────
@@ -104,10 +105,22 @@ class JaegerConfigSettings(models.TransientModel):
     )
 
     # ── Webhook ───────────────────────────────────────────────────────────
+    jaeger_webhook_base_url = fields.Char(
+        string="Webhook Base URL",
+        config_parameter="jaeger.webhook_base_url",
+        help="Base URL for webhook callbacks from K8s pods (e.g. http://odoo-service.ethara.svc.cluster.local:8069). "
+             "Must be reachable from K8s pods. Falls back to web.base.url if not set.",
+    )
     jaeger_webhook_secret = fields.Char(
         string="Webhook Secret",
         config_parameter="jaeger.webhook_secret",
         help="Shared secret for authenticating trajectory webhook callbacks from EKS.",
+    )
+    jaeger_pipeline_webhook_token = fields.Char(
+        string="Pipeline Webhook Token",
+        config_parameter="jaeger.pipeline_webhook_token",
+        help="Shared token for authenticating pipeline webhook callbacks from scrape pods. "
+             "If set, overrides the JAEGER_WEBHOOK_TOKEN environment variable.",
     )
 
     # ── EKS ───────────────────────────────────────────────────────────────

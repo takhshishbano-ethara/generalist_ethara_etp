@@ -17,6 +17,16 @@ function escapeHtml(s) {
         .replace(/"/g, "&quot;");
 }
 
+// URL scheme whitelist for markdown links & images. Anything else (including
+// javascript:, data:, vbscript:, file:, and protocol-relative //attacker/...)
+// is replaced with a safe placeholder to prevent DOM XSS via [x](javascript:).
+const _SAFE_URL_RE = /^(?:https?:\/\/|mailto:|tel:|\/|\.\/|\.\.\/|#)/i;
+function safeUrl(url) {
+    if (!url || typeof url !== "string") return "about:blank";
+    const u = url.trim();
+    return _SAFE_URL_RE.test(u) ? u : "about:blank";
+}
+
 function parseMarkdown(src) {
     if (!src) return "";
 
@@ -189,9 +199,11 @@ function inlineFormat(text) {
     // Inline code (backtick) — must come first before other inline formatting
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
     // Images
-    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1"/>');
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) =>
+        `<img src="${safeUrl(url)}" alt="${alt}"/>`);
     // Links
-    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) =>
+        `<a href="${safeUrl(url)}" target="_blank" rel="noopener">${label}</a>`);
     // Bold + italic
     s = s.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
     s = s.replace(/___(.+?)___/g, "<strong><em>$1</em></strong>");

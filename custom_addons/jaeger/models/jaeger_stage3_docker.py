@@ -502,9 +502,11 @@ class JaegerRepositoryStage3(models.Model):
             if platform:
                 cmd += ["--platform", platform]
 
+            token_file = None
             if github_token:
                 token_file = Path(build_dir) / ".github_token"
                 token_file.write_text(github_token, encoding="utf-8")
+                token_file.chmod(0o600)
                 cmd += ["--secret", f"id=github_token,src={token_file}"]
 
             cmd += ["-t", base_tag, "-f", str(build_dir / "Dockerfile"), str(build_dir)]
@@ -518,6 +520,9 @@ class JaegerRepositoryStage3(models.Model):
             if result.returncode != 0:
                 self._append_log(f"Base image build FAILED:\n{result.stderr[-3000:]}")
                 raise subprocess.CalledProcessError(result.returncode, cmd)
+
+            if token_file and token_file.exists():
+                token_file.unlink()
 
             self._append_log(f"Base image built successfully: {base_tag}")
             self.write({
@@ -536,7 +541,10 @@ class JaegerRepositoryStage3(models.Model):
             self.env.cr.commit()
             raise
         finally:
-            # Clean up temp dir
+            if github_token and clone_dir:
+                tf = Path(clone_dir) / "_docker_build" / ".github_token"
+                if tf.exists():
+                    tf.unlink()
             if clone_dir:
                 import shutil
                 shutil.rmtree(clone_dir, ignore_errors=True)
@@ -796,7 +804,16 @@ LABEL jaeger.instance="{instance.name}"
         lang = (instance.language or "python").lower()
 
         if lang == "python":
-            test_cmd = f"python -m pytest {test_files or 'tests/'} -v 2>&1"
+            if test_files:
+                test_target = test_files
+            else:
+                # Auto-detect: check common test directory names at runtime
+                test_target = (
+                    '$(if [ -d tests ]; then echo tests/; '
+                    'elif [ -d test ]; then echo test/; '
+                    'else echo .; fi)'
+                )
+            test_cmd = f"python -m pytest {test_target} -v 2>&1"
             return (
                 "#!/bin/bash\n"
                 "set -uo pipefail\n"

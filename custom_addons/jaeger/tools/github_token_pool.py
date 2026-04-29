@@ -197,8 +197,10 @@ def _load_tokens_from_config(env):
         from ..models.credential_manager import get_encrypted_param
         tokens_str = get_encrypted_param(env, "jaeger.github_tokens", "")
     except Exception:
-        ICP = env["ir.config_parameter"].sudo()
-        tokens_str = ICP.get_param("jaeger.github_tokens", "")
+        _logger.warning(
+            "credential_manager import failed; tokens may be encrypted and unusable"
+        )
+        tokens_str = ""
     tokens = [t.strip() for t in tokens_str.split(",") if t.strip()]
     if tokens:
         _logger.info(
