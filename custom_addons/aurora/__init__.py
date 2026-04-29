@@ -1,4 +1,5 @@
 from . import models
+from . import controllers
 
 
 def uninstall_hook(env):

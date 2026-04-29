@@ -6,7 +6,7 @@ import os
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from . import harness_staging_executor
+from . import dataset_resolver, harness_staging_executor
 
 _logger = logging.getLogger(__name__)
 
@@ -334,7 +334,11 @@ class AuroraHarnessStaging(models.Model):
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
-        if not os.path.isfile(self.dataset_file):
+        try:
+            local_dataset = dataset_resolver.resolve_to_local(self.env, self.dataset_file)
+        except Exception as exc:
+            raise UserError(f"Failed to fetch remote dataset: {self.dataset_file}\n{exc}") from exc
+        if not os.path.isfile(local_dataset):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         self._ensure_staging_file()
@@ -461,6 +465,12 @@ class AuroraHarnessStaging(models.Model):
                 "No dataset file is set on this record. Select a Source Pipeline "
                 "first so the dataset path gets filled in."
             )
+        if dataset_resolver.is_remote(self.dataset_file):
+            return {
+                "type": "ir.actions.act_url",
+                "url": self.dataset_file,
+                "target": "new",
+            }
         abs_path = os.path.abspath(self.dataset_file)
         filename = os.path.basename(abs_path) or f"{self.org}__{self.repo}_dataset.jsonl"
         return self._download_local_file(abs_path, filename)

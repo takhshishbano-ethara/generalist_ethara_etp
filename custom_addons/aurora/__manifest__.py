@@ -22,6 +22,7 @@
         "data/data.xml",
         "views/pipeline_views.xml",
         "views/evaluation_views.xml",
+        "views/evaluation_instance_views.xml",
         "views/harness_staging_views.xml",
         "views/token_views.xml",
         "views/aurora_menus.xml",
