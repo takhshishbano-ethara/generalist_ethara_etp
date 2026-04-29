@@ -1331,13 +1331,32 @@ class TalosSandbox(models.Model):
                     "trajectory": trajectory,
                 }
 
-                entries = [session_entry]
+                existing_raw = self.talos_id[field_name] or ""
+                entries = []
+                if existing_raw.strip():
+                    try:
+                        parsed = json.loads(existing_raw)
+                        if isinstance(parsed, list):
+                            entries = parsed
+                        else:
+                            entries = [
+                                {
+                                    "session_id": "legacy",
+                                    "timestamp": "",
+                                    "trajectory": parsed,
+                                }
+                            ]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                entries.append(session_entry)
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.talos_id.write({field_name: new_value})
                 _logger.info(
-                    "Overwrote trajectory with session %s on %s for task %s",
+                    "Appended trajectory session %s (%d total entries) to %s for task %s",
                     session_entry["session_id"],
+                    len(entries),
                     field_name,
                     self.talos_id.id,
                 )
@@ -1641,6 +1660,14 @@ class TalosSandbox(models.Model):
         compose_bin = _compose_cmd()
         persona = self.talos_id.persona_id
         gateway_token = self.docker_gateway_token
+        if not gateway_token:
+            _logger.warning(
+                "[SANDBOX] _start_local_bg: docker_gateway_token is empty for "
+                "sandbox %s, regenerating",
+                self.id,
+            )
+            gateway_token = secrets.token_hex(32)
+            self.write({"docker_gateway_token": gateway_token})
         gateway_port = self.docker_port
         litellm_port = self.docker_litellm_port
         db_port = DB_PORT_BASE + (self.id % 5000)
@@ -1746,6 +1773,13 @@ class TalosSandbox(models.Model):
 
     def _start_k8s_bg(self):
         """Start K8s sandbox — called from background thread."""
+        if not self.docker_gateway_token:
+            _logger.warning(
+                "[SANDBOX] _start_k8s_bg: docker_gateway_token is empty for "
+                "sandbox %s, regenerating",
+                self.id,
+            )
+            self.write({"docker_gateway_token": secrets.token_hex(32)})
         try:
             self.env["talos.sandbox.k8s"].deploy_sandbox(self)
             svc_name = "talos-sandbox-%s" % self.id
@@ -2693,14 +2727,6 @@ class TalosSandbox(models.Model):
         import uuid
 
         from ..controllers.auto_hint import _AUTO_HINT_POOL, _auto_hint_eval_bg
-
-        ICP = self.env["ir.config_parameter"].sudo()
-        if ICP.get_param("talos.disable_auto_hint", "False").lower() == "true":
-            _logger.info(
-                "auto_process_trigger_hint_eval: SKIPPED for sandbox=%s (disabled in Settings)",
-                sandbox_id,
-            )
-            return {"skipped": True, "reason": "Auto-Hint disabled in Settings"}
 
         turn = self.env["talos.turn"].browse(turn_id)
         if not turn.exists():

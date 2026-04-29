@@ -600,11 +600,6 @@ class AutoHintController(http.Controller):
 
     @http.route("/talos/auto_hint_eval", type="json", auth="user")
     def auto_hint_eval(self, turn_id=0, sandbox_id=0, **kw):
-        ICP = request.env["ir.config_parameter"].sudo()
-        if ICP.get_param("talos.disable_auto_hint", "False").lower() == "true":
-            _logger.info("auto_hint_eval: SKIPPED (disabled in Settings)")
-            return {"skipped": True, "reason": "Auto-Hint disabled in Settings"}
-
         turn_id = int(turn_id or 0)
         sandbox_id = int(sandbox_id or 0)
         _logger.info(

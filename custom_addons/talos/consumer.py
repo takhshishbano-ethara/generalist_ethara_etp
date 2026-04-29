@@ -206,24 +206,6 @@ def _run_auto_hint_loop(sandbox_id, ws_client, task_id):
     """
     from ws_client import OpenClawError, OpenClawTimeoutError
 
-    # Check the Settings toggle: skip the entire auto-hint loop when disabled.
-    try:
-        disable_param = _call_odoo(
-            "ir.config_parameter", "get_param", ["talos.disable_auto_hint", "False"]
-        )
-        if isinstance(disable_param, str) and disable_param.lower() == "true":
-            _logger.info(
-                "auto_hint: SKIPPED for sandbox=%s task=%s (disabled in Settings)",
-                sandbox_id,
-                task_id,
-            )
-            return
-    except Exception as e:  # noqa: BLE001 — defensive: do not break loop on toggle check
-        _logger.warning(
-            "auto_hint: failed to check talos.disable_auto_hint (%s); proceeding",
-            e,
-        )
-
     for attempt in range(5):
         # Get the last turn
         status = _call_odoo(

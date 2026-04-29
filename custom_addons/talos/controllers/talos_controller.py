@@ -40,10 +40,6 @@ class Talos(http.Controller):
 
             response = requests.get(url, timeout=60)
             response.raise_for_status()  # fail fast if error
-            # Force UTF-8 decoding — requests defaults to ISO-8859-1 when
-            # the server omits charset, which corrupts non-ASCII characters
-            # (e.g. "BÉIS" → "BÃ©IS" / "B√âIS").
-            response.encoding = "utf-8"
 
             data = []
             for line in response.text.splitlines():
