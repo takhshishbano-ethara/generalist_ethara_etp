@@ -19,18 +19,10 @@ class JaegerRepositoryStage4(models.Model):
     # ── Stage 4 Actions ──────────────────────────────────────────────────
 
     def action_run_tests(self):
-        self.ensure_one()
-        if self.current_stage != "stage4":
-            raise UserError("Repository must be in Stage 4.")
-        built = self.instance_ids.filtered(
-            lambda i: i.docker_build_status == "built",
+        raise UserError(
+            "Queue-based dispatch is disabled (RabbitMQ consumer deleted). "
+            "Use the 'Run Tests (Direct)' button instead."
         )
-        if not built:
-            raise UserError("No built images found.")
-        self.write({"test_execution_status": "queued", "error_message": False})
-        from ..services.rabbitmq_service import batch_publish_test_tasks
-
-        batch_publish_test_tasks(built.ids)
 
     def action_run_tests_direct(self):
         self.ensure_one()
@@ -132,6 +124,12 @@ class JaegerRepositoryStage4(models.Model):
 
         vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False,
                 "cancel_requested": False}
+        if valid_count == 0 and completed > 0:
+            vals["terminal_state"] = "no_valid_instances"
+            vals["error_message"] = (
+                "All %d tested instances are invalid — no fix signal detected."
+                % completed
+            )
         try:
             gate_ok, _ = self._check_current_gate()
             if gate_ok:

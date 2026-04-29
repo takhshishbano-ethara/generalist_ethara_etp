@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE="docker compose -f ${SCRIPT_DIR}/docker-compose.yml"
 DB_NAME="jaeger_dev"
 TIMEOUT=180
+WORKER_IMAGE="jaeger-scrape:latest"
+K8S_NAMESPACE="jaeger"
 
 red()   { printf "\033[0;31m%s\033[0m\n" "$*"; }
 green() { printf "\033[0;32m%s\033[0m\n" "$*"; }
@@ -39,6 +41,12 @@ while true; do
     sleep 3
 done
 
+blue "Creating K8s namespace '${K8S_NAMESPACE}'..."
+$COMPOSE exec -T k3s kubectl create namespace "$K8S_NAMESPACE" 2>/dev/null || true
+
+blue "Importing worker image into K3s..."
+docker save "$WORKER_IMAGE" | $COMPOSE exec -T k3s ctr images import -
+
 blue "Initializing Odoo database and installing Jaeger module..."
 $COMPOSE exec -T odoo ./odoo-bin \
     -c /etc/odoo/odoo.conf \
@@ -53,10 +61,18 @@ $COMPOSE exec -T odoo ./odoo-bin shell \
     -d "$DB_NAME" \
     --no-http <<'PYEOF'
 ICP = env["ir.config_parameter"].sudo()
-ICP.set_param("jaeger.dispatch_mode", "local")
+ICP.set_param("jaeger.dispatch_mode", "k8s")
 ICP.set_param("jaeger.output_dir", "/tmp/jaeger_data")
 ICP.set_param("jaeger.s3_bucket", "jaeger-local")
 ICP.set_param("jaeger.s3_region", "us-east-1")
+ICP.set_param("jaeger.s3_prefix", "jaeger/phase1")
+ICP.set_param("jaeger.sandbox_mode", "1")
+ICP.set_param("jaeger.s3_endpoint", "http://minio:9000")
+ICP.set_param("jaeger.s3_access_key", "minioadmin")
+ICP.set_param("jaeger.s3_secret_key", "minioadmin")
+ICP.set_param("jaeger.eks_namespace", "jaeger")
+ICP.set_param("jaeger.scrape_image", "jaeger-scrape:latest")
+ICP.set_param("web.base.url", "http://odoo:8069")
 env.cr.commit()
 print("Jaeger settings configured.")
 PYEOF
@@ -70,24 +86,11 @@ blue  "  MinIO Console:  http://localhost:9001  (minioadmin / minioadmin)"
 blue  "  K3s API:        https://localhost:6443"
 echo ""
 blue  "  S3 bucket:      jaeger-local (on MinIO)"
-blue  "  Dispatch mode:  local (background thread)"
+blue  "  S3 endpoint:    http://minio:9000"
+blue  "  K8s namespace:  ${K8S_NAMESPACE}"
+blue  "  Worker image:   ${WORKER_IMAGE} (loaded into K3s)"
+blue  "  Webhook token:  sandbox-webhook-secret"
+blue  "  web.base.url:   http://odoo:8069"
 echo ""
-green "=== S3 Integration ==="
-echo ""
-echo "  s3_helpers.py hardcodes the AWS endpoint. To use MinIO, apply the"
-echo "  one-line fix described in sandbox/s3_patch.py:"
-echo ""
-echo "    In worker/s3_helpers.py line 27, change:"
-echo '      endpoint_url=f"https://s3.{region}.amazonaws.com",'
-echo "    to:"
-echo '      endpoint_url=os.environ.get("JAEGER_S3_ENDPOINT", f"https://s3.{region}.amazonaws.com"),'
-echo ""
-green "=== K8s Dispatch Mode ==="
-echo ""
-echo "  To switch to K8s dispatch (uses the local K3s cluster):"
-echo "    1. Go to Settings > Jaeger > Pipeline Dispatch Mode > Kubernetes"
-echo "    2. Set K8s Job Docker Image to the image tag built by docker compose"
-echo "    3. The K3s kubeconfig is mounted at /etc/rancher/k3s/k3s.yaml"
-echo "    4. Note: _create_scrape_k8s_job() calls load_incluster_config()."
-echo "       For K3s sandbox, you may need to switch to load_kube_config()."
+blue "  Verify K8s:  docker compose exec k3s kubectl -n jaeger get jobs"
 echo ""

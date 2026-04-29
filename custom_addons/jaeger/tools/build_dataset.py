@@ -111,7 +111,8 @@ def extract_patches(pull, token):
 
 
 def main(pool, out_dir, filtered_prs_with_issues_file,
-         delay_on_error=300, retry_attempts=3, mode="swe"):
+         delay_on_error=300, retry_attempts=3, mode="swe",
+         progress_callback=None):
     out_dir = Path(out_dir)
     filtered_prs_with_issues_file = Path(filtered_prs_with_issues_file)
 
@@ -165,6 +166,8 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
                     pr_num, processed, total_prs, pr_title,
                 )
                 skipped_existing += 1
+                if progress_callback and processed % 10 == 0:
+                    progress_callback(processed, total_prs, built_ok)
                 continue
 
             if not commits:
@@ -173,6 +176,8 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
                     pr_num, processed, total_prs, base_sha, pr_title,
                 )
                 skipped_no_commits += 1
+                if progress_callback and processed % 10 == 0:
+                    progress_callback(processed, total_prs, built_ok)
                 continue
 
             _logger.info(
@@ -267,6 +272,9 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
                         )
                         time.sleep(delay_on_error)
                         token = pool.get_token()
+
+            if progress_callback and processed % 10 == 0:
+                progress_callback(processed, total_prs, built_ok)
 
     _logger.info(
         "Dataset summary for %s/%s: %d entries built | %d total processed | "

@@ -40,7 +40,7 @@ class TestJaegerInstance(TransactionCase):
 
     def test_compute_instance_id(self):
         """Test instance ID computation."""
-        self.assertEqual(self.instance.instance_id, "testorg__testrepo-42")
+        self.assertEqual(self.instance.instance_id, "testorg/testrepo:pr-42")
 
     def test_compute_test_counts(self):
         """Test f2p/p2p count computation from JSON."""
@@ -89,16 +89,25 @@ test_foo.py::test_div PASSED
             "passed_tests": ["test_a"],
             "failed_tests": ["test_b"],
             "skipped_tests": [],
+            "passed_count": 1,
+            "failed_count": 1,
+            "skipped_count": 0,
         }
         test_result = {
             "passed_tests": ["test_a"],
             "failed_tests": ["test_b", "test_c"],
             "skipped_tests": ["test_d"],
+            "passed_count": 1,
+            "failed_count": 2,
+            "skipped_count": 1,
         }
         fix_result = {
             "passed_tests": ["test_a", "test_b", "test_c", "test_d"],
             "failed_tests": [],
             "skipped_tests": [],
+            "passed_count": 4,
+            "failed_count": 0,
+            "skipped_count": 0,
         }
 
         self.instance._generate_test_report(run_result, test_result, fix_result)
@@ -126,18 +135,24 @@ test_foo.py::test_div PASSED
             "passed_tests": ["test_a", "test_b"],
             "failed_tests": ["test_c"],
             "skipped_tests": [],
+            "passed_count": 2,
+            "failed_count": 1,
+            "skipped_count": 0,
         }
         fix_result = {
             "passed_tests": ["test_c"],
             "failed_tests": ["test_a"],  # regression
             "skipped_tests": [],
+            "passed_count": 1,
+            "failed_count": 1,
+            "skipped_count": 0,
         }
 
         self.instance._generate_test_report({}, test_result, fix_result)
 
         self.assertTrue(self.instance.has_regressions)
         self.assertFalse(self.instance.is_valid)
-        self.assertIn("regression", self.instance.validation_error.lower())
+        self.assertIn("test_a", self.instance.validation_error)
 
     def test_default_docker_status(self):
         """Test default docker build status."""

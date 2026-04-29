@@ -42,24 +42,7 @@ class JaegerConfigSettings(models.TransientModel):
         [("local", "Local (Background Thread)"), ("k8s", "Kubernetes (EKS)")],
         string="Pipeline Dispatch Mode",
         config_parameter="jaeger.dispatch_mode",
-        default="local",
-    )
-    jaeger_k8s_job_image = fields.Char(
-        string="K8s Job Docker Image",
-        config_parameter="jaeger.k8s_job_image",
-        help="e.g. 426628337772.dkr.ecr.ap-south-1.amazonaws.com/ethara-prod-backend:latest",
-    )
-    jaeger_k8s_secret = fields.Char(
-        string="K8s Secret Name",
-        config_parameter="jaeger.k8s_secret",
-        default="jaeger-secrets",
-        help="Kubernetes Secret containing DB_HOST, DB_PORT, DB_USER, DB_PASSWORD.",
-    )
-    jaeger_k8s_configmap = fields.Char(
-        string="K8s ConfigMap Name",
-        config_parameter="jaeger.k8s_configmap",
-        default="jaeger-worker-config",
-        help="Kubernetes ConfigMap containing odoo.conf for worker pods.",
+        default="k8s",
     )
 
     # ── S3 Storage ────────────────────────────────────────────────────────

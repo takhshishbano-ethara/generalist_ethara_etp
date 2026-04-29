@@ -1,16 +1,13 @@
 import logging
 import os
-import threading
 import time as _time
 from datetime import datetime
+from pathlib import Path
 
-from odoo import SUPERUSER_ID, api, models
+from odoo import SUPERUSER_ID, api, fields, models
 from odoo.exceptions import UserError
 
-from odoo.addons.jaeger.worker.pipeline_helpers import (
-    _run_scrape_pipeline_standalone,
-)
-
+from .credential_manager import get_encrypted_param
 from .jaeger_repository import MAX_CONCURRENT_SCRAPES
 
 _logger = logging.getLogger(__name__)
@@ -28,16 +25,32 @@ class JaegerRepositoryStage2(models.Model):
         self.write({"crawl_status": "running"})
         try:
             self._validate_repo_metadata()
-            self.write({"crawl_status": "done", "current_stage": "stage2"})
+            vals = {"crawl_status": "done"}
+            gate_ok, _ = self._check_current_gate()
+            if gate_ok:
+                next_stage = self._next_stage()
+                if next_stage:
+                    vals["current_stage"] = next_stage
+            self.write(vals)
         except Exception as e:
             error_msg = str(e)[:2000]
-            self.write(
-                {
-                    "crawl_status": "failed",
-                    "error_message": error_msg,
-                    "terminal_state": "repo_not_suitable",
-                },
-            )
+            vals = {
+                "crawl_status": "failed",
+                "error_message": error_msg,
+            }
+            # Only set terminal state for definitive failures (repo not found,
+            # DMCA takedown).  Transient errors (rate limits, network timeouts,
+            # 500s) should remain retryable.
+            is_terminal = False
+            try:
+                from github import UnknownObjectException
+                if isinstance(e, UnknownObjectException):
+                    is_terminal = True
+            except ImportError:
+                pass
+            if is_terminal or "not found" in error_msg.lower():
+                vals["terminal_state"] = "repo_not_suitable"
+            self.write(vals)
             raise UserError(error_msg) from e
 
     def _validate_repo_metadata(self):
@@ -81,8 +94,7 @@ class JaegerRepositoryStage2(models.Model):
         if not self.org or not self.repo_name:
             raise UserError("GitHub URL is required and must be valid.")
 
-        ICP = self.env["ir.config_parameter"].sudo()
-        tokens = ICP.get_param("jaeger.github_tokens", "").strip()
+        tokens = get_encrypted_param(self.env, "jaeger.github_tokens").strip()
         if not tokens:
             raise UserError(
                 "No GitHub tokens configured. Go to Settings → Jaeger → GitHub Tokens.",
@@ -111,62 +123,40 @@ class JaegerRepositoryStage2(models.Model):
         if row and row[0] in ("running", "queued"):
             raise UserError("PR collection is already in progress.")
 
-        dispatch_mode = ICP.get_param("jaeger.dispatch_mode", "local")
         db_name = self.env.cr.dbname
         rec_id = self.id
 
-        if dispatch_mode == "k8s":
-            job_image = ICP.get_param("jaeger.k8s_job_image", "").strip()
-            if not job_image:
-                raise UserError(
-                    "K8s Job image not configured. Go to Settings → Jaeger → K8s Dispatch.",
-                )
-            self.write({
-                "pr_collection_status": "queued", "error_message": False,
-                "cancel_requested": False, "log_output": "",
-            })
+        self.write({
+            "pr_collection_status": "queued", "error_message": False,
+            "cancel_requested": False, "log_output": "",
+            "scrape_queued_at": fields.Datetime.now(),
+        })
 
-            def _dispatch_k8s():
+        def _dispatch_k8s():
+            try:
+                from odoo.orm.registry import Registry
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    repo = env["jaeger.repository"].browse(rec_id)
+                    repo._create_scrape_k8s_job()
+            except Exception as e:
+                _logger.exception("K8s Job creation failed for repo %s", rec_id)
                 try:
                     from odoo.orm.registry import Registry
                     with Registry(db_name).cursor() as cr:
                         env = api.Environment(cr, SUPERUSER_ID, {})
                         repo = env["jaeger.repository"].browse(rec_id)
-                        repo._create_scrape_k8s_job()
-                except Exception as e:
-                    _logger.exception("K8s Job creation failed for repo %s", rec_id)
-                    try:
-                        from odoo.orm.registry import Registry
-                        with Registry(db_name).cursor() as cr:
-                            env = api.Environment(cr, SUPERUSER_ID, {})
-                            repo = env["jaeger.repository"].browse(rec_id)
-                            repo.write({
-                                "pr_collection_status": "failed",
-                                "error_message": "K8s Job creation failed: %s" % str(e)[:1500],
-                            })
-                    except Exception:
-                        _logger.exception("Failed to record K8s dispatch failure")
+                        repo.write({
+                            "pr_collection_status": "failed",
+                            "error_message": "K8s Job creation failed: %s" % str(e)[:1500],
+                        })
+                        cr.commit()
+                except Exception:
+                    _logger.exception("Failed to record K8s dispatch failure")
 
-            self.env.cr.postcommit.add(_dispatch_k8s)
-        else:
-            self.write({
-                "pr_collection_status": "running", "error_message": False,
-                "cancel_requested": False, "log_output": "",
-            })
-
-            def _dispatch_local():
-                t = threading.Thread(
-                    target=_run_scrape_pipeline_standalone,
-                    args=(db_name, rec_id),
-                    daemon=True,
-                    name=f"jaeger_scrape_{rec_id}",
-                )
-                t.start()
-
-            self.env.cr.postcommit.add(_dispatch_local)
+        self.env.cr.postcommit.add(_dispatch_k8s)
 
     def _create_scrape_k8s_job(self):
-        """Create a K8s Job to run worker/run_pipeline.py (kaiju_build pattern)."""
         try:
             from kubernetes import client, config as k8s_config
         except ImportError:
@@ -183,39 +173,72 @@ class JaegerRepositoryStage2(models.Model):
                 config_file=config_file if config_file else None,
             )
         batch_v1 = client.BatchV1Api()
+        core_v1 = client.CoreV1Api()
 
         ICP = self.env["ir.config_parameter"].sudo()
         namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
-        job_image = ICP.get_param("jaeger.k8s_job_image", "")
+
+        self._ensure_k8s_namespace(core_v1, namespace)
         s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
         s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
         s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
-        secret_name = ICP.get_param("jaeger.k8s_secret", "jaeger-secrets")
-        configmap_name = ICP.get_param("jaeger.k8s_configmap", "jaeger-worker-config")
-        db_name = self.env.cr.dbname
         sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
+        tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
+        webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
+        # Use dedicated jaeger.webhook_base_url to avoid Odoo auto-overwriting
+        # web.base.url with the browser's origin (e.g. http://localhost:8069),
+        # which is unreachable from K8s pods.
+        base_url = (
+            ICP.get_param("jaeger.webhook_base_url")
+            or ICP.get_param("web.base.url", "http://localhost:8069")
+        )
+        webhook_url = "%s/jaeger/webhook/pipeline" % base_url.rstrip("/")
+
         job_name = "jaeger-scrape-%s" % self.id
+        secret_name = "jaeger-scrape-%s-secrets" % self.id
+
+        secret_data = {
+            "GITHUB_TOKENS": tokens_str,
+            "WEBHOOK_SECRET": webhook_secret,
+        }
+
+        if sandbox:
+            aws_key = ICP.get_param("jaeger.s3_access_key", "")
+            aws_secret_val = ICP.get_param("jaeger.s3_secret_key", "")
+            if aws_key:
+                secret_data["AWS_ACCESS_KEY_ID"] = aws_key
+            if aws_secret_val:
+                secret_data["AWS_SECRET_ACCESS_KEY"] = aws_secret_val
+
+        self._upsert_k8s_secret(
+            core_v1, namespace, secret_name,
+            secret_data,
+            {"app.kubernetes.io/name": "jaeger-scrape", "repo-id": str(self.id)},
+        )
+
+        def _secret_ref(key):
+            return client.V1EnvVar(
+                name=key,
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name=secret_name, key=key,
+                    ),
+                ),
+            )
+
         env_vars = [
             client.V1EnvVar(name="REPO_ID", value=str(self.id)),
-            client.V1EnvVar(name="ODOO_DB", value=db_name),
-            client.V1EnvVar(name="JAEGER_S3_BUCKET", value=s3_bucket),
-            client.V1EnvVar(name="JAEGER_S3_REGION", value=s3_region),
-            client.V1EnvVar(name="JAEGER_S3_PREFIX", value=s3_prefix),
+            client.V1EnvVar(name="REPO_ORG", value=self.org),
+            client.V1EnvVar(name="REPO_NAME", value=self.repo_name),
+            _secret_ref("GITHUB_TOKENS"),
+            client.V1EnvVar(name="S3_BUCKET", value=s3_bucket),
+            client.V1EnvVar(name="S3_REGION", value=s3_region),
+            client.V1EnvVar(name="S3_PREFIX", value=s3_prefix),
+            client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
+            _secret_ref("WEBHOOK_SECRET"),
+            client.V1EnvVar(name="PIPELINE_MODE", value=self.pipeline_mode or "swe"),
         ]
-
-        if secret_name:
-            for key in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD"):
-                env_vars.append(
-                    client.V1EnvVar(
-                        name=key,
-                        value_from=client.V1EnvVarSource(
-                            secret_key_ref=client.V1SecretKeySelector(
-                                name=secret_name, key=key, optional=True,
-                            ),
-                        ),
-                    ),
-                )
 
         if sandbox:
             s3_endpoint = ICP.get_param("jaeger.s3_endpoint", "")
@@ -223,35 +246,25 @@ class JaegerRepositoryStage2(models.Model):
                 env_vars.append(
                     client.V1EnvVar(name="JAEGER_S3_ENDPOINT", value=s3_endpoint),
                 )
+            if secret_data.get("AWS_ACCESS_KEY_ID"):
+                env_vars.append(_secret_ref("AWS_ACCESS_KEY_ID"))
+            if secret_data.get("AWS_SECRET_ACCESS_KEY"):
+                env_vars.append(_secret_ref("AWS_SECRET_ACCESS_KEY"))
 
-        volumes = []
-        volume_mounts = []
-        if configmap_name:
-            volumes.append(
-                client.V1Volume(
-                    name="odoo-config",
-                    config_map=client.V1ConfigMapVolumeSource(name=configmap_name),
-                ),
-            )
-            volume_mounts.append(
-                client.V1VolumeMount(
-                    name="odoo-config", mount_path="/etc/odoo", read_only=True,
-                ),
-            )
+        scrape_image = ICP.get_param(
+            "jaeger.scrape_image",
+            "426628337772.dkr.ecr.ap-south-1.amazonaws.com/jaeger-scrape:latest",
+        )
 
         pod_spec_kwargs = {
             "restart_policy": "Never",
             "containers": [
                 client.V1Container(
                     name="pipeline",
-                    image=job_image,
-                    image_pull_policy="Always",
-                    command=[
-                        "python",
-                        "custom_addons/jaeger/worker/run_pipeline.py",
-                    ],
+                    image=scrape_image,
+                    image_pull_policy="Never" if sandbox else "Always",
+                    command=["python", "entrypoint.py"],
                     env=env_vars,
-                    volume_mounts=volume_mounts or None,
                     resources=client.V1ResourceRequirements(
                         requests={
                             "cpu": "500m",
@@ -265,7 +278,6 @@ class JaegerRepositoryStage2(models.Model):
                     ),
                 ),
             ],
-            "volumes": volumes or None,
         }
 
         if sandbox:
@@ -306,6 +318,7 @@ class JaegerRepositoryStage2(models.Model):
                     metadata=client.V1ObjectMeta(
                         labels={
                             "app.kubernetes.io/name": "jaeger-scrape",
+                            "app.kubernetes.io/component": "pipeline",
                             "repo-id": str(self.id),
                             "platform": "jaeger",
                         },
@@ -333,6 +346,41 @@ class JaegerRepositoryStage2(models.Model):
             else:
                 raise
         _logger.info("Created K8s Job %s for repo %s", job_name, self.name)
+
+    @staticmethod
+    def _upsert_k8s_secret(core_v1, namespace, name, data, labels):
+        import base64
+        from kubernetes import client
+
+        encoded = {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(name=name, namespace=namespace, labels=labels),
+            data=encoded,
+        )
+        try:
+            core_v1.replace_namespaced_secret(name=name, namespace=namespace, body=secret)
+        except client.ApiException as e:
+            if e.status == 404:
+                core_v1.create_namespaced_secret(namespace=namespace, body=secret)
+            else:
+                raise
+
+    @staticmethod
+    def _ensure_k8s_namespace(core_v1, namespace):
+        from kubernetes import client
+
+        try:
+            core_v1.read_namespace(name=namespace)
+        except client.ApiException as e:
+            if e.status == 404:
+                _logger.info("K8s namespace '%s' not found — creating it", namespace)
+                core_v1.create_namespace(
+                    body=client.V1Namespace(
+                        metadata=client.V1ObjectMeta(name=namespace),
+                    ),
+                )
+            else:
+                raise
 
     def action_cancel_pipeline(self):
         self.ensure_one()
@@ -403,33 +451,6 @@ class JaegerRepositoryStage2(models.Model):
             "Reset to Docker Build stage (operator requested rebuild after config change)",
         )
 
-    def action_collect_prs_direct(self):
-        """Run PR collection in background thread (always local)."""
-        self.ensure_one()
-        if self.current_stage != "stage2":
-            raise UserError("Repository must be in Stage 2.")
-        if self.pr_collection_status in ("running", "queued"):
-            raise UserError("PR collection is already in progress.")
-
-        self.write({
-            "pr_collection_status": "running", "error_message": False,
-            "cancel_requested": False, "log_output": "",
-        })
-
-        db_name = self.env.cr.dbname
-        rec_id = self.id
-
-        def _dispatch_local():
-            t = threading.Thread(
-                target=_run_scrape_pipeline_standalone,
-                args=(db_name, rec_id),
-                daemon=True,
-                name=f"jaeger_scrape_{rec_id}",
-            )
-            t.start()
-
-        self.env.cr.postcommit.add(_dispatch_local)
-
     def run_scrape_pipeline(self):
         """Full Phase 1 scraping pipeline. Called by consumer.py via XML-RPC."""
         self.ensure_one()
@@ -439,7 +460,7 @@ class JaegerRepositoryStage2(models.Model):
         ICP = self.env["ir.config_parameter"].sudo()
         tokens = [
             t.strip()
-            for t in ICP.get_param("jaeger.github_tokens", "").split(",")
+            for t in get_encrypted_param(self.env, "jaeger.github_tokens").split(",")
             if t.strip()
         ]
         from pathlib import Path
@@ -598,16 +619,37 @@ class JaegerRepositoryStage2(models.Model):
         self.write({"pr_collection_progress": 100, "pr_collection_step": ""})
 
     def _create_instances_from_dataset(self, dataset_path):
-        """Parse raw dataset JSONL and create jaeger.instance records."""
+        """Parse raw dataset JSONL and create jaeger.instance records (batched)."""
         import json
 
+        BATCH_SIZE = 100
         MAX_PATCH_SIZE = 5 * 1024 * 1024
         MAX_BODY_SIZE = 100 * 1024
 
         Instance = self.env["jaeger.instance"]
         ResolvedIssue = self.env["jaeger.resolved.issue"]
 
+        existing_names = set(
+            Instance.search([("repository_id", "=", self.id)]).mapped("name")
+        )
+
         skipped = 0
+        instance_batch = []
+        issue_data_batch = []
+
+        def _flush_batch():
+            if not instance_batch:
+                return
+            created = Instance.create(instance_batch)
+            for inst, issues in zip(created, issue_data_batch):
+                for issue in issues:
+                    issue["instance_id"] = inst.id
+            flat_issues = [iss for issues in issue_data_batch for iss in issues]
+            if flat_issues:
+                ResolvedIssue.create(flat_issues)
+            instance_batch.clear()
+            issue_data_batch.clear()
+
         with open(dataset_path) as f:
             for line_num, line in enumerate(f, 1):
                 if not line.strip():
@@ -639,54 +681,108 @@ class JaegerRepositoryStage2(models.Model):
                     continue
 
                 instance_id = data.get("instance_id") or f"{data['org']}__{data['repo']}-{data['number']}"
-                existing = Instance.search([("name", "=", instance_id), ("repository_id", "=", self.id)], limit=1)
-                if existing:
+                if instance_id in existing_names:
                     continue
+                existing_names.add(instance_id)
 
                 raw_number = data.get("number", 0)
-                pr_number = raw_number if isinstance(raw_number, int) else int(str(raw_number).split("-")[0] or 0)
+                try:
+                    pr_number = raw_number if isinstance(raw_number, int) else int(str(raw_number).split("-")[0])
+                except (ValueError, TypeError):
+                    pr_number = 0
 
                 body = (data.get("body") or "")[:MAX_BODY_SIZE]
 
-                instance = Instance.create(
+                instance_batch.append({
+                    "name": instance_id,
+                    "repository_id": self.id,
+                    "org": data.get("org", ""),
+                    "repo": data.get("repo", ""),
+                    "pr_number": pr_number,
+                    "state": data.get("state", ""),
+                    "title": data.get("title", ""),
+                    "body": body,
+                    "base_label": data.get("base", {}).get("label", ""),
+                    "base_ref": data.get("base", {}).get("ref", ""),
+                    "base_sha": data.get("base", {}).get("sha", ""),
+                    "fix_patch": data.get("fix_patch", ""),
+                    "test_patch": data.get("test_patch", ""),
+                    "tag": data.get("tag", ""),
+                    "number_interval": data.get("number_interval", ""),
+                    "language": data.get("lang", self.language),
+                    "resolved_issues_json": json.dumps(
+                        data.get("resolved_issues", []),
+                    ),
+                })
+
+                issue_data_batch.append([
                     {
-                        "name": instance_id,
-                        "repository_id": self.id,
-                        "org": data.get("org", ""),
-                        "repo": data.get("repo", ""),
-                        "pr_number": pr_number,
-                        "state": data.get("state", ""),
-                        "title": data.get("title", ""),
-                        "body": body,
-                        "base_label": data.get("base", {}).get("label", ""),
-                        "base_ref": data.get("base", {}).get("ref", ""),
-                        "base_sha": data.get("base", {}).get("sha", ""),
-                        "fix_patch": data.get("fix_patch", ""),
-                        "test_patch": data.get("test_patch", ""),
-                        "tag": data.get("tag", ""),
-                        "number_interval": data.get("number_interval", ""),
-                        "language": data.get("lang", self.language),
-                        "resolved_issues_json": json.dumps(
-                            data.get("resolved_issues", []),
-                        ),
-                    },
-                )
+                        "issue_number": issue.get("number", 0),
+                        "issue_title": issue.get("title", ""),
+                        "issue_body": (issue.get("body") or "")[:MAX_BODY_SIZE],
+                    }
+                    for issue in data.get("resolved_issues", [])
+                ])
 
-                for issue in data.get("resolved_issues", []):
-                    issue_body = (issue.get("body") or "")[:MAX_BODY_SIZE]
-                    ResolvedIssue.create(
-                        {
-                            "instance_id": instance.id,
-                            "issue_number": issue.get("number", 0),
-                            "issue_title": issue.get("title", ""),
-                            "issue_body": issue_body,
-                        },
-                    )
-
-                if line_num % 100 == 0:
+                if len(instance_batch) >= BATCH_SIZE:
+                    _flush_batch()
                     self._append_log(f"Created {line_num} instances...")
                     self.env.cr.commit()
 
+        _flush_batch()
+        self.env.cr.commit()
+
         if skipped:
             self._append_log(f"Skipped {skipped} instances (oversized patches or lines)")
+
+    def _create_instances_from_s3(self, s3_paths):
+        raw_dataset_s3 = s3_paths.get("raw_dataset", "")
+        if not raw_dataset_s3:
+            raise ValueError("No raw_dataset S3 path in webhook payload")
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
+        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
+
+        if not s3_bucket:
+            raise ValueError("S3 bucket not configured")
+
+        s3_key = raw_dataset_s3
+        if s3_key.startswith("s3://"):
+            s3_key = s3_key.split("/", 3)[-1] if s3_key.count("/") >= 3 else ""
+
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        config_kwargs = {"connect_timeout": 30, "read_timeout": 120}
+        endpoint = os.environ.get("JAEGER_S3_ENDPOINT")
+        if endpoint:
+            config_kwargs["s3"] = {"addressing_style": "path"}
+
+        client = boto3.client(
+            "s3",
+            region_name=s3_region,
+            endpoint_url=endpoint or f"https://s3.{s3_region}.amazonaws.com",
+            config=BotoConfig(**config_kwargs),
+        )
+
+        local_path = Path("/tmp") / f"jaeger_s3_download_{self.id}.jsonl"
+        try:
+            client.download_file(s3_bucket, s3_key, str(local_path))
+            self._create_instances_from_dataset(local_path)
+        finally:
+            if local_path.exists():
+                local_path.unlink()
+
+    def _recover_instances_from_s3(self):
+        """Reconstruct S3 path from ICP params and create instances.
+
+        Used by the reconciler when the webhook was missed but the K8s job
+        succeeded — the S3 artifacts exist but no instances were created.
+        """
+        ICP = self.env["ir.config_parameter"].sudo()
+        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        filename = f"{self.org}__{self.repo_name}_raw_dataset.jsonl"
+        s3_key = f"{s3_prefix}/{self.id}/{filename}"
+        self._create_instances_from_s3({"raw_dataset": s3_key})
 

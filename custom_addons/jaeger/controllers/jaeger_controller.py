@@ -1,10 +1,12 @@
 import logging
 import os
 
-from odoo import http
+from odoo import fields, http
 from odoo.http import request, content_disposition
 
 _logger = logging.getLogger(__name__)
+
+PIPELINE_WEBHOOK_SECRET = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
 
 
 class JaegerController(http.Controller):
@@ -85,7 +87,7 @@ class JaegerController(http.Controller):
             _logger.debug("S3 download fallback failed for %s", s3_key, exc_info=True)
             return None
 
-    @http.route("/jaeger/webhook/trajectory", type="json", auth="public", csrf=False)
+    @http.route("/jaeger/webhook/trajectory", type="json", auth="none", csrf=False)
     def trajectory_webhook(self, **kwargs):
         expected = request.env["ir.config_parameter"].sudo().get_param("jaeger.webhook_secret")
         if not expected or kwargs.get("secret") != expected:
@@ -109,3 +111,111 @@ class JaegerController(http.Controller):
 
         repo._handle_trajectory_webhook(status, results)
         return {"status": "ok"}
+
+    # ── Pipeline webhook (kaiju pattern) ─────────────────────────────────
+
+    def _verify_pipeline_token(self):
+        token = request.httprequest.headers.get("X-Jaeger-Token", "")
+        if not PIPELINE_WEBHOOK_SECRET or token != PIPELINE_WEBHOOK_SECRET:
+            return False
+        return True
+
+    @http.route(
+        "/jaeger/webhook/pipeline", type="jsonrpc", auth="none",
+        methods=["POST"], csrf=False,
+    )
+    def pipeline_webhook(self, **kwargs):
+        if not self._verify_pipeline_token():
+            return {"error": "unauthorized"}
+
+        repo_id = kwargs.get("repo_id")
+        if not repo_id:
+            return {"error": "missing repo_id"}
+
+        repo = (
+            request.env["jaeger.repository"]
+            .sudo()
+            .search([("id", "=", int(repo_id))], limit=1)
+        )
+        if not repo:
+            return {"error": "repo not found"}
+
+        msg_type = kwargs.get("type", "")
+
+        if msg_type == "heartbeat":
+            repo.write({"last_heartbeat": fields.Datetime.now()})
+            return {"ok": True}
+
+        if msg_type == "progress":
+            vals = {
+                "pr_collection_status": "running",
+                "last_heartbeat": fields.Datetime.now(),
+            }
+            step = kwargs.get("step")
+            if step:
+                vals["pr_collection_step"] = "Step %s: %s" % (
+                    step, kwargs.get("message", ""),
+                )
+            progress = kwargs.get("progress")
+            if progress is not None:
+                vals["pr_collection_progress"] = float(progress)
+            message = kwargs.get("message", "")
+            if message:
+                repo._append_log(message)
+            repo.write(vals)
+            return {"ok": True}
+
+        if msg_type == "status":
+            status = kwargs.get("status")
+            if status == "done":
+                s3_paths = kwargs.get("s3_paths", {})
+                counts = kwargs.get("counts", {})
+                repo.write({
+                    "pr_collection_progress": 100,
+                    "pr_collection_step": "Creating instances from S3...",
+                    "error_message": False,
+                    "total_prs_fetched": counts.get("total_prs", 0),
+                    "filtered_prs_count": counts.get("filtered_prs", 0),
+                    "issues_fetched_count": counts.get("issues", 0),
+                    "raw_dataset_count": counts.get("raw_dataset", 0),
+                })
+                try:
+                    repo._create_instances_from_s3(s3_paths)
+                except Exception as e:
+                    _logger.exception(
+                        "Instance creation from S3 failed for repo %s", repo_id,
+                    )
+                    repo.write({
+                        "pr_collection_status": "failed",
+                        "error_message": "Instance creation failed: %s" % str(e)[:1500],
+                    })
+                    return {"ok": True}
+
+                repo.write({
+                    "pr_collection_status": "done",
+                    "pr_collection_step": "",
+                })
+
+                try:
+                    gate_ok, _ = repo._check_current_gate()
+                    if gate_ok:
+                        next_stage = repo._next_stage()
+                        if next_stage:
+                            repo.write({"current_stage": next_stage})
+                except Exception:
+                    _logger.warning(
+                        "Stage advance failed for repo %s (cron will catch up)",
+                        repo_id, exc_info=True,
+                    )
+                return {"ok": True}
+
+            elif status == "failed":
+                error = kwargs.get("error", "Unknown error")
+                repo.write({
+                    "pr_collection_status": "failed",
+                    "error_message": str(error)[:2000],
+                    "pr_collection_step": "",
+                })
+                return {"ok": True}
+
+        return {"error": "unknown message type"}

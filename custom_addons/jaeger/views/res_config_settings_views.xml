@@ -37,21 +37,6 @@
                                     <label for="jaeger_dispatch_mode" class="col-lg-3"/>
                                     <field name="jaeger_dispatch_mode"/>
                                 </div>
-                                <div class="row mt8">
-                                    <label for="jaeger_k8s_job_image" class="col-lg-3"/>
-                                    <field name="jaeger_k8s_job_image"
-                                           placeholder="e.g. 426628337772.dkr.ecr.ap-south-1.amazonaws.com/ethara-prod:latest"/>
-                                </div>
-                                <div class="row mt8">
-                                    <label for="jaeger_k8s_secret" class="col-lg-3"/>
-                                    <field name="jaeger_k8s_secret"
-                                           placeholder="jaeger-secrets"/>
-                                </div>
-                                <div class="row mt8">
-                                    <label for="jaeger_k8s_configmap" class="col-lg-3"/>
-                                    <field name="jaeger_k8s_configmap"
-                                           placeholder="jaeger-worker-config"/>
-                                </div>
                             </div>
                         </setting>
                     </block>

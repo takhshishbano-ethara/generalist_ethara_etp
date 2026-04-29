@@ -7,10 +7,6 @@ from datetime import datetime
 from odoo import SUPERUSER_ID, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from odoo.addons.jaeger.worker.pipeline_helpers import (
-    _run_scrape_pipeline_standalone,
-)
-
 _logger = logging.getLogger(__name__)
 
 _SAFE_GITHUB_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -18,6 +14,7 @@ _SAFE_GITHUB_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
 _CRON_LOCK_WATCHDOG_SCRAPES = 83927461
 _CRON_LOCK_WATCHDOG_BUILDS = 83927462
 _CRON_LOCK_RECONCILE_SCRAPES = 83927463
+_CRON_LOCK_AUTO_ADVANCE = 83927467
 
 STAGE_SELECTION = [
     ("stage1", "1 - Repo Validation"),
@@ -152,8 +149,6 @@ class JaegerRepository(models.Model):
     # ── Stage 1: Repo Discovery & Validation ─────────────────────────────
     stars = fields.Integer(string="Stars")
     forks = fields.Integer(string="Forks")
-    has_ci = fields.Boolean(string="Has CI")
-    is_maintained = fields.Boolean(string="Is Maintained")
     is_fork = fields.Boolean(string="Is Fork")
     repo_description = fields.Text(string="Description")
     crawl_status = fields.Selection(
@@ -320,6 +315,7 @@ class JaegerRepository(models.Model):
     error_message = fields.Text(string="Error Message")
     cancel_requested = fields.Boolean(default=False)
     last_heartbeat = fields.Datetime(string="Last Heartbeat", readonly=True)
+    scrape_queued_at = fields.Datetime(string="Scrape Queued At", readonly=True)
 
     # ── Relations ─────────────────────────────────────────────────────────
     instance_ids = fields.One2many(
@@ -527,29 +523,26 @@ class JaegerRepository(models.Model):
 
         def _bg_run():
             try:
-                if method_name == "run_scrape_pipeline":
-                    _run_scrape_pipeline_standalone(dbname, repo_id)
-                else:
-                    registry = Registry(dbname)
-                    with registry.cursor() as cr:
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        repo = env["jaeger.repository"].browse(repo_id)
+                registry = Registry(dbname)
+                with registry.cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    repo = env["jaeger.repository"].browse(repo_id)
+                    try:
+                        getattr(repo, method_name)()
+                    except Exception as e:
+                        _logger.exception(
+                            "Jaeger background %s failed for repo %s",
+                            label, repo_id,
+                        )
                         try:
-                            getattr(repo, method_name)()
-                        except Exception as e:
-                            _logger.exception(
-                                "Jaeger background %s failed for repo %s",
-                                label, repo_id,
-                            )
-                            try:
-                                cr.rollback()
-                                repo.write({
-                                    status_field: "failed",
-                                    "error_message": str(e)[:2000],
-                                })
-                                cr.commit()
-                            except Exception:
-                                _logger.exception("Failed to write error status")
+                            cr.rollback()
+                            repo.write({
+                                status_field: "failed",
+                                "error_message": str(e)[:2000],
+                            })
+                            cr.commit()
+                        except Exception:
+                            _logger.exception("Failed to write error status")
             except Exception:
                 _logger.exception(
                     "Jaeger background %s failed for repo %s", label, repo_id,
@@ -579,6 +572,16 @@ class JaegerRepository(models.Model):
         self.ensure_one()
         if self.current_stage in ("done", "failed"):
             raise UserError("Repository is already in a terminal state.")
+        from psycopg2 import OperationalError as Psycopg2OpError
+        try:
+            self.env.cr.execute(
+                "SELECT current_stage FROM jaeger_repository"
+                " WHERE id = %s FOR UPDATE NOWAIT",
+                [self.id],
+            )
+        except Psycopg2OpError:
+            self.env.cr.rollback()
+            raise UserError("Stage advancement is already in progress by another user.")
         gate_ok, msg = self._check_current_gate()
         if not gate_ok:
             raise UserError(f"Cannot advance: {msg}")
