@@ -84,4 +84,4 @@ RUN chmod +x odoo-bin
 
 EXPOSE 8071
 
-CMD ["./odoo-bin", "-c", "odoo.conf", "-u", "atlas"]
+CMD ["./odoo-bin", "-c", "odoo.conf", "-d", "ethara-stage", "-u", "jaeger"]
