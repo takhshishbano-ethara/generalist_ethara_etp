@@ -44,7 +44,7 @@ def call_kimi(system_prompt, user_content, temperature=0.1):
             {'text': system_prompt},
         ],
         'inferenceConfig': {
-            'maxTokens': 4096,
+            'maxTokens': 16384,
             'temperature': temperature,
         },
     }
@@ -79,13 +79,31 @@ def parse_json_response(text):
     if not text:
         return {}
     text = text.strip()
+
+    # Strip markdown code fences
     if '```' in text:
         if '```json' in text:
             text = text.split('```json')[-1].split('```')[0]
         else:
             parts = text.split('```')
-            text = parts[1] if len(parts) > 1 else parts[0]
+            if len(parts) > 1:
+                text = parts[1]
+
+    text = text.strip()
+
+    # Try direct parse
     try:
-        return json.loads(text.strip())
+        return json.loads(text)
     except (json.JSONDecodeError, IndexError):
-        return {}
+        pass
+
+    # Fallback: find first { ... } block
+    import re
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return {}
