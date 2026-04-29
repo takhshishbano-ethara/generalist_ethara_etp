@@ -75,6 +75,16 @@ services:
     networks:
       - jaeger
 
+  # ── Jaeger worker image (built locally, loaded into K3s) ──────────────
+  worker-build:
+    build:
+      context: ../../..
+      dockerfile: custom_addons/jaeger/Dockerfile.worker
+    image: jaeger-scrape:latest
+    entrypoint: ["echo", "image built"]
+    networks:
+      - jaeger
+
   # ── Odoo (built from production Dockerfile) ───────────────────────────
   odoo:
     build:
@@ -95,9 +105,12 @@ services:
       k3s:
         condition: service_healthy
     environment:
-      JAEGER_S3_BUCKET: jaeger-local
-      JAEGER_S3_REGION: us-east-1
       JAEGER_S3_ENDPOINT: "http://minio:9000"
+      JAEGER_S3_REGION: "us-east-1"
+      JAEGER_S3_BUCKET: "jaeger-local"
+      JAEGER_S3_PREFIX: "jaeger/phase1"
+      JAEGER_WEBHOOK_TOKEN: "sandbox-webhook-secret"
+      JAEGER_PATCHES_VOLUME: "sandbox_jaeger-patches"
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       KUBECONFIG: /tmp/k3s.yaml
@@ -111,7 +124,8 @@ services:
       - ./odoo.conf:/etc/odoo/odoo.conf:ro
       - k3s-kubeconfig:/etc/rancher/k3s:ro
       - odoo-filestore:/root/.local/share/Odoo
-      - /var/run/docker.sock:/var/run/docker.sock   # Docker-out-of-Docker for image builds
+      - /var/run/docker.sock:/var/run/docker.sock
+      - jaeger-patches:/jaeger_patches
     networks:
       - jaeger
 
@@ -133,6 +147,7 @@ volumes:
   k3s-data:
   k3s-kubeconfig:
   odoo-filestore:
+  jaeger-patches:
 
 networks:
   jaeger:

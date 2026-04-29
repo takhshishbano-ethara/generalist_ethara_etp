@@ -40,8 +40,6 @@
 
                     <button name="action_collect_prs" type="object" string="Collect PRs"
                             class="btn-primary" invisible="current_stage != 'stage2' or pr_collection_status in ('running', 'queued')"/>
-                    <button name="action_collect_prs_direct" type="object" string="Collect PRs (Local)"
-                            class="btn-warning" invisible="current_stage != 'stage2' or pr_collection_status in ('running', 'queued')"/>
 
                     <button name="action_cancel_pipeline" type="object" string="Cancel Pipeline"
                             class="btn-danger"
@@ -133,10 +131,8 @@
                                     <field name="crawl_status" widget="badge"/>
                                     <field name="stars"/>
                                     <field name="forks"/>
-                                    <field name="has_ci"/>
                                 </group>
                                 <group>
-                                    <field name="is_maintained"/>
                                     <field name="is_fork"/>
                                     <field name="repo_description"/>
                                 </group>

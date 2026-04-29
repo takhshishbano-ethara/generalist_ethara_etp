@@ -12,13 +12,10 @@ class JaegerRepositoryStage5(models.Model):
     # ── Stage 5 Actions ──────────────────────────────────────────────────
 
     def action_finalize_dataset(self):
-        self.ensure_one()
-        if self.current_stage != "stage5":
-            raise UserError("Repository must be in Stage 5.")
-        self.write({"dataset_status": "generating", "error_message": False})
-        from ..services.rabbitmq_service import publish_finalize_task
-
-        publish_finalize_task(self.id)
+        raise UserError(
+            "Queue-based dispatch is disabled (RabbitMQ consumer deleted). "
+            "Use the 'Finalize Dataset (Direct)' button instead."
+        )
 
     def action_finalize_dataset_direct(self):
         self.ensure_one()
@@ -269,8 +266,9 @@ class JaegerRepositoryStage5(models.Model):
                     "meta_schema_json": json.dumps(meta_json, ensure_ascii=False),
                     "delivery_status": "converted",
                 })
-            except Exception:
-                pass  # Already tracked in errors
+            except Exception as e:
+                _logger.warning("Meta conversion failed for %s: %s", inst.name, e)
+                inst.write({"validation_error": str(e)[:500]})
 
         self._append_log("Step 3/4: Writing Meta delivery JSONL...")
 

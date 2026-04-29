@@ -274,9 +274,9 @@ class JaegerGithubToken(models.Model):
 
         batch_count = 0
         for token_id, status, body, headers, prev_state, prev_fails in results:
-            savepoint_name = f"hc_token_{token_id}"
+            savepoint_name = "hc_token_%d" % int(token_id)
             try:
-                cr.execute(f"SAVEPOINT {savepoint_name}")
+                cr.execute("SAVEPOINT " + savepoint_name)
                 vals = {"last_health_check": now_utc}
 
                 if status == 200:
@@ -340,16 +340,19 @@ class JaegerGithubToken(models.Model):
                 params = [vals[k] for k in sorted_update_keys]
                 if sets:
                     params.append(token_id)
-                    cr.execute(f"UPDATE jaeger_github_token SET {sets} WHERE id = %s", params)
+                    cr.execute(
+                        "UPDATE jaeger_github_token SET " + sets + " WHERE id = %s",
+                        params,
+                    )
 
-                cr.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+                cr.execute("RELEASE SAVEPOINT " + savepoint_name)
                 batch_count += 1
                 if batch_count % 200 == 0:
                     cr.commit()
             except Exception:
                 _logger.exception("Health check: failed to update token id=%s, skipping", token_id)
                 try:
-                    cr.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+                    cr.execute("ROLLBACK TO SAVEPOINT " + savepoint_name)
                 except Exception:
                     pass
 

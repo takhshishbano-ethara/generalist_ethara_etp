@@ -3,6 +3,7 @@ import logging
 from odoo import api, models
 from odoo.exceptions import UserError
 
+from .credential_manager import get_encrypted_param
 from .jaeger_repository import LANGUAGE_BASE_IMAGES
 
 _logger = logging.getLogger(__name__)
@@ -14,15 +15,10 @@ class JaegerRepositoryStage3(models.Model):
     # ── Stage 3 Actions (Phase 2-7: disabled until infra ready) ────────
 
     def action_build_docker_images(self):
-        self.ensure_one()
-        if self.current_stage != "stage3":
-            raise UserError("Repository must be in Stage 3.")
-        if not self.instance_ids:
-            raise UserError("No instances found. Run PR collection first.")
-        self.write({"docker_build_status": "queued", "error_message": False})
-        from ..services.rabbitmq_service import publish_docker_task
-
-        publish_docker_task(self.id)
+        raise UserError(
+            "Queue-based dispatch is disabled (RabbitMQ consumer deleted). "
+            "Use the 'Build Docker (Direct)' button instead."
+        )
 
     def action_build_docker_direct(self):
         self.ensure_one()
@@ -232,8 +228,7 @@ class JaegerRepositoryStage3(models.Model):
             "network": lang != "python",
         }
 
-        ICP = self.env["ir.config_parameter"].sudo()
-        tokens_str = ICP.get_param("jaeger.github_tokens", "")
+        tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
         github_token = tokens_str.split(",")[0].strip() if tokens_str else ""
         clone_url = (
             f"https://x-access-token:{github_token}@github.com/{self.org}/{self.repo_name}.git"
@@ -351,8 +346,7 @@ class JaegerRepositoryStage3(models.Model):
         self.env.cr.commit()
 
         # Get GitHub token for authenticated clones (avoids rate limiting at scale)
-        ICP = self.env["ir.config_parameter"].sudo()
-        tokens_str = ICP.get_param("jaeger.github_tokens", "")
+        tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
         github_token = tokens_str.split(",")[0].strip() if tokens_str else ""
 
         clone_url = f"https://github.com/{self.org}/{self.repo_name}.git"
@@ -600,7 +594,7 @@ class JaegerRepositoryStage3(models.Model):
 
         for idx, inst in enumerate(instances, 1):
             image_name = f"mswebench/{inst.org}_m_{inst.repo}".lower()
-            image_tag = f"pr-{inst.pr_number}"
+            image_tag = f"pr-{inst.pr_number}-{inst.id}"
             full_tag = f"{image_name}:{image_tag}"
             if ecr_prefix:
                 full_tag = f"{ecr_prefix}/{image_name}:{image_tag}"

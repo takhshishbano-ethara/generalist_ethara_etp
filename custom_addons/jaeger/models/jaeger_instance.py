@@ -30,6 +30,7 @@ def _execute_docker_run_pure(inst_name, docker_image, mode, patches, timeout, me
 def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
                      memory_limit="4g", language="python", network_enabled=None):
     """Shared Docker execution logic used by both ORM and standalone paths."""
+    import os
     import subprocess
     import tempfile
     from uuid import uuid4
@@ -62,7 +63,14 @@ def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
     reset_prefix = "git checkout -- . && git clean -fd && "
 
     if patches:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Determine patch directory and volume mount strategy.
+        # When JAEGER_PATCHES_VOLUME is set (sandbox/DinD mode), patches are
+        # written to the shared volume and mounted by volume name on sibling
+        # containers. Otherwise (production), use a host temp dir directly.
+        patches_volume = os.environ.get("JAEGER_PATCHES_VOLUME", "")
+        patches_base = "/jaeger_patches" if patches_volume else None
+
+        with tempfile.TemporaryDirectory(dir=patches_base) as tmpdir:
             from pathlib import Path
 
             for patch_name, patch_content in patches.items():
@@ -71,19 +79,31 @@ def _docker_run_impl(inst_name, docker_image, mode, patches, timeout,
                         patch_content, encoding="utf-8",
                     )
 
-            cmd.extend(["-v", f"{tmpdir}:/patches:ro"])
+            if patches_volume:
+                # Mount the named volume on the sibling container; use the
+                # subdirectory path relative to the volume root.
+                subdir = Path(tmpdir).name
+                cmd.extend([
+                    "--mount",
+                    f"type=volume,source={patches_volume},target=/jaeger_patches,readonly",
+                ])
+                patches_path = f"/jaeger_patches/{subdir}"
+            else:
+                cmd.extend(["-v", f"{tmpdir}:/patches:ro"])
+                patches_path = "/patches"
+
             cmd.append(docker_image)
 
             if mode == "test_patch":
                 cmd.extend(["bash", "-c",
                     f"cd /testbed && {reset_prefix}"
-                    "git apply --whitespace=nowarn /patches/test_patch.diff && "
+                    f"git apply --whitespace=nowarn {patches_path}/test_patch.diff && "
                     "bash /jaeger/fix-run.sh"])
             elif mode == "fix_patch":
                 cmd.extend(["bash", "-c",
                     f"cd /testbed && {reset_prefix}"
-                    "git apply --whitespace=nowarn /patches/fix_patch.diff && "
-                    "git apply --whitespace=nowarn /patches/test_patch.diff && "
+                    f"git apply --whitespace=nowarn {patches_path}/fix_patch.diff && "
+                    f"git apply --whitespace=nowarn {patches_path}/test_patch.diff && "
                     "bash /jaeger/fix-run.sh"])
 
             try:

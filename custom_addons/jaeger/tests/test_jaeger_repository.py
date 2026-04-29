@@ -59,11 +59,12 @@ class TestJaegerRepository(TransactionCase):
         self.assertIn("Test message 2", self.repo.log_output)
 
     def test_append_log_truncation(self):
-        """Test log truncation over 500 lines."""
+        """Test log truncation at 200KB character limit."""
+        long_msg = "X" * 400
         for i in range(600):
-            self.repo._append_log(f"Line {i}")
-        lines = self.repo.log_output.strip().split("\n")
-        self.assertLess(len(lines), 510)
+            self.repo._append_log(f"{long_msg} {i}")
+        total_len = len(self.repo.log_output or "")
+        self.assertLess(total_len, 200001)
 
     def test_gate_blocks_advance(self):
         """Test that action_advance_stage raises when gate fails."""
