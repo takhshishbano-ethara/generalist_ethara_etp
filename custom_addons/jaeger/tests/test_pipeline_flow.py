@@ -373,3 +373,140 @@ class TestEncryptedTokenParam(TransactionCase):
         from odoo.addons.jaeger.models.credential_manager import get_encrypted_param
         result = get_encrypted_param(self.env, "jaeger.github_tokens")
         self.assertEqual(result, "")
+
+
+class TestStage4Orchestration(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.repo = cls.env["jaeger.repository"].create({
+            "repo_url": "https://github.com/stage4org/stage4repo",
+            "language": "python",
+            "pipeline_mode": "swe",
+            "current_stage": "stage4",
+            "docker_build_status": "done",
+            "images_built_count": 2,
+        })
+        for i in (1, 2):
+            cls.env["jaeger.instance"].create({
+                "name": f"stage4org__stage4repo-{i}",
+                "repository_id": cls.repo.id,
+                "org": "stage4org",
+                "repo": "stage4repo",
+                "pr_number": i,
+                "docker_build_status": "built",
+                "docker_image_name": f"mswebench/stage4org_m_stage4repo:pr-{i}",
+                "fix_patch": "--- a/x.py\n+++ b/x.py\n-old\n+new\n",
+                "test_patch": "--- a/t.py\n+++ b/t.py\n-old\n+new\n",
+                "base_sha": f"abc{i}",
+            })
+
+    def test_action_run_tests_direct_requires_stage4(self):
+        self.repo.write({"current_stage": "stage3"})
+        with self.assertRaises(UserError):
+            self.repo.action_run_tests_direct()
+        self.repo.write({"current_stage": "stage4"})
+
+    def test_action_run_tests_direct_requires_built_images(self):
+        self.repo.instance_ids.write({"docker_build_status": "pending"})
+        with self.assertRaises(UserError):
+            self.repo.action_run_tests_direct()
+        self.repo.instance_ids.write({"docker_build_status": "built"})
+
+    def test_action_run_tests_direct_blocks_double_start(self):
+        self.repo.write({"test_execution_status": "running"})
+        with self.assertRaises(UserError):
+            self.repo.action_run_tests_direct()
+        self.repo.write({"test_execution_status": "pending"})
+
+    def test_empty_fix_patch_marks_invalid(self):
+        from odoo.addons.jaeger.models.jaeger_instance import _run_instance_tests_standalone
+
+        inst = self.repo.instance_ids[0]
+        inst.write({"fix_patch": ""})
+        result = _run_instance_tests_standalone(
+            self.env.cr.dbname, inst.id, 30,
+        )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Empty fix_patch")
+        inst.invalidate_recordset()
+        self.assertFalse(inst.is_valid)
+        inst.write({"fix_patch": "--- a/x.py\n+++ b/x.py\n-old\n+new\n"})
+
+    def test_no_valid_instances_sets_terminal_state(self):
+        self.repo.write({
+            "current_stage": "stage4",
+            "test_execution_status": "done",
+            "instances_valid_count": 0,
+            "instances_tested_count": 2,
+            "terminal_state": "no_valid_instances",
+        })
+        ok, msg = self.repo._check_current_gate()
+        self.assertFalse(ok)
+        self.assertIn("No valid instances", msg)
+        self.repo.write({"terminal_state": "none"})
+
+
+class TestStage5Orchestration(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.repo = cls.env["jaeger.repository"].create({
+            "repo_url": "https://github.com/stage5org/stage5repo",
+            "language": "python",
+            "pipeline_mode": "swe",
+            "current_stage": "stage5",
+            "test_execution_status": "done",
+            "instances_valid_count": 1,
+        })
+        cls.inst = cls.env["jaeger.instance"].create({
+            "name": "stage5org__stage5repo-1",
+            "repository_id": cls.repo.id,
+            "org": "stage5org",
+            "repo": "stage5repo",
+            "pr_number": 1,
+            "docker_build_status": "built",
+            "docker_image_name": "mswebench/stage5org_m_stage5repo:pr-1",
+            "fix_patch": "--- a/x.py\n+++ b/x.py\n-old\n+new\n",
+            "test_patch": "--- a/t.py\n+++ b/t.py\n-old\n+new\n",
+            "base_sha": "abc1",
+            "is_valid": True,
+            "language": "python",
+            "report_json": json.dumps({"f2p_count": 1, "is_valid": True}),
+            "f2p_tests_json": json.dumps({"test_x": {"run": "FAIL", "test": "FAIL", "fix": "PASS"}}),
+            "p2p_tests_json": "{}",
+            "s2p_tests_json": "{}",
+            "n2p_tests_json": "{}",
+            "fixed_tests_json": json.dumps({"test_x": {"run": "FAIL", "test": "FAIL", "fix": "PASS"}}),
+            "run_result_json": json.dumps({"passed_count": 0, "failed_count": 1, "passed_tests": [], "failed_tests": ["test_x"]}),
+            "test_patch_result_json": json.dumps({"passed_count": 0, "failed_count": 1, "passed_tests": [], "failed_tests": ["test_x"]}),
+            "fix_patch_result_json": json.dumps({"passed_count": 1, "failed_count": 0, "passed_tests": ["test_x"], "failed_tests": []}),
+        })
+
+    def test_action_finalize_requires_stage5(self):
+        self.repo.write({"current_stage": "stage3"})
+        with self.assertRaises(UserError):
+            self.repo.action_finalize_dataset_direct()
+        self.repo.write({"current_stage": "stage5"})
+
+    def test_finalize_creates_final_dataset(self):
+        self.repo.run_dataset_finalization()
+        self.assertEqual(self.repo.dataset_status, "done")
+        self.assertEqual(self.repo.final_dataset_count, 1)
+        self.assertTrue(self.repo.final_dataset_jsonl_path)
+        self.assertTrue(self.repo.final_report_json)
+        report = json.loads(self.repo.final_report_json)
+        self.assertEqual(report["valid_instances"], 1)
+
+    def test_finalize_no_valid_instances_raises(self):
+        self.inst.write({"is_valid": False})
+        try:
+            with self.assertRaises(ValueError):
+                self.repo._build_final_dataset()
+            self.repo.invalidate_recordset()
+            self.assertEqual(self.repo.terminal_state, "no_valid_instances")
+        finally:
+            self.inst.write({"is_valid": True})
+            self.repo.write({"terminal_state": "none", "dataset_status": "pending"})

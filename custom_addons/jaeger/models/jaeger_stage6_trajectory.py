@@ -14,13 +14,6 @@ class JaegerRepositoryStage6(models.Model):
 
     def action_dispatch_trajectories(self):
         raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
-        self.ensure_one()
-        if self.current_stage != "stage6":
-            raise UserError("Repository must be in Stage 6.")
-        self.write({"trajectory_status": "dispatched", "error_message": False})
-        from ..services.rabbitmq_service import publish_trajectory_task
-
-        publish_trajectory_task(self.id)
 
     def run_trajectory_dispatch(self):
         """Dispatch trajectory generation to EKS. Called by consumer.py via XML-RPC."""
@@ -179,7 +172,10 @@ class JaegerRepositoryStage6(models.Model):
                         client.V1EnvVar(name="TEMPERATURE", value=str(config.get("temperature", 1.0))),
                         client.V1EnvVar(name="MAX_ITERATIONS", value=str(config.get("max_iterations", 300))),
                         client.V1EnvVar(name="TIMEOUT", value=str(config.get("conversation_timeout", 3600))),
-                        client.V1EnvVar(name="WEBHOOK_URL", value=ICP.get_param("jaeger.webhook_url", "")),
+                        client.V1EnvVar(name="WEBHOOK_URL", value=(
+                            ICP.get_param("jaeger.webhook_base_url")
+                            or ICP.get_param("web.base.url", "http://localhost:8069")
+                        ).rstrip("/") + "/jaeger/webhook/trajectory"),
                         client.V1EnvVar(name="ODOO_RECORD_ID", value=str(inst.id)),
                     ],
                     resources=client.V1ResourceRequirements(

@@ -22,8 +22,8 @@ class JaegerRepositoryStage2(models.Model):
         self.ensure_one()
         if not self.repo_url:
             raise UserError("GitHub URL is required.")
-        self.write({"crawl_status": "running"})
         try:
+            self.write({"crawl_status": "running"})
             self._validate_repo_metadata()
             vals = {"crawl_status": "done"}
             gate_ok, _ = self._check_current_gate()
@@ -186,6 +186,8 @@ class JaegerRepositoryStage2(models.Model):
 
         tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
         webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
+        if not webhook_secret:
+            webhook_secret = ICP.get_param("jaeger.pipeline_webhook_token", "")
         # Use dedicated jaeger.webhook_base_url to avoid Odoo auto-overwriting
         # web.base.url with the browser's origin (e.g. http://localhost:8069),
         # which is unreachable from K8s pods.
@@ -629,9 +631,12 @@ class JaegerRepositoryStage2(models.Model):
         Instance = self.env["jaeger.instance"]
         ResolvedIssue = self.env["jaeger.resolved.issue"]
 
-        existing_names = set(
-            Instance.search([("repository_id", "=", self.id)]).mapped("name")
+        existing_names = set()
+        self.env.cr.execute(
+            "SELECT name FROM jaeger_instance WHERE repository_id = %s",
+            [self.id],
         )
+        existing_names = {row[0] for row in self.env.cr.fetchall()}
 
         skipped = 0
         instance_batch = []
