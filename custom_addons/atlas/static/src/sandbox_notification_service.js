@@ -2,11 +2,16 @@
 
 import { registry } from "@web/core/registry";
 
+const LOG_PREFIX = "[ATLAS:BUS]";
+
 const sandboxNotificationService = {
     dependencies: ["bus_service", "notification"],
 
     start(env, { bus_service, notification }) {
+        console.log(`${LOG_PREFIX} service started, subscribing to longpoll channels`);
+
         bus_service.subscribe("atlas/sandbox_ready", (payload) => {
+            console.log(`${LOG_PREFIX} longpoll: atlas/sandbox_ready`, payload);
             const status = payload.docker_status || payload.status;
             const sandboxId = payload.sandbox_id;
             const modelType = payload.model_type || "";
@@ -23,6 +28,7 @@ const sandboxNotificationService = {
         });
 
         bus_service.subscribe("atlas/generation_done", (payload) => {
+            console.log(`${LOG_PREFIX} longpoll: atlas/generation_done`, payload);
             const goalStatus = payload.goal_status || "done";
             const rubricStatus = payload.rubric_status || "done";
             const anyError = goalStatus === "error" || rubricStatus === "error";
@@ -38,6 +44,7 @@ const sandboxNotificationService = {
                 });
             }
 
+            console.log(`${LOG_PREFIX} forwarding ATLAS:GENERATION_DONE to env.bus`, payload);
             env.bus.trigger("ATLAS:GENERATION_DONE", payload);
         });
     },

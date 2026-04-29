@@ -23,6 +23,15 @@ const IMPORTANCE_COLORS = {
 };
 
 const POLL_INTERVAL_MS = 3000;
+const LOG_PREFIX = "[ATLAS:RUBRIC]";
+
+function log(event, data) {
+    if (data !== undefined) {
+        console.log(`${LOG_PREFIX} ${event}`, data);
+    } else {
+        console.log(`${LOG_PREFIX} ${event}`);
+    }
+}
 
 export class RubricEditor extends Component {
     static template = "atlas.RubricEditor";
@@ -44,6 +53,7 @@ export class RubricEditor extends Component {
         this._pollTimer = null;
 
         this._onGenerationStarted = () => {
+            log("bus:GENERATION_STARTED received", { taskId: this.taskId });
             this.state.goalStatus = "running";
             this.state.rubricStatus = "running";
             this.state.criteria = [];
@@ -51,6 +61,7 @@ export class RubricEditor extends Component {
         };
         this._onGenerationDone = async (ev) => {
             const payload = ev.detail || {};
+            log("bus:GENERATION_DONE received", { taskId: this.taskId, payload });
             this.state.goalStatus = payload.goal_status || "done";
             this.state.rubricStatus = payload.rubric_status || "done";
             this._stopPolling();
@@ -66,14 +77,20 @@ export class RubricEditor extends Component {
         });
 
         onMounted(async () => {
+            log("onMounted", { taskId: this.taskId });
             await this._loadCriteria();
             await this._fetchServerStatus();
             if (this.state.goalStatus === "running" || this.state.rubricStatus === "running") {
+                log("onMounted -> status running, starting poll", {
+                    goalStatus: this.state.goalStatus,
+                    rubricStatus: this.state.rubricStatus,
+                });
                 this._startPolling();
             }
         });
 
         onWillUnmount(() => {
+            log("onWillUnmount", { taskId: this.taskId });
             this._stopPolling();
             this.env.bus.removeEventListener("ATLAS:GENERATION_STARTED", this._onGenerationStarted);
             this.env.bus.removeEventListener("ATLAS:GENERATION_DONE", this._onGenerationDone);
@@ -94,12 +111,16 @@ export class RubricEditor extends Component {
         const isRecordRunning = recordGoal === "running" || recordRubric === "running";
         const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
         if (isRecordRunning && !isStateRunning) {
-            const wasRubricIdle = this.state.rubricStatus !== "running" && this.state.rubricStatus !== "done";
+            log("_syncFromRecord: record running, state not -> syncing", {
+                taskId: this.taskId,
+                recordGoal,
+                recordRubric,
+                prevGoal: this.state.goalStatus,
+                prevRubric: this.state.rubricStatus,
+                criteriaCount: this.state.criteria.length,
+            });
             this.state.goalStatus = recordGoal || this.state.goalStatus;
             this.state.rubricStatus = recordRubric || this.state.rubricStatus;
-            if (recordRubric === "running" && wasRubricIdle) {
-                this.state.criteria = [];
-            }
             this._startPolling();
         }
     }
@@ -123,22 +144,25 @@ export class RubricEditor extends Component {
         if (!this.taskId) return;
         try {
             const res = await rpc("/atlas/generation/status", { task_id: this.taskId });
+            log("_fetchServerStatus response", { taskId: this.taskId, res });
             if (!res || res.error) return;
             this.state.goalStatus = res.goal_generation_status || "idle";
             this.state.rubricStatus = res.rubric_generation_status || "idle";
-        } catch {
-            // silent
+        } catch (e) {
+            console.warn(`${LOG_PREFIX} _fetchServerStatus failed`, { taskId: this.taskId, error: e });
         }
         this.state.initialized = true;
     }
 
     _startPolling() {
         this._stopPolling();
+        log("_startPolling", { taskId: this.taskId, intervalMs: POLL_INTERVAL_MS });
         this._pollTimer = setInterval(() => this._pollGenerationStatus(), POLL_INTERVAL_MS);
     }
 
     _stopPolling() {
         if (this._pollTimer) {
+            log("_stopPolling", { taskId: this.taskId });
             clearInterval(this._pollTimer);
             this._pollTimer = null;
         }
@@ -148,7 +172,10 @@ export class RubricEditor extends Component {
         if (!this.taskId) return;
         try {
             const res = await rpc("/atlas/generation/status", { task_id: this.taskId });
-            if (!res || res.error) return;
+            if (!res || res.error) {
+                console.warn(`${LOG_PREFIX} poll: invalid response`, { taskId: this.taskId, res });
+                return;
+            }
 
             const goalStatus = res.goal_generation_status || "idle";
             const rubricStatus = res.rubric_generation_status || "idle";
@@ -158,11 +185,24 @@ export class RubricEditor extends Component {
             this.state.goalStatus = goalStatus;
             this.state.rubricStatus = rubricStatus;
 
+            if (prevGoal !== goalStatus || prevRubric !== rubricStatus) {
+                log("poll: status changed", {
+                    taskId: this.taskId,
+                    goal: `${prevGoal} -> ${goalStatus}`,
+                    rubric: `${prevRubric} -> ${rubricStatus}`,
+                });
+            }
+
             if (prevGoal === "running" && goalStatus !== "running") {
+                log("poll: goal transitioned off running, reloading record", { taskId: this.taskId });
                 this.props.record.load();
             }
 
             if (prevRubric === "running" && rubricStatus !== "running") {
+                log("poll: rubric transitioned off running, reloading criteria", {
+                    taskId: this.taskId,
+                    newStatus: rubricStatus,
+                });
                 await this._loadCriteria();
                 if (rubricStatus === "done") {
                     this.notification.add("Rubric criteria generated", { type: "success" });
@@ -172,17 +212,19 @@ export class RubricEditor extends Component {
             if (goalStatus !== "running" && rubricStatus !== "running") {
                 this._stopPolling();
             }
-        } catch {
-            // silent
+        } catch (e) {
+            console.warn(`${LOG_PREFIX} poll failed`, { taskId: this.taskId, error: e });
         }
     }
 
     async _loadCriteria() {
         if (!this.taskId) {
+            log("_loadCriteria: no taskId, skipping");
             this.state.criteria = [];
             this.state.loading = false;
             return;
         }
+        log("_loadCriteria: fetching", { taskId: this.taskId });
         try {
             const criteria = await this.orm.searchRead(
                 "atlas.rubric.criterion",
@@ -194,6 +236,11 @@ export class RubricEditor extends Component {
                 ],
                 { order: "sequence, id" },
             );
+            log("_loadCriteria: criteria fetched", {
+                taskId: this.taskId,
+                count: criteria.length,
+                ids: criteria.map((c) => c.id),
+            });
             const criterionIds = criteria.map((c) => c.id);
             let allLevels = [];
             if (criterionIds.length) {
@@ -203,6 +250,10 @@ export class RubricEditor extends Component {
                     ["id", "score", "label", "criterion_id"],
                     { order: "score, id" },
                 );
+                log("_loadCriteria: levels fetched", {
+                    taskId: this.taskId,
+                    levelCount: allLevels.length,
+                });
             }
             const levelsByCriterion = {};
             for (const lv of allLevels) {
@@ -216,7 +267,12 @@ export class RubricEditor extends Component {
                 c.levels = levelsByCriterion[c.id] || [];
             }
             this.state.criteria = criteria;
-        } catch {
+            log("_loadCriteria: state updated", {
+                taskId: this.taskId,
+                stateCount: this.state.criteria.length,
+            });
+        } catch (e) {
+            console.error(`${LOG_PREFIX} _loadCriteria failed`, { taskId: this.taskId, error: e });
             this.notification.add("Failed to load rubric criteria", { type: "danger" });
         }
         this.state.loading = false;

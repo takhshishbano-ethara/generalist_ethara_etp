@@ -8,6 +8,30 @@ from ..models.atlas_sandbox import MODEL_DEFAULTS
 
 _logger = logging.getLogger(__name__)
 
+_TURN_FIELD_MAX_BYTES = 1_048_576
+
+
+def _is_admin():
+    return request.env.user.has_group('base.group_system')
+
+
+def _owns_sandbox(sandbox):
+    owner = sandbox.atlas_id.employee_id.user_id if sandbox.atlas_id else False
+    return bool(owner) and owner.id == request.env.user.id
+
+
+def _owns_turn(turn):
+    owner = turn.employee_id.user_id if turn.employee_id else False
+    return bool(owner) and owner.id == request.env.user.id
+
+
+def _cap(value, limit=_TURN_FIELD_MAX_BYTES):
+    if not isinstance(value, str):
+        return value
+    if len(value) <= limit:
+        return value
+    return value[:limit]
+
 
 class AtlasChatController(http.Controller):
     @http.route("/atlas/chat/create_turn", type="json", auth="user")
@@ -23,6 +47,8 @@ class AtlasChatController(http.Controller):
         sandbox = request.env["atlas.sandbox"].browse(sandbox_id)
         if not sandbox.exists():
             return {"error": "Sandbox not found"}
+        if not (_owns_sandbox(sandbox) or _is_admin()):
+            return {"error": "Access denied"}
 
         if model is None:
             model = MODEL_DEFAULTS.get(sandbox.model_type, "unknown")
@@ -41,9 +67,9 @@ class AtlasChatController(http.Controller):
             "is_hint_turn": is_hint_turn,
         }
         if is_hint_turn:
-            vals["hints"] = message
+            vals["hints"] = _cap(message)
         else:
-            vals["prompt"] = message
+            vals["prompt"] = _cap(message)
         if timestamp:
             vals["prompt_timestamp"] = timestamp
 
@@ -74,9 +100,11 @@ class AtlasChatController(http.Controller):
         turn = request.env["atlas.turn"].browse(turn_id)
         if not turn.exists():
             return {"error": "Turn not found"}
+        if not (_owns_turn(turn) or _is_admin()):
+            return {"error": "Access denied"}
 
         vals = {
-            "response": response or "",
+            "response": _cap(response or ""),
             "turn_status": "Streaming" if partial else "Completed",
         }
         if run_id:
@@ -84,9 +112,9 @@ class AtlasChatController(http.Controller):
         if timestamp:
             vals["response_timestamp"] = timestamp
         if tool_calls:
-            vals["tool_calls"] = tool_calls
+            vals["tool_calls"] = _cap(tool_calls)
         if raw_events:
-            vals["raw_events"] = raw_events
+            vals["raw_events"] = _cap(raw_events)
 
         turn.write(vals)
 
@@ -129,31 +157,39 @@ class AtlasChatController(http.Controller):
         turn = request.env["atlas.turn"].browse(turn_id)
         if not turn.exists():
             return {"error": "Turn not found"}
+        if not (_owns_turn(turn) or _is_admin()):
+            return {"error": "Access denied"}
 
         severity = (severity or "").strip().lower()
         valid = ("low", "medium", "high", "critical")
         if severity not in valid:
             return {"error": "Invalid severity: %s" % severity}
 
+        try:
+            in_tok = max(0, int(bedrock_input_tokens or 0))
+            out_tok = max(0, int(bedrock_output_tokens or 0))
+        except (TypeError, ValueError):
+            in_tok = out_tok = 0
+
         vals = {
             "qc_severity": severity,
         }
         if qc_response:
-            vals["qc_response"] = qc_response
+            vals["qc_response"] = _cap(qc_response)
         if dismiss_reason:
-            vals["qc_dismiss_reason"] = dismiss_reason
-        if bedrock_input_tokens:
-            vals["qc_input_tokens"] = int(bedrock_input_tokens)
-        if bedrock_output_tokens:
-            vals["qc_output_tokens"] = int(bedrock_output_tokens)
+            vals["qc_dismiss_reason"] = _cap(dismiss_reason, 8192)
+        if in_tok:
+            vals["qc_input_tokens"] = in_tok
+        if out_tok:
+            vals["qc_output_tokens"] = out_tok
 
         turn.write(vals)
 
         task = turn.atlas_id
-        if task and (bedrock_input_tokens or bedrock_output_tokens):
+        if task and (in_tok or out_tok):
             task.sudo().write({
-                "qc_input_tokens": (task.qc_input_tokens or 0) + int(bedrock_input_tokens or 0),
-                "qc_output_tokens": (task.qc_output_tokens or 0) + int(bedrock_output_tokens or 0),
+                "qc_input_tokens": (task.qc_input_tokens or 0) + in_tok,
+                "qc_output_tokens": (task.qc_output_tokens or 0) + out_tok,
             })
 
         return {"success": True}
@@ -167,6 +203,8 @@ class AtlasChatController(http.Controller):
         turn = request.env["atlas.turn"].browse(turn_id)
         if not turn.exists():
             return {"error": "Turn not found"}
+        if not (_owns_turn(turn) or _is_admin()):
+            return {"error": "Access denied"}
 
         feedback = (feedback or "").strip().lower()
         if feedback not in ("satisfied", "unsatisfied"):
@@ -174,7 +212,7 @@ class AtlasChatController(http.Controller):
 
         vals = {"feedback": feedback}
         if hint_text:
-            vals["hint_text"] = hint_text
+            vals["hint_text"] = _cap(hint_text, 16384)
 
         turn.write(vals)
         return {"success": True}
@@ -189,6 +227,8 @@ class AtlasChatController(http.Controller):
         sandbox = request.env["atlas.sandbox"].browse(sandbox_id)
         if not sandbox.exists():
             return {"error": "Sandbox not found"}
+        if not (_owns_sandbox(sandbox) or _is_admin()):
+            return {"error": "Access denied"}
 
         turns = []
         session_turns = sandbox.turn_ids

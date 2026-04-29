@@ -21,6 +21,36 @@ BEDROCK_CONVERSE_URL = (
     "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
 )
 
+# Hard caps to prevent cost abuse. Any authenticated user could otherwise
+# request millions of output tokens per call, billed to the org's Bedrock
+# account. These numbers are generous for legitimate QC use.
+_MAX_TOKENS_HARD_CAP = 8192
+_MAX_TOKENS_DEFAULT = 4096
+_TEMPERATURE_MIN = 0.0
+_TEMPERATURE_MAX = 1.5
+
+
+def _sanitize_max_tokens(raw):
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return _MAX_TOKENS_DEFAULT
+    if n < 1:
+        return _MAX_TOKENS_DEFAULT
+    return min(n, _MAX_TOKENS_HARD_CAP)
+
+
+def _sanitize_temperature(raw, default):
+    try:
+        t = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if t < _TEMPERATURE_MIN:
+        return _TEMPERATURE_MIN
+    if t > _TEMPERATURE_MAX:
+        return _TEMPERATURE_MAX
+    return t
+
 _system_prompt_cache = {"text": None, "mtime": 0}
 
 _RUBRIC_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="rubric_qc")
@@ -402,7 +432,7 @@ class LlmAssistQc(http.Controller):
     @http.route("/atlas/qc", type="json", auth="user")
     def qc_prompt(
         self, prompt="", previous_turns=None, system_prompt="",
-        max_tokens=4096, temperature=0.3, **kw
+        max_tokens=_MAX_TOKENS_DEFAULT, temperature=0.3, **kw
     ):
         prompt = (prompt or "").strip()
         if not prompt:
@@ -421,6 +451,11 @@ class LlmAssistQc(http.Controller):
         if not inference_arn:
             return {"error": "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env"}
 
+        safe_max_tokens = _sanitize_max_tokens(max_tokens)
+        safe_temperature = _sanitize_temperature(temperature, 0.3)
+
+        if system_prompt and not request.env.user.has_group('base.group_system'):
+            system_prompt = ""
         if not system_prompt:
             system_prompt = _get_system_prompt()
 
@@ -431,8 +466,8 @@ class LlmAssistQc(http.Controller):
                 region=region,
                 system_prompt=system_prompt,
                 user_message=user_message,
-                max_tokens=int(max_tokens),
-                temperature=float(temperature),
+                max_tokens=safe_max_tokens,
+                temperature=safe_temperature,
             )
 
             if _is_degenerate(response_text):
@@ -443,7 +478,7 @@ class LlmAssistQc(http.Controller):
                     region=region,
                     system_prompt=system_prompt,
                     user_message=user_message,
-                    max_tokens=int(max_tokens),
+                    max_tokens=safe_max_tokens,
                     temperature=0.1,
                     top_p=0.7,
                 )
@@ -559,11 +594,13 @@ class LlmAssistQc(http.Controller):
                 )
 
             system_prompt = (jdata.get("system_prompt") or "").strip()
+            if system_prompt and not request.env.user.has_group('base.group_system'):
+                system_prompt = ""
             if not system_prompt:
                 system_prompt = _get_system_prompt()
 
-            max_tokens = int(jdata.get("max_tokens", 4096))
-            temperature = float(jdata.get("temperature", 0.7))
+            max_tokens = _sanitize_max_tokens(jdata.get("max_tokens", _MAX_TOKENS_DEFAULT))
+            temperature = _sanitize_temperature(jdata.get("temperature", 0.7), 0.7)
 
             dotenv = _load_dotenv()
             api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -11,7 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from odoo import models, fields, api, SUPERUSER_ID
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, AccessError
 from odoo.modules.registry import Registry
 
 from .atlas import (
@@ -219,9 +220,6 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
             # --- Rubric criteria ---
             try:
                 task.write({"rubric_generation_status": "running"})
-                # Clear previous criteria before generating new ones so stale
-                # data from an earlier session never persists.
-                task.sudo().rubric_criterion_ids.unlink()
                 cr.commit()
 
                 criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
@@ -234,7 +232,15 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
                             "rubric_output_tokens": (task.rubric_output_tokens or 0) + r_out,
                         })
 
-                if criteria_data:
+                if not criteria_data:
+                    _logger.warning(
+                        "Generation bg: rubric parser returned empty criteria for task=%s - keeping previous rubric, marking status=error",
+                        task_id,
+                    )
+                    task.write({"rubric_generation_status": "error"})
+                    cr.commit()
+                else:
+                    task.sudo().rubric_criterion_ids.unlink()
                     valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
                     valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
                     created_count = 0
@@ -271,19 +277,16 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
                         "Generation bg: created %d rubric criteria for task=%s",
                         created_count, task_id,
                     )
+
                     if created_count == 0:
                         _logger.warning(
-                            "Generation bg: criteria_data had entries but none valid for task=%s",
+                            "Generation bg: criteria_data had entries but none valid for task=%s - marking status=error",
                             task_id,
                         )
-                else:
-                    _logger.warning(
-                        "Generation bg: rubric parser returned empty criteria for task=%s",
-                        task_id,
-                    )
-
-                task.write({"rubric_generation_status": "done"})
-                cr.commit()
+                        task.write({"rubric_generation_status": "error"})
+                    else:
+                        task.write({"rubric_generation_status": "done"})
+                    cr.commit()
             except Exception:
                 _logger.exception("Generation bg: rubric generation failed for task=%s", task_id)
                 task.write({"rubric_generation_status": "error"})
@@ -407,7 +410,6 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
 
             try:
                 task.write({"rubric_generation_status": "running"})
-                task.sudo().rubric_criterion_ids.unlink()
                 cr.commit()
 
                 criteria_data, rubric_usage = generate_rubric_from_turns(env, turns, task_id=task_id)
@@ -420,7 +422,15 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
                             "rubric_output_tokens": (task.rubric_output_tokens or 0) + r_out,
                         })
 
-                if criteria_data:
+                if not criteria_data:
+                    _logger.warning(
+                        "Rubric-only bg: parser returned empty criteria for task=%s - keeping previous rubric, marking status=error",
+                        task_id,
+                    )
+                    task.write({"rubric_generation_status": "error"})
+                    cr.commit()
+                else:
+                    task.sudo().rubric_criterion_ids.unlink()
                     valid_cats = ("factuality_hallucination", "task_completion", "instruction_following", "communication_style", "other")
                     valid_imps = ("critically_detrimental", "detrimental", "slightly_detrimental", "slightly_important", "important", "critically_important")
                     created_count = 0
@@ -457,14 +467,16 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
                         "Rubric-only bg: created %d criteria for task=%s",
                         created_count, task_id,
                     )
-                else:
-                    _logger.warning(
-                        "Rubric-only bg: parser returned empty criteria for task=%s",
-                        task_id,
-                    )
 
-                task.write({"rubric_generation_status": "done"})
-                cr.commit()
+                    if created_count == 0:
+                        _logger.warning(
+                            "Rubric-only bg: criteria_data had entries but none valid for task=%s - marking status=error",
+                            task_id,
+                        )
+                        task.write({"rubric_generation_status": "error"})
+                    else:
+                        task.write({"rubric_generation_status": "done"})
+                    cr.commit()
             except Exception:
                 _logger.exception("Rubric-only bg: failed for task=%s", task_id)
                 task.write({"rubric_generation_status": "error"})
@@ -765,9 +777,19 @@ class AtlasSandbox(models.Model):
     # Lifecycle actions
     # ------------------------------------------------------------------
 
+    def _check_owner_or_admin(self):
+        for rec in self:
+            owner_user = rec.atlas_id.employee_id.user_id if rec.atlas_id else False
+            if owner_user and owner_user.id == self.env.user.id:
+                continue
+            if self.env.user.has_group('base.group_system'):
+                continue
+            raise AccessError("You do not have access to this sandbox.")
+
     def action_start_sandbox(self):
         """Start sandbox asynchronously — returns immediately, work runs in background."""
         self.ensure_one()
+        self._check_owner_or_admin()
 
         if not self.atlas_id:
             raise UserError(
@@ -831,6 +853,7 @@ class AtlasSandbox(models.Model):
 
     def action_stop_sandbox(self):
         self.ensure_one()
+        self._check_owner_or_admin()
 
         if self.atlas_id:
             self._collect_glm_tokens()
@@ -1021,12 +1044,15 @@ class AtlasSandbox(models.Model):
             )
 
             if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip()
+                _logger.error(
+                    "Compose up failed (sync) sandbox=%s project=%s rc=%s stderr=%s",
+                    self.id, project_name, result.returncode,
+                    (result.stderr or result.stdout or "").strip()[:4000],
+                )
                 self.write(
                     {
                         "docker_status": "error",
-                        "docker_error": "Compose up failed (exit %d): %s"
-                        % (result.returncode, error_msg[:1000]),
+                        "docker_error": "Sandbox failed to start. Contact your administrator.",
                     }
                 )
                 return
@@ -1043,35 +1069,55 @@ class AtlasSandbox(models.Model):
                 )
             else:
                 logs = self._capture_container_logs(compose_bin, project_name, workdir)
-                error_detail = (
-                    "Sandbox containers started but the gateway never became "
-                    "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
+                _logger.error(
+                    "Gateway health-check failed for project %s (sandbox %s) logs=%s",
+                    project_name, self.id, (logs or "")[:4000],
                 )
-                if logs:
-                    error_detail += (
-                        "\n\nContainer logs (last 30 lines):\n%s" % logs[:2000]
-                    )
                 self.write(
                     {
                         "docker_status": "error",
-                        "docker_error": error_detail[:4000],
+                        "docker_error": (
+                            "Sandbox started but the gateway never became healthy "
+                            "within %d seconds. Contact your administrator." % _HEALTH_WAIT_TIMEOUT
+                        ),
                     }
-                )
-                _logger.error(
-                    "Gateway health-check failed for project %s (sandbox %s)",
-                    project_name,
-                    self.id,
                 )
 
         except subprocess.TimeoutExpired:
+            _logger.error("docker compose up timed out (sync) sandbox=%s project=%s", self.id, project_name)
             self.write(
                 {
                     "docker_status": "error",
-                    "docker_error": "docker compose up timed out after 900 seconds",
+                    "docker_error": "Sandbox start timed out. Contact your administrator.",
                 }
             )
         except Exception as e:
-            self.write({"docker_status": "error", "docker_error": str(e)[:500]})
+            _logger.exception("Unhandled error during compose up (sync) sandbox=%s", self.id)
+            self.write({
+                "docker_status": "error",
+                "docker_error": "Sandbox start failed unexpectedly. Contact your administrator.",
+            })
+        finally:
+            if self.docker_status == "error":
+                try:
+                    subprocess.run(
+                        [compose_bin, "compose",
+                         "-f", "docker-compose.yml",
+                         "-f", "docker-compose.override.yml",
+                         "-p", project_name,
+                         "down", "-v", "--remove-orphans"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                        cwd=workdir,
+                        env=compose_env,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Orphan cleanup failed (sync) sandbox=%s project=%s",
+                        self.id, project_name,
+                    )
 
     def _start_local_bg(self):
         """Start local Docker sandbox — called from background thread."""
@@ -1121,11 +1167,15 @@ class AtlasSandbox(models.Model):
             )
 
             if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip()
+                _logger.error(
+                    "Compose up failed for sandbox=%s project=%s rc=%s stderr=%s",
+                    self.id, project_name, result.returncode,
+                    (result.stderr or result.stdout or "").strip()[:4000],
+                )
                 self.write(
                     {
                         "docker_status": "error",
-                        "docker_error": "Compose up failed: %s" % error_msg[:1000],
+                        "docker_error": "Sandbox failed to start. Contact your administrator.",
                     }
                 )
                 return
@@ -1149,35 +1199,57 @@ class AtlasSandbox(models.Model):
                 )
             else:
                 logs = self._capture_container_logs(compose_bin, project_name, workdir)
-                error_detail = (
-                    "Sandbox containers started but the gateway never became "
-                    "healthy within %d seconds." % _HEALTH_WAIT_TIMEOUT
+                _logger.error(
+                    "Sandbox gateway did not become healthy sandbox=%s project=%s logs=%s",
+                    self.id, project_name, (logs or "")[:4000],
                 )
-                if logs:
-                    error_detail += (
-                        "\n\nContainer logs (last 30 lines):\n%s" % logs[:2000]
-                    )
                 self.write(
                     {
                         "docker_status": "error",
-                        "docker_error": error_detail[:4000],
+                        "docker_error": (
+                            "Sandbox started but the gateway never became healthy "
+                            "within %d seconds. Contact your administrator." % _HEALTH_WAIT_TIMEOUT
+                        ),
                     }
                 )
 
         except subprocess.TimeoutExpired:
+            _logger.error("docker compose up timed out for sandbox=%s project=%s", self.id, project_name)
             self.write(
                 {
                     "docker_status": "error",
-                    "docker_error": "docker compose up timed out after 900 seconds",
+                    "docker_error": "Sandbox start timed out. Contact your administrator.",
                 }
             )
         except Exception as e:
+            _logger.exception("Unhandled error during compose up for sandbox=%s", self.id)
             self.write(
                 {
                     "docker_status": "error",
-                    "docker_error": str(e)[:500],
+                    "docker_error": "Sandbox start failed unexpectedly. Contact your administrator.",
                 }
             )
+        finally:
+            if self.docker_status == "error":
+                try:
+                    subprocess.run(
+                        [compose_bin, "compose",
+                         "-f", "docker-compose.yml",
+                         "-f", "docker-compose.override.yml",
+                         "-p", project_name,
+                         "down", "-v", "--remove-orphans"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                        cwd=workdir,
+                        env=compose_env,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Orphan cleanup failed for sandbox=%s project=%s",
+                        self.id, project_name,
+                    )
 
     def _start_k8s_bg(self):
         """Start K8s sandbox — called from background thread."""
@@ -1481,12 +1553,50 @@ class AtlasSandbox(models.Model):
                 if isinstance(token_data, dict):
                     gog_files = token_data.get("tokens", {})
                     written_files = []
+                    # Anchor for realpath prefix check — resolve symlinks once up-front
+                    gogcli_root = os.path.realpath(
+                        os.path.join(gog_config_dir, "gogcli")
+                    )
                     for rel_path, content in gog_files.items():
                         if rel_path in ("client_secret", "tokens"):
                             continue
                         if not isinstance(content, str):
                             continue
+                        # --- SECURITY: path-traversal defense (fix for atlas_sandbox.py:1495) ---
+                        # Reject anything that isn't a safe relative path. gogcli only ever
+                        # produces short filenames like "token-<email>.json" in a flat dir or
+                        # a single subdir. We restrict to alphanumerics, dot, hyphen, underscore,
+                        # and a single forward slash for optional sub-dir.
+                        if (
+                            not isinstance(rel_path, str)
+                            or not rel_path
+                            or rel_path.startswith(("/", "\\"))
+                            or ".." in rel_path.replace("\\", "/").split("/")
+                            or not re.match(r"^[A-Za-z0-9._\-]+(?:/[A-Za-z0-9._\-]+)?$", rel_path)
+                        ):
+                            _logger.warning(
+                                "[GogAuth→Docker] REJECTED unsafe gog_auth_token key "
+                                "for task %s: %r",
+                                self.atlas_id.id,
+                                rel_path,
+                            )
+                            continue
                         abs_path = os.path.join(gog_config_dir, "gogcli", rel_path)
+                        real_abs = os.path.realpath(abs_path)
+                        # Belt-and-suspenders: ensure resolved path is under gogcli root.
+                        if not (
+                            real_abs == gogcli_root
+                            or real_abs.startswith(gogcli_root + os.sep)
+                        ):
+                            _logger.warning(
+                                "[GogAuth→Docker] REJECTED path-escape attempt "
+                                "for task %s: %r -> %s (root=%s)",
+                                self.atlas_id.id,
+                                rel_path,
+                                real_abs,
+                                gogcli_root,
+                            )
+                            continue
                         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
                         with open(abs_path, "w") as f:
                             f.write(content)
@@ -1836,6 +1946,7 @@ class AtlasSandbox(models.Model):
             .strip()
         )
         if mode != "k8s":
+            self._cron_reconcile_local()
             return
 
         sandboxes = self.sudo().search(
@@ -1878,3 +1989,58 @@ class AtlasSandbox(models.Model):
                     sandbox.id,
                     e,
                 )
+
+    @api.model
+    def _cron_reconcile_local(self):
+        if not _docker_available():
+            return
+        compose_bin = _compose_cmd()
+        if not compose_bin:
+            return
+        stale_threshold = 30 * 60
+        now = time.time()
+        sandboxes = self.sudo().search(
+            [("docker_status", "in", ["starting", "running"])]
+        )
+        for sandbox in sandboxes:
+            project = sandbox.docker_compose_project
+            if not project:
+                continue
+            try:
+                result = subprocess.run(
+                    [compose_bin, "compose", "-p", project, "ps", "-q"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                    cwd=sandbox.docker_workdir or None,
+                )
+                has_containers = bool((result.stdout or "").strip())
+            except Exception:
+                _logger.exception(
+                    "Local reconcile: docker ps failed for sandbox=%s project=%s",
+                    sandbox.id, project,
+                )
+                continue
+
+            if has_containers:
+                continue
+
+            last_write = sandbox.write_date
+            age = 0
+            if last_write:
+                try:
+                    age = now - last_write.timestamp()
+                except Exception:
+                    age = 0
+            if sandbox.docker_status == "starting" and age < stale_threshold:
+                continue
+
+            _logger.warning(
+                "Local reconcile: no containers for project=%s sandbox=%s (status=%s), marking error",
+                project, sandbox.id, sandbox.docker_status,
+            )
+            sandbox.write({
+                "docker_status": "error",
+                "docker_error": "Sandbox containers no longer exist. Please restart.",
+            })
