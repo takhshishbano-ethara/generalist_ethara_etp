@@ -1204,7 +1204,7 @@ export class TalosChatWidget extends Component {
         const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
         console.log(LOG_PREFIX, "🔄 _restoreSessionFromGateway: sessionKey=", sessionKey);
         try {
-            const res = await this._wsRpc("chat.history", { sessionKey, limit: 200 });
+            const res = await this._wsRpc("chat.history", { sessionKey, limit: 200, includeThinking: true }, 60000);
             const messages = res?.result?.messages || res?.messages || [];
             console.log(LOG_PREFIX, `🔄 Gateway returned ${messages.length} messages`);
             if (messages.length === 0) return;
@@ -1282,7 +1282,7 @@ export class TalosChatWidget extends Component {
         }
     }
 
-    _wsRpc(method, params) {
+    _wsRpc(method, params, timeout = 15000) {
         const ws = this._session.ws;
         if (!ws || !this._session.wsConnected) {
             console.warn(LOG_PREFIX, `📡 _wsRpc(${method}): WS not connected — rejecting`);
@@ -1297,10 +1297,10 @@ export class TalosChatWidget extends Component {
             setTimeout(() => {
                 if (this._session._pendingRpc.has(id)) {
                     this._session._pendingRpc.delete(id);
-                    console.error(LOG_PREFIX, `📡 _wsRpc TIMEOUT: method=${method} id=${id}`);
+                    console.error(LOG_PREFIX, `📡 _wsRpc TIMEOUT: method=${method} id=${id} timeout=${timeout}ms`);
                     reject(new Error("WS RPC timeout"));
                 }
-            }, 15000);
+            }, timeout);
         });
     }
 
@@ -1326,7 +1326,7 @@ export class TalosChatWidget extends Component {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             console.log(LOG_PREFIX, `📜 _fetchTrajectory attempt ${attempt}/${maxAttempts}: turnId=${turnId}`);
             try {
-                const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 });
+                const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000, includeThinking: true }, 60000);
                 const messages = res?.result?.messages || res?.messages || [];
                 console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
 
