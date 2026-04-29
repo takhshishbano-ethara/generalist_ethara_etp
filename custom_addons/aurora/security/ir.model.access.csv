@@ -6,6 +6,8 @@ access_aurora_pool_metrics_admin,aurora.pool.metrics.admin,model_aurora_pool_met
 access_aurora_import_tokens_wizard_admin,aurora.import.tokens.wizard.admin,model_aurora_import_tokens_wizard,group_aurora_admin,1,1,1,1
 access_aurora_evaluation_admin,aurora.evaluation.admin,model_aurora_evaluation,group_aurora_admin,1,1,1,1
 access_aurora_evaluation_user,aurora.evaluation.user,model_aurora_evaluation,group_aurora_user,1,1,0,0
+access_aurora_evaluation_instance_admin,aurora.evaluation.instance.admin,model_aurora_evaluation_instance,group_aurora_admin,1,1,1,1
+access_aurora_evaluation_instance_user,aurora.evaluation.instance.user,model_aurora_evaluation_instance,group_aurora_user,1,0,0,0
 access_aurora_harness_staging_admin,aurora.harness.staging.admin,model_aurora_harness_staging,group_aurora_admin,1,1,1,1
 access_aurora_harness_staging_user,aurora.harness.staging.user,model_aurora_harness_staging,group_aurora_user,1,1,0,0
 access_aurora_pipeline_result_admin,aurora.pipeline.result.admin,model_aurora_pipeline_result,group_aurora_admin,1,1,1,1

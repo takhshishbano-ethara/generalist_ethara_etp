@@ -1,6 +1,7 @@
 from . import credential_manager
 from . import pipeline_config
 from . import s3_storage
+from . import dataset_resolver
 from . import pipeline_executor
 from . import pipeline
 from . import pipeline_result
@@ -9,6 +10,7 @@ from . import pool_metrics
 from . import import_tokens_wizard
 from . import evaluation_executor
 from . import evaluation
+from . import evaluation_instance
 from . import harness_staging_executor
 from . import harness_staging
 from . import preview_wizard

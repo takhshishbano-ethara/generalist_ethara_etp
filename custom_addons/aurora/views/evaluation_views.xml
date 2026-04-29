@@ -46,6 +46,7 @@
                 <sheet>
                     <field name="active" invisible="1"/>
                     <field name="is_admin" invisible="1"/>
+                    <field name="instance_count" invisible="1"/>
                     <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
 
                     <widget name="web_ribbon" title="Failed" bg_color="text-bg-danger" invisible="stage != 'failed'"/>
@@ -214,6 +215,39 @@
                                     <field name="docker_platform" placeholder="linux/amd64"/>
                                 </group>
                             </group>
+                        </div>
+                    </div>
+
+                    <!-- ═══ INSTANCES ═══ -->
+                    <div class="aurora-config-panel" invisible="stage == 'draft' or instance_count == 0">
+                        <div class="aurora-config-header">
+                            <i class="fa fa-list-ul" title="Instances"/>
+                            Per-PR Instances
+                            (<field name="instance_count" readonly="1" nolabel="1" class="d-inline"/>)
+                        </div>
+                        <div class="aurora-config-body">
+                            <field name="instance_ids" nolabel="1" readonly="1">
+                                <list default_order="pr_number asc"
+                                      decoration-success="status == 'resolved'"
+                                      decoration-warning="status == 'unresolved'"
+                                      decoration-danger="status == 'error'"
+                                      decoration-info="status in ('building','running')"
+                                      decoration-muted="status in ('pending','built')">
+                                    <field name="pr_number" string="PR"/>
+                                    <field name="org" optional="hide"/>
+                                    <field name="repo" optional="hide"/>
+                                    <field name="image_tag"/>
+                                    <field name="status" widget="badge"
+                                           decoration-success="status == 'resolved'"
+                                           decoration-warning="status == 'unresolved'"
+                                           decoration-danger="status == 'error'"
+                                           decoration-info="status in ('building','running')"
+                                           decoration-muted="status in ('pending','built')"/>
+                                    <field name="resolved"/>
+                                    <field name="f2p_count" string="F2P"/>
+                                    <field name="p2p_count" string="P2P"/>
+                                </list>
+                            </field>
                         </div>
                     </div>
 
