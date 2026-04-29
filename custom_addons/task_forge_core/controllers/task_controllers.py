@@ -3,6 +3,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request, generate_s3_link
 )
+from odoo.addons.task_forge_core.services.kimi_client import call_kimi, parse_json_response
 from datetime import datetime, date, timedelta
 import json
 import base64
@@ -41,47 +42,13 @@ Return ONLY a valid JSON object with this exact structure:
 Rules:
 - error_percentage = (issue_count / total_words) * 100, capped at 100
 - If no issues found, return is_correct=true, error_percentage=0, empty issues array
-- Be thorough but not pedantic — flag real errors, not stylistic preferences
+- Be thorough but not pedantic
 - corrected_text must be the complete fixed version of the input"""
 
 
 def _check_text_with_kimi(text):
-    try:
-        from odoo.addons.valor.models.kimi_eval import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
-    except ImportError:
-        try:
-            from odoo.addons.preference_ranking.controllers.llm_actions import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
-        except ImportError:
-            raise Exception("Kimi K2.5 module not available. Install valor or preference_ranking module.")
-
-    api_key = get_kimi_api_key()
-    result = call_kimi_sync(
-        api_key,
-        DEFAULT_KIMI_MODEL,
-        GRAMMAR_CHECK_SYSTEM_PROMPT,
-        text,
-        response_format="json",
-        temperature=0.1,
-    )
-
-    response_text = result.get('text', '')
-    if not response_text:
-        return {
-            'original': text,
-            'corrected': text,
-            'is_correct': True,
-            'error_percentage': 0,
-            'issue_count': 0,
-            'issues': [],
-            'summary': {},
-        }
-
-    try:
-        if '```' in response_text:
-            response_text = response_text.split('```json')[-1].split('```')[0] if '```json' in response_text else response_text.split('```')[1].split('```')[0]
-        parsed = json.loads(response_text.strip())
-    except (json.JSONDecodeError, IndexError):
-        parsed = {}
+    result = call_kimi(GRAMMAR_CHECK_SYSTEM_PROMPT, text, temperature=0.1)
+    parsed = parse_json_response(result.get('text', ''))
 
     return {
         'original': text,
