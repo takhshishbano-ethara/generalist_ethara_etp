@@ -155,8 +155,11 @@ def generate_description_from_turns(env, turns):
 def _parse_rubric_table(text):
     import re as _re
 
-    code_block = _re.search(r"```(?:markdown)?\s*\n?(.*?)```", text, _re.DOTALL)
-    parse_text = code_block.group(1) if code_block else text
+    # Strip ALL fenced code blocks (formula blocks, prose blocks) — the rubric
+    # table itself is emitted in raw markdown, never inside a fence. Keeping
+    # fenced content would cause the non-greedy regex to grab a non-table
+    # fence (e.g. the Formula block) and discard the real table above it.
+    parse_text = _re.sub(r"```[\s\S]*?```", "", text)
 
     _QC_JUNK_PATTERNS = (
         "\u2713", "\u2717", "\u2714", "\u2716", "check ", "verdict",
@@ -305,7 +308,7 @@ def _parse_rubric_table(text):
 
         levels = []
         for col in cols:
-            level_matches = _re.findall(r"(\d+)\s*:\s*([^|]+?)(?=\s*\d+\s*:|$)", col)
+            level_matches = _re.findall(r"(-?\d+)\s*:\s*([^|]+?)(?=\s*-?\d+\s*:|$)", col)
             if level_matches:
                 for score_str, label in level_matches:
                     label = label.strip().rstrip("|").strip()
@@ -332,7 +335,7 @@ def _parse_rubric_table(text):
             "category": category,
             "custom_category": custom_category,
             "importance": importance,
-            "weight": max(lv["score"] for lv in levels) if levels else 2,
+            "weight": max((abs(lv["score"]) for lv in levels), default=2),
             "is_negative": is_negative,
             "suggestion": suggestion,
             "levels": levels,
@@ -395,7 +398,13 @@ def generate_rubric_from_turns(env, turns, task_id=None):
             timeout=120.0,
         )
         _logger.info("generate_rubric_from_turns: response_len=%d tokens=%s", len(response_text), usage)
-        _logger.info("generate_rubric_from_turns: first 500 chars: %s", response_text[:500])
+        # FULL RESPONSE DUMP (diagnostic) - split into chunks since Odoo log lines can be truncated
+        _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE BEGIN (task=%s) =====", task_id)
+        for _chunk_start in range(0, len(response_text), 2000):
+            _logger.info("generate_rubric_from_turns: FULL[%d:%d]: %s",
+                         _chunk_start, _chunk_start + 2000,
+                         response_text[_chunk_start:_chunk_start + 2000])
+        _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE END (task=%s) =====", task_id)
 
         criteria = _parse_rubric_table(response_text)
 
@@ -699,10 +708,17 @@ class Atlas(models.Model):
                 "ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file."
             )
 
-        self.write({
-            "goal_generation_status": "running",
-            "rubric_generation_status": "running",
-        })
+        self.env.cr.execute(
+            "UPDATE atlas_atlas "
+            "SET goal_generation_status = 'running', rubric_generation_status = 'running' "
+            "WHERE id = %s "
+            "AND goal_generation_status != 'running' "
+            "AND rubric_generation_status != 'running'",
+            (self.id,),
+        )
+        if self.env.cr.rowcount == 0:
+            raise UserError("Regeneration is already in progress for this task.")
+        self.invalidate_recordset(["goal_generation_status", "rubric_generation_status"])
 
         task_id = self.id
         db_name = self.env.cr.dbname
@@ -734,7 +750,14 @@ class Atlas(models.Model):
         if not inference_arn:
             raise UserError("ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file.")
 
-        self.write({"goal_generation_status": "running"})
+        self.env.cr.execute(
+            "UPDATE atlas_atlas SET goal_generation_status = 'running' "
+            "WHERE id = %s AND goal_generation_status != 'running'",
+            (self.id,),
+        )
+        if self.env.cr.rowcount == 0:
+            raise UserError("Goal regeneration is already in progress for this task.")
+        self.invalidate_recordset(["goal_generation_status"])
 
         task_id = self.id
         db_name = self.env.cr.dbname
@@ -766,7 +789,14 @@ class Atlas(models.Model):
         if not inference_arn:
             raise UserError("ATLAS_KIMI_BEDROCK_MODEL_ARN not configured in .env file.")
 
-        self.write({"rubric_generation_status": "running"})
+        self.env.cr.execute(
+            "UPDATE atlas_atlas SET rubric_generation_status = 'running' "
+            "WHERE id = %s AND rubric_generation_status != 'running'",
+            (self.id,),
+        )
+        if self.env.cr.rowcount == 0:
+            raise UserError("Rubric regeneration is already in progress for this task.")
+        self.invalidate_recordset(["rubric_generation_status"])
 
         task_id = self.id
         db_name = self.env.cr.dbname
@@ -884,9 +914,30 @@ class AtlasTurn(models.Model):
                     calls = json.loads(rec.tool_calls)
                     if isinstance(calls, list):
                         for c in calls:
+                            if not isinstance(c, dict):
+                                continue
                             n = c.get("name", "")
                             if n and n not in names:
                                 names.append(n)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError, AttributeError):
                     pass
             rec.tool_names = ", ".join(names) if names else False
+
+    @api.constrains("sandbox_id", "session_id", "turn_number")
+    def _check_unique_turn_number(self):
+        for rec in self:
+            if not rec.sandbox_id or not rec.turn_number:
+                continue
+            domain = [
+                ("sandbox_id", "=", rec.sandbox_id.id),
+                ("session_id", "=", rec.session_id or ""),
+                ("turn_number", "=", rec.turn_number),
+                ("id", "!=", rec.id),
+            ]
+            dup = self.search_count(domain)
+            if dup:
+                from odoo.exceptions import ValidationError
+                raise ValidationError(
+                    "Duplicate turn number %s in session %s (sandbox %s)."
+                    % (rec.turn_number, rec.session_id or "-", rec.sandbox_id.id)
+                )

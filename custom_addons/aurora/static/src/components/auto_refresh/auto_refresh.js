@@ -5,14 +5,17 @@ import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { Component, onMounted, onWillUnmount, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
-const POLL_STAGES = new Set([
-    // Phase 1 — Data Collection
+const PIPELINE_POLL_STAGES = new Set([
     "fetch_prs", "filter_prs", "discover_tags",
     "group_prs", "fetch_issues", "build_dataset",
     // Phase 2 — Docker Build & Test
     "phase2_build", "phase2_test", "phase2_report",
     // Phase 3 — Trajectory Generation
     "phase3_infer", "phase3_eval", "phase3_summary",
+]);
+
+const EVAL_POLL_STAGES = new Set([
+    "building_images", "running_instances", "generating_reports",
 ]);
 
 const FALLBACK_POLL_INTERVAL = 10000;
@@ -27,6 +30,7 @@ export class AuroraAutoRefresh extends Component {
         this._reloading = false;
         this._busSubscribed = false;
         this._busChannel = null;
+        this._busEventType = null;
         this.state = useState({ active: false });
 
         this._onBusNotification = this._onBusNotification.bind(this);
@@ -49,12 +53,19 @@ export class AuroraAutoRefresh extends Component {
         });
     }
 
+    _isEvaluation() {
+        return this.props.record.resModel === "aurora.evaluation";
+    }
+
     _shouldPoll() {
         if (document.hidden) return false;
         const record = this.props.record;
         if (record.isNew) return false;
         const stage = record.data[this.props.name];
-        return POLL_STAGES.has(stage);
+        if (this._isEvaluation()) {
+            return EVAL_POLL_STAGES.has(stage);
+        }
+        return PIPELINE_POLL_STAGES.has(stage);
     }
 
     _checkAndStart() {
@@ -70,9 +81,15 @@ export class AuroraAutoRefresh extends Component {
         this.state.active = true;
 
         const recId = this.props.record.resId;
-        this._busChannel = `aurora_pipeline_${recId}`;
+        if (this._isEvaluation()) {
+            this._busChannel = `aurora_evaluation_${recId}`;
+            this._busEventType = "aurora_evaluation_update";
+        } else {
+            this._busChannel = `aurora_pipeline_${recId}`;
+            this._busEventType = "aurora_pipeline_update";
+        }
         this.busService.addChannel(this._busChannel);
-        this.busService.subscribe("aurora_pipeline_update", this._onBusNotification);
+        this.busService.subscribe(this._busEventType, this._onBusNotification);
         this._busSubscribed = true;
 
         this._startFallback();
@@ -80,7 +97,8 @@ export class AuroraAutoRefresh extends Component {
 
     async _onBusNotification(payload) {
         const recId = this.props.record.resId;
-        if (payload.pipeline_id !== recId) return;
+        const idField = this._isEvaluation() ? "evaluation_id" : "pipeline_id";
+        if (payload[idField] !== recId) return;
         if (this._reloading) return;
         this._reloading = true;
         try {
@@ -126,11 +144,14 @@ export class AuroraAutoRefresh extends Component {
         this.state.active = false;
         this._stopFallback();
         if (this._busSubscribed) {
-            this.busService.unsubscribe("aurora_pipeline_update", this._onBusNotification);
+            if (this._busEventType) {
+                this.busService.unsubscribe(this._busEventType, this._onBusNotification);
+            }
             if (this._busChannel) {
                 this.busService.deleteChannel(this._busChannel);
                 this._busChannel = null;
             }
+            this._busEventType = null;
             this._busSubscribed = false;
         }
     }

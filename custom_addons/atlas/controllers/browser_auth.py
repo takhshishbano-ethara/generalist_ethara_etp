@@ -44,6 +44,10 @@ class AtlasBrowserAuthController(http.Controller):
         sandbox = request.env["atlas.sandbox"].browse(sandbox_id)
         if not sandbox.exists():
             return None, {"error": "Sandbox not found"}
+        owner = sandbox.atlas_id.employee_id.user_id if sandbox.atlas_id else False
+        is_admin = request.env.user.has_group('base.group_system')
+        if not ((owner and owner.id == request.env.user.id) or is_admin):
+            return None, {"error": "Access denied"}
         if sandbox.docker_status != "running":
             return None, {"error": "Sandbox is not running"}
         return sandbox, None
@@ -90,9 +94,9 @@ class AtlasBrowserAuthController(http.Controller):
             return {"error": "Screenshot request timed out"}
         except requests.ConnectionError:
             return {"error": "Cannot connect to browser API"}
-        except Exception as exc:
+        except Exception:
             _logger.exception("Browser screenshot failed")
-            return {"error": str(exc)}
+            return {"error": "Screenshot failed"}
 
     @http.route("/atlas/browser/inject_cookies", type="json", auth="user")
     def inject_cookies(self, sandbox_id=0, cookies=None, url=None, **kw):
@@ -141,9 +145,9 @@ class AtlasBrowserAuthController(http.Controller):
             return {"error": "Cookie inject request timed out"}
         except requests.ConnectionError:
             return {"error": "Cannot connect to browser API"}
-        except Exception as exc:
+        except Exception:
             _logger.exception("Cookie injection failed")
-            return {"error": str(exc)}
+            return {"error": "Cookie injection failed"}
 
     @http.route("/atlas/browser/status", type="json", auth="user")
     def browser_status(self, sandbox_id=0, **kw):
@@ -167,6 +171,6 @@ class AtlasBrowserAuthController(http.Controller):
             return {"error": "Browser status request timed out"}
         except requests.ConnectionError:
             return {"error": "Cannot connect to browser API"}
-        except Exception as exc:
+        except Exception:
             _logger.exception("Browser status failed")
-            return {"error": str(exc)}
+            return {"error": "Browser status failed"}

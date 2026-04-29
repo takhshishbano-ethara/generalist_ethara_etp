@@ -59,6 +59,50 @@
             <field name="perm_create" eval="True"/>
             <field name="perm_unlink" eval="True"/>
         </record>
+
+        <record id="aurora_evaluation_rule_user" model="ir.rule">
+            <field name="name">Aurora Evaluation: User sees own</field>
+            <field name="model_id" ref="model_aurora_evaluation"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_aurora_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="aurora_evaluation_rule_admin" model="ir.rule">
+            <field name="name">Aurora Evaluation: Admin sees all</field>
+            <field name="model_id" ref="model_aurora_evaluation"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_aurora_admin'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="aurora_staging_rule_user" model="ir.rule">
+            <field name="name">Aurora Staging: User sees own</field>
+            <field name="model_id" ref="model_aurora_harness_staging"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_aurora_user'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="aurora_staging_rule_admin" model="ir.rule">
+            <field name="name">Aurora Staging: Admin sees all</field>
+            <field name="model_id" ref="model_aurora_harness_staging"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_aurora_admin'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
     </data>
 
 </odoo>

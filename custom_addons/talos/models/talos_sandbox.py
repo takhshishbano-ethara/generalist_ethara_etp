@@ -538,7 +538,7 @@ class TalosSandbox(models.Model):
                     "--",
                     "sh",
                     "-c",
-                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
+                    "find /home/node/.openclaw -name '*.jsonl' -path '*/sessions/*' 2>/dev/null | xargs cat 2>/dev/null",
                 ],
                 capture_output=True,
                 text=True,

@@ -68,5 +68,23 @@
             <field name="interval_type">minutes</field>
             <field name="active">True</field>
         </record>
+
+        <record id="seq_aurora_evaluation" model="ir.sequence">
+            <field name="name">Aurora Evaluation</field>
+            <field name="code">aurora.evaluation</field>
+            <field name="prefix">EVAL-</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="ir_cron_aurora_eval_watchdog" model="ir.cron">
+            <field name="name">Aurora: Stalled Evaluation Watchdog</field>
+            <field name="model_id" ref="model_aurora_evaluation"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_watchdog_stalled_eval()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>

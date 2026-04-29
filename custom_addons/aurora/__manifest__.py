@@ -13,7 +13,7 @@
     "license": "LGPL-3",
     "depends": ["base", "mail", "bus"],
     "external_dependencies": {
-        "python": ["github", "packaging", "requests", "unidiff", "tqdm", "dotenv", "boto3", "cryptography", "kubernetes", "openpyxl"],
+        "python": ["github", "packaging", "requests", "unidiff", "tqdm", "dotenv", "boto3", "cryptography", "kubernetes", "openpyxl","docker", "git", "dataclasses_json"],
     },
     "application": True,
     "data": [
@@ -21,6 +21,8 @@
         "security/ir.model.access.csv",
         "data/data.xml",
         "views/pipeline_views.xml",
+        "views/evaluation_views.xml",
+        "views/harness_staging_views.xml",
         "views/token_views.xml",
         "views/aurora_menus.xml",
         "views/res_config_settings_views.xml",
@@ -30,6 +32,10 @@
             "aurora/static/src/scss/aurora_form.scss",
             "aurora/static/src/components/auto_refresh/auto_refresh.js",
             "aurora/static/src/components/auto_refresh/auto_refresh.xml",
+            "aurora/static/src/components/dashboard/dashboard.js",
+            "aurora/static/src/components/dashboard/dashboard.xml",
+            "aurora/static/src/components/statusbar/statusbar.js",
+            "aurora/static/src/components/statusbar/statusbar.xml",
         ],
     },
     "installable": True,

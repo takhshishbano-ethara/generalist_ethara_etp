@@ -39,6 +39,7 @@
         'views/validated_bug_views.xml',
         'views/bug_report_views.xml',
         'views/flag_views.xml',
+        'views/res_config_settings_views.xml',
         'views/menu.xml',
     ],
     'installable': True,

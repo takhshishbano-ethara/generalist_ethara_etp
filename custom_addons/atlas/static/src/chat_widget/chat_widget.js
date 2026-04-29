@@ -25,10 +25,70 @@ function renderMarkdown(text) {
     if (lib && typeof lib.parse === "function") {
         try {
             const html = lib.parse(text);
-            return typeof html === "string" ? html : String(html);
+            return sanitizeHtml(typeof html === "string" ? html : String(html));
         } catch (_) { /* fall through */ }
     }
     return text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+}
+
+// XSS sanitizer for Markdown-rendered HTML. Strips dangerous tags, all
+// inline event handlers, and non-whitelisted URL schemes. Applied to EVERY
+// LLM/tool-sourced HTML blob before markup() hands it to OWL, because
+// malicious pages the agent browses can inject arbitrary HTML into its
+// output. Whitelist-based — unknown attributes are removed, not kept.
+const _XSS_SAFE_URL = /^(?:https?:\/\/|mailto:|tel:|\/|\.\/|\.\.\/|#)/i;
+const _XSS_FORBID_TAGS = new Set([
+    "SCRIPT", "IFRAME", "OBJECT", "EMBED", "STYLE", "LINK", "META",
+    "BASE", "FORM", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "OPTION",
+    "FRAME", "FRAMESET",
+]);
+function _sanitizeAttr(el, name, val) {
+    const lname = name.toLowerCase();
+    if (lname.startsWith("on")) return null;
+    if (lname === "href" || lname === "src" || lname === "action" || lname === "formaction") {
+        return _XSS_SAFE_URL.test((val || "").trim()) ? val : null;
+    }
+    if (lname === "srcdoc" || lname === "xmlns") return null;
+    if (lname === "style") return null;
+    return val;
+}
+function sanitizeHtml(dirty) {
+    if (!dirty || typeof dirty !== "string") return "";
+    let doc;
+    try {
+        doc = new DOMParser().parseFromString(`<div>${dirty}</div>`, "text/html");
+    } catch (_) {
+        return dirty.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    const root = doc.body.firstChild;
+    if (!root) return "";
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    const toRemove = [];
+    let node = walker.currentNode;
+    do {
+        if (node.nodeType !== 1) continue;
+        const tag = node.tagName;
+        if (_XSS_FORBID_TAGS.has(tag)) {
+            toRemove.push(node);
+            continue;
+        }
+        for (const attr of Array.from(node.attributes)) {
+            const kept = _sanitizeAttr(node, attr.name, attr.value);
+            if (kept === null) {
+                node.removeAttribute(attr.name);
+            } else if (kept !== attr.value) {
+                node.setAttribute(attr.name, kept);
+            }
+        }
+        if (tag === "A") {
+            node.setAttribute("rel", "noopener noreferrer");
+            node.setAttribute("target", "_blank");
+        }
+    } while ((node = walker.nextNode()));
+    for (const n of toRemove) {
+        if (n.parentNode) n.parentNode.removeChild(n);
+    }
+    return root.innerHTML;
 }
 
 const LOG_PREFIX = "[atlas-chat]";

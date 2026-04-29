@@ -3,6 +3,7 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request, generate_s3_link
 )
+from odoo.addons.task_forge_core.services.kimi_client import call_kimi, parse_json_response
 from datetime import datetime, date, timedelta
 import json
 import base64
@@ -10,85 +11,73 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-GRAMMAR_CHECK_SYSTEM_PROMPT = """You are an expert English language reviewer. Analyze the given text for:
-- Grammar errors
-- Spelling mistakes
-- Punctuation issues
-- Style/clarity problems
+GRAMMAR_CHECK_SYSTEM_PROMPT = """You are an expert English language reviewer. Analyze the given text for grammar errors, spelling mistakes, punctuation issues, and clarity problems.
 
-Return ONLY a valid JSON object with this exact structure:
+Return ONLY a valid JSON object. No markdown, no code fences, no extra text.
+
+Schema:
 {
-  "error_percentage": <number 0-100>,
-  "is_correct": <true if 0 errors, false otherwise>,
-  "corrected_text": "<the fully corrected version of the text>",
-  "issue_count": <total number of issues found>,
+  "is_correct": true/false,
+  "issue_count": number,
+  "corrected_text": "the complete input with all corrections applied",
   "issues": [
     {
-      "category": "<grammar|misspelling|punctuation|style>",
-      "original_text": "<the problematic word or phrase>",
-      "corrected_text": "<the correction>",
-      "message": "<brief explanation of the error>"
+      "category": "grammar|misspelling|punctuation|clarity",
+      "severity": "low|medium|high",
+      "text": "exact problematic word/phrase from input",
+      "suggestion_text": "correction",
+      "message": "brief explanation"
     }
   ],
-  "summary": {
-    "grammar": <count>,
-    "misspelling": <count>,
-    "punctuation": <count>,
-    "style": <count>
-  }
+  "summary": {"grammar": 0, "misspelling": 0, "punctuation": 0, "clarity": 0}
 }
 
 Rules:
-- error_percentage = (issue_count / total_words) * 100, capped at 100
-- If no issues found, return is_correct=true, error_percentage=0, empty issues array
-- Be thorough but not pedantic — flag real errors, not stylistic preferences
-- corrected_text must be the complete fixed version of the input"""
+- is_correct must be boolean true or false
+- If text has ANY errors, is_correct MUST be false
+- Every correction in issues MUST appear in corrected_text
+- For long texts with many errors, list the top 30 most important issues
+- Be thorough: flag every misspelling, every grammar error, every punctuation issue
+"""
 
 
 def _check_text_with_kimi(text):
-    try:
-        from odoo.addons.valor.models.kimi_eval import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
-    except ImportError:
-        try:
-            from odoo.addons.preference_ranking.controllers.llm_actions import call_kimi_sync, get_kimi_api_key, DEFAULT_KIMI_MODEL
-        except ImportError:
-            raise Exception("Kimi K2.5 module not available. Install valor or preference_ranking module.")
+    result = call_kimi(GRAMMAR_CHECK_SYSTEM_PROMPT, text, temperature=0.1)
+    raw_text = result.get('text', '')
+    _logger.info('Kimi raw response (%d chars): %s', len(raw_text), raw_text[:500])
 
-    api_key = get_kimi_api_key()
-    result = call_kimi_sync(
-        api_key,
-        DEFAULT_KIMI_MODEL,
-        GRAMMAR_CHECK_SYSTEM_PROMPT,
-        text,
-        response_format="json",
-        temperature=0.1,
-    )
+    parsed = parse_json_response(raw_text)
 
-    response_text = result.get('text', '')
-    if not response_text:
+    if not parsed:
+        _logger.error('Failed to parse Kimi response as JSON. Raw: %s', raw_text[:1000])
         return {
             'original': text,
             'corrected': text,
-            'is_correct': True,
+            'is_correct': False,
             'error_percentage': 0,
             'issue_count': 0,
             'issues': [],
             'summary': {},
+            'parse_error': 'Kimi returned a non-JSON response. Please try again.',
+            'raw_response': raw_text[:500],
         }
 
-    try:
-        if '```' in response_text:
-            response_text = response_text.split('```json')[-1].split('```')[0] if '```json' in response_text else response_text.split('```')[1].split('```')[0]
-        parsed = json.loads(response_text.strip())
-    except (json.JSONDecodeError, IndexError):
-        parsed = {}
+    is_correct_raw = parsed.get('is_correct', False)
+    if isinstance(is_correct_raw, str):
+        is_correct = is_correct_raw.lower() == 'true'
+    else:
+        is_correct = bool(is_correct_raw)
+
+    issue_count = int(parsed.get('issue_count', 0))
+    if issue_count > 0:
+        is_correct = False
 
     return {
         'original': text,
         'corrected': parsed.get('corrected_text', text),
-        'is_correct': parsed.get('is_correct', True),
+        'is_correct': is_correct,
         'error_percentage': parsed.get('error_percentage', 0),
-        'issue_count': parsed.get('issue_count', 0),
+        'issue_count': issue_count,
         'issues': parsed.get('issues', []),
         'summary': parsed.get('summary', {}),
     }
