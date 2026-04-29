@@ -1,0 +1,672 @@
+# -*- coding: utf-8 -*-
+import json
+import os
+import tempfile
+from datetime import timedelta
+from unittest.mock import patch, MagicMock
+
+from odoo import fields as odoo_fields
+from odoo.tests.common import TransactionCase, tagged
+from odoo.exceptions import UserError
+
+
+@tagged("post_install", "-at_install")
+class TestAuroraEvaluation(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["ir.config_parameter"].sudo().set_param("aurora.output_dir", "/tmp/aurora_test")
+        cls.pipeline = cls.env["aurora.pipeline"].create({
+            "github_org": "testorg",
+            "github_repo": "testrepo",
+        })
+        cls.pipeline.write({"stage": "done", "step6_file": "/tmp/test_dataset.jsonl"})
+
+    def _create_eval(self, **kwargs):
+        vals = {}
+        vals.update(kwargs)
+        return self.env["aurora.evaluation"].create(vals)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Record creation
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_create_assigns_sequence(self):
+        """New evaluation gets EVAL-XXXXX reference."""
+        rec = self._create_eval()
+        self.assertTrue(rec.name.startswith("EVAL-") or rec.name != "New")
+        self.assertNotEqual(rec.name, "New")
+
+    def test_create_preserves_explicit_name(self):
+        """Explicit name is preserved."""
+        rec = self._create_eval(name="CUSTOM-001")
+        self.assertEqual(rec.name, "CUSTOM-001")
+
+    def test_create_multi_unique_names(self):
+        """Batch create assigns unique sequences."""
+        recs = self.env["aurora.evaluation"].create([{}, {}, {}])
+        self.assertEqual(len(recs), 3)
+        names = [r.name for r in recs]
+        self.assertEqual(len(set(names)), 3)
+
+    def test_create_multi_mixed_names(self):
+        """Batch create: explicit name preserved, 'New' gets sequence."""
+        recs = self.env["aurora.evaluation"].create([
+            {"name": "CUSTOM-X"},
+            {},
+        ])
+        self.assertEqual(recs[0].name, "CUSTOM-X")
+        self.assertNotEqual(recs[1].name, "New")
+
+    def test_create_default_stage(self):
+        """Stage defaults to draft."""
+        rec = self._create_eval()
+        self.assertEqual(rec.stage, "draft")
+
+    def test_create_default_statuses(self):
+        """build/run/report status default to idle."""
+        rec = self._create_eval()
+        self.assertEqual(rec.build_status, "idle")
+        self.assertEqual(rec.run_status, "idle")
+        self.assertEqual(rec.report_status, "idle")
+
+    def test_create_default_counters(self):
+        """Counter fields default to 0."""
+        rec = self._create_eval()
+        self.assertEqual(rec.total_instances, 0)
+        self.assertEqual(rec.resolved_instances, 0)
+        self.assertEqual(rec.unresolved_instances, 0)
+        self.assertEqual(rec.error_instances, 0)
+
+    def test_create_default_active(self):
+        """active defaults to True."""
+        rec = self._create_eval()
+        self.assertTrue(rec.active)
+
+    def test_create_default_user_id(self):
+        """user_id defaults to current user."""
+        rec = self._create_eval()
+        self.assertEqual(rec.user_id, self.env.user)
+
+    def test_create_default_workers(self):
+        """Worker fields default to 4."""
+        rec = self._create_eval()
+        self.assertEqual(rec.max_workers_build, 4)
+        self.assertEqual(rec.max_workers_run, 4)
+
+    def test_create_default_instance_limit(self):
+        """instance_limit defaults to 0."""
+        rec = self._create_eval()
+        self.assertEqual(rec.instance_limit, 0)
+
+    def test_create_default_force_build(self):
+        """force_build defaults to False."""
+        rec = self._create_eval()
+        self.assertFalse(rec.force_build)
+
+    def test_create_empty_string_fields(self):
+        """String fields are empty by default."""
+        rec = self._create_eval()
+        self.assertFalse(rec.dataset_file)
+        self.assertFalse(rec.patch_file)
+        self.assertFalse(rec.repo_dir)
+        self.assertFalse(rec.workdir)
+        self.assertFalse(rec.output_dir)
+        self.assertFalse(rec.docker_platform)
+        self.assertFalse(rec.specific_prs)
+        self.assertFalse(rec.log)
+        self.assertFalse(rec.final_report_file)
+        self.assertFalse(rec.missing_registries)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # _generate_patch_file
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_generate_patch_file_basic(self):
+        """Generates patch file from dataset entries."""
+        rec = self._create_eval()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
+            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "diff"}) + "\n")
+            ds_path = ds.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
+            out_path = out.name
+        try:
+            rec._generate_patch_file(ds_path, out_path)
+            with open(out_path) as f:
+                data = json.loads(f.readline())
+            self.assertEqual(data["org"], "o")
+            self.assertEqual(data["repo"], "r")
+            self.assertEqual(data["number"], 1)
+            self.assertEqual(data["fix_patch"], "diff")
+        finally:
+            os.unlink(ds_path)
+            os.unlink(out_path)
+
+    def test_generate_patch_file_skips_empty_lines(self):
+        """Empty lines are skipped."""
+        rec = self._create_eval()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
+            ds.write("\n")
+            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": ""}) + "\n")
+            ds.write("\n\n")
+            ds_path = ds.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
+            out_path = out.name
+        try:
+            rec._generate_patch_file(ds_path, out_path)
+            with open(out_path) as f:
+                lines = [l for l in f if l.strip()]
+            self.assertEqual(len(lines), 1)
+        finally:
+            os.unlink(ds_path)
+            os.unlink(out_path)
+
+    def test_generate_patch_file_missing_fix_patch(self):
+        """Missing fix_patch defaults to empty string."""
+        rec = self._create_eval()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
+            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1}) + "\n")
+            ds_path = ds.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
+            out_path = out.name
+        try:
+            rec._generate_patch_file(ds_path, out_path)
+            with open(out_path) as f:
+                data = json.loads(f.readline())
+            self.assertEqual(data["fix_patch"], "")
+        finally:
+            os.unlink(ds_path)
+            os.unlink(out_path)
+
+    def test_generate_patch_file_multiple_entries(self):
+        """Multiple entries written correctly."""
+        rec = self._create_eval()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
+            for i in range(5):
+                ds.write(json.dumps({"org": "o", "repo": "r", "number": i, "fix_patch": f"d{i}"}) + "\n")
+            ds_path = ds.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
+            out_path = out.name
+        try:
+            rec._generate_patch_file(ds_path, out_path)
+            with open(out_path) as f:
+                lines = [l for l in f if l.strip()]
+            self.assertEqual(len(lines), 5)
+        finally:
+            os.unlink(ds_path)
+            os.unlink(out_path)
+
+    def test_generate_patch_file_unicode(self):
+        """Unicode in fix_patch is preserved."""
+        rec = self._create_eval()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as ds:
+            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "日本語パッチ"}, ensure_ascii=False) + "\n")
+            ds_path = ds.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
+            out_path = out.name
+        try:
+            rec._generate_patch_file(ds_path, out_path)
+            with open(out_path, encoding="utf-8") as f:
+                data = json.loads(f.readline())
+            self.assertEqual(data["fix_patch"], "日本語パッチ")
+        finally:
+            os.unlink(ds_path)
+            os.unlink(out_path)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_run_evaluation
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_run_only_from_draft(self):
+        """Can only start from draft stage."""
+        for stage in ["building_images", "running_instances", "generating_reports", "done", "failed"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage})
+            with self.assertRaises(UserError):
+                rec.action_run_evaluation()
+
+    def test_run_no_dataset_raises(self):
+        """No dataset_file raises UserError."""
+        rec = self._create_eval()
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    @patch("os.path.isfile", return_value=False)
+    def test_run_dataset_not_found_raises(self, mock_isfile):
+        """Dataset file not on filesystem raises UserError."""
+        rec = self._create_eval(dataset_file="/tmp/nonexistent.jsonl")
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_success(self, mock_isfile, mock_makedirs, mock_submit):
+        """Successful run sets stage and returns action."""
+        mock_submit.return_value = True
+        rec = self._create_eval(
+            dataset_file="/tmp/test.jsonl",
+            pipeline_id=self.pipeline.id,
+            patch_file="/tmp/patches.jsonl",
+        )
+        result = rec.action_run_evaluation()
+        self.assertEqual(result["type"], "ir.actions.act_window")
+        self.assertEqual(result["res_model"], "aurora.evaluation")
+        self.assertEqual(rec.stage, "building_images")
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_auto_fills_dataset_from_pipeline(self, mock_isfile, mock_makedirs, mock_submit):
+        """Auto-fills dataset_file from pipeline if not set."""
+        rec = self._create_eval(pipeline_id=self.pipeline.id, patch_file="/tmp/p.jsonl")
+        rec.action_run_evaluation()
+        self.assertEqual(rec.dataset_file, "/tmp/test_dataset.jsonl")
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_sets_output_dir_from_pipeline(self, mock_isfile, mock_makedirs, mock_submit):
+        """Sets output_dir from pipeline org/repo."""
+        rec = self._create_eval(
+            pipeline_id=self.pipeline.id,
+            dataset_file="/tmp/ds.jsonl",
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertIn("testorg__testrepo", rec.output_dir)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_sets_workdir(self, mock_isfile, mock_makedirs, mock_submit):
+        """Sets workdir as subdir of output_dir."""
+        rec = self._create_eval(
+            dataset_file="/tmp/ds.jsonl",
+            pipeline_id=self.pipeline.id,
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertTrue(rec.workdir)
+        self.assertIn("workdir", rec.workdir)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_sets_repo_dir(self, mock_isfile, mock_makedirs, mock_submit):
+        """Sets repo_dir from default base."""
+        rec = self._create_eval(
+            dataset_file="/tmp/ds.jsonl",
+            pipeline_id=self.pipeline.id,
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertTrue(rec.repo_dir)
+        self.assertIn("repos", rec.repo_dir)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_creates_directories(self, mock_isfile, mock_makedirs, mock_submit):
+        """Creates workdir, output_dir, repo_dir directories."""
+        rec = self._create_eval(
+            dataset_file="/tmp/ds.jsonl",
+            pipeline_id=self.pipeline.id,
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertTrue(mock_makedirs.call_count >= 3)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_without_pipeline(self, mock_isfile, mock_makedirs, mock_submit):
+        """Run without pipeline_id uses name for output_dir."""
+        rec = self._create_eval(
+            dataset_file="/tmp/ds.jsonl",
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertIn(rec.name, rec.output_dir)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    @patch("os.makedirs")
+    @patch("os.path.isfile", return_value=True)
+    def test_run_preserves_existing_output_dir(self, mock_isfile, mock_makedirs, mock_submit):
+        """Existing output_dir is not overwritten."""
+        rec = self._create_eval(
+            dataset_file="/tmp/ds.jsonl",
+            output_dir="/custom/output",
+            patch_file="/tmp/p.jsonl",
+        )
+        rec.action_run_evaluation()
+        self.assertEqual(rec.output_dir, "/custom/output")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_cancel
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_cancel_running(self, mock_cancel):
+        """Cancel sets stage to failed."""
+        rec = self._create_eval()
+        rec.write({"stage": "building_images"})
+        rec.action_cancel()
+        mock_cancel.assert_called_once_with(rec.id)
+        self.assertEqual(rec.stage, "failed")
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_cancel_from_all_running_stages(self, mock_cancel):
+        """Cancel works from all non-terminal stages."""
+        for stage in ["building_images", "running_instances", "generating_reports"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage})
+            rec.action_cancel()
+            self.assertEqual(rec.stage, "failed")
+
+    def test_cancel_terminal_raises(self):
+        """Cannot cancel terminal states."""
+        for stage in ["done", "failed"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage})
+            with self.assertRaises(UserError):
+                rec.action_cancel()
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_cancel_posts_message(self, mock_cancel):
+        """Cancel posts chatter message."""
+        rec = self._create_eval()
+        rec.write({"stage": "building_images"})
+        msg_count = len(rec.message_ids)
+        rec.action_cancel()
+        self.assertGreater(len(rec.message_ids), msg_count)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_reset_to_draft
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_reset_to_draft(self):
+        """Reset clears all statuses and counters."""
+        rec = self._create_eval()
+        rec.write({
+            "stage": "failed",
+            "build_status": "done",
+            "run_status": "failed",
+            "report_status": "running",
+            "log": "some log",
+            "total_instances": 100,
+            "resolved_instances": 50,
+            "unresolved_instances": 30,
+            "error_instances": 20,
+            "final_report_file": "/tmp/report.json",
+            "patch_file": "/tmp/patches.jsonl",
+            "missing_registries": "org/repo",
+        })
+        rec.action_reset_to_draft()
+        self.assertEqual(rec.stage, "draft")
+        self.assertEqual(rec.build_status, "idle")
+        self.assertEqual(rec.run_status, "idle")
+        self.assertEqual(rec.report_status, "idle")
+        self.assertFalse(rec.log)
+        self.assertEqual(rec.total_instances, 0)
+        self.assertEqual(rec.resolved_instances, 0)
+        self.assertEqual(rec.unresolved_instances, 0)
+        self.assertEqual(rec.error_instances, 0)
+        self.assertFalse(rec.final_report_file)
+        self.assertFalse(rec.patch_file)
+        self.assertFalse(rec.missing_registries)
+
+    def test_reset_only_from_terminal(self):
+        """Cannot reset non-terminal states."""
+        for stage in ["building_images", "running_instances", "generating_reports", "draft"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage})
+            with self.assertRaises(UserError):
+                rec.action_reset_to_draft()
+
+    def test_reset_from_done(self):
+        """Can reset from done."""
+        rec = self._create_eval()
+        rec.write({"stage": "done"})
+        rec.action_reset_to_draft()
+        self.assertEqual(rec.stage, "draft")
+
+    def test_reset_from_failed(self):
+        """Can reset from failed."""
+        rec = self._create_eval()
+        rec.write({"stage": "failed"})
+        rec.action_reset_to_draft()
+        self.assertEqual(rec.stage, "draft")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_regenerate_report
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_regenerate_only_from_terminal(self):
+        """Can only regenerate from terminal states."""
+        for stage in ["building_images", "running_instances", "generating_reports", "draft"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage})
+            with self.assertRaises(UserError):
+                rec.action_regenerate_report()
+
+    def test_regenerate_requires_output_dir(self):
+        """Requires output_dir."""
+        rec = self._create_eval(dataset_file="/tmp/ds.jsonl")
+        rec.write({"stage": "done"})
+        with self.assertRaises(UserError):
+            rec.action_regenerate_report()
+
+    def test_regenerate_requires_dataset_file(self):
+        """Requires dataset_file."""
+        rec = self._create_eval(output_dir="/tmp/out")
+        rec.write({"stage": "done"})
+        with self.assertRaises(UserError):
+            rec.action_regenerate_report()
+
+    def test_regenerate_sets_report_running(self):
+        """Sets report_status to running."""
+        rec = self._create_eval(output_dir="/tmp/out", dataset_file="/tmp/ds.jsonl")
+        rec.write({"stage": "done"})
+        result = rec.action_regenerate_report()
+        self.assertEqual(rec.report_status, "running")
+        self.assertEqual(result["type"], "ir.actions.act_window")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # _cron_watchdog_stalled_eval
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_watchdog_marks_stalled(self, mock_cancel):
+        """Watchdog marks stalled evals as failed."""
+        rec = self._create_eval()
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        rec.write({"stage": "building_images", "last_heartbeat": stale_time})
+        self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+        rec.invalidate_recordset()
+        self.assertEqual(rec.stage, "failed")
+        mock_cancel.assert_called_once_with(rec.id)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_watchdog_ignores_fresh(self, mock_cancel):
+        """Watchdog ignores fresh heartbeats."""
+        rec = self._create_eval()
+        rec.write({"stage": "building_images", "last_heartbeat": odoo_fields.Datetime.now()})
+        self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+        rec.invalidate_recordset()
+        self.assertEqual(rec.stage, "building_images")
+        mock_cancel.assert_not_called()
+
+    def test_watchdog_ignores_terminal(self):
+        """Watchdog ignores terminal states."""
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        for stage in ["done", "failed"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage, "last_heartbeat": stale_time})
+            self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+            rec.invalidate_recordset()
+            self.assertEqual(rec.stage, stage)
+
+    def test_watchdog_ignores_draft(self):
+        """Watchdog ignores draft."""
+        rec = self._create_eval()
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        rec.write({"stage": "draft", "last_heartbeat": stale_time})
+        self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+        rec.invalidate_recordset()
+        self.assertEqual(rec.stage, "draft")
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_watchdog_multiple_stalled(self, mock_cancel):
+        """Watchdog handles multiple stalled evals."""
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        rec1 = self._create_eval()
+        rec1.write({"stage": "building_images", "last_heartbeat": stale_time})
+        rec2 = self._create_eval()
+        rec2.write({"stage": "running_instances", "last_heartbeat": stale_time})
+        self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+        rec1.invalidate_recordset()
+        rec2.invalidate_recordset()
+        self.assertEqual(rec1.stage, "failed")
+        self.assertEqual(rec2.stage, "failed")
+        self.assertEqual(mock_cancel.call_count, 2)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_watchdog_posts_message(self, mock_cancel):
+        """Watchdog posts chatter message."""
+        rec = self._create_eval()
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        rec.write({"stage": "building_images", "last_heartbeat": stale_time})
+        msg_count = len(rec.message_ids)
+        self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+        rec.invalidate_recordset()
+        self.assertGreater(len(rec.message_ids), msg_count)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # is_admin computed field
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_is_admin_for_admin_group(self):
+        """Admin group member gets True."""
+        admin_group = self.env.ref("aurora.group_aurora_admin")
+        self.env.user.write({"group_ids": [(4, admin_group.id)]})
+        rec = self._create_eval()
+        rec.invalidate_recordset()
+        self.assertTrue(rec.is_admin)
+
+    def test_is_admin_for_regular_user(self):
+        """Non-admin gets False."""
+        admin_group = self.env.ref("aurora.group_aurora_admin")
+        self.env.user.write({"group_ids": [(3, admin_group.id)]})
+        rec = self._create_eval()
+        rec.invalidate_recordset()
+        self.assertFalse(rec.is_admin)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Constants
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_eval_stage_selection_has_all_stages(self):
+        """EVAL_STAGE_SELECTION contains all expected stages."""
+        from ..models.evaluation import EVAL_STAGE_SELECTION
+        keys = {k for k, _ in EVAL_STAGE_SELECTION}
+        expected = {"draft", "building_images", "running_instances", "generating_reports", "done", "failed"}
+        self.assertEqual(keys, expected)
+
+    def test_eval_terminal_states_subset(self):
+        """EVAL_TERMINAL_STATES is subset of stage selection keys."""
+        from ..models.evaluation import EVAL_STAGE_SELECTION, EVAL_TERMINAL_STATES
+        keys = {k for k, _ in EVAL_STAGE_SELECTION}
+        self.assertTrue(EVAL_TERMINAL_STATES.issubset(keys))
+
+    def test_eval_status_has_all_states(self):
+        """EVAL_STATUS contains idle, running, done, failed."""
+        from ..models.evaluation import EVAL_STATUS
+        keys = {k for k, _ in EVAL_STATUS}
+        self.assertEqual(keys, {"idle", "running", "done", "failed"})
+
+    def test_eval_terminal_states_exact(self):
+        """EVAL_TERMINAL_STATES is exactly done and failed."""
+        from ..models.evaluation import EVAL_TERMINAL_STATES
+        self.assertEqual(EVAL_TERMINAL_STATES, {"done", "failed"})
+
+    def test_eval_stage_selection_count(self):
+        """EVAL_STAGE_SELECTION has 6 stages."""
+        from ..models.evaluation import EVAL_STAGE_SELECTION
+        self.assertEqual(len(EVAL_STAGE_SELECTION), 6)
+
+    def test_eval_status_count(self):
+        """EVAL_STATUS has 4 states."""
+        from ..models.evaluation import EVAL_STATUS
+        self.assertEqual(len(EVAL_STATUS), 4)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # _onchange_pipeline_id
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_onchange_pipeline_sets_dataset_file(self):
+        """Sets dataset_file from pipeline step6_file."""
+        rec = self._create_eval()
+        rec.pipeline_id = self.pipeline
+        rec._onchange_pipeline_id()
+        self.assertEqual(rec.dataset_file, "/tmp/test_dataset.jsonl")
+
+    def test_onchange_pipeline_sets_output_dir(self):
+        """Sets output_dir from pipeline org/repo."""
+        rec = self._create_eval()
+        rec.pipeline_id = self.pipeline
+        rec._onchange_pipeline_id()
+        self.assertIn("testorg__testrepo", rec.output_dir)
+
+    def test_onchange_no_pipeline(self):
+        """No pipeline_id: no changes."""
+        rec = self._create_eval()
+        rec.pipeline_id = False
+        rec._onchange_pipeline_id()
+        self.assertFalse(rec.dataset_file)
+
+    def test_onchange_pipeline_no_step6(self):
+        """Pipeline without step6_file: dataset_file not set."""
+        pl = self.env["aurora.pipeline"].create({
+            "github_org": "org2", "github_repo": "repo2",
+        })
+        rec = self._create_eval()
+        rec.pipeline_id = pl
+        rec._onchange_pipeline_id()
+        self.assertFalse(rec.dataset_file)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Parametric stage tests
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_all_running_stages_watchdog_marks_failed(self):
+        """Each running stage is caught by watchdog."""
+        stale_time = odoo_fields.Datetime.now() - timedelta(minutes=20)
+        for stage in ["building_images", "running_instances", "generating_reports"]:
+            rec = self._create_eval()
+            rec.write({"stage": stage, "last_heartbeat": stale_time})
+            with patch("odoo.addons.aurora.models.evaluation_executor.request_cancel"):
+                self.env["aurora.evaluation"]._cron_watchdog_stalled_eval()
+            rec.invalidate_recordset()
+            self.assertEqual(rec.stage, "failed", f"Watchdog should catch stage {stage}")
+
+    def test_write_stage_transitions(self):
+        """Can write all valid stage values."""
+        from ..models.evaluation import EVAL_STAGE_SELECTION
+        rec = self._create_eval()
+        for stage_key, _ in EVAL_STAGE_SELECTION:
+            rec.write({"stage": stage_key})
+            self.assertEqual(rec.stage, stage_key)
+
+    def test_write_status_transitions(self):
+        """Can write all valid status values."""
+        from ..models.evaluation import EVAL_STATUS
+        rec = self._create_eval()
+        for status_key, _ in EVAL_STATUS:
+            rec.write({"build_status": status_key})
+            self.assertEqual(rec.build_status, status_key)
+            rec.write({"run_status": status_key})
+            self.assertEqual(rec.run_status, status_key)
+            rec.write({"report_status": status_key})
+            self.assertEqual(rec.report_status, status_key)

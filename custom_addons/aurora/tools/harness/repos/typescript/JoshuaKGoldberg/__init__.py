@@ -1,0 +1,5 @@
+from odoo.addons.aurora.tools.harness.repos.typescript.JoshuaKGoldberg.create_typescript_app_2139_to_2066 import *
+from odoo.addons.aurora.tools.harness.repos.typescript.JoshuaKGoldberg.create_typescript_app_2066_to_1470 import *
+from odoo.addons.aurora.tools.harness.repos.typescript.JoshuaKGoldberg.create_typescript_app_1470_to_1173 import *
+from odoo.addons.aurora.tools.harness.repos.typescript.JoshuaKGoldberg.create_typescript_app_1149_to_513 import *
+from odoo.addons.aurora.tools.harness.repos.typescript.JoshuaKGoldberg.create_typescript_app_513_to_407 import *

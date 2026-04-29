@@ -1,32 +1,99 @@
+import atexit
+import io
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Optional
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional, Union
 
-from ..tools.util import AuroraPipelineError
+import psycopg2
+
+from ..tools.collect.util import AuroraPipelineError
 
 _logger = logging.getLogger(__name__)
 
+# -- Concurrency constants (see N3) ------------------------------------------
+# Max background threads per worker process for pipeline execution.
+_MAX_PIPELINE_THREADS = 2
+# Max concurrent pipeline submissions (semaphore slots) per worker process.
+_MAX_CONCURRENT_PIPELINES = 2
+# Heartbeat staleness threshold in seconds before UI shows "possibly stalled".
+_HEARTBEAT_STALE_SECONDS = 120
+
+_executor = ThreadPoolExecutor(max_workers=_MAX_PIPELINE_THREADS)
+_semaphore = threading.Semaphore(_MAX_CONCURRENT_PIPELINES)
+atexit.register(_executor.shutdown, wait=True, cancel_futures=True)
+
+# -- Cooperative cancellation registry ---------------------------------------
+# Maps pipeline record ID → threading.Event.  When set, workers should stop.
+_cancel_events = {}
+_cancel_lock = threading.Lock()
+_stdout_lock = threading.Lock()
+_current_step: dict[int, str] = {}
+
+
+def request_cancel(rec_id: int) -> bool:
+    """Signal a running pipeline to stop cooperatively."""
+    with _cancel_lock:
+        event = _cancel_events.get(rec_id)
+        if event:
+            event.set()
+            return True
+    return False
+
+
+def _register_cancel_event(rec_id: int) -> threading.Event:
+    """Create and register a cancel event for a pipeline run."""
+    event = threading.Event()
+    with _cancel_lock:
+        _cancel_events[rec_id] = event
+    return event
+
+
+def _unregister_cancel_event(rec_id: int) -> None:
+    """Remove a cancel event after pipeline completes/fails."""
+    with _cancel_lock:
+        _cancel_events.pop(rec_id, None)
+
+
+def _open_cursor(db_name):
+    from odoo.modules.registry import Registry
+    return Registry(db_name).cursor()
+
+
+# ── Hot-path DB helpers ──────────────────────────────────────────────────────
+# These functions use raw SQL intentionally.  The pipeline executor runs in a
+# background thread where instantiating a full odoo.api.Environment for every
+# heartbeat/log-flush would be prohibitively expensive (cursor + env creation
+# overhead × hundreds of calls per pipeline run).  Raw SQL on an already-open
+# cursor is the only practical option until the module migrates to queue_job.
+#
+# Read-path helpers (_read_config) and low-frequency helpers (_post_chatter)
+# DO use the ORM via a dedicated Environment — see below.
+
 _ALLOWED_COLUMNS = frozenset({
-    "step1_status", "step1_file", "step2_status", "step2_file",
-    "step3_status", "step3_file", "step4_status", "step4_file",
-    "step5_status", "step5_file", "step6_status", "step6_file",
-    "step1_log", "step2_log", "step3_log", "step4_log", "step5_log", "step6_log",
+    "step1_status", "step1_file", "step1_log",
+    "step2_status", "step2_file", "step2_log",
+    "step3_status", "step3_file", "step3_log",
+    "step4_status", "step4_file", "step4_log",
+    "step5_status", "step5_file", "step5_log",
+    "step6_status", "step6_file", "step6_log",
     "stage", "pr_count", "filtered_pr_count", "tag_count",
     "group_count", "issue_count", "dataset_count",
     "dataset_url", "dataset_filename", "progress_text",
     "last_heartbeat",
-    "phase1_status", "phase1_file",
-    "phase2_status", "phase2_file", "phase2_image_count",
-    "phase2_instance_count", "phase2_resolved_count",
-    "phase2_dataset_file", "phase2_final_report_file", "phase2_dataset_count",
-    "phase2_log", "phase2_has_registry",
-    "phase3_status", "phase3_file", "phase3_inference_count",
-    "phase3_pass_at_k", "phase3_log",
 })
 
-_MAX_LOG_SIZE = 500_000
 
+_SERIALIZATION_RETRIES = 3
+_SERIALIZATION_BACKOFF = 0.5
 
 def _update_pipeline(cr: Any, rec_id: int, vals: dict[str, Any]) -> None:
     if not vals:
@@ -34,16 +101,37 @@ def _update_pipeline(cr: Any, rec_id: int, vals: dict[str, Any]) -> None:
     invalid = set(vals) - _ALLOWED_COLUMNS
     if invalid:
         raise ValueError(f"Attempted to update disallowed columns: {invalid}")
-    sorted_keys = sorted(vals.keys())
-    sets = ", ".join(f"{k} = %s" for k in sorted_keys)
-    cr.execute(
-        f"UPDATE aurora_pipeline SET {sets} WHERE id = %s",
-        [vals[k] for k in sorted_keys] + [rec_id],
-    )
+    sets = ", ".join(f"{k} = %s" for k in vals)
+    params = list(vals.values()) + [rec_id]
+    query = f"UPDATE aurora_pipeline SET {sets} WHERE id = %s"
 
+    for attempt in range(_SERIALIZATION_RETRIES):
+        try:
+            cr.execute(query, params)
+            return
+        except psycopg2.errors.SerializationFailure:
+            cr.rollback()
+            if attempt < _SERIALIZATION_RETRIES - 1:
+                delay = _SERIALIZATION_BACKOFF * (2 ** attempt)
+                _logger.warning(
+                    "SerializationFailure on aurora_pipeline id=%s, "
+                    "retry %d/%d in %.1fs",
+                    rec_id, attempt + 1, _SERIALIZATION_RETRIES, delay,
+                )
+                time.sleep(delay)
+            else:
+                _logger.error(
+                    "SerializationFailure on aurora_pipeline id=%s, "
+                    "exhausted %d retries",
+                    rec_id, _SERIALIZATION_RETRIES,
+                )
+                raise
+
+
+_MAX_LOG_SIZE = 500_000
 
 def _append_log(cr: Any, rec_id: int, msg: str) -> None:
-    ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     cr.execute(
         "UPDATE aurora_pipeline SET log = RIGHT(COALESCE(log, '') || %s, %s) WHERE id = %s",
@@ -52,10 +140,11 @@ def _append_log(cr: Any, rec_id: int, msg: str) -> None:
 
 
 def _append_step_log(cr: Any, rec_id: int, step_num: int, msg: str) -> None:
+    """Append a line to aurora_pipeline.step{N}_log with timestamp + size cap."""
     col = f"step{step_num}_log"
     if col not in _ALLOWED_COLUMNS:
         return
-    ts = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now().strftime("%H:%M:%S")
     line = f"[{ts}] {msg}"
     cr.execute(
         f"UPDATE aurora_pipeline SET {col} = RIGHT(COALESCE({col}, '') || %s, %s) WHERE id = %s",
@@ -64,15 +153,188 @@ def _append_step_log(cr: Any, rec_id: int, step_num: int, msg: str) -> None:
 
 
 def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> None:
-    vals = {"last_heartbeat": datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}
+    """Update heartbeat timestamp (and optional progress text) + commit."""
+    vals = {"last_heartbeat": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     if progress_text is not None:
         vals["progress_text"] = progress_text
     _update_pipeline(cr, rec_id, vals)
+    cr.commit()
 
 
-def _fail_pipeline(cr: Any, rec_id: int, step_field: str, exc) -> None:
+def _fail_pipeline(cr: Any, rec_id: int, step_field: str, exc: Union[str, Exception]) -> None:
     _update_pipeline(cr, rec_id, {step_field: "failed", "stage": "failed"})
     _append_log(cr, rec_id, f"FAILED ({step_field}): {exc}")
+
+
+class _DbLogStream(io.TextIOBase):
+    """Captures print()/tqdm output, normalizes \\r into clean lines, flushes to DB."""
+
+    def __init__(self, db_name, rec_id, original_stream, flush_interval=2.0):
+        self._db_name = db_name
+        self._rec_id = rec_id
+        self._cr = None
+        self._original = original_stream
+        self._buffer = []
+        self._lock = threading.Lock()
+        self._flush_interval = flush_interval
+        self._last_flush = 0.0
+        self._current_line = ""
+
+    def write(self, text):
+        if self._original:
+            self._original.write(text)
+        if not text:
+            return 0
+        with self._lock:
+            for ch in text:
+                if ch == "\r":
+                    if self._current_line.strip():
+                        self._buffer.append(self._current_line.rstrip() + "\n")
+                    self._current_line = ""
+                elif ch == "\n":
+                    self._buffer.append(self._current_line.rstrip() + "\n")
+                    self._current_line = ""
+                else:
+                    self._current_line += ch
+            now = datetime.now().timestamp()
+            if now - self._last_flush >= self._flush_interval:
+                self._drain()
+        return len(text)
+
+    def flush(self):
+        if self._original:
+            self._original.flush()
+        with self._lock:
+            self._drain()
+
+    def _drain(self):
+        if self._current_line.strip():
+            self._buffer.append(self._current_line.rstrip() + "\n")
+            self._current_line = ""
+        if not self._buffer:
+            return
+        chunk = "".join(self._buffer)
+        self._buffer.clear()
+        self._last_flush = datetime.now().timestamp()
+        try:
+            if not self._cr:
+                self._cr = _open_cursor(self._db_name)
+            self._cr.execute(
+                "UPDATE aurora_pipeline SET log = RIGHT(COALESCE(log, '') || %s, %s) WHERE id = %s",
+                [chunk, _MAX_LOG_SIZE, self._rec_id],
+            )
+            self._cr.commit()
+        except Exception:
+            _logger.warning("_DbLogStream: failed to flush log for rec=%s", self._rec_id, exc_info=True)
+            try:
+                if self._cr:
+                    self._cr.close()
+            except Exception:
+                pass
+            self._cr = None
+
+    def final_flush(self):
+        with self._lock:
+            self._drain()
+        if self._cr:
+            try:
+                self._cr.close()
+            except Exception:
+                pass
+            self._cr = None
+
+
+def _post_chatter(db_name: str, uid: Optional[int], rec_id: int, body: str) -> None:
+    cr = None
+    try:
+        from odoo import api, SUPERUSER_ID
+        cr = _open_cursor(db_name)
+        env = api.Environment(cr, uid or SUPERUSER_ID, {})
+        rec = env["aurora.pipeline"].browse(rec_id)
+        rec.message_post(body=body, message_type="comment", subtype_xmlid="mail.mt_note")
+        cr.commit()
+    except Exception:
+        _logger.exception("Failed to post chatter message for rec=%s", rec_id)
+    finally:
+        if cr:
+            cr.close()
+
+
+def _notify_bus(db_name: str, rec_id: int, stage: str, progress_text: Optional[str] = None) -> None:
+    """Send bus.Bus notification about pipeline state change."""
+    cr = None
+    try:
+        from odoo import api, SUPERUSER_ID
+        cr = _open_cursor(db_name)
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        env['bus.bus']._sendone(
+            f'aurora_pipeline_{rec_id}',
+            'aurora_pipeline_update',
+            {
+                'pipeline_id': rec_id,
+                'stage': stage,
+                'progress_text': progress_text or '',
+            },
+        )
+        cr.commit()
+    except Exception:
+        _logger.debug("Failed to send bus notification for rec=%s", rec_id, exc_info=True)
+    finally:
+        if cr:
+            cr.close()
+
+
+def _safe_worker(fn):
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            _logger.exception("Aurora pipeline worker crashed")
+            db_name = args[0] if args else None
+            rec_id = args[2] if len(args) > 2 else None
+            if db_name and rec_id:
+                try:
+                    cr = _open_cursor(db_name)
+                    _fail_pipeline(cr, rec_id, _current_step.get(rec_id, "step1_status"), exc)
+                    cr.commit()
+                    cr.close()
+                except Exception:
+                    _logger.exception("Failed to record crash to DB")
+        finally:
+            _semaphore.release()
+    return wrapper
+
+
+def _read_config(db_name: str, rec_id: int) -> dict[str, Any]:
+    from odoo import api, SUPERUSER_ID
+    from .credential_manager import get_encrypted_param_raw
+    cr = _open_cursor(db_name)
+    try:
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        pipeline = env["aurora.pipeline"].browse(rec_id)
+        if not pipeline.exists():
+            raise RuntimeError(f"Pipeline record {rec_id} not found")
+
+        ICP = env["ir.config_parameter"].sudo()
+        return {
+            "org": pipeline.github_org,
+            "repo": pipeline.github_repo,
+            "output_dir": pipeline.output_dir,
+            "skip_pr_fetch": pipeline.skip_pr_fetch,
+            "lang": pipeline.detected_lang or ICP.get_param("aurora.lang", "python"),
+            "delay_on_error": int(ICP.get_param("aurora.delay_on_error", "300")),
+            "retry_attempts": int(ICP.get_param("aurora.retry_attempts", "3")),
+            "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
+            "window_days": int(ICP.get_param("aurora.window_days", "30")),
+            "cache_dir": ICP.get_param("aurora.cache_dir", ".repo_cache"),
+            "s3_bucket": ICP.get_param("aurora.s3_bucket", ""),
+            "s3_access_key": get_encrypted_param_raw(cr, "aurora.s3_access_key"),
+            "s3_secret_key": get_encrypted_param_raw(cr, "aurora.s3_secret_key"),
+            "s3_region": ICP.get_param("aurora.s3_region", "ap-south-1"),
+            "s3_folder": ICP.get_param("aurora.s3_folder", ""),
+        }
+    finally:
+        cr.close()
 
 
 def _count_jsonl_lines(filepath: Optional[str]) -> int:
@@ -98,3 +360,398 @@ def _validate_step_output(filepath: Optional[str], step_num: int) -> None:
                 raise AuroraPipelineError(
                     f"Step {step_num} output file has invalid JSONL on line 1: {exc}"
                 ) from exc
+
+
+_tqdm_lock = threading.Lock()
+_original_tqdm_update = None
+_tqdm_patched = False
+_tqdm_contexts = {}
+
+_thread_cancel_events: dict[int, threading.Event] = {}
+_thread_cancel_lock = threading.Lock()
+
+
+def _register_thread_cancel(cancel_event: threading.Event) -> None:
+    with _thread_cancel_lock:
+        _thread_cancel_events[threading.current_thread().ident] = cancel_event
+
+
+def _unregister_thread_cancel() -> None:
+    with _thread_cancel_lock:
+        _thread_cancel_events.pop(threading.current_thread().ident, None)
+
+
+def check_cancelled() -> None:
+    """Raise PipelineCancelled if the current worker thread's cancel event is set.
+
+    Step functions in tools/collect/*.py call this inside tight loops and
+    before blocking operations so a UI Cancel click propagates within ~1
+    iteration instead of waiting for the entire step to finish.
+    """
+    event = _thread_cancel_events.get(threading.current_thread().ident)
+    if event is not None and event.is_set():
+        raise PipelineCancelled("Pipeline cancelled by user")
+
+
+def cancellable_sleep(seconds: float) -> None:
+    """Sleep that returns early (raising PipelineCancelled) if cancel signalled.
+
+    Replacement for time.sleep() inside retry/backoff loops so Cancel isn't
+    stuck waiting for a full sleep duration.
+    """
+    event = _thread_cancel_events.get(threading.current_thread().ident)
+    if event is None:
+        time.sleep(seconds)
+        return
+    if event.wait(timeout=seconds):
+        raise PipelineCancelled("Pipeline cancelled by user")
+
+
+def _patch_tqdm_heartbeat(cr, rec_id):
+    global _original_tqdm_update, _tqdm_patched
+    with _tqdm_lock:
+        try:
+            import tqdm as tqdm_mod
+            if not _tqdm_patched:
+                _original_tqdm_update = tqdm_mod.tqdm.update
+
+                def _heartbeat_update(self, n=1):
+                    _original_tqdm_update(self, n)
+                    thread_id = threading.current_thread().ident
+                    event = _thread_cancel_events.get(thread_id)
+                    if event is not None and event.is_set():
+                        raise PipelineCancelled("Pipeline cancelled by user")
+                    ctx = _tqdm_contexts.get(thread_id)
+                    if ctx and self.n % 200 == 0:
+                        hb_cr, hb_rec_id = ctx
+                        try:
+                            if self.total:
+                                pct = int(100 * self.n / self.total)
+                                _heartbeat(hb_cr, hb_rec_id, f"{self.desc or 'Working'}: {self.n}/{self.total} ({pct}%)")
+                            else:
+                                _heartbeat(hb_cr, hb_rec_id, f"{self.desc or 'Working'}: {self.n} items")
+                        except Exception:
+                            _logger.debug("tqdm heartbeat failed for rec=%s", hb_rec_id, exc_info=True)
+
+                tqdm_mod.tqdm.update = _heartbeat_update
+                _tqdm_patched = True
+            _tqdm_contexts[threading.current_thread().ident] = (cr, rec_id)
+        except ImportError:
+            pass
+
+
+def _unpatch_tqdm():
+    global _original_tqdm_update, _tqdm_patched
+    with _tqdm_lock:
+        thread_id = threading.current_thread().ident
+        _tqdm_contexts.pop(thread_id, None)
+        if not _tqdm_contexts and _original_tqdm_update is not None:
+            try:
+                import tqdm as tqdm_mod
+                tqdm_mod.tqdm.update = _original_tqdm_update
+            except ImportError:
+                pass
+            _original_tqdm_update = None
+            _tqdm_patched = False
+
+
+class PipelineCancelled(Exception):
+    pass
+
+
+@_safe_worker
+def _run_pipeline(db_name, uid, rec_id):
+    from ..tools.collect.get_all_prs import main as fetch_all_prs
+    from ..tools.collect.filter_prs import main as filter_prs
+    from ..tools.collect.get_version_tags import main as get_version_tags
+    from ..tools.collect.group_prs_by_tags import main as group_prs_by_tags
+    from ..tools.collect.get_related_issues import main as get_related_issues
+    from ..tools.collect.build_dataset import main as build_dataset
+
+    cancel_event = _register_cancel_event(rec_id)
+    log_stream = None
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    temp_dir = None
+    _heartbeat_stop = None
+    _owns_stdout = False
+    try:
+        cr = _open_cursor(db_name)
+    except Exception:
+        _unregister_cancel_event(rec_id)
+        raise
+    try:
+        cfg = _read_config(db_name, rec_id)
+
+        s3_config = {
+            "bucket": cfg["s3_bucket"],
+            "access_key": cfg["s3_access_key"],
+            "secret_key": cfg["s3_secret_key"],
+            "region": cfg["s3_region"],
+        }
+        s3_folder = cfg.get("s3_folder", "")
+        from . import s3_storage
+        use_s3 = s3_storage.is_configured(s3_config)
+
+        if use_s3:
+            temp_dir = tempfile.mkdtemp(prefix="aurora_")
+            out = Path(temp_dir)
+            run_number = s3_storage.get_next_run_number(
+                s3_config, cfg["org"], cfg["repo"], s3_folder
+            )
+        else:
+            out = Path(cfg["output_dir"])
+            os.makedirs(str(out), exist_ok=True)
+            run_number = None
+
+        log_stream = _DbLogStream(db_name, rec_id, original_stdout)
+        with _stdout_lock:
+            if not isinstance(sys.stdout, _DbLogStream):
+                sys.stdout = log_stream
+                sys.stderr = log_stream
+                _owns_stdout = True
+
+        from .github_token import AuroraGithubToken
+        tokens = AuroraGithubToken.lease_tokens(cr, rec_id, count=3)
+        cr.commit()
+        if not tokens:
+            raise RuntimeError(
+                "No GitHub tokens available in the token pool. "
+                "Import tokens via Configuration → Import Tokens."
+            )
+
+        _heartbeat_stop = threading.Event()
+
+        def _heartbeat_loop():
+            hb_cr = None
+            try:
+                hb_cr = _open_cursor(db_name)
+                first_run = True
+                while True:
+                    if not first_run:
+                        if _heartbeat_stop.wait(timeout=120):
+                            break
+                    first_run = False
+                    try:
+                        _heartbeat(hb_cr, rec_id)
+                    except Exception:
+                        _logger.debug("Heartbeat DB write failed for rec=%s, will retry", rec_id, exc_info=True)
+                        try:
+                            hb_cr.rollback()
+                        except Exception:
+                            pass
+                    try:
+                        import hashlib as _hb_hashlib
+                        import requests as _hb_requests
+                        summaries = {}
+                        for tok in tokens:
+                            resp = _hb_requests.get(
+                                "https://api.github.com/rate_limit",
+                                headers={"Authorization": f"Bearer {tok}"},
+                                timeout=10,
+                            )
+                            if resp.status_code == 200:
+                                core = resp.json().get("resources", {}).get("core", {})
+                                tok_hash = _hb_hashlib.sha256(tok.encode()).hexdigest()
+                                summaries[tok_hash] = {
+                                    "remaining": core.get("remaining", 0),
+                                    "reset": core.get("reset"),
+                                }
+                        if summaries:
+                            AuroraGithubToken.heartbeat_rate_limits(hb_cr, rec_id, summaries)
+                    except Exception:
+                        _logger.debug("Heartbeat rate-limit check failed for rec=%s", rec_id, exc_info=True)
+            finally:
+                if hb_cr:
+                    hb_cr.close()
+
+        heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
+        heartbeat_thread.start()
+
+        org = cfg["org"]
+        repo = cfg["repo"]
+        prefix = f"{org}__{repo}"
+
+        step1_file = out / f"{prefix}_prs.jsonl"
+        step2_file = out / f"{prefix}_filtered_prs.jsonl"
+        step3_file = out / f"{prefix}_tags.jsonl"
+        step4_file = out / f"{prefix}_tag_groups.jsonl"
+        step5_file = out / f"{prefix}_related_issues.jsonl"
+        step6_file = out / f"{prefix}_dataset.jsonl"
+
+        def _check_cancelled():
+            if cancel_event.is_set():
+                raise PipelineCancelled(f"Pipeline {rec_id} cancelled by user")
+
+        def _upload_to_s3(local_path, step_num):
+            if not use_s3:
+                return str(local_path)
+            fname = os.path.basename(str(local_path))
+            s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+            url = s3_storage.upload_file(s3_config, str(local_path), s3_key)
+            _append_log(cr, rec_id, f"Step {step_num}: uploaded to S3 → {s3_key}")
+            return url
+
+        def _run_step(step_num, step_field, stage_val, label, fn, count_file):
+            _current_step[rec_id] = step_field
+            _check_cancelled()
+            _update_pipeline(cr, rec_id, {step_field: "running", "stage": stage_val})
+            _append_log(cr, rec_id, f"Step {step_num}: {label} …")
+            _heartbeat(cr, rec_id, f"Step {step_num}: {label}")
+            try:
+                fn()
+                _check_cancelled()
+                _validate_step_output(count_file, step_num)
+                count = _count_jsonl_lines(count_file)
+                file_ref = _upload_to_s3(count_file, step_num)
+                _update_pipeline(cr, rec_id, {
+                    step_field: "done",
+                    f"step{step_num}_file": file_ref,
+                    "progress_text": f"Step {step_num} done",
+                })
+                _append_log(cr, rec_id, f"Step {step_num} done – {count} records.")
+                _heartbeat(cr, rec_id, f"Step {step_num} complete ({count} records)")
+                _notify_bus(db_name, rec_id, stage_val, f"Step {step_num} done")
+                return count
+            except PipelineCancelled:
+                raise
+            except Exception as exc:
+                _fail_pipeline(cr, rec_id, step_field, exc)
+                cr.commit()
+                return None
+
+        _patch_tqdm_heartbeat(cr, rec_id)
+        _register_thread_cancel(cancel_event)
+
+        if not cfg["skip_pr_fetch"]:
+            result = _run_step(1, "step1_status", "fetch_prs", "Fetching all PRs",
+                               lambda: fetch_all_prs(tokens, out, org, repo), step1_file)
+            if result is None:
+                return
+            _update_pipeline(cr, rec_id, {"pr_count": result})
+            cr.commit()
+        else:
+            _update_pipeline(cr, rec_id, {"step1_status": "done", "step1_file": str(step1_file)})
+            _append_log(cr, rec_id, "Step 1: Skipped (re-using existing data).")
+            _heartbeat(cr, rec_id, "Step 1 skipped")
+
+        result = _run_step(2, "step2_status", "filter_prs", "Filtering PRs",
+                           lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="aurora"), step2_file)
+        if result is None:
+            return
+        _update_pipeline(cr, rec_id, {"filtered_pr_count": result})
+        cr.commit()
+
+        result = _run_step(3, "step3_status", "discover_tags", "Discovering version tags",
+                           lambda: get_version_tags(tokens, out, org, repo, max_tags=cfg["max_tags"]),
+                           step3_file)
+        if result is None:
+            return
+        _update_pipeline(cr, rec_id, {"tag_count": result})
+        cr.commit()
+
+        result = _run_step(4, "step4_status", "group_prs", "Grouping PRs by tag pairs",
+                           lambda: group_prs_by_tags(tokens, out, org, repo,
+                                                     window_days=cfg["window_days"],
+                                                     cache_dir=cfg["cache_dir"]),
+                           step4_file)
+        if result is None:
+            return
+        _update_pipeline(cr, rec_id, {"group_count": result})
+        cr.commit()
+
+        result = _run_step(5, "step5_status", "fetch_issues", "Fetching related issues",
+                           lambda: get_related_issues(tokens, out, step2_file), step5_file)
+        if result is None:
+            return
+        _update_pipeline(cr, rec_id, {"issue_count": result})
+        cr.commit()
+
+        result = _run_step(6, "step6_status", "build_dataset", "Building final dataset",
+                           lambda: build_dataset(tokens, out, org, repo,
+                                                     delay_on_error=cfg["delay_on_error"],
+                                                     retry_attempts=cfg["retry_attempts"],
+                                                     cache_dir=cfg["cache_dir"],
+                                                     lang=cfg["lang"]),
+                           step6_file)
+        if result is None:
+            return
+        _update_pipeline(cr, rec_id, {"dataset_count": result})
+        cr.commit()
+
+        dataset_fname = None
+        dataset_url = None
+        if os.path.isfile(step6_file):
+            dataset_fname = os.path.basename(step6_file)
+            if use_s3:
+                s3_key = s3_storage.build_s3_key(org, repo, run_number, dataset_fname, s3_folder)
+                dataset_url = f"https://{s3_config['bucket']}.s3.{s3_config['region']}.amazonaws.com/{s3_key}"
+            else:
+                dataset_url = f"file://{step6_file}"
+
+        _update_pipeline(cr, rec_id, {
+            "dataset_filename": dataset_fname,
+            "dataset_url": dataset_url,
+            "stage": "done",
+            "progress_text": "Pipeline complete",
+        })
+        _append_log(cr, rec_id, "Pipeline complete.")
+        cr.commit()
+        _notify_bus(db_name, rec_id, 'done', 'Pipeline complete')
+
+        _post_chatter(db_name, uid, rec_id,
+                      f"Pipeline completed — {cfg['org']}/{cfg['repo']} "
+                      f"({_count_jsonl_lines(step6_file)} dataset records)")
+
+    except PipelineCancelled:
+        _logger.info("Aurora pipeline %s cancelled by user", rec_id)
+        try:
+            cr.rollback()
+            _update_pipeline(cr, rec_id, {"stage": "failed", "progress_text": "Cancelled"})
+            _append_log(cr, rec_id, "Pipeline cancelled by user.")
+            cr.commit()
+            _post_chatter(db_name, uid, rec_id, "Pipeline cancelled by user.")
+            _notify_bus(db_name, rec_id, 'failed', 'Cancelled')
+        except Exception:
+            _logger.exception("Failed to record cancellation for rec=%s", rec_id)
+    except Exception:
+        _logger.exception("Aurora pipeline fatal error rec=%s", rec_id)
+        try:
+            cr.rollback()
+            err_msg = traceback.format_exc()[-500:]
+            _fail_pipeline(cr, rec_id, _current_step.get(rec_id, "step1_status"), err_msg)
+            cr.commit()
+            _post_chatter(db_name, uid, rec_id, f"Pipeline failed:\n{err_msg}")
+            _notify_bus(db_name, rec_id, 'failed', err_msg[:200])
+        except Exception:
+            _logger.exception("Failed to record pipeline error")
+    finally:
+        if _owns_stdout:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+        if log_stream:
+            log_stream.final_flush()
+        _unpatch_tqdm()
+        _unregister_thread_cancel()
+        _unregister_cancel_event(rec_id)
+        _current_step.pop(rec_id, None)
+        if _heartbeat_stop:
+            _heartbeat_stop.set()
+        try:
+            from .github_token import AuroraGithubToken
+            AuroraGithubToken.release_tokens(cr, rec_id)
+            cr.commit()
+        except Exception:
+            _logger.exception("Failed to release tokens for rec=%s", rec_id)
+        cr.close()
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def submit_pipeline_async(db_name: str, uid: int, rec_id: int) -> bool:
+    acquired = _semaphore.acquire(blocking=False)
+    if not acquired:
+        _logger.warning("Aurora semaphore full – pipeline %s not started", rec_id)
+        return False
+    _executor.submit(_run_pipeline, db_name, uid, rec_id)
+    return True

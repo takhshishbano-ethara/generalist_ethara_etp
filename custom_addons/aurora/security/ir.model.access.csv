@@ -4,7 +4,13 @@ access_aurora_pipeline_user,aurora.pipeline.user,model_aurora_pipeline,group_aur
 access_aurora_github_token_admin,aurora.github.token.admin,model_aurora_github_token,group_aurora_admin,1,1,1,1
 access_aurora_pool_metrics_admin,aurora.pool.metrics.admin,model_aurora_pool_metrics,group_aurora_admin,1,1,1,1
 access_aurora_import_tokens_wizard_admin,aurora.import.tokens.wizard.admin,model_aurora_import_tokens_wizard,group_aurora_admin,1,1,1,1
-access_aurora_pipeline_preview_admin,aurora.pipeline.preview.admin,model_aurora_pipeline_preview,group_aurora_admin,1,1,1,1
-access_aurora_registry_wizard_admin,aurora.registry.wizard.admin,model_aurora_registry_wizard,group_aurora_admin,1,1,1,1
+access_aurora_evaluation_admin,aurora.evaluation.admin,model_aurora_evaluation,group_aurora_admin,1,1,1,1
+access_aurora_evaluation_user,aurora.evaluation.user,model_aurora_evaluation,group_aurora_user,1,1,0,0
+access_aurora_harness_staging_admin,aurora.harness.staging.admin,model_aurora_harness_staging,group_aurora_admin,1,1,1,1
+access_aurora_harness_staging_user,aurora.harness.staging.user,model_aurora_harness_staging,group_aurora_user,1,1,0,0
 access_aurora_pipeline_result_admin,aurora.pipeline.result.admin,model_aurora_pipeline_result,group_aurora_admin,1,1,1,1
 access_aurora_pipeline_result_user,aurora.pipeline.result.user,model_aurora_pipeline_result,group_aurora_user,1,0,0,0
+access_aurora_pipeline_preview_admin,aurora.pipeline.preview.admin,model_aurora_pipeline_preview,group_aurora_admin,1,1,1,1
+access_aurora_pipeline_preview_user,aurora.pipeline.preview.user,model_aurora_pipeline_preview,group_aurora_user,1,1,1,1
+access_aurora_registry_wizard_admin,aurora.registry.wizard.admin,model_aurora_registry_wizard,group_aurora_admin,1,1,1,1
+access_aurora_registry_wizard_user,aurora.registry.wizard.user,model_aurora_registry_wizard,group_aurora_user,1,1,1,1
