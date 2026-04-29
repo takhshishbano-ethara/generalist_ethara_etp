@@ -26,8 +26,8 @@ Return ONLY a valid JSON object with this exact structure:
   "issues": [
     {
       "category": "<grammar|misspelling|punctuation|style>",
-      "original_text": "<the problematic word or phrase>",
-      "corrected_text": "<the correction>",
+      "text": "<the problematic word or phrase>",
+      "suggestion_text": "<the correction>",
       "message": "<brief explanation of the error>"
     }
   ],
