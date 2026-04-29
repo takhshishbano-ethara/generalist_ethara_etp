@@ -24,20 +24,20 @@ _GOG_BIN = "/usr/local/bin/gog"
 def _gog_config_dir(task_id):
     """Per-task gog config directory on the Odoo pod."""
     base = os.path.join(tempfile.gettempdir(), ".atlas-gog-config")
-    d = os.path.join(base, str(task_id))
+    d = os.path.join(base, str(int(task_id)))
     os.makedirs(d, exist_ok=True)
     return d
 
 
-def _local_exec(command, config_dir, keyring_pw="", timeout=_GOG_TIMEOUT):
-    """Run a shell command locally with gog environment set up."""
+def _gog_exec(args, config_dir, keyring_pw="", timeout=_GOG_TIMEOUT):
+    """Run gog CLI with an explicit argument list — no shell interpretation."""
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = config_dir
     env["GOG_KEYRING_PASSWORD"] = keyring_pw
-    _logger.debug("[GogAuth] local exec: %s", command[:200])
+    _logger.debug("[GogAuth] exec: %s", args)
 
     result = subprocess.run(
-        ["sh", "-c", command],
+        args,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -45,6 +45,24 @@ def _local_exec(command, config_dir, keyring_pw="", timeout=_GOG_TIMEOUT):
         env=env,
     )
     return result.stdout, result.stderr, result.returncode
+
+
+def _collect_gog_files(config_dir):
+    """Walk the gogcli directory and return {relative_path: content} dict."""
+    gogcli_dir = os.path.join(config_dir, "gogcli")
+    if not os.path.isdir(gogcli_dir):
+        return {}
+    collected = {}
+    for dirpath, _dirnames, filenames in os.walk(gogcli_dir):
+        for fname in filenames:
+            abs_path = os.path.join(dirpath, fname)
+            rel_path = os.path.relpath(abs_path, gogcli_dir)
+            try:
+                with open(abs_path, "r") as f:
+                    collected[rel_path] = f.read()
+            except Exception:
+                _logger.debug("[GogAuth] could not read %s", abs_path)
+    return collected
 
 
 class AtlasGogAuthController(http.Controller):
@@ -119,20 +137,29 @@ class AtlasGogAuthController(http.Controller):
             task_id, email, config_dir,
         )
 
-        escaped_secret = client_secret.replace("'", "'\\''")
-        setup_cmd = (
-            "mkdir -p {config}/gogcli && "
-            "echo '{secret}' > {config}/gogcli/client_secret.json && "
-            "{gog} auth keyring file 2>&1 && "
-            "{gog} auth credentials set {config}/gogcli/client_secret.json 2>&1"
-        ).format(
-            config=config_dir,
-            secret=escaped_secret,
-            gog=_GOG_BIN,
-        )
+        gogcli_dir = os.path.join(config_dir, "gogcli")
+        os.makedirs(gogcli_dir, exist_ok=True)
+        cs_path = os.path.join(gogcli_dir, "client_secret.json")
+        try:
+            with open(cs_path, "w") as f:
+                f.write(client_secret)
+        except Exception as exc:
+            _logger.exception("[GogAuth] failed to write client_secret.json")
+            return {"error": "Failed to write credentials: %s" % exc}
 
         try:
-            stdout, stderr, rc = _local_exec(setup_cmd, config_dir, keyring_pw)
+            stdout, stderr, rc = _gog_exec(
+                [_GOG_BIN, "auth", "keyring", "file"],
+                config_dir, keyring_pw,
+            )
+            _logger.info(
+                "[GogAuth] keyring setup: rc=%s stdout=%s stderr=%s",
+                rc, stdout.strip()[:300], stderr.strip()[:300],
+            )
+            stdout, stderr, rc = _gog_exec(
+                [_GOG_BIN, "auth", "credentials", "set", cs_path],
+                config_dir, keyring_pw,
+            )
             _logger.info(
                 "[GogAuth] credentials setup: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:300], stderr.strip()[:300],
@@ -143,19 +170,16 @@ class AtlasGogAuthController(http.Controller):
             _logger.exception("[GogAuth] credentials setup failed")
             return {"error": "Failed to set credentials: %s" % exc}
 
-        step1_cmd = (
-            "{gog} auth add {email} "
-            "--services {services} "
-            "--remote --step 1 --force-consent "
-            "--redirect-uri http://localhost --json 2>&1"
-        ).format(
-            gog=_GOG_BIN,
-            email=email,
-            services=_GOG_SERVICES,
-        )
-
         try:
-            stdout, stderr, rc = _local_exec(step1_cmd, config_dir, keyring_pw)
+            stdout, stderr, rc = _gog_exec(
+                [
+                    _GOG_BIN, "auth", "add", email,
+                    "--services", _GOG_SERVICES,
+                    "--remote", "--step", "1", "--force-consent",
+                    "--redirect-uri", "http://localhost", "--json",
+                ],
+                config_dir, keyring_pw,
+            )
             _logger.info(
                 "[GogAuth] step 1: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:500], stderr.strip()[:500],
@@ -232,22 +256,17 @@ class AtlasGogAuthController(http.Controller):
             task_id, email, config_dir,
         )
 
-        escaped_url = redirect_url.replace("'", "'\\''")
-        step2_cmd = (
-            "{gog} auth add {email} "
-            "--services {services} "
-            "--remote --step 2 --force-consent "
-            "--redirect-uri http://localhost "
-            "--auth-url '{auth_url}' 2>&1"
-        ).format(
-            gog=_GOG_BIN,
-            email=email,
-            services=_GOG_SERVICES,
-            auth_url=escaped_url,
-        )
-
         try:
-            stdout, stderr, rc = _local_exec(step2_cmd, config_dir, keyring_pw)
+            stdout, stderr, rc = _gog_exec(
+                [
+                    _GOG_BIN, "auth", "add", email,
+                    "--services", _GOG_SERVICES,
+                    "--remote", "--step", "2", "--force-consent",
+                    "--redirect-uri", "http://localhost",
+                    "--auth-url", redirect_url,
+                ],
+                config_dir, keyring_pw,
+            )
             _logger.info(
                 "[GogAuth] step 2: rc=%s stdout=%s stderr=%s",
                 rc, stdout.strip()[:500], stderr.strip()[:500],
@@ -260,31 +279,7 @@ class AtlasGogAuthController(http.Controller):
                 )
                 return {"error": "Token exchange failed: %s" % (stderr.strip() or stdout.strip())}
 
-            collect_cmd = (
-                "cd {config}/gogcli 2>/dev/null && "
-                "find . -type f | while read f; do "
-                '  rel=$(echo "$f" | sed "s|^\\./||"); '
-                '  echo "---FILE:$rel"; '
-                '  cat "$f"; '
-                "done"
-            ).format(config=config_dir)
-
-            file_stdout, _, file_rc = _local_exec(collect_cmd, config_dir, keyring_pw)
-
-            gog_auth_data = {}
-            if file_rc == 0 and file_stdout.strip():
-                current_file = None
-                current_content = []
-                for line in file_stdout.splitlines():
-                    if line.startswith("---FILE:"):
-                        if current_file is not None:
-                            gog_auth_data[current_file] = "\n".join(current_content)
-                        current_file = line[len("---FILE:"):]
-                        current_content = []
-                    else:
-                        current_content.append(line)
-                if current_file is not None:
-                    gog_auth_data[current_file] = "\n".join(current_content)
+            gog_auth_data = _collect_gog_files(config_dir)
 
             _logger.info(
                 "[GogAuth] step 2 collected %d config files: %s",
@@ -328,14 +323,12 @@ class AtlasGogAuthController(http.Controller):
 
         config_dir = _gog_config_dir(task.id)
         keyring_pw = task.password or ""
-        list_cmd = (
-            "{gog} auth list 2>&1"
-        ).format(
-            gog=_GOG_BIN,
-        )
 
         try:
-            stdout, stderr, rc = _local_exec(list_cmd, config_dir, keyring_pw)
+            stdout, stderr, rc = _gog_exec(
+                [_GOG_BIN, "auth", "list"],
+                config_dir, keyring_pw,
+            )
             email = task.email or ""
             if email and email in stdout:
                 return {"authenticated": True, "email": email, "gog_available": True}

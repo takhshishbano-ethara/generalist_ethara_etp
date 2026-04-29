@@ -19,7 +19,7 @@
             <t t-else="">
                 <div class="o_talos_chat_messages">
                     <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
-                        <t t-if="!msg.pending or msg.text">
+                        <t t-if="!msg.pending or msg.text or msg.thinkingText or (msg.toolCalls and msg.toolCalls.length)">
                             <div t-attf-class="o_talos_msg o_talos_msg_#{msg.role} #{msg.isHint ? 'o_talos_msg_hint' : ''} #{msg.isAutoHint ? 'o_talos_auto_hint_msg' : ''} #{msg.isAutoHintVerdict ? 'o_talos_auto_hint_verdict' : ''}">
                                 <div class="o_talos_msg_meta">
                                     <span class="o_talos_msg_role">
@@ -30,7 +30,7 @@
                                         <t t-else="">Assistant</t>
                                     </span>
                                 </div>
-                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.isQc ? 'o_talos_qc_bubble o_talos_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_talos_md' : ''}">
+                                <div t-attf-class="o_talos_msg_bubble #{msg.isError ? 'o_talos_msg_error' : ''} #{msg.isTimeout ? 'o_talos_msg_timeout' : ''} #{msg.isQc ? 'o_talos_qc_bubble o_talos_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_talos_md' : ''}">
                                     <t t-if="msg.thinkingText">
                                         <div class="o_talos_thinking_section">
                                             <button class="o_talos_thinking_toggle btn btn-link btn-sm p-0"

@@ -622,7 +622,7 @@ model_list:
     litellm_params:
       model: bedrock/converse/{bedrock_arn}
       aws_region_name: {aws_region}
-      thinking: {{"type": "adaptive"}}
+      thinking: {{"type": "adaptive", "display": "summarized"}}
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
@@ -630,6 +630,8 @@ model_list:
     litellm_params:
       model: bedrock/converse/{kimi_bedrock_arn}
       aws_region_name: {kimi_aws_region}
+      reasoning_effort: high
+      allowed_openai_params: ["reasoning_effort"]
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -1574,7 +1576,12 @@ class TalosTurn(models.Model):
     )
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection(
-        [("Pending", "Pending"), ("Streaming", "Streaming"), ("Completed", "Completed")]
+        [
+            ("Pending", "Pending"),
+            ("Streaming", "Streaming"),
+            ("Completed", "Completed"),
+            ("TimedOut", "Timed Out"),
+        ]
     )
     prompt = fields.Text(string="Prompt")
     response = fields.Text(string="Response")

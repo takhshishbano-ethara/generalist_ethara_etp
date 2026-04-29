@@ -743,8 +743,9 @@ class AtlasSandboxK8s(models.AbstractModel):
                     port=18789,
                 ),
                 initial_delay_seconds=30,
-                period_seconds=15,
-                timeout_seconds=5,
+                period_seconds=30,
+                timeout_seconds=10,
+                failure_threshold=5,
             ),
         )
 

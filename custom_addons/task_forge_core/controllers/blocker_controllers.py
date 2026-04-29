@@ -5,7 +5,15 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
+
+IST_OFFSET = timedelta(hours=5, minutes=30)
+
+
+def _to_ist(dt_val):
+    if not dt_val:
+        return ''
+    return (dt_val + IST_OFFSET).isoformat()
 
 
 class TaskForgeBlockerController(http.Controller):
@@ -15,15 +23,21 @@ class TaskForgeBlockerController(http.Controller):
     # ──────────────────────────────────────────────────────────────────────────
 
     def _upload_files(self, file_key='image', prefix='blocker_images'):
-        """Upload a single file from the request to S3, return URL."""
-        image_file = request.httprequest.files.get(file_key)
-        if not image_file:
-            return ''
-        file_content = image_file.read()
-        if not file_content:
-            return ''
-        file_b64 = base64.b64encode(file_content).decode('utf-8')
-        return generate_s3_link(file_b64, prefix=prefix, filename=image_file.filename) or ''
+        """Upload multiple files with same key from request to S3, return list of URLs."""
+        urls = []
+        files = request.httprequest.files.getlist(file_key)
+        if not files:
+            single = request.httprequest.files.get(file_key)
+            if single:
+                files = [single]
+        for f in files:
+            content = f.read()
+            if content:
+                b64 = base64.b64encode(content).decode('utf-8')
+                url = generate_s3_link(b64, prefix=prefix, filename=f.filename)
+                if url:
+                    urls.append(url)
+        return urls
 
     def _upload_multiple_files(self, prefix='blocker_documents'):
         """Upload multiple documents from request, return list of URLs."""
@@ -38,20 +52,38 @@ class TaskForgeBlockerController(http.Controller):
                     urls.append(url)
         return urls
 
+    @staticmethod
+    def _merge_urls(single_url, multi_urls_text):
+        """Merge old single URL field with new comma-separated URLs field into one list."""
+        urls = []
+        if single_url:
+            urls.append(single_url)
+        if multi_urls_text:
+            urls.extend([u.strip() for u in multi_urls_text.split(',') if u.strip()])
+        seen = set()
+        deduped = []
+        for u in urls:
+            if u not in seen:
+                seen.add(u)
+                deduped.append(u)
+        return deduped
+
     def _format_blocker(self, b):
         escalation_logs = []
         for log in b.escalation_log_ids:
+            log_images = self._merge_urls(log.image_url, log.image_urls)
             escalation_logs.append({
                 'id': log.id,
                 'from_role': log.from_role or '',
                 'to_role': log.to_role or '',
                 'action': log.action or '',
                 'notes': log.notes or '',
-                'image_url': log.image_url or '',
-                'document_urls': log.document_urls.split(',') if log.document_urls else [],
+                'image_url': log_images,
+                'video_url': [u.strip() for u in (log.video_urls or '').split(',') if u.strip()],
+                'document_urls': [u.strip() for u in (log.document_urls or '').split(',') if u.strip()],
                 'action_by_id': log.action_by_id.id if log.action_by_id else 0,
                 'action_by_name': log.action_by_name or '',
-                'created_at': log.create_date.isoformat() if log.create_date else '',
+                'created_at': _to_ist(log.create_date),
             })
 
         return {
@@ -76,30 +108,24 @@ class TaskForgeBlockerController(http.Controller):
             'blocker_issue': b.blocker_issue_id.name if b.blocker_issue_id and b.blocker_issue_id.name else '',
             'state': b.state or "",
             'escalation_level': b.escalation_level or 'qr',
-            'blocker_image_url': b.blocker_image_url or '',
-            # QR
+            'blocker_image_url': self._merge_urls(b.blocker_image_url, b.blocker_image_urls),
             'qr_notes': b.qr_notes or '',
-            'qr_video_url': b.qr_video_url or '',
-            'qr_image_url': b.qr_image_url or '',
-            'qr_action_at': b.qr_action_at.isoformat() if b.qr_action_at else "",
-            # PL
+            'qr_video_url': self._merge_urls(b.qr_video_url, b.qr_video_urls),
+            'qr_image_url': self._merge_urls(b.qr_image_url, b.qr_image_urls),
+            'qr_action_at': _to_ist(b.qr_action_at),
             'pl_notes': b.pl_notes or '',
-            'pl_image_url': b.pl_image_url or '',
-            'pl_action_at': b.pl_action_at.isoformat() if b.pl_action_at else "",
-            'pl_validated_at': b.pl_validated_at.isoformat() if b.pl_validated_at else "",
-            # CTO
+            'pl_image_url': self._merge_urls(b.pl_image_url, b.pl_image_urls),
+            'pl_action_at': _to_ist(b.pl_action_at),
+            'pl_validated_at': _to_ist(b.pl_validated_at),
             'cto_notes': b.cto_notes or '',
-            'cto_image_url': b.cto_image_url or '',
-            'cto_action_at': b.cto_action_at.isoformat() if b.cto_action_at else "",
-            # Resolution
+            'cto_image_url': self._merge_urls(b.cto_image_url, b.cto_image_urls),
+            'cto_action_at': _to_ist(b.cto_action_at),
             'resolved_by_id': b.resolved_by_id.id if b.resolved_by_id else 0,
             'resolved_by_name': b.resolved_by_id.name if b.resolved_by_id else '',
-            'resolved_at': b.resolved_at.isoformat() if b.resolved_at else '',
+            'resolved_at': _to_ist(b.resolved_at),
             'resolution_notes': b.resolution_notes or '',
-            # Bug
             'validated_bug_id': b.validated_bug_id.id if b.validated_bug_id else 0,
-            'created_at': b.create_date.isoformat() if b.create_date else '',
-            # Escalation history
+            'created_at': _to_ist(b.create_date),
             'escalation_logs': escalation_logs,
         }
 
@@ -148,9 +174,9 @@ class TaskForgeBlockerController(http.Controller):
                     'pause_time': kwargs.get('pause_time') or pause_time_str,
                 })
 
-            blocker_image_url = self._upload_files('image', 'blocker_images')
-            if blocker_image_url:
-                blocker_dict['blocker_image_url'] = blocker_image_url
+            blocker_image_urls = self._upload_files('image', 'blocker_images')
+            if blocker_image_urls:
+                blocker_dict['blocker_image_urls'] = ','.join(blocker_image_urls)
 
             document_urls = self._upload_multiple_files('blocker_documents')
 
@@ -158,7 +184,7 @@ class TaskForgeBlockerController(http.Controller):
 
             blocker._log_escalation('tasker', 'qr', 'create',
                                     notes=kwargs.get('blocker_reason') or '',
-                                    image_url=blocker_image_url,
+                                    image_urls=blocker_image_urls,
                                     document_urls=document_urls)
 
 
@@ -270,8 +296,8 @@ class TaskForgeBlockerController(http.Controller):
 
             action = kwargs.get('action')
             notes = kwargs.get('notes')
-            image_url = self._upload_files('image', 'taskforge/blocker_images')
-            video_url = self._upload_files('video', 'taskforge/blocker_videos')
+            image_urls = self._upload_files('image', 'taskforge/blocker_images')
+            video_urls = self._upload_files('video', 'taskforge/blocker_videos')
             document_urls = self._upload_multiple_files('taskforge/blocker_documents')
 
             valid_actions = {
@@ -304,13 +330,13 @@ class TaskForgeBlockerController(http.Controller):
             elif action == 'escalate':
                 current_level = blocker.escalation_level or 'qr'
                 if current_level == 'qr':
-                    blocker.action_qr_escalate(notes=notes, video_url=video_url, image_url=image_url, document_urls=document_urls)
+                    blocker.action_qr_escalate(notes=notes, video_urls=video_urls, image_urls=image_urls, document_urls=document_urls)
 
                     if kwargs.get('priority'):
                         blocker.priority = kwargs.get('priority')
                     return return_Response(message="Blocker escalated to PL", status=200, data={'data': self._format_blocker(blocker)})
                 elif current_level == 'pl':
-                    blocker.action_pl_escalate_to_cto(notes=notes, image_url=image_url, document_urls=document_urls)
+                    blocker.action_pl_escalate_to_cto(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                     blocker.sudo().write({
                         'steps_to_reproduce': kwargs.get('steps_to_reproduce') or blocker.steps_to_reproduce,
                         'affected_area': kwargs.get('task_page_affected') or blocker.affected_area,
@@ -324,9 +350,9 @@ class TaskForgeBlockerController(http.Controller):
             elif action == 'resolve':
                 current_level = blocker.escalation_level or 'qr'
                 if current_level in ('qr', 'pl') and role in ('pl', 'admin'):
-                    blocker.action_pl_resolve(notes=notes, image_url=image_url, document_urls=document_urls)
+                    blocker.action_pl_resolve(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 elif current_level == 'cto' and role == 'admin':
-                    blocker.action_cto_resolve(notes=notes, image_url=image_url, document_urls=document_urls)
+                    blocker.action_cto_resolve(notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 else:
                     return return_Response(message="Cannot resolve at this level with your role", status=403)
                 return return_Response(message="Blocker resolved", status=200, data={'data': self._format_blocker(blocker)})
@@ -340,7 +366,7 @@ class TaskForgeBlockerController(http.Controller):
                     'impact': kwargs.get('impact', 'medium'),
                     'impact_details': kwargs.get('impact_details', ''),
                 }
-                bug = blocker.action_cto_validate_bug(bug_data, notes=notes, image_url=image_url, document_urls=document_urls)
+                bug = blocker.action_cto_validate_bug(bug_data, notes=notes, image_urls=image_urls, video_urls=video_urls, document_urls=document_urls)
                 return return_Response(
                     message="Bug validated",
                     status=200,
