@@ -12,6 +12,8 @@ from typing import Any, Optional
 
 import psycopg2
 
+from . import dataset_resolver
+
 _logger = logging.getLogger(__name__)
 
 _MAX_STAGING_THREADS = 1
@@ -124,7 +126,9 @@ def _run_staging_test(db_name, uid, rec_id):
         _append_test_log(cr, rec_id, "Validating dataset...")
         cr.commit()
 
-        dataset_path = cfg["dataset_file"]
+        # cfg['dataset_file'] may be a Phase-1 S3 URL; resolve to a local
+        # cached file so downstream open()/glob see a real filesystem path.
+        dataset_path = dataset_resolver.resolve_to_local(cr, cfg["dataset_file"])
         org, repo = cfg["org"], cfg["repo"]
         matching_prs: list[str] = []
 

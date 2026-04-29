@@ -515,7 +515,7 @@ def main(
                 "instance_id": instance_id,
                 "org": org,
                 "repo": repo,
-                "number": pr_numbers_str,
+                "number": sorted_pr_numbers[0],
                 "state": primary_pr.get("state", "closed"),
                 "title": primary_pr.get("title", ""),
                 "body": primary_pr.get("body", "") or "",

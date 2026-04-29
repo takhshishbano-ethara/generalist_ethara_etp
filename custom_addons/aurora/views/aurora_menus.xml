@@ -35,6 +35,12 @@
               action="aurora_evaluation_action"
               sequence="10"/>
 
+    <menuitem id="aurora_menu_evaluation_instances"
+              name="Evaluation Instances"
+              parent="aurora_menu_evaluation_parent"
+              action="aurora_evaluation_instance_action"
+              sequence="15"/>
+
     <menuitem id="aurora_menu_harness_staging"
               name="Harness Staging"
               parent="aurora_menu_evaluation_parent"
