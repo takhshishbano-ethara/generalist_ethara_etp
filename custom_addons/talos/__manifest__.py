@@ -1,6 +1,6 @@
 {
     "name": "Talos",
-    "version": "19.0.6.0.0",
+    "version": "19.0.7.0.0",
     "category": "Tools",
     "summary": "Talos — LLM task management with sandbox environments",
     "description": """

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from odoo import models, fields, api, SUPERUSER_ID
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.modules.module import get_module_path
 from odoo.modules.registry import Registry
 from odoo.tools import config as odoo_config
@@ -1037,6 +1037,100 @@ class Talos(models.Model):
         count = len(turns)
         turns.unlink()
         _logger.info("Cleared %d turns for task %s", count, self.id)
+
+    def action_delete_trajectory_for_sandbox(self, sandbox_id):
+        self.ensure_one()
+
+        if not (
+            self.env.user.has_group("etp_user_roles.group_quality_lead")
+            or self.env.user.has_group("etp_user_roles.group_project_lead")
+        ):
+            raise AccessError(
+                "Only Quality Leads and Project Leads can delete trajectories."
+            )
+
+        trajectory_field_map = {
+            "claude": "claude_trajectory",
+            "glm": "glm_trajectory",
+            "1pa": "onePA_trajectory",
+            "1pb": "onePB_trajectory",
+            "1pc": "onePC_trajectory",
+            "1pd": "onePD_trajectory",
+        }
+
+        sandbox = self.env["talos.sandbox"].browse(int(sandbox_id or 0))
+        if not sandbox.exists() or sandbox.talos_id.id != self.id:
+            raise UserError("Sandbox not found for this task.")
+
+        if sandbox.docker_status in ("starting", "running"):
+            raise UserError(
+                "Stop the sandbox before deleting its trajectory (current status: %s)."
+                % sandbox.docker_status
+            )
+
+        field_name = trajectory_field_map.get(sandbox.model_type)
+        if not field_name:
+            raise UserError(
+                "Unknown model type for sandbox: %s" % sandbox.model_type
+            )
+
+        turn_count = len(sandbox.turn_ids)
+        sandbox.turn_ids.unlink()
+
+        self.write({field_name: False})
+
+        _logger.info(
+            "Deleted %s trajectory and %d turns for sandbox=%s task=%s by user=%s",
+            field_name,
+            turn_count,
+            sandbox.id,
+            self.id,
+            self.env.user.login,
+        )
+        return True
+
+    def action_delete_trajectory_by_field(self, field_name):
+        self.ensure_one()
+
+        field_to_model = {
+            "claude_trajectory": "claude",
+            "glm_trajectory": "glm",
+            "onePA_trajectory": "1pa",
+            "onePB_trajectory": "1pb",
+            "onePC_trajectory": "1pc",
+            "onePD_trajectory": "1pd",
+        }
+
+        if field_name == "golden_trajectory":
+            if not (
+                self.env.user.has_group("etp_user_roles.group_quality_lead")
+                or self.env.user.has_group("etp_user_roles.group_project_lead")
+            ):
+                raise AccessError(
+                    "Only Quality Leads and Project Leads can delete trajectories."
+                )
+            self.write({"golden_trajectory": False})
+            _logger.info(
+                "Deleted golden_trajectory for task=%s by user=%s",
+                self.id,
+                self.env.user.login,
+            )
+            return True
+
+        model_type = field_to_model.get(field_name)
+        if not model_type:
+            raise UserError("Unknown trajectory field: %s" % field_name)
+
+        sandbox = self.env["talos.sandbox"].search(
+            [("talos_id", "=", self.id), ("model_type", "=", model_type)],
+            limit=1,
+        )
+        if not sandbox:
+            raise UserError(
+                "No %s sandbox exists for this task yet." % model_type
+            )
+
+        return self.action_delete_trajectory_for_sandbox(sandbox.id)
 
     def action_generate_golden_trajectory(self):
         self.ensure_one()
