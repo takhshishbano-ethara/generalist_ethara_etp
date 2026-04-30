@@ -5,6 +5,7 @@ from . import flag_controllers
 from . import file_controllers
 from . import analytics_controllers
 from . import dashboard_controllers
+from . import main_dashboard
 from . import export_controllers
 from . import notification_controllers
 from . import role_management_controllers
