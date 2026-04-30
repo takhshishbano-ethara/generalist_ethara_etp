@@ -322,16 +322,34 @@ class TestTalosActions(TalosTestCase):
         self.assertEqual(len(self.task._get_all_turns()), 0)
 
     def test_action_generate_golden_no_claude_trajectory(self):
-        """action_generate_golden_trajectory raises without claude traj."""
+        """action_generate_golden_trajectory succeeds with only GLM trajectory."""
+        from odoo.addons.talos.models.talos import _GOLDEN_GENERATING, _GOLDEN_LOCK
         task = self._create_task(task_id="GOLDEN-NOCLAUD")
         task.write({"glm_trajectory": "some data"})
-        with self.assertRaises(UserError):
+        try:
             task.action_generate_golden_trajectory()
+            task.invalidate_recordset(["golden_status"])
+            self.assertEqual(task.golden_status, "generating")
+        finally:
+            with _GOLDEN_LOCK:
+                _GOLDEN_GENERATING.discard(task.id)
 
     def test_action_generate_golden_no_glm_trajectory(self):
-        """action_generate_golden_trajectory raises without glm traj."""
+        """action_generate_golden_trajectory succeeds with only Claude trajectory."""
+        from odoo.addons.talos.models.talos import _GOLDEN_GENERATING, _GOLDEN_LOCK
         task = self._create_task(task_id="GOLDEN-NOGLM")
         task.write({"claude_trajectory": "some data"})
+        try:
+            task.action_generate_golden_trajectory()
+            task.invalidate_recordset(["golden_status"])
+            self.assertEqual(task.golden_status, "generating")
+        finally:
+            with _GOLDEN_LOCK:
+                _GOLDEN_GENERATING.discard(task.id)
+
+    def test_action_generate_golden_no_trajectories_at_all(self):
+        """action_generate_golden_trajectory raises when both trajectories missing."""
+        task = self._create_task(task_id="GOLDEN-NOTRAJ")
         with self.assertRaises(UserError):
             task.action_generate_golden_trajectory()
 

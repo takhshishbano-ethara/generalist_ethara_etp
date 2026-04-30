@@ -44,8 +44,7 @@
               <button class="oe_stat_button" name="action_generate_golden_trajectory"
                       type="object" icon="fa-magic"
                       string="Generate Golden"
-                      invisible="not claude_trajectory or not glm_trajectory"
-                      confirm="This will call Kimi to generate golden trajectories. Continue?"/>
+                      confirm="This will call GLM to generate golden trajectories. Continue?"/>
             </div>
             <group>
               <group string="Task Details">
@@ -155,7 +154,6 @@
                   </span>
                   <button class="btn btn-sm btn-outline-warning"
                           name="action_generate_golden_trajectory" type="object"
-                          invisible="not claude_trajectory or not glm_trajectory"
                           confirm="Retry golden trajectory generation?">
                     <i class="fa fa-refresh"/> Retry
                   </button>

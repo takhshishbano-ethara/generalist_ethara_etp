@@ -112,22 +112,32 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
             with open(schema_path, "r") as f:
                 delivery_schema = f.read().strip()
 
+        trajectory_sections = []
+        if claude_traj:
+            trajectory_sections.append(
+                "## Model Trajectory 1 (Claude)\n%s" % claude_traj
+            )
+        if glm_traj:
+            idx = len(trajectory_sections) + 1
+            trajectory_sections.append(
+                "## Model Trajectory %d (GLM)\n%s" % (idx, glm_traj)
+            )
+        trajectories_block = "\n\n".join(trajectory_sections)
+
         user_message = (
             "## Current Date\n%s\n\n"
             "## Delivery Schema\n```json\n%s\n```\n\n"
             "## SOUL.md\n%s\n\n"
             "## MEMORY.md\n%s\n\n"
             "## AGENTS.md\n%s\n\n"
-            "## Model Trajectory 1 (Claude)\n%s\n\n"
-            "## Model Trajectory 2 (GLM)\n%s"
+            "%s"
         ) % (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
             delivery_schema,
             soul_md,
             memory_md,
             agents_md,
-            claude_traj,
-            glm_traj,
+            trajectories_block,
         )
 
         # Phase 2: call Bedrock (long-running, no cursor held)
@@ -1134,12 +1144,11 @@ class Talos(models.Model):
 
     def action_generate_golden_trajectory(self):
         self.ensure_one()
-        if not self.claude_trajectory:
+        if not self.claude_trajectory and not self.glm_trajectory:
             raise UserError(
-                "Claude trajectory is empty. Stop the Claude sandbox first."
+                "At least one of Claude or Kimi trajectory is required. "
+                "Stop the corresponding sandbox first to capture its trajectory."
             )
-        if not self.glm_trajectory:
-            raise UserError("GLM trajectory is empty. Stop the GLM sandbox first.")
         if not self.persona_id:
             raise UserError("No persona selected.")
 
