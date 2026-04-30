@@ -15,6 +15,9 @@
                 <field name="end_time"/>
                 <field name="time_taken_mins"/>
                 <field name="quality_score"/>
+                <field name="grammar_checked" widget="boolean_toggle" optional="hide"/>
+                <field name="grammar_is_perfect" widget="boolean_toggle" optional="hide"/>
+                <field name="total_grammar_issues" optional="hide"/>
                 <field name="state" widget="badge"/>
             </list>
         </field>
@@ -86,6 +89,47 @@
                                     <field name="image_type"/>
                                 </list>
                             </field>
+                        </page>
+                        <page string="Grammar Check" name="grammar_check">
+                            <group>
+                                <group string="Status">
+                                    <field name="grammar_checked"/>
+                                    <field name="grammar_is_perfect"/>
+                                    <field name="total_grammar_issues"/>
+                                </group>
+                                <group string="Error %">
+                                    <field name="prompt_error_percentage"/>
+                                    <field name="justification_error_percentage"/>
+                                </group>
+                            </group>
+                            <group>
+                                <group string="Prompt Summary">
+                                    <field name="prompt_issue_count"/>
+                                    <field name="prompt_grammar_count"/>
+                                    <field name="prompt_misspelling_count"/>
+                                    <field name="prompt_punctuation_count"/>
+                                    <field name="prompt_clarity_count"/>
+                                    <field name="prompt_typography_count"/>
+                                    <field name="prompt_capitalization_count"/>
+                                    <field name="prompt_miscellaneous_count"/>
+                                </group>
+                                <group string="Justification Summary">
+                                    <field name="justification_issue_count"/>
+                                    <field name="justification_grammar_count"/>
+                                    <field name="justification_misspelling_count"/>
+                                    <field name="justification_punctuation_count"/>
+                                    <field name="justification_clarity_count"/>
+                                    <field name="justification_typography_count"/>
+                                    <field name="justification_capitalization_count"/>
+                                    <field name="justification_miscellaneous_count"/>
+                                </group>
+                            </group>
+                            <group string="Texts">
+                                <field name="prompt_text" string="Original Prompt"/>
+                                <field name="prompt_corrected" string="Corrected Prompt"/>
+                                <field name="justification_text" string="Original Justification"/>
+                                <field name="justification_corrected" string="Corrected Justification"/>
+                            </group>
                         </page>
                     </notebook>
                 </sheet>

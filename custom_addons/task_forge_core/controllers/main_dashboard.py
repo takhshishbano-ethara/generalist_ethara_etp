@@ -153,7 +153,7 @@ def _project_ids_in_category(kw):
 
 def _require_cto(user):
     """Return a 403 Response if the user is not CTO, else None."""
-    if not user.has_group('etp_user_roles.group_cto'):
+    if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
         return return_Response(
             message='Founder dashboard requires CTO role',
             status=403,
@@ -309,7 +309,10 @@ class MainDashboardController(http.Controller):
             completed_yesterday = TaskLog.search_count(completed_yesterday_domain)
 
             # --- Active projects (task_forge_status = live) ---
-            active_proj_domain = [('task_forge_status', '=', 'live')]
+            # active_proj_domain = [('task_forge_status', '=', 'live')]
+
+            active_proj_domain = [('stage_id', 'in', [request.env.ref('project_extension.project_project_stage_ethara_14').id, request.env.ref('project_extension.project_project_stage_ethara_4').id])]
+
             if project_ids is not None:
                 active_proj_domain.append(('id', 'in', project_ids))
             active_projects = Project.search(active_proj_domain)

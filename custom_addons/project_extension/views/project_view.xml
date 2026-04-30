@@ -97,6 +97,50 @@
                         </list>
                     </field>
                 </page>
+
+                <page string="Rubrics &amp; Justification" name="rubrics_config">
+                    <group>
+                        <group>
+                            <field name="is_rubrics_required"/>
+                            <field name="is_justification_required"/>
+                        </group>
+                    </group>
+                    <field name="rubric_category_ids" invisible="not is_rubrics_required">
+<!--                        <list editable="bottom">-->
+                        <list >
+                            <field name="sequence" widget="handle"/>
+                            <field name="name"/>
+                        </list>
+                        <form>
+                            <sheet>
+                                <group>
+                                    <field name="name"/>
+                                    <field name="sequence"/>
+                                </group>
+                                <notebook>
+                                    <page string="Options">
+                                        <field name="option_ids">
+                                            <list editable="bottom">
+                                                <field name="sequence" widget="handle"/>
+                                                <field name="name"/>
+                                                <field name="value"/>
+                                            </list>
+                                        </field>
+                                    </page>
+                                    <page string="Dimensions">
+                                        <field name="dimension_ids">
+                                            <list editable="bottom">
+                                                <field name="sequence" widget="handle"/>
+                                                <field name="name"/>
+                                                <field name="description"/>
+                                            </list>
+                                        </field>
+                                    </page>
+                                </notebook>
+                            </sheet>
+                        </form>
+                    </field>
+                </page>
             </xpath>
         </field>
     </record>

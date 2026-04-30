@@ -80,6 +80,10 @@ class Project(models.Model):
     base_project_task = fields.One2many('base.project.task', 'project_id', string='Base Project Task')
     member_history_ids = fields.One2many('project.member.history', 'project_id', string='Member History')
 
+    is_rubrics_required = fields.Boolean(string='Rubrics Required', default=False)
+    is_justification_required = fields.Boolean(string='Justification Required', default=False)
+    rubric_category_ids = fields.One2many('rubric.category', 'project_id', string='Rubric Categories')
+
     def create_slack_channel(self):
         if not self.slack_channel_name:
             _logger.info('No slack_channel_name set for project %s, skipping', self.name)
