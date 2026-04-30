@@ -9,6 +9,7 @@ from ..models.atlas_sandbox import MODEL_DEFAULTS
 _logger = logging.getLogger(__name__)
 
 _TURN_FIELD_MAX_BYTES = 1_048_576
+_SAVE_RESPONSE_MAX_COMBINED_BYTES = 3 * 1_048_576
 
 
 def _is_admin():
@@ -103,18 +104,38 @@ class AtlasChatController(http.Controller):
         if not (_owns_turn(turn) or _is_admin()):
             return {"error": "Access denied"}
 
+        response_str = response or ""
+        tool_calls_str = tool_calls or ""
+        raw_events_str = raw_events or ""
+        combined_bytes = (
+            len(response_str.encode("utf-8", errors="replace"))
+            + len(tool_calls_str.encode("utf-8", errors="replace"))
+            + len(raw_events_str.encode("utf-8", errors="replace"))
+        )
+        if combined_bytes > _SAVE_RESPONSE_MAX_COMBINED_BYTES:
+            _logger.warning(
+                "save_response rejected: combined payload %d > %d bytes for turn=%s user=%s",
+                combined_bytes, _SAVE_RESPONSE_MAX_COMBINED_BYTES, turn_id,
+                request.env.user.id,
+            )
+            return {
+                "error": "Payload too large",
+                "max_bytes": _SAVE_RESPONSE_MAX_COMBINED_BYTES,
+                "status": 413,
+            }
+
         vals = {
-            "response": _cap(response or ""),
+            "response": _cap(response_str),
             "turn_status": "Streaming" if partial else "Completed",
         }
         if run_id:
             vals["run_id"] = run_id
         if timestamp:
             vals["response_timestamp"] = timestamp
-        if tool_calls:
-            vals["tool_calls"] = _cap(tool_calls)
-        if raw_events:
-            vals["raw_events"] = _cap(raw_events)
+        if tool_calls_str:
+            vals["tool_calls"] = _cap(tool_calls_str)
+        if raw_events_str:
+            vals["raw_events"] = _cap(raw_events_str)
 
         turn.write(vals)
 

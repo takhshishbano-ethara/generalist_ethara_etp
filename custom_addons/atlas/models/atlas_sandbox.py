@@ -38,6 +38,33 @@ _GENERATION_POOL = ThreadPoolExecutor(
     max_workers=2, thread_name_prefix="atlas-generation"
 )
 
+
+def _safe_int(value, default, *, context=""):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        _logger.warning(
+            "Rubric/level int cast failed; using default=%s (context=%s, value=%r)",
+            default, context, value,
+        )
+        return default
+
+
+def _write_secret_file(path, content):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(path, flags, 0o600)
+    try:
+        data = content if isinstance(content, (bytes, bytearray)) else content.encode("utf-8")
+        os.write(fd, data)
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+
+
+def _write_secret_json(path, obj):
+    _write_secret_file(path, json.dumps(obj))
+
+
 MODEL_TYPES = [
     ("glm", "GLM 5"),
 ]
@@ -260,7 +287,7 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
                             "category": cat,
                             "custom_category": c.get("custom_category", "") if cat == "other" else "",
                             "importance": imp,
-                            "weight": int(c.get("weight", 5)),
+                            "weight": _safe_int(c.get("weight", 5), 5, context="criterion.weight task=%s" % task_id),
                             "is_negative": bool(c.get("is_negative", False)),
                             "suggestion": c.get("suggestion", ""),
                         })
@@ -269,7 +296,7 @@ def _run_generation_background(db_name, task_id, notify_partner_id):
                             if isinstance(lv, dict):
                                 env["atlas.rubric.level"].sudo().create({
                                     "criterion_id": criterion.id,
-                                    "score": int(lv.get("score", 0)),
+                                    "score": _safe_int(lv.get("score", 0), 0, context="level.score task=%s" % task_id),
                                     "label": lv.get("label", ""),
                                 })
                         created_count += 1
@@ -450,7 +477,7 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
                             "category": cat,
                             "custom_category": c.get("custom_category", "") if cat == "other" else "",
                             "importance": imp,
-                            "weight": int(c.get("weight", 5)),
+                            "weight": _safe_int(c.get("weight", 5), 5, context="criterion.weight task=%s" % task_id),
                             "is_negative": bool(c.get("is_negative", False)),
                             "suggestion": c.get("suggestion", ""),
                         })
@@ -459,7 +486,7 @@ def _run_rubric_only_background(db_name, task_id, notify_partner_id):
                             if isinstance(lv, dict):
                                 env["atlas.rubric.level"].sudo().create({
                                     "criterion_id": criterion.id,
-                                    "score": int(lv.get("score", 0)),
+                                    "score": _safe_int(lv.get("score", 0), 0, context="level.score task=%s" % task_id),
                                     "label": lv.get("label", ""),
                                 })
                         created_count += 1
@@ -1101,11 +1128,11 @@ class AtlasSandbox(models.Model):
             if self.docker_status == "error":
                 try:
                     subprocess.run(
-                        [compose_bin, "compose",
-                         "-f", "docker-compose.yml",
-                         "-f", "docker-compose.override.yml",
-                         "-p", project_name,
-                         "down", "-v", "--remove-orphans"],
+                        compose_bin + [
+                            "-f", "docker-compose.yml",
+                            "-f", "docker-compose.override.yml",
+                            "-p", project_name,
+                            "down", "-v", "--remove-orphans"],
                         capture_output=True,
                         text=True,
                         timeout=60,
@@ -1233,11 +1260,11 @@ class AtlasSandbox(models.Model):
             if self.docker_status == "error":
                 try:
                     subprocess.run(
-                        [compose_bin, "compose",
-                         "-f", "docker-compose.yml",
-                         "-f", "docker-compose.override.yml",
-                         "-p", project_name,
-                         "down", "-v", "--remove-orphans"],
+                        compose_bin + [
+                            "-f", "docker-compose.yml",
+                            "-f", "docker-compose.override.yml",
+                            "-p", project_name,
+                            "down", "-v", "--remove-orphans"],
                         capture_output=True,
                         text=True,
                         timeout=60,
@@ -1489,8 +1516,7 @@ class AtlasSandbox(models.Model):
         if default_model:
             config["agents"] = {"defaults": {"model": default_model}}
 
-        with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
-            json.dump(config, f)
+        _write_secret_json(os.path.join(data_dir, "openclaw.json"), config)
 
         kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
         kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
@@ -1504,8 +1530,7 @@ class AtlasSandbox(models.Model):
             glm_bedrock_arn=glm_arn or "PLACEHOLDER",
             glm_aws_region=glm_region,
         )
-        with open(os.path.join(workdir, "litellm-config.yaml"), "w") as f:
-            f.write(litellm_yaml)
+        _write_secret_file(os.path.join(workdir, "litellm-config.yaml"), litellm_yaml)
 
         gog_config_dir = os.path.join(workdir, "gog-config")
         os.makedirs(os.path.join(gog_config_dir, "gogcli", "keyring"), exist_ok=True)
@@ -1536,8 +1561,7 @@ class AtlasSandbox(models.Model):
                         cs_path = os.path.join(
                             gog_config_dir, "gogcli", "client_secret.json"
                         )
-                        with open(cs_path, "w") as f:
-                            json.dump(client_secret_obj, f)
+                        _write_secret_json(cs_path, client_secret_obj)
                         _logger.info(
                             "[GogAuth→Docker] wrote client_secret.json to %s", cs_path
                         )
@@ -1598,8 +1622,7 @@ class AtlasSandbox(models.Model):
                             )
                             continue
                         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-                        with open(abs_path, "w") as f:
-                            f.write(content)
+                        _write_secret_file(abs_path, content)
                         written_files.append(rel_path)
                     _logger.info(
                         "[GogAuth→Docker] wrote %d token files to %s: %s",
@@ -1615,8 +1638,7 @@ class AtlasSandbox(models.Model):
 
         gog_cfg = os.path.join(gog_config_dir, "gogcli", "config.json")
         if not os.path.isfile(gog_cfg):
-            with open(gog_cfg, "w") as f:
-                json.dump({"keyring_backend": "file"}, f)
+            _write_secret_json(gog_cfg, {"keyring_backend": "file"})
 
         nginx_conf = (
             "map $http_upgrade $connection_upgrade {\n"
@@ -1650,8 +1672,7 @@ class AtlasSandbox(models.Model):
             "    }\n"
             "}\n"
         ) % gateway_token
-        with open(os.path.join(workdir, "nginx.conf"), "w") as f:
-            f.write(nginx_conf)
+        _write_secret_file(os.path.join(workdir, "nginx.conf"), nginx_conf)
 
         override = (
             "services:\n"
@@ -1683,8 +1704,7 @@ class AtlasSandbox(models.Model):
             "    ports:\n"
             '      - "%d:5432"\n'
         ) % (gateway_token, gateway_port, litellm_port, db_port)
-        with open(os.path.join(workdir, "docker-compose.override.yml"), "w") as f:
-            f.write(override)
+        _write_secret_file(os.path.join(workdir, "docker-compose.override.yml"), override)
 
         return workdir
 
@@ -2008,7 +2028,7 @@ class AtlasSandbox(models.Model):
                 continue
             try:
                 result = subprocess.run(
-                    [compose_bin, "compose", "-p", project, "ps", "-q"],
+                    compose_bin + ["-p", project, "ps", "-q"],
                     capture_output=True,
                     text=True,
                     timeout=30,

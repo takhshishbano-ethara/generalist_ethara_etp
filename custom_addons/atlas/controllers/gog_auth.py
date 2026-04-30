@@ -128,6 +128,19 @@ class AtlasGogAuthController(http.Controller):
         task = request.env["atlas.atlas"].browse(task_id)
         if not task.exists():
             return None, {"error": "Task not found"}
+        user = request.env.user
+        is_admin = (
+            user.has_group("base.group_system")
+            or user.has_group("atlas.group_atlas_admin")
+        )
+        owner = task.employee_id.user_id if task.employee_id else False
+        is_owner = bool(owner) and owner.id == user.id
+        if not (is_owner or is_admin):
+            _logger.warning(
+                "[GogAuth] ownership check rejected task=%s user=%s owner=%s",
+                task_id, user.id, owner.id if owner else None,
+            )
+            return None, {"error": "Access denied"}
         return task, None
 
     @staticmethod

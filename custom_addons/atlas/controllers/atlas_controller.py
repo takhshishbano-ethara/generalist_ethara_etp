@@ -20,6 +20,13 @@ _ALLOWED_URL_DOMAIN_SUFFIXES = (
     ".blob.core.windows.net",
 )
 
+# Request body / response size caps for the JSONL import endpoint. Caps
+# bound memory use on pathological input (unbounded body, multi-GB S3
+# object). Hostile review: AA (F12) and BB (F13).
+_JSONL_MAX_REQUEST_BYTES = 10 * 1024 * 1024          # 10 MB
+_JSONL_MAX_RESPONSE_BYTES = 100 * 1024 * 1024        # 100 MB
+_JSONL_RESPONSE_CHUNK = 1024 * 1024                  # 1 MB streaming chunk
+
 
 def _is_url_allowed(url):
     """Return True only when *url* points to a trusted, non-internal host."""
@@ -55,8 +62,47 @@ class Atlas(http.Controller):
     @http.route('/api/get_jsonl_data', type='http', auth='user', methods=['POST'], csrf=True)
     def method_get_jsonl_data(self, **params):
         try:
+            if 'atlas.persona' not in request.env or 'atlas.taxonomy' not in request.env:
+                _logger.error(
+                    "JSONL import unavailable: required models missing "
+                    "(atlas.persona=%s, atlas.taxonomy=%s)",
+                    'atlas.persona' in request.env,
+                    'atlas.taxonomy' in request.env,
+                )
+                return http.Response(
+                    json.dumps({
+                        'message': 'JSONL import feature is not available in this deployment',
+                        'status': 501,
+                    }),
+                    content_type='application/json',
+                    status=501,
+                )
+
             try:
-                jdata = json.loads(request.httprequest.stream.read())
+                content_length = int(request.httprequest.headers.get('Content-Length') or 0)
+            except (TypeError, ValueError):
+                content_length = 0
+            if content_length > _JSONL_MAX_REQUEST_BYTES:
+                return http.Response(
+                    json.dumps({
+                        'message': 'Request body too large (max %d bytes)' % _JSONL_MAX_REQUEST_BYTES,
+                        'status': 413,
+                    }),
+                    content_type='application/json',
+                    status=413,
+                )
+            raw_body = request.httprequest.stream.read(_JSONL_MAX_REQUEST_BYTES + 1)
+            if len(raw_body) > _JSONL_MAX_REQUEST_BYTES:
+                return http.Response(
+                    json.dumps({
+                        'message': 'Request body exceeded size cap (max %d bytes)' % _JSONL_MAX_REQUEST_BYTES,
+                        'status': 413,
+                    }),
+                    content_type='application/json',
+                    status=413,
+                )
+            try:
+                jdata = json.loads(raw_body) if raw_body else {}
             except Exception:
                 try:
                     jdata = json.loads(request.httprequest.data)
@@ -89,19 +135,43 @@ class Atlas(http.Controller):
                     status=403
                 )
 
-            response = requests.get(url, timeout=60, allow_redirects=False)
-            response.raise_for_status()  # fail fast if error
+            with requests.get(
+                url, timeout=60, allow_redirects=False, stream=True,
+            ) as response:
+                response.raise_for_status()
+                chunks = []
+                total = 0
+                for chunk in response.iter_content(
+                    chunk_size=_JSONL_RESPONSE_CHUNK, decode_unicode=False,
+                ):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _JSONL_MAX_RESPONSE_BYTES:
+                        _logger.warning(
+                            "JSONL import aborted: response exceeded %d bytes for %s",
+                            _JSONL_MAX_RESPONSE_BYTES, url[:200],
+                        )
+                        return http.Response(
+                            json.dumps({
+                                'message': 'Remote file too large (max %d bytes)' % _JSONL_MAX_RESPONSE_BYTES,
+                                'status': 413,
+                            }),
+                            content_type='application/json',
+                            status=413,
+                        )
+                    chunks.append(chunk)
+                response_text = b"".join(chunks).decode(
+                    response.encoding or 'utf-8', errors='replace',
+                )
 
             data = []
-            for line in response.text.splitlines():
+            for line in response_text.splitlines():
                 line = line.strip()
                 if not line:
                     continue
-                # Fix malformed JSON: "gog_auth"{ -> "gog_auth":{
                 line = line.replace('"gog_auth"{', '"gog_auth":{')
-                # Strip trailing commas
                 line = line.rstrip(',')
-                # Balance unmatched braces
                 diff = line.count('{') - line.count('}')
                 if diff > 0:
                     line = line + '}' * diff

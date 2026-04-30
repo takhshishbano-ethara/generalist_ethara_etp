@@ -534,6 +534,20 @@ class LlmAssistQc(http.Controller):
         if not task.exists():
             return {"error": "Task not found for this criterion"}
 
+        user = request.env.user
+        is_admin = (
+            user.has_group("base.group_system")
+            or user.has_group("atlas.group_atlas_admin")
+        )
+        owner = task.employee_id.user_id if task.employee_id else False
+        is_owner = bool(owner) and owner.id == user.id
+        if not (is_owner or is_admin):
+            _logger.warning(
+                "/atlas/rubric/qc rejected: criterion=%s task=%s user=%s owner=%s",
+                criterion_id, task.id, user.id, owner.id if owner else None,
+            )
+            return {"error": "Access denied"}
+
         glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
         session_id = glm_sandbox.current_session_id if glm_sandbox else ""
 
