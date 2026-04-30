@@ -167,24 +167,9 @@ class JaegerRepositoryStage5(models.Model):
 
     def action_export_meta(self):
         raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
-        self.ensure_one()
-        if self.current_stage != "stage7":
-            raise UserError("Repository must be in Stage 7.")
-        self.write({"delivery_status": "converting", "error_message": False})
-        from ..services.rabbitmq_service import publish_export_task
-
-        publish_export_task(self.id)
 
     def action_export_meta_direct(self):
         raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
-        self.ensure_one()
-        if self.current_stage != "stage7":
-            raise UserError("Repository must be in Stage 7.")
-        if self.delivery_status in ("converting", "queued"):
-            raise UserError("Meta export is already in progress.")
-        return self._run_pipeline_async(
-            "run_meta_export", "delivery_status", "Meta Export",
-        )
 
     def run_meta_export(self):
         """Convert to Meta delivery schema. Called by consumer.py via XML-RPC."""

@@ -5,9 +5,12 @@ from odoo import api, fields, models
 
 from .jaeger_repository import (
     _CRON_LOCK_AUTO_ADVANCE,
+    _CRON_LOCK_POLL_EKS,
     _CRON_LOCK_RECONCILE_SCRAPES,
     _CRON_LOCK_WATCHDOG_BUILDS,
+    _CRON_LOCK_WATCHDOG_DATASET,
     _CRON_LOCK_WATCHDOG_SCRAPES,
+    _CRON_LOCK_WATCHDOG_TESTS,
 )
 
 _logger = logging.getLogger(__name__)
@@ -32,6 +35,15 @@ class JaegerRepositoryCrons(models.Model):
 
     @api.model
     def _cron_poll_eks_trajectories(self):
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_POLL_EKS,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            self._run_poll_eks_trajectories()
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_POLL_EKS,))
+
+    def _run_poll_eks_trajectories(self):
         running = self.search(
             [
                 (
@@ -75,6 +87,7 @@ class JaegerRepositoryCrons(models.Model):
             jobs = batch_v1.list_namespaced_job(
                 namespace=namespace,
                 label_selector=f"jaeger-job-id={self.eks_job_id}",
+                limit=500,
             )
         except Exception as e:
             _logger.error("Failed to list K8s jobs for %s: %s", self.eks_job_id, e)
@@ -262,6 +275,14 @@ class JaegerRepositoryCrons(models.Model):
 
         try:
             from kubernetes import client, config as k8s_config
+        except ImportError:
+            _logger.error(
+                "Reconcile: kubernetes package not installed — "
+                "cannot reconcile %d active scrape jobs", len(active),
+            )
+            return
+
+        try:
             try:
                 k8s_config.load_incluster_config()
             except k8s_config.ConfigException:
@@ -269,18 +290,32 @@ class JaegerRepositoryCrons(models.Model):
                     config_file=os.environ.get("KUBECONFIG") or None,
                 )
             batch_v1 = client.BatchV1Api()
-        except ImportError:
-            return
         except Exception as e:
-            _logger.warning("K8s config not available for reconciliation: %s", e)
+            _logger.error(
+                "Reconcile: K8s config failed — cannot reconcile %d active scrape jobs: %s",
+                len(active), e,
+            )
             return
 
         ICP = self.env["ir.config_parameter"].sudo()
         namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
 
-        jobs = batch_v1.list_namespaced_job(
-            namespace=namespace,
-            label_selector="platform=jaeger,app.kubernetes.io/name=jaeger-scrape",
+        try:
+            jobs = batch_v1.list_namespaced_job(
+                namespace=namespace,
+                label_selector="platform=jaeger,app.kubernetes.io/name=jaeger-scrape",
+                limit=500,
+            )
+        except Exception as e:
+            _logger.error(
+                "Reconcile: failed to list jobs in namespace '%s': %s",
+                namespace, e,
+            )
+            return
+
+        _logger.info(
+            "Reconcile: found %d K8s jobs in namespace '%s', %d repos active",
+            len(jobs.items), namespace, len(active),
         )
 
         job_map = {}
@@ -319,7 +354,23 @@ class JaegerRepositoryCrons(models.Model):
                                 repo.name, e,
                             )
                             continue
-                    repo.write({"pr_collection_status": "done"})
+                    vals = {
+                        "pr_collection_status": "done",
+                        "pr_collection_step": "",
+                        "error_message": False,
+                    }
+                    try:
+                        gate_ok, _ = repo._check_current_gate()
+                        if gate_ok:
+                            next_stage = repo._next_stage()
+                            if next_stage:
+                                vals["current_stage"] = next_stage
+                    except Exception:
+                        _logger.warning(
+                            "Reconcile: %s stage advance failed (cron will catch up)",
+                            repo.name, exc_info=True,
+                        )
+                    repo.write(vals)
                     _logger.info(
                         "Reconcile: %s marked done (K8s Job succeeded)", repo.name,
                     )
@@ -346,3 +397,65 @@ class JaegerRepositoryCrons(models.Model):
                 _logger.warning(
                     "Reconcile: %s marked failed (K8s Job failed)", repo.name,
                 )
+
+    @api.model
+    def _cron_watchdog_stale_tests(self):
+        """Mark repos stuck in test_execution_status='running' for 4+ hours as failed."""
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_WATCHDOG_TESTS,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            self._run_watchdog_stale_tests()
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_WATCHDOG_TESTS,))
+
+    def _run_watchdog_stale_tests(self):
+        from datetime import timedelta
+
+        cutoff = fields.Datetime.now() - timedelta(hours=4)
+        stale = self.search([
+            ("test_execution_status", "=", "running"),
+            ("write_date", "<", cutoff),
+        ], limit=500)
+        for repo in stale:
+            _logger.warning(
+                "Watchdog: marking %s test execution as failed (stuck >4 hours, last write %s)",
+                repo.name, repo.write_date,
+            )
+            repo.write({
+                "test_execution_status": "failed",
+                "error_message": "Watchdog: test execution appears stuck (>4 hours). Retry manually.",
+            })
+        if stale:
+            _logger.info("Watchdog: marked %d stale test executions as failed", len(stale))
+
+    @api.model
+    def _cron_watchdog_stale_dataset(self):
+        """Mark repos stuck in dataset_status='generating' for 2+ hours as failed."""
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_WATCHDOG_DATASET,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        try:
+            self._run_watchdog_stale_dataset()
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_WATCHDOG_DATASET,))
+
+    def _run_watchdog_stale_dataset(self):
+        from datetime import timedelta
+
+        cutoff = fields.Datetime.now() - timedelta(hours=2)
+        stale = self.search([
+            ("dataset_status", "=", "generating"),
+            ("write_date", "<", cutoff),
+        ], limit=500)
+        for repo in stale:
+            _logger.warning(
+                "Watchdog: marking %s dataset finalization as failed (stuck >2 hours, last write %s)",
+                repo.name, repo.write_date,
+            )
+            repo.write({
+                "dataset_status": "failed",
+                "error_message": "Watchdog: dataset finalization appears stuck (>2 hours). Retry manually.",
+            })
+        if stale:
+            _logger.info("Watchdog: marked %d stale dataset finalizations as failed", len(stale))

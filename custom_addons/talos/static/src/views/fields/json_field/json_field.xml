@@ -33,6 +33,14 @@
                                                 title="Edit this trajectory">
                                             <i class="fa fa-pencil"/>
                                         </button>
+                                        <t t-if="isTalosAdmin">
+                                            <button class="talos-json-delete-btn"
+                                                    t-att-disabled="isAnyActionRunning"
+                                                    t-on-click="() => this.onDeleteTrajectory()"
+                                                    title="Delete this trajectory and all its turns (QL/PL only).">
+                                                <i class="fa fa-trash"/>
+                                            </button>
+                                        </t>
                                     </t>
                                 </div>
                             </div>

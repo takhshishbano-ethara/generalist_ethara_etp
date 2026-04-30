@@ -421,7 +421,7 @@ class AuroraGithubToken(models.Model):
         if not admin_group:
             _logger.warning("Aurora Admin group not found, cannot send expiry alert")
             return
-        partner_ids = admin_group.users.mapped("partner_id").ids
+        partner_ids = admin_group.all_user_ids.mapped("partner_id").ids
         if partner_ids:
             self.env["mail.thread"].message_notify(
                 body=body,

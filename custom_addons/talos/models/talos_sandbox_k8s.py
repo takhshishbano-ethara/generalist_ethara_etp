@@ -58,6 +58,10 @@ server {
         proxy_hide_header Content-Security-Policy;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
+        proxy_buffering off;
+        proxy_buffer_size 256k;
+        proxy_buffers 8 256k;
+        proxy_busy_buffers_size 512k;
     }
     location ~ ^/litellm/(\\d+)(?:/(.*))? {
         set $task_id $1;
@@ -1216,6 +1220,9 @@ class TalosSandboxK8s(models.AbstractModel):
                         "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
                         "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
                         "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
+                        "nginx.ingress.kubernetes.io/proxy-buffering": "off",
+                        "nginx.ingress.kubernetes.io/proxy-buffer-size": "256k",
+                        "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
                     },
                 ),
                 spec=client.V1IngressSpec(

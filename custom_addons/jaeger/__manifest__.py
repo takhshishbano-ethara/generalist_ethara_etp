@@ -13,7 +13,7 @@ A production-grade pipeline for collecting software engineering task data:
 * **Phase 2**: Docker image building, 3-run test execution, dataset finalization
 * **Phase 3**: AI trajectory generation on EKS, pass@k evaluation, Meta delivery export
 
-Supports 10,000+ repos with RabbitMQ-based durable job processing.
+Supports 10,000+ repos with background thread and K8s Job-based processing.
     """,
     "author": "Ethara AI",
     "website": "https://www.ethara.ai",

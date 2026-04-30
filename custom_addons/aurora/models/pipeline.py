@@ -353,8 +353,11 @@ class AuroraPipeline(models.Model):
         env_vars = [
             k8s_client.V1EnvVar(name="PIPELINE_ID", value=str(self.id)),
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
-            # Required: container runs `python <worker_script>` directly,
-            # so `odoo` and `odoo.addons.aurora` are not on sys.path.
+            # The Job runs `python <worker_script>` directly, so only the
+            # script's directory lands on sys.path — `odoo` and
+            # `odoo.addons.aurora` are unreachable without PYTHONPATH.
+            # The etp pod avoids this because odoo-bin bootstraps sys.path
+            # itself. Mirror jaeger's worker layout here.
             k8s_client.V1EnvVar(
                 name="PYTHONPATH",
                 value="/opt/ethara/app/src:/opt/ethara/app:/opt/ethara/app/custom_addons",
@@ -711,6 +714,17 @@ class AuroraPipeline(models.Model):
             "target": "new",
         }
 
+    def action_download_dataset(self):
+        self.ensure_one()
+        if not self.dataset_url:
+            from odoo.exceptions import UserError
+            raise UserError("No dataset available to download yet.")
+        return {
+            "type": "ir.actions.act_url",
+            "url": self.dataset_url,
+            "target": "new",
+        }
+
     def action_download_step_file(self):
         self.ensure_one()
         step = self.env.context.get("step_number")
@@ -1064,3 +1078,174 @@ class AuroraPipeline(models.Model):
                 message_type="comment",
                 subtype_xmlid="mail.mt_note",
             )
+
+    @api.model
+    def get_dashboard_data(self):
+        cr = self.env.cr
+        stage_labels = dict(STEP_SELECTION)
+
+        cr.execute("""
+            SELECT stage, COUNT(*) FROM aurora_pipeline GROUP BY stage
+        """)
+        pipe_counts = dict(cr.fetchall())
+        running_stages = {"fetch_prs", "filter_prs", "discover_tags", "group_prs", "fetch_issues", "build_dataset"}
+
+        cr.execute("""
+            SELECT stage, COUNT(*) FROM aurora_evaluation GROUP BY stage
+        """)
+        eval_counts = dict(cr.fetchall())
+        eval_running_stages = {"building_images", "running_instances", "generating_reports"}
+
+        eval_stage_labels = dict([
+            ("draft", "Draft"), ("building_images", "Building Images"),
+            ("running_instances", "Running Instances"), ("generating_reports", "Generating Reports"),
+            ("done", "Done"), ("failed", "Failed"),
+        ])
+
+        cr.execute("""
+            SELECT id, name, github_org, github_repo, stage
+            FROM aurora_pipeline ORDER BY id DESC LIMIT 8
+        """)
+        recent_pipes = [{
+            "id": r[0], "name": r[1],
+            "repo": f"{r[2]}/{r[3]}" if r[2] and r[3] else "",
+            "stage": r[4],
+            "stage_label": stage_labels.get(r[4], r[4]),
+        } for r in cr.fetchall()]
+
+        cr.execute("""
+            SELECT e.id, e.name, e.stage, p.name as pipeline_name
+            FROM aurora_evaluation e
+            LEFT JOIN aurora_pipeline p ON e.pipeline_id = p.id
+            ORDER BY e.id DESC LIMIT 8
+        """)
+        recent_evals = [{
+            "id": r[0], "name": r[1],
+            "stage": r[2],
+            "stage_label": eval_stage_labels.get(r[2], r[2]),
+            "pipeline_name": r[3] or "",
+        } for r in cr.fetchall()]
+
+        token_active = 0
+        token_total = 0
+        recent_tokens = []
+        try:
+            cr.execute("SELECT COUNT(*) FROM aurora_github_token WHERE state = 'active'")
+            token_active = cr.fetchone()[0]
+            cr.execute("SELECT COUNT(*) FROM aurora_github_token")
+            token_total = cr.fetchone()[0]
+            cr.execute("""
+                SELECT id, name, state, rate_limit_remaining, rate_limit_reset
+                FROM aurora_github_token
+                ORDER BY state, name
+                LIMIT 20
+            """)
+            for r in cr.fetchall():
+                recent_tokens.append({
+                    "id": r[0],
+                    "name": r[1] or f"Token #{r[0]}",
+                    "state": r[2],
+                    "rate_remaining": r[3] or 0,
+                    "rate_limit": r[4].isoformat() if r[4] else "",
+                })
+        except Exception:
+            pass
+
+        cr.execute("""
+            SELECT phase3_status, COUNT(*)
+            FROM aurora_pipeline
+            WHERE phase3_status IS NOT NULL AND phase3_status != 'idle'
+            GROUP BY phase3_status
+        """)
+        p3_counts = dict(cr.fetchall())
+        p3_running = p3_counts.get("running", 0)
+        p3_done = p3_counts.get("done", 0)
+        p3_failed = p3_counts.get("failed", 0)
+        p3_total = sum(p3_counts.values())
+
+        ei_counts = {}
+        try:
+            cr.execute("""
+                SELECT status, COUNT(*) FROM aurora_evaluation_instance GROUP BY status
+            """)
+            ei_counts = dict(cr.fetchall())
+        except Exception:
+            ei_counts = {}
+        ei_running_statuses = {"building", "running"}
+        ei_total = sum(ei_counts.values())
+        ei_resolved = ei_counts.get("resolved", 0)
+        ei_unresolved = ei_counts.get("unresolved", 0)
+        ei_error = ei_counts.get("error", 0)
+        ei_running = sum(ei_counts.get(s, 0) for s in ei_running_statuses)
+
+        hs_counts = {}
+        try:
+            cr.execute("""
+                SELECT stage, COUNT(*) FROM aurora_harness_staging
+                WHERE active = TRUE
+                GROUP BY stage
+            """)
+            hs_counts = dict(cr.fetchall())
+        except Exception:
+            hs_counts = {}
+        hs_testing_stages = {"testing", "tested"}
+        hs_total = sum(hs_counts.values())
+        hs_deployed = hs_counts.get("deployed", 0)
+        hs_notified = hs_counts.get("notified", 0)
+        hs_failed = hs_counts.get("failed", 0)
+        hs_testing = sum(hs_counts.get(s, 0) for s in hs_testing_stages)
+
+        return {
+            "pipelines": {
+                "total": sum(pipe_counts.values()),
+                "running": sum(pipe_counts.get(s, 0) for s in running_stages),
+                "done": pipe_counts.get("done", 0),
+                "failed": pipe_counts.get("failed", 0),
+                "draft": pipe_counts.get("draft", 0),
+            },
+            "evaluations": {
+                "total": sum(eval_counts.values()),
+                "running": sum(eval_counts.get(s, 0) for s in eval_running_stages),
+                "done": eval_counts.get("done", 0),
+                "failed": eval_counts.get("failed", 0),
+                "draft": eval_counts.get("draft", 0),
+            },
+            "phase1": {
+                "total": sum(pipe_counts.values()),
+                "running": sum(pipe_counts.get(s, 0) for s in running_stages),
+                "done": pipe_counts.get("done", 0),
+                "failed": pipe_counts.get("failed", 0),
+                "draft": pipe_counts.get("draft", 0),
+            },
+            "phase2": {
+                "total": sum(eval_counts.values()),
+                "running": sum(eval_counts.get(s, 0) for s in eval_running_stages),
+                "done": eval_counts.get("done", 0),
+                "failed": eval_counts.get("failed", 0),
+                "draft": eval_counts.get("draft", 0),
+            },
+            "phase3": {
+                "total": p3_total,
+                "running": p3_running,
+                "done": p3_done,
+                "failed": p3_failed,
+                "draft": max(0, p3_total - p3_running - p3_done - p3_failed),
+            },
+            "evaluation_results": {
+                "total": ei_total,
+                "resolved": ei_resolved,
+                "unresolved": ei_unresolved,
+                "error": ei_error,
+                "running": ei_running,
+            },
+            "harness_staging": {
+                "total": hs_total,
+                "deployed": hs_deployed,
+                "notified": hs_notified,
+                "testing": hs_testing,
+                "failed": hs_failed,
+            },
+            "recent_pipelines": recent_pipes,
+            "recent_evaluations": recent_evals,
+            "tokens": {"active": token_active, "total": token_total, "list": recent_tokens},
+        }

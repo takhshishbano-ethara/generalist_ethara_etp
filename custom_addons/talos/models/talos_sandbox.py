@@ -538,7 +538,7 @@ class TalosSandbox(models.Model):
                     "--",
                     "sh",
                     "-c",
-                    "cat /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null",
+                    "find /home/node/.openclaw -name '*.jsonl' -path '*/sessions/*' 2>/dev/null | xargs cat 2>/dev/null",
                 ],
                 capture_output=True,
                 text=True,
@@ -1660,6 +1660,14 @@ class TalosSandbox(models.Model):
         compose_bin = _compose_cmd()
         persona = self.talos_id.persona_id
         gateway_token = self.docker_gateway_token
+        if not gateway_token:
+            _logger.warning(
+                "[SANDBOX] _start_local_bg: docker_gateway_token is empty for "
+                "sandbox %s, regenerating",
+                self.id,
+            )
+            gateway_token = secrets.token_hex(32)
+            self.write({"docker_gateway_token": gateway_token})
         gateway_port = self.docker_port
         litellm_port = self.docker_litellm_port
         db_port = DB_PORT_BASE + (self.id % 5000)
@@ -1765,6 +1773,13 @@ class TalosSandbox(models.Model):
 
     def _start_k8s_bg(self):
         """Start K8s sandbox — called from background thread."""
+        if not self.docker_gateway_token:
+            _logger.warning(
+                "[SANDBOX] _start_k8s_bg: docker_gateway_token is empty for "
+                "sandbox %s, regenerating",
+                self.id,
+            )
+            self.write({"docker_gateway_token": secrets.token_hex(32)})
         try:
             self.env["talos.sandbox.k8s"].deploy_sandbox(self)
             svc_name = "talos-sandbox-%s" % self.id

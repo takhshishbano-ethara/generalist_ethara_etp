@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="aurora.Dashboard">
+        <div class="aurora-dashboard">
+            <div class="aurora-dash-header">
+                <div class="aurora-dash-header-left">
+                    <h1 class="aurora-dash-title">Aurora</h1>
+                    <span class="aurora-dash-subtitle">Pipeline &amp; Evaluation Control Center</span>
+                </div>
+                <div class="aurora-dash-header-right">
+                    <button class="btn aurora-dash-btn-new" t-on-click="openNewPipeline">
+                        <i class="fa fa-plus me-1"/> New Pipeline
+                    </button>
+                    <button class="btn aurora-dash-btn-new-alt" t-on-click="openNewEvaluation">
+                        <i class="fa fa-plus me-1"/> New Evaluation
+                    </button>
+                </div>
+            </div>
+
+            <div t-if="!state.loaded" class="aurora-dash-loading">
+                <i class="fa fa-circle-o-notch fa-spin fa-2x"/>
+                <span>Loading dashboard…</span>
+            </div>
+
+            <div t-if="state.loaded" class="aurora-dash-body">
+                <div class="aurora-dash-stats-row">
+                    <div class="aurora-dash-stat-card aurora-dash-stat-pipelines" t-on-click="() => this.openPipelines()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-database"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.phase1.total"/></div>
+                        <div class="aurora-dash-stat-label">Phase 1 — Collect</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.phase1.running"/> running</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.phase1.done"/> done</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.phase1.failed"/> failed</span>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-evaluations" t-on-click="() => this.openEvaluations()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-flask"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.phase2.total"/></div>
+                        <div class="aurora-dash-stat-label">Phase 2 — Evaluate</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.phase2.running"/> running</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.phase2.done"/> done</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.phase2.failed"/> failed</span>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-pipelines" t-on-click="() => this.openPipelines()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-magic"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.phase3.total"/></div>
+                        <div class="aurora-dash-stat-label">Phase 3 — Inference</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.phase3.running"/> running</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.phase3.done"/> done</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.phase3.failed"/> failed</span>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-evaluations" t-on-click="() => this.openEvaluationResults()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-check-square-o"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.evaluation_results.total"/></div>
+                        <div class="aurora-dash-stat-label">Evaluation Results</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.evaluation_results.resolved"/> resolved</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.evaluation_results.unresolved"/> unresolved</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.evaluation_results.error"/> error</span>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-pipelines" t-on-click="() => this.openHarnessStaging()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-cogs"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.harness_staging.total"/></div>
+                        <div class="aurora-dash-stat-label">Harness Staging</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.harness_staging.deployed"/> deployed</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.harness_staging.testing"/> testing</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.harness_staging.failed"/> failed</span>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-tokens" t-on-click="openTokenPool">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-key"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.tokens.active"/></div>
+                        <div class="aurora-dash-stat-label">Active Tokens</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini"><t t-esc="state.tokens.total"/> total</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="aurora-dash-panels">
+                    <div class="aurora-dash-panel">
+                        <div class="aurora-dash-panel-header">
+                            <span><i class="fa fa-code-fork me-2"/>Recent Pipelines</span>
+                            <button class="btn btn-sm aurora-dash-panel-link" t-on-click="() => this.openPipelines()">View All <i class="fa fa-arrow-right ms-1"/></button>
+                        </div>
+                        <div class="aurora-dash-panel-body">
+                            <t t-if="state.recent_pipelines.length === 0">
+                                <div class="aurora-dash-empty">No pipeline runs yet.</div>
+                            </t>
+                            <t t-foreach="state.recent_pipelines" t-as="p" t-key="p.id">
+                                <div class="aurora-dash-row" t-on-click="() => this.openPipelineRecord(p.id)">
+                                    <div class="aurora-dash-row-name">
+                                        <strong><t t-esc="p.name"/></strong>
+                                        <span class="aurora-dash-row-repo"><t t-esc="p.repo"/></span>
+                                    </div>
+                                    <div t-attf-class="aurora-dash-tag {{stageClass(p.stage)}}"><t t-esc="p.stage_label"/></div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="aurora-dash-panel">
+                        <div class="aurora-dash-panel-header">
+                            <span><i class="fa fa-flask me-2"/>Recent Evaluations</span>
+                            <button class="btn btn-sm aurora-dash-panel-link" t-on-click="() => this.openEvaluations()">View All <i class="fa fa-arrow-right ms-1"/></button>
+                        </div>
+                        <div class="aurora-dash-panel-body">
+                            <t t-if="state.recent_evaluations.length === 0">
+                                <div class="aurora-dash-empty">No evaluation runs yet.</div>
+                            </t>
+                            <t t-foreach="state.recent_evaluations" t-as="e" t-key="e.id">
+                                <div class="aurora-dash-row" t-on-click="() => this.openEvaluationRecord(e.id)">
+                                    <div class="aurora-dash-row-name">
+                                        <strong><t t-esc="e.name"/></strong>
+                                        <span class="aurora-dash-row-repo"><t t-esc="e.pipeline_name"/></span>
+                                    </div>
+                                    <div t-attf-class="aurora-dash-tag {{stageClass(e.stage)}}"><t t-esc="e.stage_label"/></div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="aurora-dash-panel aurora-dash-panel-full">
+                    <div class="aurora-dash-panel-header">
+                        <span><i class="fa fa-key me-2"/>Token Pool</span>
+                        <button class="btn btn-sm aurora-dash-panel-link" t-on-click="openTokenPool">Manage <i class="fa fa-arrow-right ms-1"/></button>
+                    </div>
+                    <div class="aurora-dash-panel-body">
+                        <t t-if="!state.tokens.list || state.tokens.list.length === 0">
+                            <div class="aurora-dash-empty">No tokens configured.</div>
+                        </t>
+                        <t t-foreach="state.tokens.list || []" t-as="tk" t-key="tk.id">
+                            <div class="aurora-dash-row">
+                                <div class="aurora-dash-row-name">
+                                    <strong><t t-esc="tk.name"/></strong>
+                                    <span class="aurora-dash-row-repo">
+                                        Rate: <t t-esc="tk.rate_remaining"/>/<t t-esc="tk.rate_limit"/>
+                                    </span>
+                                </div>
+                                <div t-attf-class="aurora-dash-tag {{tk.state === 'active' ? 'aurora-dash-tag-success' : tk.state === 'exhausted' ? 'aurora-dash-tag-danger' : 'aurora-dash-tag-muted'}}">
+                                    <t t-esc="tk.state"/>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

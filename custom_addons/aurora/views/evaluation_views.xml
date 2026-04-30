@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_evaluation_tree" model="ir.ui.view">
+        <field name="name">aurora.evaluation.tree</field>
+        <field name="model">aurora.evaluation</field>
+        <field name="arch" type="xml">
+            <list string="Evaluation Runs" default_order="id desc"
+                  decoration-success="stage == 'done'"
+                  decoration-danger="stage == 'failed'"
+                  decoration-info="stage not in ('draft','done','failed')">
+                <field name="name"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="pipeline_id"/>
+                <field name="stage" widget="badge"
+                       decoration-success="stage == 'done'"
+                       decoration-danger="stage == 'failed'"
+                       decoration-info="stage not in ('draft','done','failed')"
+                       decoration-muted="stage == 'draft'"/>
+                <field name="instance_limit" optional="show"/>
+                <field name="total_instances"/>
+                <field name="resolved_instances"/>
+                <field name="unresolved_instances"/>
+                <field name="error_instances"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_form" model="ir.ui.view">
+        <field name="name">aurora.evaluation.form</field>
+        <field name="model">aurora.evaluation</field>
+        <field name="arch" type="xml">
+            <form string="Evaluation Run" class="aurora-evaluation-form">
+                <header>
+                    <button name="action_run_evaluation" string="Run Evaluation" type="object"
+                            class="btn-primary" invisible="stage != 'draft'" confirm="Start evaluation pipeline?"/>
+                    <button name="action_cancel" string="Cancel" type="object"
+                            class="btn-secondary" invisible="stage in ('draft','done','failed')" confirm="Cancel this evaluation run?"/>
+                    <button name="action_reset_to_draft" string="Reset to Draft" type="object"
+                            class="btn-secondary" invisible="stage not in ('done','failed')"/>
+                    <button name="action_regenerate_report" string="Regenerate Report" type="object"
+                            class="btn-secondary" invisible="stage not in ('done','failed')" confirm="Re-run report generation from existing logs?"/>
+                    <field name="stage" widget="aurora_statusbar" statusbar_visible="draft,building_images,running_instances,generating_reports,done"/>
+                </header>
+
+                <sheet>
+                    <field name="active" invisible="1"/>
+                    <field name="is_admin" invisible="1"/>
+                    <field name="instance_count" invisible="1"/>
+                    <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
+
+                    <widget name="web_ribbon" title="Failed" bg_color="text-bg-danger" invisible="stage != 'failed'"/>
+                    <widget name="web_ribbon" title="Done" bg_color="text-bg-success" invisible="stage != 'done'"/>
+
+                    <div class="oe_title mb-3">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <!-- Done banner -->
+                    <div class="aurora-done-banner" invisible="stage != 'done'">
+                        <div class="aurora-done-icon"><i class="fa fa-check" title="Done"/></div>
+                        <div>
+                            <div style="font-size:14px;font-weight:700;color:#ecfdf5">Evaluation Complete</div>
+                            <div style="font-size:12px;color:#6ee7b7">All stages finished successfully.</div>
+                        </div>
+                    </div>
+
+                    <!-- Failed banner -->
+                    <div class="aurora-failed-banner" invisible="stage != 'failed'">
+                        <div class="aurora-failed-icon"><i class="fa fa-times" title="Failed"/></div>
+                        <div>
+                            <div style="font-size:14px;font-weight:700;color:#fef2f2">Evaluation Failed</div>
+                            <div style="font-size:12px;color:#fca5a5">Check the execution log below for details.</div>
+                        </div>
+                    </div>
+
+                    <!-- Running banner -->
+                    <div class="aurora-running-banner" invisible="stage in ('draft','done','failed')">
+                        <div class="aurora-running-icon"><i class="fa fa-cog" title="Running"/></div>
+                        <div class="aurora-running-text">
+                            <div class="aurora-running-title"><field name="progress_text" nolabel="1" class="d-inline"/></div>
+                            <div class="aurora-running-detail">Last heartbeat: <field name="last_heartbeat" nolabel="1" widget="datetime" class="d-inline"/></div>
+                        </div>
+                    </div>
+
+                    <!-- Missing registries -->
+                    <div class="alert alert-danger mb-3" role="alert" invisible="not missing_registries">
+                        <strong><i class="fa fa-exclamation-triangle me-1" title="Warning"/> Missing Harness Registries:</strong>
+                        <field name="missing_registries" readonly="1" nolabel="1" class="d-block mt-1"/>
+                        <p class="mt-2 mb-2 text-muted">No harness implementation found for the repo(s) above. Upload one to continue, or add it to <code>tools/harness/repos/</code>.</p>
+                        <button name="action_upload_harness_for_missing"
+                                string="Upload Harness"
+                                type="object"
+                                class="btn btn-primary btn-sm"
+                                icon="fa-upload"/>
+                    </div>
+
+                    <!-- ═══ STEP TIMELINE ═══ -->
+                    <div class="aurora-eval-timeline" invisible="stage == 'draft'">
+                        <!-- Step 1: Build -->
+                        <div class="aurora-eval-step aurora-step-locked" invisible="build_status != 'idle'">
+                            <div class="aurora-step-indicator">1</div>
+                            <span class="aurora-step-label">Build Images</span>
+                            <span class="aurora-step-sublabel">Waiting</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-active aurora-step-active" invisible="build_status != 'running'">
+                            <div class="aurora-step-indicator"><i class="fa fa-cog fa-spin" title="Running"/></div>
+                            <span class="aurora-step-label">Build Images</span>
+                            <span class="aurora-step-sublabel">Running</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-done aurora-step-done" invisible="build_status != 'done'">
+                            <div class="aurora-step-indicator"><i class="fa fa-check" title="Done"/></div>
+                            <span class="aurora-step-label">Build Images</span>
+                            <span class="aurora-step-sublabel">Complete</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-step-failed" invisible="build_status != 'failed'">
+                            <div class="aurora-step-indicator"><i class="fa fa-times" title="Failed"/></div>
+                            <span class="aurora-step-label">Build Images</span>
+                            <span class="aurora-step-sublabel">Failed</span>
+                        </div>
+
+                        <!-- Step 2: Run -->
+                        <div class="aurora-eval-step aurora-step-locked" invisible="run_status != 'idle'">
+                            <div class="aurora-step-indicator">2</div>
+                            <span class="aurora-step-label">Run Instances</span>
+                            <span class="aurora-step-sublabel">Waiting</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-active aurora-step-active" invisible="run_status != 'running'">
+                            <div class="aurora-step-indicator"><i class="fa fa-cog fa-spin" title="Running"/></div>
+                            <span class="aurora-step-label">Run Instances</span>
+                            <span class="aurora-step-sublabel">Running</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-done aurora-step-done" invisible="run_status != 'done'">
+                            <div class="aurora-step-indicator"><i class="fa fa-check" title="Done"/></div>
+                            <span class="aurora-step-label">Run Instances</span>
+                            <span class="aurora-step-sublabel">Complete</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-step-failed" invisible="run_status != 'failed'">
+                            <div class="aurora-step-indicator"><i class="fa fa-times" title="Failed"/></div>
+                            <span class="aurora-step-label">Run Instances</span>
+                            <span class="aurora-step-sublabel">Failed</span>
+                        </div>
+
+                        <!-- Step 3: Report -->
+                        <div class="aurora-eval-step aurora-step-locked" invisible="report_status != 'idle'">
+                            <div class="aurora-step-indicator">3</div>
+                            <span class="aurora-step-label">Generate Reports</span>
+                            <span class="aurora-step-sublabel">Waiting</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-active aurora-step-active" invisible="report_status != 'running'">
+                            <div class="aurora-step-indicator"><i class="fa fa-cog fa-spin" title="Running"/></div>
+                            <span class="aurora-step-label">Generate Reports</span>
+                            <span class="aurora-step-sublabel">Running</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-eval-step-done aurora-step-done" invisible="report_status != 'done'">
+                            <div class="aurora-step-indicator"><i class="fa fa-check" title="Done"/></div>
+                            <span class="aurora-step-label">Generate Reports</span>
+                            <span class="aurora-step-sublabel">Complete</span>
+                        </div>
+                        <div class="aurora-eval-step aurora-step-failed" invisible="report_status != 'failed'">
+                            <div class="aurora-step-indicator"><i class="fa fa-times" title="Failed"/></div>
+                            <span class="aurora-step-label">Generate Reports</span>
+                            <span class="aurora-step-sublabel">Failed</span>
+                        </div>
+                    </div>
+
+                    <!-- ═══ RESULTS METRICS ═══ -->
+                    <div class="aurora-metrics-grid" invisible="stage != 'done'">
+                        <div class="aurora-metric-card">
+                            <i class="fa fa-cubes aurora-metric-icon aurora-metric-value-muted" title="Total"/>
+                            <div class="aurora-metric-value aurora-metric-value-muted"><field name="total_instances" nolabel="1"/></div>
+                            <div class="aurora-metric-label">Total Instances</div>
+                        </div>
+                        <div class="aurora-metric-card aurora-metric-card-success">
+                            <i class="fa fa-check-circle aurora-metric-icon aurora-metric-value-success" title="Resolved"/>
+                            <div class="aurora-metric-value aurora-metric-value-success"><field name="resolved_instances" nolabel="1"/></div>
+                            <div class="aurora-metric-label">Resolved</div>
+                        </div>
+                        <div class="aurora-metric-card aurora-metric-card-warning">
+                            <i class="fa fa-question-circle aurora-metric-icon aurora-metric-value-warning" title="Unresolved"/>
+                            <div class="aurora-metric-value aurora-metric-value-warning"><field name="unresolved_instances" nolabel="1"/></div>
+                            <div class="aurora-metric-label">Unresolved</div>
+                        </div>
+                        <div class="aurora-metric-card aurora-metric-card-danger">
+                            <i class="fa fa-exclamation-circle aurora-metric-icon aurora-metric-value-danger" title="Errors"/>
+                            <div class="aurora-metric-value aurora-metric-value-danger"><field name="error_instances" nolabel="1"/></div>
+                            <div class="aurora-metric-label">Errors</div>
+                        </div>
+                    </div>
+
+                    <div class="aurora-config-panel" invisible="stage != 'done'">
+                        <div class="aurora-config-header"><i class="fa fa-file-text-o" title="Report"/> Report File</div>
+                        <div class="aurora-config-body">
+                            <group><field name="final_report_file" readonly="1"/></group>
+                        </div>
+                    </div>
+
+                    <!-- ═══ CONFIGURATION ═══ -->
+                    <div class="aurora-config-panel">
+                        <div class="aurora-config-header"><i class="fa fa-sliders" title="Configuration"/> Configuration</div>
+                        <div class="aurora-config-body">
+                            <group>
+                                <group string="Source">
+                                    <field name="user_id" widget="many2one_avatar_user"/>
+                                    <field name="pipeline_id"/>
+                                    <field name="dataset_file"/>
+                                    <field name="output_dir"/>
+                                </group>
+                                <group string="Settings">
+                                    <field name="instance_limit"/>
+                                    <field name="specific_prs" placeholder="org/repo:pr-123,org/repo:pr-456"/>
+                                    <field name="force_build"/>
+                                    <field name="max_workers_build"/>
+                                    <field name="max_workers_run"/>
+                                    <field name="docker_platform" placeholder="linux/amd64"/>
+                                </group>
+                            </group>
+                        </div>
+                    </div>
+
+                    <!-- ═══ INSTANCES ═══ -->
+                    <div class="aurora-config-panel" invisible="stage == 'draft' or instance_count == 0">
+                        <div class="aurora-config-header">
+                            <i class="fa fa-list-ul" title="Results"/>
+                            Per-PR Results
+                            (<field name="instance_count" readonly="1" nolabel="1" class="d-inline"/>)
+                        </div>
+                        <div class="aurora-config-body">
+                            <field name="instance_ids" nolabel="1" readonly="1">
+                                <list default_order="pr_number asc"
+                                      decoration-success="status == 'resolved'"
+                                      decoration-warning="status == 'unresolved'"
+                                      decoration-danger="status == 'error'"
+                                      decoration-info="status in ('building','running')"
+                                      decoration-muted="status in ('pending','built')">
+                                    <field name="pr_number" string="PR"/>
+                                    <field name="org" optional="hide"/>
+                                    <field name="repo" optional="hide"/>
+                                    <field name="image_tag"/>
+                                    <field name="status" widget="badge"
+                                           decoration-success="status == 'resolved'"
+                                           decoration-warning="status == 'unresolved'"
+                                           decoration-danger="status == 'error'"
+                                           decoration-info="status in ('building','running')"
+                                           decoration-muted="status in ('pending','built')"/>
+                                    <field name="resolved"/>
+                                    <field name="f2p_count" string="F2P"/>
+                                    <field name="p2p_count" string="P2P"/>
+                                </list>
+                            </field>
+                        </div>
+                    </div>
+
+                    <!-- ═══ EXECUTION LOG ═══ -->
+                    <div class="aurora-eval-log" invisible="stage == 'draft'">
+                        <div class="aurora-eval-log-header"><i class="fa fa-terminal" title="Log"/> Execution Log</div>
+                        <div class="aurora-eval-log-body">
+                            <field name="log" widget="text" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+
+                    <!-- ═══ OUTPUT PATHS ═══ -->
+                    <div class="aurora-paths-panel" invisible="stage == 'draft'">
+                        <div class="aurora-paths-header"><i class="fa fa-folder-open-o" title="Paths"/> Output Paths</div>
+                        <div class="aurora-paths-body">
+                            <group>
+                                <field name="output_dir" readonly="1"/>
+                                <field name="patch_file" readonly="1" invisible="not patch_file"/>
+                                <field name="workdir" readonly="1" invisible="not workdir"/>
+                                <field name="repo_dir" readonly="1" invisible="not repo_dir"/>
+                            </group>
+                        </div>
+                    </div>
+
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_search" model="ir.ui.view">
+        <field name="name">aurora.evaluation.search</field>
+        <field name="model">aurora.evaluation</field>
+        <field name="arch" type="xml">
+            <search string="Evaluation Runs">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="pipeline_id"/>
+                <filter string="My Evaluations" name="my_evaluations" domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter string="Running" name="running" domain="[('stage', 'not in', ['draft', 'done', 'failed'])]"/>
+                <filter string="Done" name="done" domain="[('stage', '=', 'done')]"/>
+                <filter string="Failed" name="failed" domain="[('stage', '=', 'failed')]"/>
+                <group>
+                    <filter string="Stage" name="group_stage" context="{'group_by': 'stage'}"/>
+                    <filter string="User" name="group_user" context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_action" model="ir.actions.act_window">
+        <field name="name">Evaluation Runs</field>
+        <field name="res_model">aurora.evaluation</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="aurora_evaluation_search"/>
+        <field name="context">{'search_default_my_evaluations': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first evaluation run</p>
+            <p>Select a completed pipeline, set instance limit, and run.</p>
+        </field>
+    </record>
+
+</odoo>

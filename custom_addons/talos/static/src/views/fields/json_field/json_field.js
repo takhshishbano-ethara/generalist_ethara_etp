@@ -329,6 +329,47 @@ export class TalosJsonField extends Component {
         return this.props.name === "golden_trajectory";
     }
 
+    get isTalosAdmin() {
+        return !!this.props.record.data.is_talos_admin;
+    }
+
+    onDeleteTrajectory() {
+        if (!this.isTalosAdmin) return;
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) {
+            this.notification.add(_t("Save the record first"), { type: "warning" });
+            return;
+        }
+
+        this.dialog.add(ConfirmationDialog, {
+            title: _t("Delete Trajectory"),
+            body: _t(
+                "Delete this trajectory and all of its recorded turns? The sandbox must be stopped. This cannot be undone.",
+            ),
+            confirmLabel: _t("Delete"),
+            confirmClass: "btn-danger",
+            cancelLabel: _t("Cancel"),
+            confirm: async () => {
+                try {
+                    await this.orm.call(
+                        "talos.talos",
+                        "action_delete_trajectory_by_field",
+                        [[recordId]],
+                        { field_name: fieldName },
+                    );
+                    await this.props.record.load();
+                    this.notification.add(_t("Trajectory deleted."), { type: "success" });
+                } catch (e) {
+                    this.notification.add(
+                        e.data?.message || e.message || _t("Failed to delete trajectory"),
+                        { type: "danger" },
+                    );
+                }
+            },
+        });
+    }
+
     onDeleteEntry(index) {
         this.dialog.add(ConfirmationDialog, {
             title: _t("Delete Trajectory Session"),

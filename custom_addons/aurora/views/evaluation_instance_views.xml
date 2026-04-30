@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_evaluation_instance_tree" model="ir.ui.view">
+        <field name="name">aurora.evaluation.instance.tree</field>
+        <field name="model">aurora.evaluation.instance</field>
+        <field name="arch" type="xml">
+            <list string="Evaluation Results" default_order="evaluation_id desc, pr_number asc"
+                  create="false" delete="false"
+                  decoration-success="status == 'resolved'"
+                  decoration-warning="status == 'unresolved'"
+                  decoration-danger="status == 'error'"
+                  decoration-info="status in ('building','running')"
+                  decoration-muted="status in ('pending','built')">
+                <field name="evaluation_id"/>
+                <field name="org"/>
+                <field name="repo"/>
+                <field name="pr_number"/>
+                <field name="image_tag" optional="show"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'resolved'"
+                       decoration-warning="status == 'unresolved'"
+                       decoration-danger="status == 'error'"
+                       decoration-info="status in ('building','running')"
+                       decoration-muted="status in ('pending','built')"/>
+                <field name="resolved"/>
+                <field name="f2p_count" string="F2P"/>
+                <field name="p2p_count" string="P2P"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_instance_form" model="ir.ui.view">
+        <field name="name">aurora.evaluation.instance.form</field>
+        <field name="model">aurora.evaluation.instance</field>
+        <field name="arch" type="xml">
+            <form string="Evaluation Result" create="false" delete="false" edit="false">
+                <header>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="pending,building,built,running,resolved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="display_name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Identity">
+                            <field name="evaluation_id" readonly="1"/>
+                            <field name="org" readonly="1"/>
+                            <field name="repo" readonly="1"/>
+                            <field name="pr_number" readonly="1"/>
+                            <field name="image_tag" readonly="1"/>
+                            <field name="image_workdir" readonly="1"/>
+                        </group>
+                        <group string="Result">
+                            <field name="resolved" readonly="1"/>
+                            <field name="f2p_count" readonly="1"/>
+                            <field name="p2p_count" readonly="1"/>
+                            <field name="s2p_count" readonly="1"/>
+                            <field name="n2p_count" readonly="1"/>
+                            <field name="error_message" readonly="1" invisible="not error_message"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Dockerfile" name="dockerfile">
+                            <group>
+                                <field name="dockerfile_s3_uri" widget="url"
+                                       invisible="not dockerfile_s3_uri"/>
+                            </group>
+                            <field name="dockerfile_content" widget="ace"
+                                   options="{'mode': 'sh'}" readonly="1" nolabel="1"
+                                   invisible="not dockerfile_content"/>
+                            <p class="text-muted" invisible="dockerfile_content">
+                                No inline Dockerfile stored. Check the S3 link above, if available.
+                            </p>
+                        </page>
+
+                        <page string="Report" name="report">
+                            <group>
+                                <field name="report_json_s3_uri" widget="url"
+                                       invisible="not report_json_s3_uri"/>
+                            </group>
+                            <field name="report_json_content" widget="ace"
+                                   options="{'mode': 'json'}" readonly="1" nolabel="1"
+                                   invisible="not report_json_content"/>
+                            <p class="text-muted" invisible="report_json_content">
+                                No inline report yet. Run this instance to populate.
+                            </p>
+                        </page>
+
+                        <page string="fix.patch" name="fix_patch">
+                            <group>
+                                <field name="fix_patch_s3_uri" widget="url"
+                                       invisible="not fix_patch_s3_uri"/>
+                            </group>
+                            <field name="fix_patch_content" widget="ace"
+                                   options="{'mode': 'diff'}" readonly="1" nolabel="1"
+                                   invisible="not fix_patch_content"/>
+                        </page>
+
+                        <page string="Build Log" name="build_log">
+                            <div class="d-flex gap-2 mb-2">
+                                <button name="action_open_build_log" type="object"
+                                        string="Open Full Log" class="btn btn-primary btn-sm"
+                                        icon="fa-external-link"/>
+                                <field name="build_log_s3_uri" widget="url" nolabel="1"
+                                       invisible="not build_log_s3_uri"/>
+                            </div>
+                            <field name="build_log_tail" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+
+                        <page string="Run Log" name="run_log">
+                            <div class="d-flex gap-2 mb-2">
+                                <button name="action_open_run_log" type="object"
+                                        string="Open Full Log" class="btn btn-primary btn-sm"
+                                        icon="fa-external-link"/>
+                                <field name="run_log_s3_uri" widget="url" nolabel="1"
+                                       invisible="not run_log_s3_uri"/>
+                            </div>
+                            <field name="run_log_tail" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+
+                        <page string="Test Patch Log" name="test_patch_log">
+                            <div class="d-flex gap-2 mb-2">
+                                <button name="action_open_test_patch_log" type="object"
+                                        string="Open Full Log" class="btn btn-primary btn-sm"
+                                        icon="fa-external-link"/>
+                                <field name="test_patch_log_s3_uri" widget="url" nolabel="1"
+                                       invisible="not test_patch_log_s3_uri"/>
+                            </div>
+                            <field name="test_patch_log_tail" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+
+                        <page string="Fix Patch Log" name="fix_patch_log">
+                            <div class="d-flex gap-2 mb-2">
+                                <button name="action_open_fix_patch_log" type="object"
+                                        string="Open Full Log" class="btn btn-primary btn-sm"
+                                        icon="fa-external-link"/>
+                                <field name="fix_patch_log_s3_uri" widget="url" nolabel="1"
+                                       invisible="not fix_patch_log_s3_uri"/>
+                            </div>
+                            <field name="fix_patch_log_tail" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_instance_search" model="ir.ui.view">
+        <field name="name">aurora.evaluation.instance.search</field>
+        <field name="model">aurora.evaluation.instance</field>
+        <field name="arch" type="xml">
+            <search string="Evaluation Results">
+                <field name="org"/>
+                <field name="repo"/>
+                <field name="pr_number"/>
+                <field name="evaluation_id"/>
+                <filter string="Resolved" name="f_resolved" domain="[('status','=','resolved')]"/>
+                <filter string="Unresolved" name="f_unresolved" domain="[('status','=','unresolved')]"/>
+                <filter string="Errored" name="f_error" domain="[('status','=','error')]"/>
+                <filter string="In Progress" name="f_progress"
+                        domain="[('status','in',['building','running'])]"/>
+                <group>
+                    <filter string="Evaluation" name="group_eval" context="{'group_by': 'evaluation_id'}"/>
+                    <filter string="Status" name="group_status" context="{'group_by': 'status'}"/>
+                    <filter string="Repo" name="group_repo" context="{'group_by': 'repo'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="aurora_evaluation_instance_action" model="ir.actions.act_window">
+        <field name="name">Evaluation Results</field>
+        <field name="res_model">aurora.evaluation.instance</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="aurora_evaluation_instance_search"/>
+        <field name="context">{'create': False, 'delete': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No evaluation results yet</p>
+            <p>Results are created automatically from the dataset when an evaluation runs.
+               The org, repo, and PR number are read directly from each dataset record — you never create these by hand.</p>
+        </field>
+    </record>
+
+</odoo>

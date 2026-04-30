@@ -7,5 +7,11 @@ from . import pipeline_result
 from . import github_token
 from . import pool_metrics
 from . import import_tokens_wizard
+from . import dataset_resolver
+from . import evaluation_executor
+from . import evaluation
+from . import evaluation_instance
+from . import harness_staging_executor
+from . import harness_staging
 from . import preview_wizard
 from . import registry_wizard

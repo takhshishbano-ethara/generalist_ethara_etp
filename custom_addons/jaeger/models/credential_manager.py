@@ -12,6 +12,7 @@ _ENCRYPTED_PREFIX = "fernet:1:"
 
 ENCRYPTED_PARAMS = frozenset({
     "jaeger.github_tokens",
+    "jaeger.webhook_secret",
 })
 
 _key_cache_lock = threading.Lock()
@@ -172,7 +173,14 @@ def get_encrypted_param(env, key: str, default: str = "") -> str:
     ICP = env["ir.config_parameter"].sudo()
     stored = ICP.get_param(key, default)
     if key in ENCRYPTED_PARAMS:
-        return decrypt_value(ICP, stored)
+        decrypted = decrypt_value(ICP, stored)
+        if not decrypted and stored:
+            _logger.warning(
+                "Jaeger: encrypted param '%s' is set but decryption returned empty. "
+                "Check JAEGER_ENCRYPTION_KEY matches the key used to encrypt.",
+                key,
+            )
+        return decrypted
     return stored
 
 

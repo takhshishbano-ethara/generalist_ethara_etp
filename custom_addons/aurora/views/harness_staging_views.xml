@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_harness_staging_tree" model="ir.ui.view">
+        <field name="name">aurora.harness.staging.tree</field>
+        <field name="model">aurora.harness.staging</field>
+        <field name="arch" type="xml">
+            <list string="Harness Staging" default_order="id desc"
+                  decoration-success="stage == 'deployed'"
+                  decoration-danger="stage == 'failed'"
+                  decoration-warning="stage == 'notified'"
+                  decoration-info="stage not in ('draft','deployed','failed','notified')">
+                <field name="name"/>
+                <field name="org"/>
+                <field name="repo"/>
+                <field name="language"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="stage" widget="badge"
+                       decoration-success="stage == 'deployed'"
+                       decoration-danger="stage == 'failed'"
+                       decoration-warning="stage == 'notified'"
+                       decoration-info="stage not in ('draft','deployed','failed','notified')"
+                       decoration-muted="stage == 'draft'"/>
+                <field name="test_result" widget="badge"
+                       decoration-success="test_result == 'success'"
+                       decoration-danger="test_result == 'failed'"
+                       decoration-muted="test_result == 'idle'"/>
+                <field name="notified_at" optional="hide"/>
+                <field name="deployed_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="aurora_harness_staging_form" model="ir.ui.view">
+        <field name="name">aurora.harness.staging.form</field>
+        <field name="model">aurora.harness.staging</field>
+        <field name="arch" type="xml">
+            <form string="Harness Staging" class="aurora-evaluation-form">
+                <header>
+                    <button name="action_test_harness" string="Test Harness (3-4 PRs)" type="object"
+                            class="btn-primary" invisible="stage != 'draft'"
+                            confirm="Run a mini-evaluation with 3-4 PRs?"/>
+                    <button name="action_run_full_evaluation" string="Run Full Evaluation" type="object"
+                            class="btn-primary" invisible="stage != 'tested' or test_result != 'success'"
+                            confirm="Run full evaluation with all PRs?"/>
+                    <button name="action_notify_admin" string="Notify Admin" type="object"
+                            class="btn-warning" invisible="stage not in ('done', 'tested')"
+                            confirm="Notify admin for deployment?"/>
+                    <button name="action_download_file" string="Download File" type="object"
+                            class="btn-secondary" invisible="not harness_file"/>
+                    <button name="action_mark_deployed" string="Mark Deployed" type="object"
+                            class="btn-success" invisible="stage != 'notified' or not is_admin"/>
+                    <button name="action_reject" string="Reject" type="object"
+                            class="btn-danger" invisible="stage != 'notified' or not is_admin"
+                            confirm="Reject this harness?"/>
+                    <button name="action_retry" string="Retry" type="object"
+                            class="btn-secondary" invisible="stage != 'failed'"/>
+                    <button name="action_cancel_staging" string="Cancel" type="object"
+                            class="btn-secondary" invisible="stage in ('deployed', 'notified')"
+                            confirm="Cancel and archive this staging record?"/>
+                    <field name="stage" widget="statusbar" statusbar_visible="draft,testing,tested,done,notified,deployed"/>
+                </header>
+
+                <sheet>
+                    <field name="active" invisible="1"/>
+                    <field name="is_admin" invisible="1"/>
+                    <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
+
+                    <widget name="web_ribbon" title="Failed" bg_color="text-bg-danger" invisible="stage != 'failed'"/>
+                    <widget name="web_ribbon" title="Deployed" bg_color="text-bg-success" invisible="stage != 'deployed'"/>
+
+                    <div class="oe_title mb-3">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group string="Repository">
+                            <field name="org"/>
+                            <field name="repo"/>
+                            <field name="language"/>
+                            <field name="user_id" widget="many2one_avatar_user"/>
+                        </group>
+                        <group string="Harness File">
+                            <field name="harness_file" filename="harness_filename"/>
+                            <field name="harness_filename" invisible="1"/>
+                            <field name="staging_path" invisible="not is_admin"/>
+                        </group>
+                    </group>
+
+                    <div class="alert alert-info mb-3" role="alert"
+                         invisible="stage != 'draft' or not org or not repo or not language">
+                        <div class="d-flex align-items-start">
+                            <i class="fa fa-magic me-2 mt-1" title="AI Helper"/>
+                            <div class="flex-grow-1">
+                                <strong>AI-Assisted Harness Draft</strong>
+                                <p class="mb-2 mt-1 small text-muted">
+                                    Don't write the harness by hand. Hand it off to an AI agent (Claude, Cursor, Copilot)
+                                    with the two inputs below.
+                                </p>
+                                <div class="mb-2">
+                                    <strong class="small">1. Reference harness (same language):</strong>
+                                    <field name="ai_reference_harness" readonly="1" nolabel="1"
+                                           class="d-block font-monospace small"/>
+                                    <button name="action_download_reference_harness"
+                                            string="Download Reference Harness"
+                                            type="object" icon="fa-download"
+                                            class="btn btn-sm btn-outline-primary mt-1"/>
+                                </div>
+                                <div class="mb-2">
+                                    <strong class="small">2. Dataset file for this repo:</strong>
+                                    <field name="dataset_file" readonly="1" nolabel="1"
+                                           class="d-block font-monospace small"
+                                           invisible="not dataset_file"/>
+                                    <span class="d-block font-monospace small text-muted"
+                                          invisible="dataset_file">
+                                        Select a Source Pipeline below to auto-fill this.
+                                    </span>
+                                    <button name="action_download_dataset"
+                                            string="Download Dataset"
+                                            type="object" icon="fa-download"
+                                            class="btn btn-sm btn-outline-primary mt-1"
+                                            invisible="not dataset_file"/>
+                                </div>
+                                <div>
+                                    <strong class="small">3. Ready-to-paste prompt:</strong>
+                                    <field name="ai_prompt_text" readonly="1" nolabel="1"
+                                           widget="text" class="d-block font-monospace small mt-1"
+                                           style="max-height: 200px; overflow-y: auto;"/>
+                                </div>
+                                <p class="mb-0 mt-2 small text-muted">
+                                    Attach the two files, paste the prompt, and upload the agent's output below.
+                                    See <code>README-HARNESS.md</code> for the full walkthrough.
+                                </p>
+                                <button name="action_download_readme_harness"
+                                        string="Download README-HARNESS.md"
+                                        type="object" icon="fa-download"
+                                        class="btn btn-sm btn-outline-primary mt-1"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <group>
+                        <group string="Dataset">
+                            <field name="pipeline_id"/>
+                            <field name="dataset_file"/>
+                        </group>
+                        <group string="Evaluation">
+                            <field name="eval_id" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group string="Test Results" invisible="test_result == 'idle' and stage == 'draft'">
+                        <field name="test_result" widget="badge"
+                               decoration-success="test_result == 'success'"
+                               decoration-danger="test_result == 'failed'"
+                               decoration-muted="test_result == 'idle'"/>
+                    </group>
+
+                    <div invisible="not test_log">
+                        <div class="aurora-eval-log">
+                            <div class="aurora-eval-log-header"><i class="fa fa-terminal" title="Log"/> Test Log</div>
+                            <div class="aurora-eval-log-body">
+                                <field name="test_log" widget="text" readonly="1" nolabel="1"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <group string="Admin" invisible="not is_admin">
+                        <field name="admin_notes"/>
+                        <field name="notified_at" readonly="1"/>
+                        <field name="deployed_at" readonly="1"/>
+                    </group>
+
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_harness_staging_search" model="ir.ui.view">
+        <field name="name">aurora.harness.staging.search</field>
+        <field name="model">aurora.harness.staging</field>
+        <field name="arch" type="xml">
+            <search string="Harness Staging">
+                <field name="name"/>
+                <field name="org"/>
+                <field name="repo"/>
+                <field name="user_id"/>
+                <filter string="My Staging" name="my_staging" domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter string="Testing" name="testing" domain="[('stage', 'in', ['testing', 'tested'])]"/>
+                <filter string="Ready for Deploy" name="ready_deploy" domain="[('stage', '=', 'notified')]"/>
+                <filter string="Deployed" name="deployed" domain="[('stage', '=', 'deployed')]"/>
+                <filter string="Failed" name="failed" domain="[('stage', '=', 'failed')]"/>
+                <group>
+                    <filter string="Stage" name="group_stage" context="{'group_by': 'stage'}"/>
+                    <filter string="User" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Language" name="group_language" context="{'group_by': 'language'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="aurora_harness_staging_action" model="ir.actions.act_window">
+        <field name="name">Harness Staging</field>
+        <field name="res_model">aurora.harness.staging</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="aurora_harness_staging_search"/>
+        <field name="context">{'search_default_my_staging': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Upload your first harness</p>
+            <p>Upload a .py harness file, test it with a few PRs, then run full evaluation.</p>
+        </field>
+    </record>
+
+</odoo>

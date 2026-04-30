@@ -511,11 +511,13 @@ def main(
 
             pr_url = primary_pr.get("html_url", "") or primary_pr.get("url", "")
 
+            primary_pr_number = sorted_pr_numbers[0] if sorted_pr_numbers else primary_pr.get("number", 0)
+
             record = {
                 "instance_id": instance_id,
                 "org": org,
                 "repo": repo,
-                "number": pr_numbers_str,
+                "number": primary_pr_number,
                 "state": primary_pr.get("state", "closed"),
                 "title": primary_pr.get("title", ""),
                 "body": primary_pr.get("body", "") or "",

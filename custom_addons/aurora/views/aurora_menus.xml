@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="aurora_dashboard_action" model="ir.actions.client">
+        <field name="name">Aurora Dashboard</field>
+        <field name="tag">aurora.dashboard</field>
+    </record>
+
     <menuitem id="aurora_menu_root"
               name="Aurora"
               web_icon="aurora,static/description/icon.png"
+              action="aurora_dashboard_action"
               sequence="200"/>
 
     <menuitem id="aurora_menu_pipeline_parent"
@@ -15,6 +21,18 @@
               name="Pipeline Runs"
               parent="aurora_menu_pipeline_parent"
               action="aurora_pipeline_action"
+              sequence="10"/>
+
+    <menuitem id="aurora_menu_evaluation_parent"
+              name="Evaluation"
+              parent="aurora_menu_root"
+              sequence="20"
+              groups="aurora.group_aurora_user"/>
+
+    <menuitem id="aurora_menu_evaluation_runs"
+              name="Evaluation Runs"
+              parent="aurora_menu_evaluation_parent"
+              action="aurora_evaluation_action"
               sequence="10"/>
 
     <menuitem id="aurora_menu_config"

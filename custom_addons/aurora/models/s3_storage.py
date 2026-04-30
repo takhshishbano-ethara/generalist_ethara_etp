@@ -60,16 +60,17 @@ def validate_credentials(s3_config: dict) -> None:
     client.head_bucket(Bucket=s3_config["bucket"])
 
 
-def _build_base_prefix(org: str, repo: str, folder: str = "") -> str:
+def _build_base_prefix(org: str, repo: str, folder: str = "", phase: str = "aurora_phase1") -> str:
     folder = folder.strip("/") if folder else ""
+    phase = phase.strip("/") if phase else "aurora_phase1"
     if folder:
-        return f"{folder}/aurora_phase1/{org}__{repo}/"
-    return f"aurora_phase1/{org}__{repo}/"
+        return f"{folder}/{phase}/{org}__{repo}/"
+    return f"{phase}/{org}__{repo}/"
 
 
-def get_next_run_number(s3_config: dict, org: str, repo: str, folder: str = "") -> int:
+def get_next_run_number(s3_config: dict, org: str, repo: str, folder: str = "", phase: str = "aurora_phase1") -> int:
     client = _get_client(s3_config)
-    prefix = _build_base_prefix(org, repo, folder)
+    prefix = _build_base_prefix(org, repo, folder, phase)
     max_run = 0
     paginator = client.get_paginator("list_objects_v2")
     for page in paginator.paginate(
@@ -145,8 +146,8 @@ def upload_file(
     raise last_error
 
 
-def build_s3_key(org: str, repo: str, run_number: int, filename: str, folder: str = "") -> str:
-    base = _build_base_prefix(org, repo, folder)
+def build_s3_key(org: str, repo: str, run_number: int, filename: str, folder: str = "", phase: str = "aurora_phase1") -> str:
+    base = _build_base_prefix(org, repo, folder, phase)
     return f"{base}run_{run_number}/{filename}"
 
 

@@ -87,6 +87,26 @@
             <field name="active" eval="True"/>
             <field name="priority">5</field>
         </record>
+
+        <record id="jaeger_cron_watchdog_stale_tests" model="ir.cron">
+            <field name="name">Jaeger: Watchdog Stale Test Executions</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_watchdog_stale_tests()</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <record id="jaeger_cron_watchdog_stale_dataset" model="ir.cron">
+            <field name="name">Jaeger: Watchdog Stale Dataset Finalization</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_watchdog_stale_dataset()</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
         <!-- Token Health Check: probe GitHub rate_limit API, update state -->
         <record id="jaeger_cron_token_health_check" model="ir.cron">
             <field name="name">Jaeger: Token Health Check</field>
