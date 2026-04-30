@@ -901,6 +901,17 @@ class AtlasTurn(models.Model):
     )
     qc_response = fields.Text(string="QC Response (JSON)")
     qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
+    qc_justification = fields.Text(
+        string="QC Justification",
+        help="Reviewer-provided justification for keeping the original prompt "
+             "despite a medium-severity QC verdict. Not applicable for low "
+             "(no action needed) or high/critical (rewrite mandatory).",
+    )
+    qc_status_display = fields.Html(
+        string="QC Status",
+        compute="_compute_qc_status_display",
+        sanitize=False,
+    )
     qc_input_tokens = fields.Integer(string="Prompt QC Input Tokens", default=0)
     qc_output_tokens = fields.Integer(string="Prompt QC Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
@@ -942,6 +953,42 @@ class AtlasTurn(models.Model):
                 rec.session_label = "Session %d" % (sessions.index(sid) + 1)
             else:
                 rec.session_label = "Session"
+
+    @api.depends("qc_severity", "qc_justification")
+    def _compute_qc_status_display(self):
+        colors = {
+            "low": "#198754",
+            "medium": "#ffc107",
+            "high": "#fd7e14",
+            "critical": "#dc3545",
+        }
+        for rec in self:
+            sev = rec.qc_severity or ""
+            if not sev:
+                rec.qc_status_display = False
+                continue
+            sev_label = sev.capitalize()
+            color = colors.get(sev, "#6c757d")
+            badge = (
+                '<span style="display:inline-block;padding:2px 8px;'
+                'border-radius:10px;background:%s;color:#fff;'
+                'font-weight:600;font-size:0.85em;">%s</span>'
+            ) % (color, sev_label)
+            justif = (rec.qc_justification or "").strip()
+            if justif:
+                safe = (
+                    justif.replace("&", "&amp;")
+                          .replace("<", "&lt;")
+                          .replace(">", "&gt;")
+                )
+                rec.qc_status_display = (
+                    '%s<div style="margin-top:4px;color:#664d03;'
+                    'background:#fff3cd;border:1px solid #ffe69c;'
+                    'border-radius:4px;padding:4px 6px;font-size:0.85em;'
+                    'white-space:pre-wrap;">%s</div>'
+                ) % (badge, safe)
+            else:
+                rec.qc_status_display = badge
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):

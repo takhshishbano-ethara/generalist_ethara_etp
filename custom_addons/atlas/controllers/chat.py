@@ -1,5 +1,6 @@
 import json
 import logging
+import secrets
 
 from odoo import http
 from odoo.http import request
@@ -167,6 +168,8 @@ class AtlasChatController(http.Controller):
         severity="",
         qc_response="",
         dismiss_reason="",
+        justification="",
+        new_prompt="",
         bedrock_input_tokens=0,
         bedrock_output_tokens=0,
         **kw,
@@ -199,6 +202,20 @@ class AtlasChatController(http.Controller):
             vals["qc_response"] = _cap(qc_response)
         if dismiss_reason:
             vals["qc_dismiss_reason"] = _cap(dismiss_reason, 8192)
+        # Justification is meaningful only on medium severity; for low it's
+        # unused, for high/critical we clear it because rewrite is mandatory.
+        justification = (justification or "").strip()
+        if severity == "medium" and justification:
+            vals["qc_justification"] = _cap(justification, 8192)
+        elif severity in ("low", "high", "critical"):
+            vals["qc_justification"] = False
+        # If the reviewer rewrote the prompt (typical path for medium/high
+        # after a rewrite + re-QC), persist the new prompt text on the turn
+        # so downstream consumers (history, analytics, save_response) see the
+        # text that actually matches qc_response.
+        new_prompt = (new_prompt or "").strip()
+        if new_prompt:
+            vals["prompt"] = _cap(new_prompt)
         if in_tok:
             vals["qc_input_tokens"] = in_tok
         if out_tok:
@@ -273,6 +290,7 @@ class AtlasChatController(http.Controller):
                     "qc_severity": t.qc_severity or "",
                     "qc_response": t.qc_response or "",
                     "qc_dismiss_reason": t.qc_dismiss_reason or "",
+                    "qc_justification": t.qc_justification or "",
                     "feedback": t.feedback or "",
                     "hints": t.hints or "",
                     "hint_text": t.hint_text or "",
@@ -281,3 +299,22 @@ class AtlasChatController(http.Controller):
             )
 
         return {"turns": turns}
+
+    @http.route("/atlas/chat/new_session", type="json", auth="user")
+    def new_session(self, sandbox_id=0, force=False, **kw):
+        sandbox_id = int(sandbox_id or 0)
+        if not sandbox_id:
+            return {"error": "sandbox_id is required"}
+
+        sandbox = request.env["atlas.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+        if not (_owns_sandbox(sandbox) or _is_admin()):
+            return {"error": "Access denied"}
+
+        if sandbox.current_session_id and not force:
+            return {"session_id": sandbox.current_session_id, "created": False}
+
+        session_id = secrets.token_hex(8)
+        sandbox.sudo().write({"current_session_id": session_id})
+        return {"session_id": session_id, "created": True}

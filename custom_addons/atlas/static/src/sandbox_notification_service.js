@@ -38,10 +38,6 @@ const sandboxNotificationService = {
                     "Generation completed with errors. Check goal/rubric status.",
                     { type: "warning" },
                 );
-            } else {
-                notification.add("Goal & rubric generated successfully!", {
-                    type: "success",
-                });
             }
 
             console.log(`${LOG_PREFIX} forwarding ATLAS:GENERATION_DONE to env.bus`, payload);

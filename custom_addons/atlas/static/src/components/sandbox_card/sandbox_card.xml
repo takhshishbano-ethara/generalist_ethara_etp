@@ -2,15 +2,24 @@
 <templates xml:space="preserve">
     <t t-name="atlas.SandboxCard">
         <div t-attf-class="o_atlas_card #{props.disabled ? 'o_atlas_card_disabled' : ''}">
-            <!-- Card Header -->
             <div class="o_atlas_card_header">
-                <div class="o_atlas_card_title">
-                    <span class="o_atlas_card_label" t-out="props.modelLabel"/>
-                    <span t-attf-class="badge rounded-pill text-bg-#{statusColor} ms-2">
-                        <t t-out="props.dockerStatus"/>
-                    </span>
-                </div>
+                <div class="o_atlas_card_title"/>
                 <div class="o_atlas_card_actions">
+                    <button
+                        t-if="!props.disabled"
+                        class="btn btn-sm btn-outline-secondary"
+                        t-on-click="onNewSession"
+                        t-att-disabled="state.qcRunning or state.responseSaving"
+                        title="Start a fresh conversation session (clears context for new turns)">
+                        <i class="fa fa-plus me-1"/> New Session
+                    </button>
+                    <!--
+                    ============================================================
+                    START / STOP SANDBOX (COMMENTED OUT - not in use)
+                    JS handlers (onStartClick, onStopClick, onExportClick) stay
+                    so TaskDashboard's prop contract still holds. Uncomment this
+                    block to restore the sandbox Start/Stop buttons.
+
                     <t t-if="props.disabled">
                         <button class="btn btn-sm btn-outline-secondary" disabled="true">
                             Coming Soon
@@ -31,16 +40,16 @@
                             <i class="fa fa-play me-1"/> Start Sandbox
                         </button>
                     </t>
+                    ============================================================
+                    -->
                 </div>
             </div>
 
-            <!-- Error Banner -->
             <div t-if="props.dockerError" class="o_atlas_card_error">
                 <i class="fa fa-exclamation-triangle me-1"/>
                 <t t-out="props.dockerError"/>
             </div>
 
-            <!-- Disabled Overlay -->
             <t t-if="props.disabled">
                 <div class="o_atlas_card_body_disabled">
                     <i class="fa fa-lock fa-2x mb-2 text-muted"/>
@@ -48,6 +57,13 @@
                 </div>
             </t>
             <t t-else="">
+                <!--
+                ============================================================
+                SANDBOX UI (COMMENTED OUT - replaced by manual input flow)
+                AtlasChatWidget was the original sandbox-driven chat UI over
+                a Docker/K8s WebSocket. Uncomment this block and revert the
+                JS registration to restore.
+
                 <div class="o_atlas_card_content">
                     <div class="o_atlas_card_panel">
                         <AtlasChatWidget
@@ -57,6 +73,260 @@
                             gatewayToken="props.gatewayToken"
                             modelType="props.modelType"
                         />
+                    </div>
+                </div>
+                ============================================================
+                -->
+
+                <div class="o_atlas_manual_main">
+
+                    <div class="o_atlas_history">
+                        <div class="o_atlas_history_header">
+                            <span class="o_atlas_history_title">
+                                <i class="fa fa-comments me-1"/> Conversation
+                            </span>
+                            <span t-if="state.turns.length" class="badge bg-light text-muted ms-2">
+                                <t t-out="state.turns.length"/> turns
+                            </span>
+                            <span t-if="state.historyLoading" class="ms-2 text-muted small">
+                                <i class="fa fa-spinner fa-spin"/>
+                            </span>
+                            <button
+                                class="btn btn-sm btn-outline-primary ms-auto"
+                                t-on-click="onGenerateGoalRubric"
+                                t-att-disabled="!canGenerateGoalRubric"
+                                title="Generate goal description and scoring rubric from this conversation">
+                                <t t-if="state.goalRubricRunning or isGenerationRunning">
+                                    <i class="fa fa-spinner fa-spin me-1"/> Generating...
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-magic me-1"/> Generate Goal &amp; Rubric
+                                </t>
+                            </button>
+                        </div>
+                        <div class="o_atlas_history_list">
+                            <div t-if="state.historyLoading and !state.turns.length" class="o_atlas_history_empty">
+                                <i class="fa fa-spinner fa-spin me-1"/> Loading conversation...
+                            </div>
+                            <div t-elif="!state.turns.length" class="o_atlas_history_empty">
+                                <i class="fa fa-inbox me-1"/> No turns yet. Start by typing a prompt below.
+                            </div>
+                            <div t-foreach="state.turns" t-as="turn" t-key="turn.id" class="o_atlas_history_turn">
+                                <div class="o_atlas_history_turn_head">
+                                    <span class="badge bg-light text-muted">#<t t-out="turn.turn_number"/></span>
+                                    <span t-if="turn.qc_severity"
+                                          t-attf-class="badge ms-2 text-bg-#{severityColor(turn.qc_severity)}">
+                                        QC: <t t-out="turn.qc_severity.toUpperCase()"/>
+                                    </span>
+                                    <span t-if="turn.status" class="badge bg-light text-muted ms-2">
+                                        <t t-out="turn.status"/>
+                                    </span>
+                                </div>
+                                <div t-if="turn.qc_justification" class="o_atlas_history_msg o_atlas_history_justification">
+                                    <div class="o_atlas_history_msg_label">Justification</div>
+                                    <div class="o_atlas_history_msg_body"><t t-out="turn.qc_justification"/></div>
+                                </div>
+                                <div t-if="turn.prompt" class="o_atlas_history_msg o_atlas_history_prompt">
+                                    <div class="o_atlas_history_msg_label">Prompt</div>
+                                    <div class="o_atlas_history_msg_body"><t t-out="turn.prompt"/></div>
+                                </div>
+                                <div t-if="turn.response" class="o_atlas_history_msg o_atlas_history_response">
+                                    <div class="o_atlas_history_msg_label">Response</div>
+                                    <div class="o_atlas_history_msg_body"><t t-out="turn.response"/></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="o_atlas_manual_inputs">
+
+                        <div class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-pencil me-1"/> Prompt
+                                </span>
+                                <span t-if="state.currentTurnId" class="badge bg-light text-muted ms-2">
+                                    Turn #<t t-out="state.currentTurnId"/>
+                                </span>
+                            </div>
+                            <textarea
+                                class="form-control o_atlas_manual_textarea"
+                                placeholder="Type the user prompt here..."
+                                t-model="state.promptText"
+                                t-att-disabled="state.qcRunning"
+                                rows="3"
+                            />
+                            <div class="o_atlas_manual_actions">
+                                <button
+                                    class="btn btn-sm btn-primary"
+                                    t-on-click="onGenerateQc"
+                                    t-att-disabled="!canGenerateQc">
+                                    <t t-if="state.qcRunning">
+                                        <i class="fa fa-spinner fa-spin me-1"/> Generating QC...
+                                    </t>
+                                    <t t-else="">
+                                        <i class="fa fa-shield me-1"/> Generate QC
+                                    </t>
+                                </button>
+                            </div>
+                            <div t-if="state.qcError" class="alert alert-danger mt-2 mb-0 py-2 px-3 small">
+                                <i class="fa fa-exclamation-triangle me-1"/>
+                                <t t-out="state.qcError"/>
+                            </div>
+                        </div>
+
+                        <div t-if="state.qcResult" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-shield me-1"/> QC Result
+                                </span>
+                                <span t-attf-class="badge rounded-pill ms-2 text-bg-#{qcSeverityColor}">
+                                    <t t-out="(state.qcResult.severity or 'unknown').toUpperCase()"/>
+                                </span>
+                            </div>
+                            <div t-if="state.qcResult.summary" class="o_atlas_qc_summary">
+                                <t t-out="state.qcResult.summary"/>
+                            </div>
+                            <div class="o_atlas_qc_stats small text-muted mb-2">
+                                <span class="me-3"><i class="fa fa-check text-success"/> <t t-out="state.qcResult.total_passes or 0"/> pass</span>
+                                <span class="me-3"><i class="fa fa-exclamation-triangle text-warning"/> <t t-out="state.qcResult.total_warns or 0"/> warn</span>
+                                <span><i class="fa fa-times text-danger"/> <t t-out="state.qcResult.total_fails or 0"/> fail</span>
+                            </div>
+                            <div t-if="state.qcResult.checks and state.qcResult.checks.length" class="o_atlas_qc_checks">
+                                <div t-foreach="state.qcResult.checks" t-as="check" t-key="check_index" class="o_atlas_qc_check">
+                                    <span t-attf-class="badge me-2 text-bg-#{check.verdict === 'FAIL' ? 'danger' : (check.verdict === 'WARN' ? 'warning' : 'success')}">
+                                        <t t-out="check.verdict"/>
+                                    </span>
+                                    <strong><t t-out="check.name or ('Check ' + (check.check || (check_index + 1)))"/></strong>
+                                    <div t-if="check.reason" class="small text-muted ms-4">
+                                        <t t-out="check.reason"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div t-if="state.qcResult and canSelectGate" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-exclamation-circle text-warning me-1"/> Action required
+                                </span>
+                            </div>
+                            <div class="small text-muted mb-2">
+                                QC flagged this prompt as <strong>medium</strong> severity. Rewrite the prompt or provide a justification for keeping it as-is.
+                            </div>
+                            <div class="o_atlas_manual_actions">
+                                <button class="btn btn-sm btn-primary" t-on-click="onChooseRewrite">
+                                    <i class="fa fa-pencil me-1"/> Rewrite prompt
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" t-on-click="onChooseJustify">
+                                    <i class="fa fa-comment me-1"/> Add justification
+                                </button>
+                            </div>
+                        </div>
+
+                        <div t-if="state.qcResult and rewriteIsMandatory and !state.gateResolved" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-exclamation-triangle text-danger me-1"/> Rewrite required
+                                </span>
+                            </div>
+                            <div class="small text-muted mb-2">
+                                QC severity is <strong><t t-out="(state.qcResult.severity or '').toUpperCase()"/></strong>. You must rewrite the prompt and re-run QC before submitting a response.
+                            </div>
+                        </div>
+
+                        <div t-if="showRewriteBox and !state.gateResolved" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-pencil me-1"/> Rewrite prompt
+                                </span>
+                            </div>
+                            <textarea
+                                class="form-control o_atlas_manual_textarea"
+                                placeholder="Rewrite the prompt..."
+                                t-model="state.rewriteText"
+                                t-att-disabled="state.qcRunning"
+                                rows="3"
+                            />
+                            <div class="o_atlas_manual_actions">
+                                <button
+                                    class="btn btn-sm btn-primary"
+                                    t-on-click="onRerunQc"
+                                    t-att-disabled="!canRerunQc">
+                                    <t t-if="state.qcRunning">
+                                        <i class="fa fa-spinner fa-spin me-1"/> Re-running QC...
+                                    </t>
+                                    <t t-else="">
+                                        <i class="fa fa-refresh me-1"/> Re-run QC
+                                    </t>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div t-if="showJustificationBox and !state.gateResolved" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-comment me-1"/> Justification
+                                </span>
+                            </div>
+                            <textarea
+                                class="form-control o_atlas_manual_textarea"
+                                placeholder="Explain why you are keeping this prompt despite the medium-severity QC finding..."
+                                t-model="state.justificationText"
+                                t-att-disabled="state.qcRunning"
+                                rows="3"
+                            />
+                            <div class="o_atlas_manual_actions">
+                                <button
+                                    class="btn btn-sm btn-primary"
+                                    t-on-click="onSubmitJustification"
+                                    t-att-disabled="!canSubmitJustification">
+                                    <i class="fa fa-check me-1"/> Save justification
+                                </button>
+                            </div>
+                        </div>
+
+                        <div t-if="state.currentTurnId and state.gateResolved" class="o_atlas_manual_section">
+                            <div class="o_atlas_manual_section_header">
+                                <span class="o_atlas_manual_title">
+                                    <i class="fa fa-reply me-1"/> Response
+                                </span>
+                                <span t-if="state.responseSaved" class="badge bg-success ms-2">Saved</span>
+                            </div>
+                            <textarea
+                                class="form-control o_atlas_manual_textarea"
+                                placeholder="Paste the assistant's response here..."
+                                t-model="state.responseText"
+                                t-att-disabled="state.responseSaving"
+                                rows="6"
+                            />
+                            <div class="o_atlas_manual_actions">
+                                <button
+                                    class="btn btn-sm btn-primary"
+                                    t-on-click="onSaveResponse"
+                                    t-att-disabled="!canSaveResponse">
+                                    <t t-if="state.responseSaving">
+                                        <i class="fa fa-spinner fa-spin me-1"/> Saving...
+                                    </t>
+                                    <t t-else="">
+                                        <i class="fa fa-save me-1"/>
+                                        <t t-if="state.responseSaved">Update Response</t>
+                                        <t t-else="">Save Response</t>
+                                    </t>
+                                </button>
+                                <button
+                                    class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="onResetTurn"
+                                    t-att-disabled="state.qcRunning or state.responseSaving">
+                                    <i class="fa fa-plus me-1"/> New Turn
+                                </button>
+                            </div>
+                            <div t-if="state.responseError" class="alert alert-danger mt-2 mb-0 py-2 px-3 small">
+                                <i class="fa fa-exclamation-triangle me-1"/>
+                                <t t-out="state.responseError"/>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </t>

@@ -112,12 +112,27 @@ def _parse_qc_verdict(text):
             "checks": parsed.get("checks", []),
         }
 
+    # Tolerate bold markers, colons after "Verdict", and either header
+    # style "### Overall Verdict: PASS" or "**Overall Verdict:** PASS".
     verdict_match = re.search(
-        r"Overall\s+Verdict:\s*(PASS|FAIL)", text, re.IGNORECASE
+        r"Overall\s+Verdict[\*:\s]*[\*:\s]*(PASS|FAIL)",
+        text,
+        re.IGNORECASE,
     )
-    check_rows = re.findall(
-        r"\|\s*\d+\s*\|[^|]+\|\s*(PASS|FAIL)\s*\|([^|]*)\|", text, re.IGNORECASE
+
+    # Row regex accepts:
+    #   - optional leading number column ("| 1 | ..." or just "| Grammar ...")
+    #   - optional bold around the verdict (**PASS**, __FAIL__)
+    #   - any whitespace/colon noise around the verdict cell
+    # Each row yields (result, finding).
+    row_pattern = re.compile(
+        r"\|\s*(?:\d+\s*\|)?"              # optional "| 1 |"
+        r"\s*[^|]+?\|"                      # check name cell
+        r"\s*[*_\s]*(PASS|FAIL)[*_\s]*\|"   # verdict cell with optional bold
+        r"([^|\n]*)\|",                     # finding cell
+        re.IGNORECASE,
     )
+    check_rows = row_pattern.findall(text)
 
     if not verdict_match and not check_rows:
         return None
@@ -489,6 +504,14 @@ class LlmAssistQc(http.Controller):
 
         parsed_json = _parse_json_response(response_text)
         qc_verdict = _parse_qc_verdict(response_text)
+
+        if qc_verdict is None:
+            preview = (response_text or "")[:2000]
+            _logger.warning(
+                "QC parse failed: response_len=%d preview=%r",
+                len(response_text or ""),
+                preview,
+            )
 
         result = {
             "success": True,

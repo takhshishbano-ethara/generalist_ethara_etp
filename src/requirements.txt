@@ -74,3 +74,4 @@ kubernetes
 tqdm
 GitPython
 dataclasses_json
+language-tool-python==2.9.3
