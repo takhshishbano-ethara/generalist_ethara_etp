@@ -5,7 +5,8 @@
         <field name="name">aurora.evaluation.instance.tree</field>
         <field name="model">aurora.evaluation.instance</field>
         <field name="arch" type="xml">
-            <list string="Evaluation Instances" default_order="evaluation_id desc, pr_number asc"
+            <list string="Evaluation Results" default_order="evaluation_id desc, pr_number asc"
+                  create="false" delete="false"
                   decoration-success="status == 'resolved'"
                   decoration-warning="status == 'unresolved'"
                   decoration-danger="status == 'error'"
@@ -33,7 +34,7 @@
         <field name="name">aurora.evaluation.instance.form</field>
         <field name="model">aurora.evaluation.instance</field>
         <field name="arch" type="xml">
-            <form string="Evaluation Instance">
+            <form string="Evaluation Result" create="false" delete="false" edit="false">
                 <header>
                     <field name="status" widget="statusbar"
                            statusbar_visible="pending,building,built,running,resolved"/>
@@ -46,20 +47,20 @@
                     </div>
                     <group>
                         <group string="Identity">
-                            <field name="evaluation_id"/>
-                            <field name="org"/>
-                            <field name="repo"/>
-                            <field name="pr_number"/>
-                            <field name="image_tag"/>
-                            <field name="image_workdir"/>
+                            <field name="evaluation_id" readonly="1"/>
+                            <field name="org" readonly="1"/>
+                            <field name="repo" readonly="1"/>
+                            <field name="pr_number" readonly="1"/>
+                            <field name="image_tag" readonly="1"/>
+                            <field name="image_workdir" readonly="1"/>
                         </group>
                         <group string="Result">
-                            <field name="resolved"/>
-                            <field name="f2p_count"/>
-                            <field name="p2p_count"/>
-                            <field name="s2p_count"/>
-                            <field name="n2p_count"/>
-                            <field name="error_message" invisible="not error_message"/>
+                            <field name="resolved" readonly="1"/>
+                            <field name="f2p_count" readonly="1"/>
+                            <field name="p2p_count" readonly="1"/>
+                            <field name="s2p_count" readonly="1"/>
+                            <field name="n2p_count" readonly="1"/>
+                            <field name="error_message" readonly="1" invisible="not error_message"/>
                         </group>
                     </group>
 
@@ -153,7 +154,7 @@
         <field name="name">aurora.evaluation.instance.search</field>
         <field name="model">aurora.evaluation.instance</field>
         <field name="arch" type="xml">
-            <search string="Evaluation Instances">
+            <search string="Evaluation Results">
                 <field name="org"/>
                 <field name="repo"/>
                 <field name="pr_number"/>
@@ -173,13 +174,15 @@
     </record>
 
     <record id="aurora_evaluation_instance_action" model="ir.actions.act_window">
-        <field name="name">Evaluation Instances</field>
+        <field name="name">Evaluation Results</field>
         <field name="res_model">aurora.evaluation.instance</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="aurora_evaluation_instance_search"/>
+        <field name="context">{'create': False, 'delete': False}</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">No evaluation instances yet</p>
-            <p>Instances are created automatically when an evaluation starts running.</p>
+            <p class="o_view_nocontent_smiling_face">No evaluation results yet</p>
+            <p>Results are created automatically from the dataset when an evaluation runs.
+               The org, repo, and PR number are read directly from each dataset record — you never create these by hand.</p>
         </field>
     </record>
 

@@ -20,6 +20,8 @@ export class AuroraDashboard extends Component {
             phase1: { total: 0, running: 0, done: 0, failed: 0, draft: 0 },
             phase2: { total: 0, running: 0, done: 0, failed: 0, draft: 0 },
             phase3: { total: 0, running: 0, done: 0, failed: 0, draft: 0 },
+            evaluation_results: { total: 0, resolved: 0, unresolved: 0, error: 0, running: 0 },
+            harness_staging: { total: 0, deployed: 0, notified: 0, testing: 0, failed: 0 },
             recent_pipelines: [],
             recent_evaluations: [],
             tokens: { active: 0, total: 0 },
@@ -112,6 +114,27 @@ export class AuroraDashboard extends Component {
 
     openTokenPool() {
         this.action.doAction("aurora.action_aurora_github_token");
+    }
+
+    openEvaluationResults() {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Evaluation Results",
+            res_model: "aurora.evaluation.instance",
+            view_mode: "list,form",
+            views: [[false, "list"], [false, "form"]],
+            context: { create: false, delete: false },
+        });
+    }
+
+    openHarnessStaging() {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Harness Staging",
+            res_model: "aurora.harness.staging",
+            view_mode: "list,form",
+            views: [[false, "list"], [false, "form"]],
+        });
     }
 
     stageClass(stage) {

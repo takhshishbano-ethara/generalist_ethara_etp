@@ -67,7 +67,6 @@ class AuroraEvaluationInstance(models.Model):
     s2p_count = fields.Integer(string="S2P", default=0)
     n2p_count = fields.Integer(string="N2P", default=0)
 
-    # --- Inline content (small artifacts live here, NOT on disk). -------------
     dockerfile_content = fields.Text(
         string="Dockerfile",
         help="Inline Dockerfile (capped at 16 KB). Larger uploads only go to S3.",
@@ -81,13 +80,11 @@ class AuroraEvaluationInstance(models.Model):
         help="Generated fix patch (capped at 256 KB). Full patch on S3.",
     )
 
-    # --- Log tails (last ~64 KB of each log for instant preview). -------------
     build_log_tail = fields.Text(string="Build Log (tail)", readonly=True)
     run_log_tail = fields.Text(string="Run Log (tail)", readonly=True)
     test_patch_log_tail = fields.Text(string="Test Patch Log (tail)", readonly=True)
     fix_patch_log_tail = fields.Text(string="Fix Patch Log (tail)", readonly=True)
 
-    # --- S3 URIs (durable storage; public URLs built by s3_storage). ---------
     dockerfile_s3_uri = fields.Char(string="Dockerfile (S3)", readonly=True)
     build_log_s3_uri = fields.Char(string="Build Log (S3)", readonly=True)
     run_log_s3_uri = fields.Char(string="Run Log (S3)", readonly=True)
@@ -96,7 +93,6 @@ class AuroraEvaluationInstance(models.Model):
     report_json_s3_uri = fields.Char(string="Report (S3)", readonly=True)
     fix_patch_s3_uri = fields.Char(string="fix.patch (S3)", readonly=True)
 
-    # --- Local paths (transient; only valid while workdir exists). ------------
     dockerfile_local_path = fields.Char(string="Dockerfile (local)", readonly=True)
     build_log_local_path = fields.Char(string="Build Log (local)", readonly=True)
     run_log_local_path = fields.Char(string="Run Log (local)", readonly=True)
@@ -135,10 +131,6 @@ class AuroraEvaluationInstance(models.Model):
         return self._open_log_action("fix_patch_log")
 
     def _open_log_action(self, kind):
-        """Stream a log file via the /aurora/evaluation/instance/<id>/log/<kind> endpoint.
-
-        The controller handles live-tail (local disk) vs archived (S3) fallback.
-        """
         self.ensure_one()
         return {
             "type": "ir.actions.act_url",

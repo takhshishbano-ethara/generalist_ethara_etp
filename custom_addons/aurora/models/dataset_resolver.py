@@ -13,20 +13,6 @@ That fails in production with "Dataset file not found: https://…s3…/…jsonl
 This module bridges the gap: given a value that may be a local path OR a
 remote URL, it returns a usable local path, downloading once into a
 content-addressed cache so repeated runs are cheap.
-
-Design notes:
-
-* Anonymous HTTPS GET only. The production S3 bucket is publicly readable,
-  per product decision. No boto3 dependency here.
-* Cache key is ``sha1(url)`` to avoid collisions between different runs that
-  happen to share a filename (e.g. two pipelines both wrote ``lht_dataset.jsonl``).
-* Download is atomic: write to ``<target>.part`` then ``os.replace`` — a crash
-  mid-download never leaves a truncated cached file in place.
-* A per-URL ``threading.Lock`` (keyed by sha1) serialises concurrent downloads
-  within the same process so two parallel evaluation workers don't both
-  download the same dataset.
-* The cache lives under ``{aurora.output_dir}/dataset_cache/`` which is the
-  same root everything else in this addon writes to.
 """
 from __future__ import annotations
 
@@ -34,7 +20,6 @@ import hashlib
 import logging
 import os
 import shutil
-import tempfile
 import threading
 from typing import Any
 from urllib.parse import urlparse
@@ -52,11 +37,6 @@ _HTTP_TIMEOUT = (10, 300)
 
 
 def is_remote(path: str | None) -> bool:
-    """Return True if ``path`` is a URL we need to download before reading.
-
-    Recognises ``http://``, ``https://``, and ``s3://`` schemes. Plain local
-    paths (``/tmp/x.jsonl``, ``./x.jsonl``, ``C:\\x.jsonl``) return False.
-    """
     if not path:
         return False
     scheme = urlparse(path).scheme.lower()
@@ -64,7 +44,6 @@ def is_remote(path: str | None) -> bool:
 
 
 def _cache_root(output_dir_param: str) -> str:
-    """Return ``{aurora.output_dir}/dataset_cache`` — created on demand."""
     root = os.path.join(output_dir_param, "dataset_cache")
     os.makedirs(root, exist_ok=True)
     return root
@@ -93,12 +72,6 @@ def _get_download_lock(url: str) -> threading.Lock:
 
 
 def _download_http(url: str, target: str) -> None:
-    """Atomically download ``url`` to ``target`` via anonymous HTTPS GET.
-
-    Writes to ``target + ".part"`` first, then ``os.replace`` for atomicity.
-    Raises on non-2xx response or network error — callers should translate
-    to a user-facing ``UserError``.
-    """
     import requests
 
     part = target + ".part"
@@ -116,7 +89,6 @@ def _download_http(url: str, target: str) -> None:
             os.path.getsize(target) / (1024 * 1024), target,
         )
     except Exception:
-        # Best-effort cleanup of the partial file; ignore cleanup errors.
         try:
             if os.path.exists(part):
                 os.remove(part)
@@ -126,13 +98,6 @@ def _download_http(url: str, target: str) -> None:
 
 
 def _download_s3(url: str, target: str) -> None:
-    """Download an ``s3://bucket/key`` URL as anonymous HTTPS via the
-    regional virtual-hosted URL.
-
-    This exists so users who paste an ``s3://`` URI (matching the AWS CLI
-    style) get the same behaviour as pasting the ``https://…amazonaws.com/…``
-    form. Requires the bucket to be publicly readable, per product decision.
-    """
     parsed = urlparse(url)
     bucket = parsed.netloc
     key = parsed.path.lstrip("/")
@@ -143,12 +108,6 @@ def _download_s3(url: str, target: str) -> None:
 
 
 def _get_output_dir(env_or_cr: Any) -> str:
-    """Read ``aurora.output_dir`` from config, supporting both Odoo env and
-    a raw psycopg2 cursor (used by background workers that don't have an
-    Environment yet).
-
-    Falls back to ``/tmp/aurora_output`` to mirror the rest of this addon.
-    """
     default = "/tmp/aurora_output"
     if hasattr(env_or_cr, "__getitem__") and not hasattr(env_or_cr, "execute"):
         try:
@@ -174,17 +133,11 @@ def _get_output_dir(env_or_cr: Any) -> str:
 def resolve_to_local(env_or_cr: Any, path: str) -> str:
     """Return a local filesystem path for ``path``.
 
-    * If ``path`` is already local, returned unchanged (even if it doesn't
-      exist — the caller's ``os.path.isfile`` check will surface that).
+    * If ``path`` is already local, returned unchanged.
     * If ``path`` is a remote URL, download once into
       ``{aurora.output_dir}/dataset_cache/<sha1(url)>/<basename>`` and return
       that local path. Subsequent calls with the same URL return the cached
       path without re-downloading.
-
-    ``env_or_cr`` may be either an Odoo ``Environment`` (UI thread) or a
-    raw psycopg2 cursor (background worker before ``api.Environment`` is
-    constructed). It's only used to read the ``aurora.output_dir`` config
-    parameter.
     """
     if not path:
         return path
@@ -201,8 +154,6 @@ def resolve_to_local(env_or_cr: Any, path: str) -> str:
 
     lock = _get_download_lock(path)
     with lock:
-        # Re-check after acquiring the lock — another thread may have just
-        # finished downloading while we were waiting.
         if os.path.isfile(target) and os.path.getsize(target) > 0:
             return target
         scheme = urlparse(path).scheme.lower()
@@ -214,11 +165,6 @@ def resolve_to_local(env_or_cr: Any, path: str) -> str:
 
 
 def clear_cache(env_or_cr: Any, url: str | None = None) -> None:
-    """Remove cached datasets. Intended for admin tooling / tests.
-
-    If ``url`` is given, drop only that entry; otherwise drop the whole cache.
-    Does NOT raise on missing files — idempotent.
-    """
     output_dir = _get_output_dir(env_or_cr)
     cache_root = os.path.join(output_dir, "dataset_cache")
     if not os.path.isdir(cache_root):

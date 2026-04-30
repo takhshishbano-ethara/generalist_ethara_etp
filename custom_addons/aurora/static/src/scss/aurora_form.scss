@@ -423,13 +423,27 @@
         border: none;
     }
 
-    .aurora-pipe-timeline {
-        padding: 8px 0 24px;
+    textarea,
+    .o_field_text .o_input,
+    .o_field_text .o_readonly,
+    .o_field_text span,
+    .o_field_widget textarea[readonly],
+    .o_field_widget .o_text_overflow {
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #e4e4e7 !important;
+        background: transparent !important;
     }
+}
 
-    .aurora-pipe-step {
-        display: flex;
-        align-items: center;
+.aurora-pipe-timeline {
+    padding: 8px 0 24px;
+}
+
+.aurora-pipe-step {
+    display: flex;
+    align-items: center;
         gap: 16px;
         padding: 10px 18px;
         margin-bottom: 2px;
@@ -488,18 +502,6 @@
         margin-top: 2px;
     }
 
-    textarea,
-    .o_field_text .o_input,
-    .o_field_text .o_readonly,
-    .o_field_text span,
-    .o_field_widget textarea[readonly],
-    .o_field_widget .o_text_overflow {
-        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
-        font-size: 12px;
-        line-height: 1.5;
-        color: #e4e4e7 !important;
-        background: transparent !important;
-    }
     .aurora-pipe-step-locked {
         opacity: 0.45;
 
@@ -533,7 +535,6 @@
         .aurora-pipe-step-title { color: var(--aurora-danger); }
         .aurora-pipe-step-sub { color: var(--aurora-danger); opacity: 0.7; }
     }
-}
 
 /* ================================================================
    EVALUATION FORM

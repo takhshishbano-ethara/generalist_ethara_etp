@@ -6,7 +6,7 @@ import os
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from . import dataset_resolver, harness_staging_executor
+from . import harness_staging_executor
 
 _logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class AuroraHarnessStaging(models.Model):
         tracking=True,
     )
 
-    harness_file = fields.Binary(string="Harness File", required=True, attachment=False)
+    harness_file = fields.Binary(string="Harness File", attachment=False)
     harness_filename = fields.Char(string="Filename")
     stage = fields.Selection(
         STAGING_STAGE_SELECTION,
@@ -128,22 +128,63 @@ class AuroraHarnessStaging(models.Model):
              "file and the dataset file, then paste this prompt.",
     )
 
+    # Curated picks preferred over directory-scan fallback.  These are the
+    # best-quality, best-documented reference harnesses per language.  For any
+    # language not listed here, _find_reference_harness() scans the repos
+    # directory for a real existing file.
     _AI_REFERENCE_MAP = {
         "python": "custom_addons/aurora/tools/harness/repos/python/psf/requests.py",
         "golang": "custom_addons/aurora/tools/harness/repos/golang/istio/istio.py",
-        "javascript": "custom_addons/aurora/tools/harness/repos/javascript/<org>/<repo>.py",
-        "typescript": "custom_addons/aurora/tools/harness/repos/typescript/<org>/<repo>.py",
-        "java": "custom_addons/aurora/tools/harness/repos/java/<org>/<repo>.py",
-        "rust": "custom_addons/aurora/tools/harness/repos/rust/<org>/<repo>.py",
-        "ruby": "custom_addons/aurora/tools/harness/repos/ruby/<org>/<repo>.py",
-        "cpp": "custom_addons/aurora/tools/harness/repos/cpp/<org>/<repo>.py",
-        "c": "custom_addons/aurora/tools/harness/repos/c/<org>/<repo>.py",
-        "csharp": "custom_addons/aurora/tools/harness/repos/csharp/<org>/<repo>.py",
-        "php": "custom_addons/aurora/tools/harness/repos/php/<org>/<repo>.py",
-        "kotlin": "custom_addons/aurora/tools/harness/repos/kotlin/<org>/<repo>.py",
-        "scala": "custom_addons/aurora/tools/harness/repos/scala/<org>/<repo>.py",
-        "swift": "custom_addons/aurora/tools/harness/repos/swift/<org>/<repo>.py",
     }
+
+    _HARNESS_REPOS_RELROOT = "custom_addons/aurora/tools/harness/repos"
+
+    @api.model
+    def _find_reference_harness(self, language, org=None, repo=None):
+        """Return a repo-relative path to a real existing reference harness.
+
+        Preference order:
+          1. Exact curated pick from ``_AI_REFERENCE_MAP`` if its file exists.
+          2. ``<lang>/<org>/<repo>.py`` if the user's own repo already has one.
+          3. First ``.py`` file in ``<lang>/<org>/`` (same-org heuristic).
+          4. First ``.py`` file anywhere under ``<lang>/`` (alphabetical).
+          5. ``False`` if no files at all for this language.
+        """
+        if not language:
+            return False
+
+        module_dir = os.path.dirname(__file__)
+        repo_root = os.path.abspath(os.path.join(module_dir, "..", "..", ".."))
+
+        curated = self._AI_REFERENCE_MAP.get(language)
+        if curated and os.path.isfile(os.path.join(repo_root, curated)):
+            return curated
+
+        lang_dir = os.path.join(repo_root, self._HARNESS_REPOS_RELROOT, language)
+        if not os.path.isdir(lang_dir):
+            return False
+
+        def _rel(abs_path):
+            return os.path.relpath(abs_path, repo_root)
+
+        if org and repo:
+            candidate = os.path.join(lang_dir, org, f"{repo}.py")
+            if os.path.isfile(candidate):
+                return _rel(candidate)
+
+        if org:
+            org_dir = os.path.join(lang_dir, org)
+            if os.path.isdir(org_dir):
+                for name in sorted(os.listdir(org_dir)):
+                    if name.endswith(".py") and not name.startswith("_"):
+                        return _rel(os.path.join(org_dir, name))
+
+        for dirpath, _dirnames, filenames in sorted(os.walk(lang_dir)):
+            for fname in sorted(filenames):
+                if fname.endswith(".py") and not fname.startswith("_"):
+                    return _rel(os.path.join(dirpath, fname))
+
+        return False
 
     @api.depends("org", "repo", "language", "dataset_file")
     def _compute_ai_hints(self):
@@ -152,34 +193,68 @@ class AuroraHarnessStaging(models.Model):
                 rec.ai_reference_harness = False
                 rec.ai_prompt_text = False
                 continue
-            rec.ai_reference_harness = self._AI_REFERENCE_MAP.get(
-                rec.language,
-                f"custom_addons/aurora/tools/harness/repos/{rec.language}/",
-            )
+            rec.ai_reference_harness = self._find_reference_harness(
+                rec.language, rec.org, rec.repo,
+            ) or f"{self._HARNESS_REPOS_RELROOT}/{rec.language}/"
             dataset_display = rec.dataset_file or "(select Source Pipeline to auto-fill)"
+            class_prefix = rec.repo.title().replace('-', '').replace('_', '')
             rec.ai_prompt_text = (
-                f"You are writing a new harness for the Aurora evaluation pipeline.\n\n"
-                f"ATTACHED:\n"
-                f"  1. Reference harness (same language): {rec.ai_reference_harness}\n"
-                f"  2. Dataset for the missing repo: {dataset_display}\n\n"
-                f"TASK:\n"
-                f"  Produce a single Python file modeled EXACTLY on the reference harness,\n"
-                f"  but adapted for `{rec.org}/{rec.repo}`.\n\n"
-                f"REQUIREMENTS:\n"
-                f"  - Change the three class names to use the `{rec.repo.title().replace('-', '').replace('_', '')}` prefix.\n"
-                f"  - Change `@Instance.register(...)` to: @Instance.register(\"{rec.org}\", \"{rec.repo}\")\n"
-                f"  - Pick a base Docker image appropriate for the repo's {rec.language} toolchain.\n"
-                f"  - Keep the shell scripts (run.sh, test-run.sh, fix-run.sh) but update\n"
-                f"    the test command to what the repo's CI uses. Infer from attached test_patch entries.\n"
-                f"  - Keep parse_log() regex if the reference uses the same test framework,\n"
-                f"    otherwise update to the correct PASS/FAIL pattern.\n"
-                f"  - Do NOT invent fields that aren't in the reference.\n"
-                f"  - Output: a single .py file ready for upload, under 100 KB.\n\n"
-                f"VALIDATE BEFORE OUTPUT:\n"
-                f"  - @Instance.register decorator present with correct org/repo strings\n"
-                f"  - Instance class has: run, test_patch_run, fix_patch_run, parse_log\n"
-                f"  - Image class has: dependency, files, dockerfile\n"
-                f"  - File is valid Python (no syntax errors)"
+                f"You are writing a new harness (registry file) for the Aurora evaluation pipeline.\n"
+                f"Target repo: {rec.org}/{rec.repo}  (language: {rec.language})\n\n"
+                f"YOU HAVE TWO INPUTS. USE BOTH.\n\n"
+                f"INPUT 1 - Reference harness (a WORKING harness in the same language):\n"
+                f"  Path: {rec.ai_reference_harness}\n"
+                f"  Role: structural template. Copy its class layout, imports,\n"
+                f"        Dockerfile scaffolding, and ALL shell scripts verbatim.\n"
+                f"        The reference is the source of truth for the PATTERN; you only\n"
+                f"        change the names, the org/repo, and the parse_log regex if the\n"
+                f"        test framework differs.\n\n"
+                f"INPUT 2 - Dataset JSONL for `{rec.org}/{rec.repo}`:\n"
+                f"  Path: {dataset_display}\n"
+                f"  Role: ground truth about the target repo. Each line is one instance with\n"
+                f"        fields: instance_id, org, repo, number, base{{ref, sha}}, fix_patch,\n"
+                f"        test_patch, release_line, lang, etc.\n"
+                f"  Read the first 2-3 records and extract:\n"
+                f"    - base.sha                  -> goes into prepare.sh as `git checkout <sha>`\n"
+                f"    - test_patch file paths     -> confirm test framework (e.g. *_test.go = go test)\n"
+                f"    - fix_patch touched files   -> confirm build system (go.mod, package.json, etc.)\n\n"
+                f"PROCEDURE:\n"
+                f"  1. Open INPUT 1 fully. Your output is essentially INPUT 1 with names swapped.\n"
+                f"  2. Skim 2-3 records of INPUT 2 to verify the test framework matches INPUT 1.\n"
+                f"     If it doesn't match, adjust parse_log() regex (and ONLY that).\n"
+                f"  3. Produce ONE new Python file mirroring INPUT 1's structure.\n\n"
+                f"STYLE REQUIREMENTS (follow the reference EXACTLY):\n"
+                f"  - Three classes: `{class_prefix}ImageBase`, `{class_prefix}ImageDefault`, `{class_prefix}`.\n"
+                f"  - @Instance.register decorator: @Instance.register(\"{rec.org}\", \"{rec.repo}\")\n"
+                f"  - Base image `dependency()` returns a BARE toolchain image string\n"
+                f"    (e.g. \"golang:latest\", \"python:3.11\", \"node:20\"). NO apt-get install\n"
+                f"    unless the reference has one.\n"
+                f"  - The base Dockerfile has ONLY: FROM + global_env + WORKDIR + clone/COPY + clear_env.\n"
+                f"    Do NOT add `RUN apt-get install ...` packages unless the reference does.\n"
+                f"  - ImageDefault.files() returns the SAME 7 files as the reference:\n"
+                f"    fix.patch, test.patch, check_git_changes.sh, prepare.sh, run.sh,\n"
+                f"    test-run.sh, fix-run.sh. Copy each shell script byte-for-byte from\n"
+                f"    the reference; only change the test command if the framework differs.\n"
+                f"  - prepare.sh does `git checkout {{pr.base.sha}}` (the dataset field), then\n"
+                f"    runs the test command once (with `|| true` so build doesn't abort).\n"
+                f"  - Instance.run() / test_patch_run() / fix_patch_run() are ONE-LINE methods\n"
+                f"    that return `\"bash /home/run.sh\"` / `\"bash /home/test-run.sh\"` /\n"
+                f"    `\"bash /home/fix-run.sh\"`. Do NOT build multi-line bash -c one-liners.\n"
+                f"    Do NOT add class constants like _VENDOR_FIX, _TEST_CMD, _GOPATH_SETUP.\n"
+                f"    Do NOT add pre-modules / GOPATH branching logic. The shell scripts own it.\n"
+                f"  - parse_log() matches the reference's regex list and semantics exactly,\n"
+                f"    unless the test framework genuinely differs (rare).\n"
+                f"  - Do NOT invent fields, classes, methods, or constants not in the reference.\n"
+                f"  - Output: a single .py file, valid Python, under 100 KB.\n\n"
+                f"VALIDATE BEFORE YOU RETURN THE FILE:\n"
+                f"  - @Instance.register decorator has org=\"{rec.org}\" and repo=\"{rec.repo}\".\n"
+                f"  - Instance class defines: run, test_patch_run, fix_patch_run, parse_log.\n"
+                f"  - Image class defines: dependency, files, dockerfile.\n"
+                f"  - prepare.sh references `{{pr.base.sha}}` (the dataset field, not 'main').\n"
+                f"  - Instance.run / test_patch_run / fix_patch_run bodies are ONE return statement\n"
+                f"    each, pointing at the corresponding /home/*.sh script.\n"
+                f"  - No class constants beyond what the reference defines.\n"
+                f"  - File parses as valid Python (no syntax errors)."
             )
 
     @api.depends("org", "repo", "user_id")
@@ -202,6 +277,12 @@ class AuroraHarnessStaging(models.Model):
         if not self.pipeline_id:
             return
         pl = self.pipeline_id
+        if pl.github_org:
+            self.org = pl.github_org
+        if pl.github_repo:
+            self.repo = pl.github_repo
+        if pl.detected_lang:
+            self.language = pl.detected_lang
         if pl.step6_file:
             self.dataset_file = pl.step6_file
 
@@ -330,15 +411,15 @@ class AuroraHarnessStaging(models.Model):
         self.ensure_one()
         if self.stage == "testing":
             raise UserError("Test already in progress.")
+        if not self.harness_file:
+            raise UserError(
+                "Harness File is required. Upload a .py file before running a test."
+            )
         if not self.dataset_file:
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
-        try:
-            local_dataset = dataset_resolver.resolve_to_local(self.env, self.dataset_file)
-        except Exception as exc:
-            raise UserError(f"Failed to fetch remote dataset: {self.dataset_file}\n{exc}") from exc
-        if not os.path.isfile(local_dataset):
+        if not os.path.isfile(self.dataset_file):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         self._ensure_staging_file()
@@ -465,12 +546,6 @@ class AuroraHarnessStaging(models.Model):
                 "No dataset file is set on this record. Select a Source Pipeline "
                 "first so the dataset path gets filled in."
             )
-        if dataset_resolver.is_remote(self.dataset_file):
-            return {
-                "type": "ir.actions.act_url",
-                "url": self.dataset_file,
-                "target": "new",
-            }
         abs_path = os.path.abspath(self.dataset_file)
         filename = os.path.basename(abs_path) or f"{self.org}__{self.repo}_dataset.jsonl"
         return self._download_local_file(abs_path, filename)
@@ -491,6 +566,19 @@ class AuroraHarnessStaging(models.Model):
                 "The path template in `_AI_REFERENCE_MAP` may need adjustment for this language."
             )
         return self._download_local_file(candidate, os.path.basename(candidate))
+
+    def action_download_readme_harness(self):
+        self.ensure_one()
+        repo_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        candidate = os.path.join(repo_root, "README-HARNESS.md")
+        if not os.path.isfile(candidate):
+            raise UserError(
+                f"README-HARNESS.md not found at {candidate!r}. "
+                "Ensure the file exists at the repo root."
+            )
+        return self._download_local_file(candidate, "README-HARNESS.md")
 
     def action_mark_deployed(self):
         self.ensure_one()

@@ -89,13 +89,14 @@ _ALLOWED_COLUMNS = frozenset({
     "group_count", "issue_count", "dataset_count",
     "dataset_url", "dataset_filename", "progress_text",
     "last_heartbeat",
-    # Phase 1 / 2 / 3 tracking columns (written by worker/run_pipeline.py).
+    # Phase-level status / artifact columns written by the K8s worker
+    # (see worker/run_pipeline.py).  Kept in sync with aurora.pipeline fields.
     "phase1_status", "phase1_file",
     "phase2_status", "phase2_file", "phase2_log",
-    "phase2_dataset_file", "phase2_final_report_file",
-    "phase2_dataset_count", "phase2_image_count",
-    "phase2_instance_count", "phase2_resolved_count",
     "phase2_has_registry",
+    "phase2_image_count", "phase2_instance_count", "phase2_resolved_count",
+    "phase2_dataset_file", "phase2_dataset_count",
+    "phase2_final_report_file",
     "phase3_status", "phase3_file", "phase3_log",
     "phase3_inference_count", "phase3_pass_at_k",
 })

@@ -24,16 +24,6 @@
                        decoration-danger="phase1_status == 'failed'"
                        decoration-info="phase1_status == 'running'"
                        optional="show"/>
-                <field name="phase2_status" widget="badge" string="P2"
-                       decoration-success="phase2_status == 'done'"
-                       decoration-danger="phase2_status == 'failed'"
-                       decoration-info="phase2_status == 'running'"
-                       optional="show"/>
-                <field name="phase3_status" widget="badge" string="P3"
-                       decoration-success="phase3_status == 'done'"
-                       decoration-danger="phase3_status == 'failed'"
-                       decoration-info="phase3_status == 'running'"
-                       optional="hide"/>
                 <field name="dataset_count" optional="hide"/>
                 <field name="create_date"/>
             </list>
@@ -53,7 +43,6 @@
                     <button name="action_reset_to_draft" string="Reset to Draft" type="object"
                             class="btn-secondary" invisible="stage not in ('done', 'failed')"/>
                     <field name="stage" widget="aurora_statusbar"
-                           options="{'statusbar_visible': 'draft,fetch_prs,filter_prs,discover_tags,group_prs,fetch_issues,build_dataset,done'}"
                            statusbar_visible="draft,fetch_prs,filter_prs,discover_tags,group_prs,fetch_issues,build_dataset,done"/>
                 </header>
 
@@ -75,12 +64,6 @@
                                 type="object" name="action_download_dataset"
                                 invisible="not dataset_url">
                             <field name="dataset_count" string="Records" widget="statinfo"/>
-                        </button>
-                        <button class="oe_stat_button" icon="fa-docker"
-                                type="object" name="action_download_phase_file"
-                                context="{'phase_number': 2}"
-                                invisible="not phase2_file">
-                            <field name="phase2_resolved_count" string="Resolved" widget="statinfo"/>
                         </button>
                     </div>
 

@@ -221,8 +221,8 @@
                     <!-- ═══ INSTANCES ═══ -->
                     <div class="aurora-config-panel" invisible="stage == 'draft' or instance_count == 0">
                         <div class="aurora-config-header">
-                            <i class="fa fa-list-ul" title="Instances"/>
-                            Per-PR Instances
+                            <i class="fa fa-list-ul" title="Results"/>
+                            Per-PR Results
                             (<field name="instance_count" readonly="1" nolabel="1" class="d-inline"/>)
                         </div>
                         <div class="aurora-config-body">

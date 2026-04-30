@@ -61,11 +61,6 @@ def validate_credentials(s3_config: dict) -> None:
 
 
 def _build_base_prefix(org: str, repo: str, folder: str = "", phase: str = "aurora_phase1") -> str:
-    """Return the S3 base prefix for a given phase.
-
-    Layout: {folder}/{phase}/{org}__{repo}/ — or {phase}/{org}__{repo}/ when folder is empty.
-    phase defaults to 'aurora_phase1' for backward compatibility with existing Phase-1 callers.
-    """
     folder = folder.strip("/") if folder else ""
     phase = phase.strip("/") if phase else "aurora_phase1"
     if folder:
@@ -74,10 +69,6 @@ def _build_base_prefix(org: str, repo: str, folder: str = "", phase: str = "auro
 
 
 def get_next_run_number(s3_config: dict, org: str, repo: str, folder: str = "", phase: str = "aurora_phase1") -> int:
-    """Scan S3 for existing run_N folders under {folder}/{phase}/{org}__{repo}/ and return the next number.
-
-    Phase-2 callers pass phase='aurora_phase2' to keep their run counter independent.
-    """
     client = _get_client(s3_config)
     prefix = _build_base_prefix(org, repo, folder, phase)
     max_run = 0
@@ -156,11 +147,6 @@ def upload_file(
 
 
 def build_s3_key(org: str, repo: str, run_number: int, filename: str, folder: str = "", phase: str = "aurora_phase1") -> str:
-    """Build the full S3 key for a file in a given phase's run.
-
-    Result: {folder}/{phase}/{org}__{repo}/run_{N}/{filename}.
-    Phase-2 callers pass phase='aurora_phase2' and may nest a pr-{N}/ segment inside filename.
-    """
     base = _build_base_prefix(org, repo, folder, phase)
     return f"{base}run_{run_number}/{filename}"
 
@@ -182,57 +168,3 @@ def generate_presigned_url(
         Params={"Bucket": s3_config["bucket"], "Key": s3_key},
         ExpiresIn=expires_in,
     )
-
-
-def download_file(s3_config: dict, s3_key: str, local_path: str) -> str:
-    """Download an S3 object to a local file. Returns the local path.
-
-    Uses the same transfer config as upload_file (multipart, multi-threaded).
-    """
-    client = _get_client(s3_config)
-    transfer_config = _get_transfer_config()
-    client.download_file(
-        s3_config["bucket"], s3_key, local_path, Config=transfer_config,
-    )
-    return local_path
-
-
-def upload_bytes(s3_config: dict, payload: bytes, s3_key: str) -> str:
-    """Upload an in-memory bytes payload to S3. Convenience wrapper around upload_file."""
-    import tempfile
-
-    bucket = s3_config["bucket"]
-    region = s3_config.get("region", "ap-south-1")
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        tmp.write(payload)
-        tmp_path = tmp.name
-    try:
-        upload_file(s3_config, tmp_path, s3_key)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
-
-
-def parse_s3_url(url: str) -> Optional[tuple]:
-    """Return (bucket, key) for an S3 HTTPS URL, or None if not parseable.
-
-    Accepts:
-      https://{bucket}.s3.{region}.amazonaws.com/{key}
-      https://{bucket}.s3.amazonaws.com/{key}
-      s3://{bucket}/{key}
-    """
-    if not url:
-        return None
-    if url.startswith("s3://"):
-        rest = url[5:]
-        if "/" not in rest:
-            return None
-        bucket, key = rest.split("/", 1)
-        return (bucket, key)
-    m = re.match(r"^https://([^./]+)\.s3(?:\.[^.]+)?\.amazonaws\.com/(.+)$", url)
-    if m:
-        return (m.group(1), m.group(2))
-    return None

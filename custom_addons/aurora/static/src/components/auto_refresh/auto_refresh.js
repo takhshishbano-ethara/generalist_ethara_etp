@@ -18,6 +18,10 @@ const EVAL_POLL_STAGES = new Set([
     "building_images", "running_instances", "generating_reports",
 ]);
 
+const STAGING_POLL_STAGES = new Set([
+    "testing", "evaluating",
+]);
+
 const FALLBACK_POLL_INTERVAL = 10000;
 
 export class AuroraAutoRefresh extends Component {
@@ -57,6 +61,10 @@ export class AuroraAutoRefresh extends Component {
         return this.props.record.resModel === "aurora.evaluation";
     }
 
+    _isStaging() {
+        return this.props.record.resModel === "aurora.harness.staging";
+    }
+
     _shouldPoll() {
         if (document.hidden) return false;
         const record = this.props.record;
@@ -64,6 +72,9 @@ export class AuroraAutoRefresh extends Component {
         const stage = record.data[this.props.name];
         if (this._isEvaluation()) {
             return EVAL_POLL_STAGES.has(stage);
+        }
+        if (this._isStaging()) {
+            return STAGING_POLL_STAGES.has(stage);
         }
         return PIPELINE_POLL_STAGES.has(stage);
     }
@@ -84,6 +95,9 @@ export class AuroraAutoRefresh extends Component {
         if (this._isEvaluation()) {
             this._busChannel = `aurora_evaluation_${recId}`;
             this._busEventType = "aurora_evaluation_update";
+        } else if (this._isStaging()) {
+            this._busChannel = `aurora_harness_staging_${recId}`;
+            this._busEventType = "aurora_harness_staging_update";
         } else {
             this._busChannel = `aurora_pipeline_${recId}`;
             this._busEventType = "aurora_pipeline_update";
@@ -97,7 +111,14 @@ export class AuroraAutoRefresh extends Component {
 
     async _onBusNotification(payload) {
         const recId = this.props.record.resId;
-        const idField = this._isEvaluation() ? "evaluation_id" : "pipeline_id";
+        let idField;
+        if (this._isEvaluation()) {
+            idField = "evaluation_id";
+        } else if (this._isStaging()) {
+            idField = "staging_id";
+        } else {
+            idField = "pipeline_id";
+        }
         if (payload[idField] !== recId) return;
         if (this._reloading) return;
         this._reloading = true;

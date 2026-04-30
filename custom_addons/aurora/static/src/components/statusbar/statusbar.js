@@ -6,7 +6,10 @@ import { Component, useState } from "@odoo/owl";
 
 export class AuroraStatusbar extends Component {
     static template = "aurora.AuroraStatusbar";
-    static props = { ...standardFieldProps };
+    static props = {
+        ...standardFieldProps,
+        statusbar_visible: { type: String, optional: true },
+    };
 
     get steps() {
         const fieldDef = this.props.record.fields[this.props.name];
@@ -22,7 +25,9 @@ export class AuroraStatusbar extends Component {
     }
 
     get visibleSteps() {
-        const attr = this.props.record.activeFields[this.props.name]?.options?.statusbar_visible;
+        const attr =
+            this.props.statusbar_visible ||
+            this.props.record.activeFields[this.props.name]?.options?.statusbar_visible;
         if (!attr) return null;
         return new Set(attr.split(",").map((s) => s.trim()));
     }
@@ -59,7 +64,10 @@ export const auroraStatusbarField = {
     component: AuroraStatusbar,
     displayName: "Aurora Statusbar",
     supportedTypes: ["selection"],
-    extractProps: () => ({}),
+    extractProps: ({ attrs, options }) => ({
+        statusbar_visible:
+            attrs?.statusbar_visible || options?.statusbar_visible,
+    }),
 };
 
 registry.category("fields").add("aurora_statusbar", auroraStatusbarField);

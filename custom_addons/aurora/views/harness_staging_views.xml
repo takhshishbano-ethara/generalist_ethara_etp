@@ -64,6 +64,7 @@
                 <sheet>
                     <field name="active" invisible="1"/>
                     <field name="is_admin" invisible="1"/>
+                    <field name="stage" widget="aurora_auto_refresh" nolabel="1"/>
 
                     <widget name="web_ribbon" title="Failed" bg_color="text-bg-danger" invisible="stage != 'failed'"/>
                     <widget name="web_ribbon" title="Deployed" bg_color="text-bg-success" invisible="stage != 'deployed'"/>
@@ -130,6 +131,10 @@
                                     Attach the two files, paste the prompt, and upload the agent's output below.
                                     See <code>README-HARNESS.md</code> for the full walkthrough.
                                 </p>
+                                <button name="action_download_readme_harness"
+                                        string="Download README-HARNESS.md"
+                                        type="object" icon="fa-download"
+                                        class="btn btn-sm btn-outline-primary mt-1"/>
                             </div>
                         </div>
                     </div>

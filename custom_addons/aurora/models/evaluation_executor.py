@@ -144,7 +144,6 @@ def _append_log(cr: Any, rec_id: int, msg: str) -> None:
                     "SerializationFailure on _append_log id=%s, dropping log line after %d retries",
                     rec_id, _SERIALIZATION_RETRIES,
                 )
-                # Dropping a single log line is preferable to aborting the run.
                 return
 
 
@@ -237,7 +236,6 @@ def _update_instance(cr: Any, instance_id: int, vals: dict[str, Any]) -> None:
                     "dropping artifact update after %d retries: keys=%s",
                     instance_id, _SERIALIZATION_RETRIES, sorted(vals.keys()),
                 )
-                # Dropping an artifact-metadata write is preferable to aborting the evaluation run.
                 return
 
 
@@ -343,11 +341,6 @@ def _build_instance_key(s3_folder: str, phase: str, org: str, repo: str,
 
 def _resolve_run_numbers(s3_config: dict, use_s3: bool, s3_folder: str, phase: str,
                          eval_config) -> dict:
-    """Return {(org, repo): run_number} for every repo represented in eval_config.instances.
-
-    When S3 is configured, scans the bucket for the next free run_N per repo.
-    When S3 is disabled, falls back to run_1 for every repo so local artifact paths still render.
-    """
     result: dict = {}
     for inst in eval_config.instances:
         key = (inst.pr.org, inst.pr.repo)
@@ -384,9 +377,10 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
         dockerfile_name = image.dockerfile_name() if hasattr(image, "dockerfile_name") else "Dockerfile"
         dockerfile_path = img_dir / dockerfile_name
         build_log_path = img_dir / BUILD_IMAGE_LOG_FILE
+        image_tag_str = image.image_full_name() if hasattr(image, "image_full_name") else image_workdir_name
         instance_id = _ensure_instance(
             cr, rec_id, pr.org, pr.repo, pr.number,
-            image_tag=image.image_full_name() if hasattr(image, "image_full_name") else image_workdir_name,
+            image_tag=image_tag_str,
             image_workdir=image_workdir_name,
         )
         vals: dict[str, Any] = {"status": "built"}
@@ -414,10 +408,10 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                 vals["build_log_s3_uri"] = s3_uri
         else:
             vals["build_log_tail"] = (
-                f"[Docker image {vals.get('image_tag') or image_workdir_name} was already "
+                f"[Docker image {image_tag_str} was already "
                 f"cached locally, so the harness skipped writing build_image.log.\n"
                 f"To capture a real build log, tick 'Force Build' on the evaluation, "
-                f"or run: docker rmi {image.image_full_name() if hasattr(image, 'image_full_name') else image_workdir_name}]"
+                f"or run: docker rmi {image_tag_str}]"
             )
         _update_instance(cr, instance_id, vals)
 
@@ -561,7 +555,6 @@ def _safe_phase_hook(cr: Any, rec_id: int, phase_label: str, fn):
             cr.commit()
         except Exception:
             _logger.exception("Failed to record hook warning")
-
 
 
 def _post_chatter(db_name: str, uid: Optional[int], rec_id: int, body: str) -> None:
@@ -736,7 +729,7 @@ def _run_evaluation(db_name, uid, rec_id):
 
         # EvalConfig uses glob.glob() on patch/dataset paths; relative paths
         # silently resolve to [] in background threads. Force absolute here.
-        # Dataset may be a remote URL (Phase-1 S3 upload); resolve to a local
+        # Dataset may also be a remote URL (Phase-1 S3 upload); resolve to a local
         # cached file first so abspath/glob see a real path.
         patch_file_abs = os.path.abspath(cfg["patch_file"]) if cfg["patch_file"] else cfg["patch_file"]
         dataset_file_local = (
@@ -831,10 +824,6 @@ def _run_evaluation(db_name, uid, rec_id):
             _update_eval(cr, rec_id, {"build_status": "done"})
             _append_log(cr, rec_id, "Docker images built successfully.")
             cr.commit()
-            _safe_phase_hook(cr, rec_id, "post-build",
-                             lambda: _populate_build_artifacts(
-                                 cr, rec_id, cfg["workdir"], eval_config,
-                                 s3_config, use_s3, run_numbers, s3_folder, phase))
             _notify_bus(db_name, rec_id)
             cr.commit()
         except Exception as exc:
@@ -843,6 +832,11 @@ def _run_evaluation(db_name, uid, rec_id):
             _notify_bus(db_name, rec_id)
             cr.commit()
             raise
+
+        _safe_phase_hook(cr, rec_id, "post-build",
+                         lambda: _populate_build_artifacts(
+                             cr, rec_id, cfg["workdir"], eval_config,
+                             s3_config, use_s3, run_numbers, s3_folder, phase))
 
         _check_cancelled()
         _update_eval(cr, rec_id, {"run_status": "running", "stage": "running_instances"})
@@ -857,10 +851,6 @@ def _run_evaluation(db_name, uid, rec_id):
             _update_eval(cr, rec_id, {"run_status": "done"})
             _append_log(cr, rec_id, "Instances run successfully.")
             cr.commit()
-            _safe_phase_hook(cr, rec_id, "post-run",
-                             lambda: _populate_run_artifacts(
-                                 cr, rec_id, cfg["workdir"], eval_config,
-                                 s3_config, use_s3, run_numbers, s3_folder, phase))
             _notify_bus(db_name, rec_id)
             cr.commit()
         except Exception as exc:
@@ -869,6 +859,11 @@ def _run_evaluation(db_name, uid, rec_id):
             _notify_bus(db_name, rec_id)
             cr.commit()
             raise
+
+        _safe_phase_hook(cr, rec_id, "post-run",
+                         lambda: _populate_run_artifacts(
+                             cr, rec_id, cfg["workdir"], eval_config,
+                             s3_config, use_s3, run_numbers, s3_folder, phase))
 
         _check_cancelled()
         _update_eval(cr, rec_id, {"report_status": "running", "stage": "generating_reports"})
@@ -897,15 +892,16 @@ def _run_evaluation(db_name, uid, rec_id):
             _update_eval(cr, rec_id, {"report_status": "done"})
             _append_log(cr, rec_id, "Reports generated successfully.")
             cr.commit()
-            _safe_phase_hook(cr, rec_id, "post-report",
-                             lambda: _populate_report_artifacts(
-                                 cr, rec_id, cfg["workdir"], cfg["output_dir"],
-                                 eval_config, s3_config, use_s3,
-                                 run_numbers, s3_folder, phase))
         except Exception as exc:
             _fail_eval(cr, rec_id, "report_status", exc)
             cr.commit()
             raise
+
+        _safe_phase_hook(cr, rec_id, "post-report",
+                         lambda: _populate_report_artifacts(
+                             cr, rec_id, cfg["workdir"], cfg["output_dir"],
+                             eval_config, s3_config, use_s3,
+                             run_numbers, s3_folder, phase))
 
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"
         total = resolved = unresolved = errors = 0

@@ -1163,6 +1163,38 @@ class AuroraPipeline(models.Model):
         p3_failed = p3_counts.get("failed", 0)
         p3_total = sum(p3_counts.values())
 
+        ei_counts = {}
+        try:
+            cr.execute("""
+                SELECT status, COUNT(*) FROM aurora_evaluation_instance GROUP BY status
+            """)
+            ei_counts = dict(cr.fetchall())
+        except Exception:
+            ei_counts = {}
+        ei_running_statuses = {"building", "running"}
+        ei_total = sum(ei_counts.values())
+        ei_resolved = ei_counts.get("resolved", 0)
+        ei_unresolved = ei_counts.get("unresolved", 0)
+        ei_error = ei_counts.get("error", 0)
+        ei_running = sum(ei_counts.get(s, 0) for s in ei_running_statuses)
+
+        hs_counts = {}
+        try:
+            cr.execute("""
+                SELECT stage, COUNT(*) FROM aurora_harness_staging
+                WHERE active = TRUE
+                GROUP BY stage
+            """)
+            hs_counts = dict(cr.fetchall())
+        except Exception:
+            hs_counts = {}
+        hs_testing_stages = {"testing", "tested"}
+        hs_total = sum(hs_counts.values())
+        hs_deployed = hs_counts.get("deployed", 0)
+        hs_notified = hs_counts.get("notified", 0)
+        hs_failed = hs_counts.get("failed", 0)
+        hs_testing = sum(hs_counts.get(s, 0) for s in hs_testing_stages)
+
         return {
             "pipelines": {
                 "total": sum(pipe_counts.values()),
@@ -1198,6 +1230,20 @@ class AuroraPipeline(models.Model):
                 "done": p3_done,
                 "failed": p3_failed,
                 "draft": max(0, p3_total - p3_running - p3_done - p3_failed),
+            },
+            "evaluation_results": {
+                "total": ei_total,
+                "resolved": ei_resolved,
+                "unresolved": ei_unresolved,
+                "error": ei_error,
+                "running": ei_running,
+            },
+            "harness_staging": {
+                "total": hs_total,
+                "deployed": hs_deployed,
+                "notified": hs_notified,
+                "testing": hs_testing,
+                "failed": hs_failed,
             },
             "recent_pipelines": recent_pipes,
             "recent_evaluations": recent_evals,
