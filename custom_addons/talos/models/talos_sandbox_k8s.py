@@ -924,8 +924,17 @@ class TalosSandboxK8s(models.AbstractModel):
                         ),
                     ),
                 ),
-                client.V1EnvVar(name="STORE_MODEL_IN_DB", value="False"),
-                client.V1EnvVar(name="DISABLE_SCHEMA_UPDATE", value="true"),
+                # k8s expands $(LITELLM_DB_PASSWORD) using the env var
+                # defined above; keep that ordering. localhost is the
+                # postgres sidecar sharing this pod's netns.
+                client.V1EnvVar(
+                    name="DATABASE_URL",
+                    value=(
+                        "postgresql://llmproxy:$(LITELLM_DB_PASSWORD)"
+                        "@localhost:5432/litellm"
+                    ),
+                ),
+                client.V1EnvVar(name="STORE_MODEL_IN_DB", value="True"),
                 client.V1EnvVar(name="AWS_REGION", value=aws_region),
                 client.V1EnvVar(
                     name="LLAMA_API_KEY",
@@ -992,9 +1001,56 @@ class TalosSandboxK8s(models.AbstractModel):
             ),
         )
 
+        postgres_container = client.V1Container(
+            name="postgres",
+            image=postgres_image,
+            ports=[client.V1ContainerPort(container_port=5432)],
+            env=[
+                client.V1EnvVar(name="POSTGRES_DB", value="litellm"),
+                client.V1EnvVar(name="POSTGRES_USER", value="llmproxy"),
+                client.V1EnvVar(
+                    name="POSTGRES_PASSWORD",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="LITELLM_DB_PASSWORD",
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(name="PGDATA", value="/var/lib/postgresql/data/pgdata"),
+            ],
+            volume_mounts=[
+                client.V1VolumeMount(
+                    name="litellm-db",
+                    mount_path="/var/lib/postgresql/data",
+                ),
+            ],
+            resources=client.V1ResourceRequirements(
+                requests={"cpu": "25m", "memory": "128Mi"},
+                limits={"memory": "512Mi"},
+            ),
+            startup_probe=client.V1Probe(
+                _exec=client.V1ExecAction(
+                    command=["pg_isready", "-U", "llmproxy", "-d", "litellm"],
+                ),
+                initial_delay_seconds=2,
+                period_seconds=2,
+                failure_threshold=30,
+                timeout_seconds=2,
+            ),
+            readiness_probe=client.V1Probe(
+                _exec=client.V1ExecAction(
+                    command=["pg_isready", "-U", "llmproxy", "-d", "litellm"],
+                ),
+                period_seconds=10,
+                timeout_seconds=3,
+            ),
+        )
+
         containers = [
             openclaw_container,
             litellm_container,
+            postgres_container,
             session_backup_container,
         ]
 
@@ -1022,6 +1078,10 @@ class TalosSandboxK8s(models.AbstractModel):
                 config_map=client.V1ConfigMapVolumeSource(
                     name=litellm_config_cm,
                 ),
+            ),
+            client.V1Volume(
+                name="litellm-db",
+                empty_dir=client.V1EmptyDirVolumeSource(),
             ),
             client.V1Volume(
                 name="gog-secret",

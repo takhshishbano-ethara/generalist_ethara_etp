@@ -713,16 +713,25 @@ class TalosSandbox(models.Model):
             msg = entry.get("message")
             if isinstance(msg, dict):
                 usage = usage or msg.get("usage") or {}
+            if not usage:
+                continue
             total_in += int(
-                usage.get("input_tokens", 0) or usage.get("inputTokens", 0) or 0
+                usage.get("input_tokens", 0)
+                or usage.get("inputTokens", 0)
+                or usage.get("prompt_tokens", 0)
+                or 0
             )
             total_out += int(
-                usage.get("output_tokens", 0) or usage.get("outputTokens", 0) or 0
+                usage.get("output_tokens", 0)
+                or usage.get("outputTokens", 0)
+                or usage.get("completion_tokens", 0)
+                or 0
             )
         return total_in, total_out
 
     def _query_litellm_spend(self):
         self.ensure_one()
+        import hashlib
         import urllib.error
         import urllib.parse
         import urllib.request
@@ -768,24 +777,18 @@ class TalosSandbox(models.Model):
             return 0, 0
 
         try:
-            start_date = (
-                self.create_date.strftime("%Y-%m-%d") if self.create_date else ""
-            )
-            if not start_date:
+            if not self.create_date:
                 return 0, 0
 
-            from datetime import datetime as dt
-            from datetime import timedelta
-
-            end_date = (dt.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-
-            params = urllib.parse.urlencode(
-                {
-                    "start_date": start_date,
-                    "end_date": end_date,
-                }
-            )
-            url = "%s/spend/logs?%s" % (base_url, params)
+            # LiteLLM /spend/logs has two response shapes:
+            #   * with start_date+end_date -> per-day aggregate (no token fields)
+            #   * with api_key (hashed) or no params -> per-request logs
+            #     (has prompt_tokens / completion_tokens)
+            # We need per-request data, scoped to this sandbox's key, then
+            # filter by the sandbox lifetime on the client side.
+            hashed_key = hashlib.sha256(litellm_key.encode("utf-8")).hexdigest()
+            params = urllib.parse.urlencode({"api_key": hashed_key})
+            url = "%s/spend/logs?%s" % (base_url.rstrip("/"), params)
 
             req = urllib.request.Request(
                 url,
@@ -799,15 +802,42 @@ class TalosSandbox(models.Model):
 
             logs = data if isinstance(data, list) else data.get("data", [])
 
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            start_dt = self.create_date
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=_tz.utc)
+
+            def _within_window(entry):
+                start_time = entry.get("startTime") or entry.get("start_time")
+                if not start_time:
+                    return True
+                try:
+                    ts = start_time.replace("Z", "+00:00")
+                    entry_dt = _dt.fromisoformat(ts)
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=_tz.utc)
+                    return entry_dt >= start_dt
+                except Exception:
+                    return True
+
             total_in = 0
             total_out = 0
+            considered = 0
             for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                if not _within_window(entry):
+                    continue
+                considered += 1
                 total_in += int(entry.get("prompt_tokens", 0) or 0)
                 total_out += int(entry.get("completion_tokens", 0) or 0)
 
             _logger.info(
-                "LiteLLM spend query returned %d logs (in=%d, out=%d) for sandbox %s",
+                "LiteLLM spend query returned %d logs (%d in window, in=%d, out=%d) for sandbox %s",
                 len(logs),
+                considered,
                 total_in,
                 total_out,
                 self.id,
