@@ -10,6 +10,9 @@
     """,
     "author": "Ethara",
     "depends": ["base", "web", "hr", "bus", "etp_user_roles"],
+    "external_dependencies": {
+        "python": ["httpx"],
+    },
     "data": [
         "security/atlas_security.xml",
         "security/ir.model.access.csv",

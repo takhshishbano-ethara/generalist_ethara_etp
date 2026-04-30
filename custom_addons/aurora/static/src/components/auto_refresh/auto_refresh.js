@@ -23,6 +23,8 @@ const STAGING_POLL_STAGES = new Set([
 ]);
 
 const FALLBACK_POLL_INTERVAL = 10000;
+const BURST_POLL_INTERVAL = 2000;
+const BURST_POLL_DURATION = 10000;
 
 export class AuroraAutoRefresh extends Component {
     static template = "aurora.AuroraAutoRefresh";
@@ -31,6 +33,7 @@ export class AuroraAutoRefresh extends Component {
     setup() {
         this.busService = useService("bus_service");
         this._fallbackTimer = null;
+        this._burstTimeout = null;
         this._reloading = false;
         this._busSubscribed = false;
         this._busChannel = null;
@@ -137,7 +140,7 @@ export class AuroraAutoRefresh extends Component {
 
     _startFallback() {
         if (this._fallbackTimer) return;
-        this._fallbackTimer = setInterval(async () => {
+        const tick = async () => {
             if (this._reloading || document.hidden) return;
             this._reloading = true;
             try {
@@ -151,13 +154,24 @@ export class AuroraAutoRefresh extends Component {
             if (!this._shouldPoll()) {
                 this._cleanup();
             }
-        }, FALLBACK_POLL_INTERVAL);
+        };
+        this._fallbackTimer = setInterval(tick, BURST_POLL_INTERVAL);
+        this._burstTimeout = setTimeout(() => {
+            this._burstTimeout = null;
+            if (!this._fallbackTimer) return;
+            clearInterval(this._fallbackTimer);
+            this._fallbackTimer = setInterval(tick, FALLBACK_POLL_INTERVAL);
+        }, BURST_POLL_DURATION);
     }
 
     _stopFallback() {
         if (this._fallbackTimer) {
             clearInterval(this._fallbackTimer);
             this._fallbackTimer = null;
+        }
+        if (this._burstTimeout) {
+            clearTimeout(this._burstTimeout);
+            this._burstTimeout = null;
         }
     }
 

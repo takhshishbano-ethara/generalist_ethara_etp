@@ -28,6 +28,15 @@ try:
 except ImportError:
     from util import get_tokens, TokenRotator
 
+
+def _check_cancelled():
+    try:
+        from odoo.addons.aurora.worker.run_pipeline import check_cancelled
+        check_cancelled()
+    except ImportError:
+        pass
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -72,6 +81,7 @@ def main(tokens: list[str], out_dir: Path, org: str, repo: str):
     with open(out_dir / f"{org}__{repo}_prs.jsonl", "w", encoding="utf-8") as file:
         count = 0
         for pull in tqdm(r.get_pulls(state="closed"), desc="Pull Requests"):
+            _check_cancelled()
             if not pull.merged_at:
                 continue
             count += 1

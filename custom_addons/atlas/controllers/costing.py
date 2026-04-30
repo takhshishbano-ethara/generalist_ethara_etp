@@ -15,6 +15,15 @@ TOKEN_CATEGORIES = [
 ]
 
 
+def _caller_can_see_all():
+    user = request.env.user
+    return (
+        user.has_group("base.group_system")
+        or user.has_group("atlas.group_atlas_admin")
+        or user.has_group("etp_user_roles.group_quality_lead")
+    )
+
+
 class AtlasCostingController(http.Controller):
     @http.route("/atlas/costing/data", type="json", auth="user")
     def costing_data(self, period="week", **kw):
@@ -29,11 +38,18 @@ class AtlasCostingController(http.Controller):
         else:
             start = None
 
-        Task = request.env["atlas.atlas"].sudo()
         task_domain = []
         if start:
             task_domain.append(
                 ("create_date", ">=", start.strftime("%Y-%m-%d 00:00:00"))
+            )
+
+        if _caller_can_see_all():
+            Task = request.env["atlas.atlas"].sudo()
+        else:
+            Task = request.env["atlas.atlas"]
+            task_domain.append(
+                ("employee_id.user_id", "=", request.env.user.id)
             )
         tasks = Task.search(task_domain)
 

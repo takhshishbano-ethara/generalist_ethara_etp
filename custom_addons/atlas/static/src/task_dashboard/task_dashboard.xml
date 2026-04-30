@@ -2,7 +2,15 @@
 <templates xml:space="preserve">
     <t t-name="atlas.TaskDashboard">
         <div class="o_atlas_dashboard">
-            <!-- Model Tab Bar -->
+            <!--
+            ============================================================
+            MODEL TAB BAR (COMMENTED OUT - only one model in use)
+            Previously rendered a clickable tab strip (GLM 5, etc.) used
+            to switch between multiple model sandboxes. Since MODEL_TABS
+            only contains one entry, the strip adds no value. Uncomment
+            this block to restore the tab bar when additional models are
+            introduced.
+
             <div class="o_atlas_dashboard_tabs">
                 <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
                     <button t-attf-class="o_atlas_dashboard_tab #{state.activeTab === tab.type ? 'active' : ''}"
@@ -16,27 +24,16 @@
                     </button>
                 </t>
                 <div class="ms-auto d-flex align-items-center gap-2">
-                    <t t-if="state.gogAuthDone">
-                        <span class="badge text-bg-success d-inline-flex align-items-center gap-1 py-1 px-2">
-                            <i class="fa fa-check-circle"/>
-                            Google Authenticated
-                        </span>
-                        <button class="btn btn-sm btn-link text-muted p-0"
-                                t-on-click="onGogAuthClick"
-                                title="Re-authenticate Google account">
-                            <i class="fa fa-refresh me-1"/>Re-auth
-                        </button>
-                    </t>
-                    <t t-else="">
-                        <button class="btn btn-sm btn-outline-danger"
-                                t-on-click="onGogAuthClick"
-                                title="Authenticate Google account (shared across all models)">
-                            <i class="fa fa-google me-1"/>
-                            Google Auth
-                        </button>
-                    </t>
+                    GOOGLE AUTH (COMMENTED OUT - not in use)
+                    To restore, uncomment the block below and re-enable the
+                    GogAuthDialog mount further down in this template.
+
+                    t-if state.gogAuthDone : success badge + Re-auth button
+                    t-else : outline-danger Google Auth button
                 </div>
             </div>
+            ============================================================
+            -->
 
             <!-- All Sandbox Cards rendered simultaneously, shown/hidden via CSS -->
             <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
@@ -56,6 +53,7 @@
                         dockerError="sbProps.dockerError"
                         disabled="sbProps.disabled"
                         loading="sbProps.loading"
+                        record="props.record"
                         onStart.bind="onStartSandbox"
                         onStop.bind="onStopSandbox"
                     />
@@ -67,11 +65,16 @@
             </t>
 
             <!-- Shared Gog Auth Dialog -->
+            <!--
+            ============================================================
+            GOOGLE AUTH DIALOG (COMMENTED OUT - not in use)
             <GogAuthDialog t-if="state.showGogAuth"
                 taskId="this.taskId"
                 email="this.taskEmail || ''"
                 onClose.bind="onGogAuthClose"
                 onSuccess.bind="onGogAuthSuccess"/>
+            ============================================================
+            -->
         </div>
     </t>
 </templates>

@@ -10,7 +10,7 @@ services:
         condition: service_healthy
     environment:
       - PERSONA=${PERSONA:-marcus}
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-talos-sandbox}
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:?OPENCLAW_GATEWAY_TOKEN must be set}
       - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
     volumes:
       - ./personas:/sandbox/personas:ro
@@ -73,7 +73,7 @@ services:
       - "4000"
     environment:
       DATABASE_URL: postgresql://llmproxy:${LITELLM_DB_PASSWORD:-dbpassword9090}@db:5432/litellm
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-atlas-litellm}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set}
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       STORE_MODEL_IN_DB: "True"

@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libvulkan1 \
     libgles2 libglx0 libglx-mesa0 \
     libdrm2 libdrm-amdgpu1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1 \
+    default-jre-headless \
     && mkdir -p /etc/apt/keyrings \
     && wget -qO /etc/apt/keyrings/githubcli-archive-keyring.gpg \
        https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -76,6 +77,15 @@ RUN pip install --upgrade pip setuptools wheel \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && find /usr/local/lib/python3.12 -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+
+# Pre-download the LanguageTool jar used by custom_addons/atlas grammar QC.
+# Without this step the first /atlas/qc request after a cold start spends
+# ~30s fetching ~200MB from the LanguageTool CDN. Baking it into the image
+# keeps request latency predictable and avoids outbound-network dependency
+# during production traffic. The jar is cached under /root/.cache by
+# language_tool_python's downloader.
+RUN python -c "import language_tool_python; language_tool_python.LanguageTool('en-US').close()" \
+    || echo "LanguageTool prefetch failed (non-fatal); jar will download on first use"
 
 COPY src/ .
 COPY . .

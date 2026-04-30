@@ -28,6 +28,15 @@ try:
 except ImportError:
     from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name
 
+
+def _check_cancelled():
+    try:
+        from odoo.addons.aurora.worker.run_pipeline import check_cancelled
+        check_cancelled()
+    except ImportError:
+        pass
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -104,6 +113,7 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
         out_dir / f"{org}__{repo}_related_issues.jsonl", "w", encoding="utf-8"
     ) as out_file:
         for issue_num in tqdm(sorted(target_issues), desc="Fetching issues"):
+            _check_cancelled()
             try:
                 issue = r.get_issue(issue_num)
                 out_file.write(

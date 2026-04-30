@@ -102,5 +102,49 @@
             <field name="domain_force">[(1, '=', 1)]</field>
         </record>
 
+        <!-- ===== Record Rules: Atlas Rubric Criterion ===== -->
+        <record id="atlas_rubric_criterion_rule_tasker" model="ir.rule">
+            <field name="name">Atlas Rubric Criterion: Tasker sees own</field>
+            <field name="model_id" ref="model_atlas_rubric_criterion"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('atlas_id.employee_id.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="atlas_rubric_criterion_rule_ql" model="ir.rule">
+            <field name="name">Atlas Rubric Criterion: QL sees all</field>
+            <field name="model_id" ref="model_atlas_rubric_criterion"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="atlas_rubric_criterion_rule_admin" model="ir.rule">
+            <field name="name">Atlas Rubric Criterion: Admin sees all</field>
+            <field name="model_id" ref="model_atlas_rubric_criterion"/>
+            <field name="groups" eval="[(4, ref('group_atlas_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== Record Rules: Atlas Rubric Level ===== -->
+        <record id="atlas_rubric_level_rule_tasker" model="ir.rule">
+            <field name="name">Atlas Rubric Level: Tasker sees own</field>
+            <field name="model_id" ref="model_atlas_rubric_level"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
+            <field name="domain_force">[('criterion_id.atlas_id.employee_id.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="atlas_rubric_level_rule_ql" model="ir.rule">
+            <field name="name">Atlas Rubric Level: QL sees all</field>
+            <field name="model_id" ref="model_atlas_rubric_level"/>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="atlas_rubric_level_rule_admin" model="ir.rule">
+            <field name="name">Atlas Rubric Level: Admin sees all</field>
+            <field name="model_id" ref="model_atlas_rubric_level"/>
+            <field name="groups" eval="[(4, ref('group_atlas_admin'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
     </data>
 </odoo>

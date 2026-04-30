@@ -17,6 +17,8 @@ class TaskForgeLog(models.Model):
         tracking=True,
     )
     project_id = fields.Many2one('project.project', string='Project', tracking=True)
+    is_justification_required = fields.Boolean(related='project_id.is_justification_required')
+
     date = fields.Date(string='Date', default=fields.Date.context_today, required=True)
     state = fields.Selection([
         ('in_progress', 'In Progress'),
@@ -45,6 +47,32 @@ class TaskForgeLog(models.Model):
     prompt_text = fields.Text(string='Prompt')
     justification_text = fields.Text(string='Justification')
     feedback_note = fields.Text(string='Feedback Note')
+
+    grammar_checked = fields.Boolean(string='Grammar Checked', default=False, index=True)
+    grammar_is_perfect = fields.Boolean(string='Grammar Perfect', default=False, index=True)
+    prompt_error_percentage = fields.Float(string='Prompt Error %', default=0)
+    justification_error_percentage = fields.Float(string='Justification Error %', default=0)
+    prompt_issue_count = fields.Integer(string='Prompt Issues', default=0)
+    justification_issue_count = fields.Integer(string='Justification Issues', default=0)
+    total_grammar_issues = fields.Integer(string='Total Grammar Issues', default=0, index=True)
+    prompt_corrected = fields.Text(string='Corrected Prompt')
+    justification_corrected = fields.Text(string='Corrected Justification')
+
+    prompt_grammar_count = fields.Integer(string='Prompt Grammar Errors', default=0)
+    prompt_misspelling_count = fields.Integer(string='Prompt Misspelling Errors', default=0)
+    prompt_punctuation_count = fields.Integer(string='Prompt Punctuation Errors', default=0)
+    prompt_clarity_count = fields.Integer(string='Prompt Clarity Errors', default=0)
+    prompt_typography_count = fields.Integer(string='Prompt Typography Errors', default=0)
+    prompt_capitalization_count = fields.Integer(string='Prompt Capitalization Errors', default=0)
+    prompt_miscellaneous_count = fields.Integer(string='Prompt Miscellaneous Errors', default=0)
+
+    justification_grammar_count = fields.Integer(string='Justification Grammar Errors', default=0)
+    justification_misspelling_count = fields.Integer(string='Justification Misspelling Errors', default=0)
+    justification_punctuation_count = fields.Integer(string='Justification Punctuation Errors', default=0)
+    justification_clarity_count = fields.Integer(string='Justification Clarity Errors', default=0)
+    justification_typography_count = fields.Integer(string='Justification Typography Errors', default=0)
+    justification_capitalization_count = fields.Integer(string='Justification Capitalization Errors', default=0)
+    justification_miscellaneous_count = fields.Integer(string='Justification Miscellaneous Errors', default=0)
 
     blocker_ids = fields.One2many('task.forge.blocker', 'task_id', string='Blockers')
     bug_report_ids = fields.One2many('task.forge.bug.report', 'task_id', string='Bug Reports')

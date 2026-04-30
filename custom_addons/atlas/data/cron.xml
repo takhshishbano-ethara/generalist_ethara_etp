@@ -10,5 +10,14 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+        <record id="ir_cron_atlas_recover_stuck_generation" model="ir.cron">
+            <field name="name">Atlas: Recover Stuck Generation Tasks</field>
+            <field name="model_id" ref="model_atlas_atlas"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_recover_stuck_generation()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
     </data>
 </odoo>

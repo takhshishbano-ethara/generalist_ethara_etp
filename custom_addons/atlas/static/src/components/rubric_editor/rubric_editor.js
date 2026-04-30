@@ -122,6 +122,25 @@ export class RubricEditor extends Component {
             this.state.goalStatus = recordGoal || this.state.goalStatus;
             this.state.rubricStatus = recordRubric || this.state.rubricStatus;
             this._startPolling();
+            return;
+        }
+        if (this.state.goalStatus === "running" && recordGoal && recordGoal !== "running") {
+            log("_syncFromRecord: state goal running but record done -> clearing", {
+                taskId: this.taskId,
+                recordGoal,
+            });
+            this.state.goalStatus = recordGoal;
+        }
+        if (this.state.rubricStatus === "running" && recordRubric && recordRubric !== "running") {
+            log("_syncFromRecord: state rubric running but record done -> clearing", {
+                taskId: this.taskId,
+                recordRubric,
+            });
+            this.state.rubricStatus = recordRubric;
+            this._loadCriteria();
+        }
+        if (this.state.goalStatus !== "running" && this.state.rubricStatus !== "running") {
+            this._stopPolling();
         }
     }
 
@@ -273,7 +292,9 @@ export class RubricEditor extends Component {
             });
         } catch (e) {
             console.error(`${LOG_PREFIX} _loadCriteria failed`, { taskId: this.taskId, error: e });
-            this.notification.add("Failed to load rubric criteria", { type: "danger" });
+            if (!this.isGenerating) {
+                this.notification.add("Failed to load rubric criteria", { type: "danger" });
+            }
         }
         this.state.loading = false;
     }

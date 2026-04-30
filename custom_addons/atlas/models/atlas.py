@@ -18,6 +18,7 @@ _HEALTH_WAIT_TIMEOUT = 1200
 _HEALTH_POLL_INTERVAL = 3
 
 _prompt_cache = {}
+_DOTENV_CACHE = {}
 
 
 def _get_prompt(filename):
@@ -362,26 +363,25 @@ def generate_rubric_from_turns(env, turns, task_id=None):
     if not api_key or not inference_arn:
         return [], {}
 
-    sent_turns = [t for t in turns if t.prompt and not t.is_hint_turn and (t.response or t.turn_status == "Completed")]
+    # Rubric is derived solely from user queries. We intentionally ignore
+    # task.goal_description and the assistant (GLM-5) responses so the
+    # criteria reflect what the user asked for, not the model's answer or
+    # any pre-generated goal metadata.
+    sent_turns = [t for t in turns if t.prompt and not t.is_hint_turn]
     if not sent_turns:
-        _logger.warning("generate_rubric_from_turns: no sent turns found (total turns=%d)", len(turns) if hasattr(turns, '__len__') else -1)
+        _logger.warning(
+            "generate_rubric_from_turns: no user queries found (total turns=%d)",
+            len(turns) if hasattr(turns, "__len__") else -1,
+        )
         return [], {}
 
-    conversation_parts = []
-    for t in sent_turns:
-        conversation_parts.append("User: %s" % t.prompt.strip()[:800])
-        if t.response:
-            conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
+    user_queries = [t.prompt.strip()[:800] for t in sent_turns if t.prompt and t.prompt.strip()]
+    if not user_queries:
+        _logger.warning("generate_rubric_from_turns: all user queries were empty after strip")
+        return [], {}
 
-    goal = ""
-    if task_id:
-        task_rec = env["atlas.atlas"].browse(task_id)
-        if task_rec.exists():
-            goal = task_rec.goal_description or ""
-
-    user_message = "## Goal\n%s\n\n## Conversation\n%s" % (
-        goal if goal else "(Goal not yet generated — infer from conversation)",
-        "\n".join(conversation_parts),
+    user_message = "## User Queries\n%s" % "\n".join(
+        "%d. %s" % (idx, q) for idx, q in enumerate(user_queries, start=1)
     )
 
     try:
@@ -398,13 +398,15 @@ def generate_rubric_from_turns(env, turns, task_id=None):
             timeout=120.0,
         )
         _logger.info("generate_rubric_from_turns: response_len=%d tokens=%s", len(response_text), usage)
-        # FULL RESPONSE DUMP (diagnostic) - split into chunks since Odoo log lines can be truncated
-        _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE BEGIN (task=%s) =====", task_id)
-        for _chunk_start in range(0, len(response_text), 2000):
-            _logger.info("generate_rubric_from_turns: FULL[%d:%d]: %s",
-                         _chunk_start, _chunk_start + 2000,
-                         response_text[_chunk_start:_chunk_start + 2000])
-        _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE END (task=%s) =====", task_id)
+        if env["ir.config_parameter"].sudo().get_param("atlas.log_llm_responses", "False") == "True":
+            _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE BEGIN (task=%s) =====", task_id)
+            for _chunk_start in range(0, len(response_text), 2000):
+                _logger.info("generate_rubric_from_turns: FULL[%d:%d]: %s",
+                             _chunk_start, _chunk_start + 2000,
+                             response_text[_chunk_start:_chunk_start + 2000])
+            _logger.info("generate_rubric_from_turns: ===== FULL RESPONSE END (task=%s) =====", task_id)
+        else:
+            _logger.debug("generate_rubric_from_turns: FULL RESPONSE (task=%s): %s", task_id, response_text)
 
         criteria = _parse_rubric_table(response_text)
 
@@ -437,20 +439,32 @@ def _load_dotenv():
 
     dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
     if os.path.isfile(dotenv_path):
-        with open(dotenv_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                if key.startswith("ATLAS_"):
-                    key = key[len("ATLAS_"):]
-                env[key] = value
-        _logger.debug("Loaded .env from %s", dotenv_path)
+        try:
+            mtime = os.path.getmtime(dotenv_path)
+        except OSError:
+            mtime = None
+        cached = _DOTENV_CACHE.get(dotenv_path)
+        if cached and cached[0] == mtime:
+            parsed = cached[1]
+        else:
+            parsed = {}
+            with open(dotenv_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+                    if key.startswith("ATLAS_"):
+                        key = key[len("ATLAS_"):]
+                    parsed[key] = value
+            if mtime is not None:
+                _DOTENV_CACHE[dotenv_path] = (mtime, parsed)
+            _logger.debug("Loaded .env from %s", dotenv_path)
+        env.update(parsed)
 
     return env
 
@@ -825,6 +839,30 @@ class Atlas(models.Model):
     def _cron_reconcile_sandboxes(self):
         self.env["atlas.sandbox"]._cron_reconcile()
 
+    @api.model
+    def _cron_recover_stuck_generation(self):
+        cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=15)
+        stuck = self.sudo().search([
+            "|",
+            ("goal_generation_status", "=", "running"),
+            ("rubric_generation_status", "=", "running"),
+            ("write_date", "<", cutoff),
+        ])
+        if not stuck:
+            return
+        for task in stuck:
+            vals = {}
+            if task.goal_generation_status == "running":
+                vals["goal_generation_status"] = "error"
+            if task.rubric_generation_status == "running":
+                vals["rubric_generation_status"] = "error"
+            if vals:
+                task.write(vals)
+                _logger.warning(
+                    "Stuck-generation recovery: task=%s reset %s (write_date=%s)",
+                    task.id, list(vals.keys()), task.write_date,
+                )
+
 
 class AtlasTurn(models.Model):
     _name = "atlas.turn"
@@ -863,6 +901,17 @@ class AtlasTurn(models.Model):
     )
     qc_response = fields.Text(string="QC Response (JSON)")
     qc_dismiss_reason = fields.Text(string="QC Dismiss Reason")
+    qc_justification = fields.Text(
+        string="QC Justification",
+        help="Reviewer-provided justification for keeping the original prompt "
+             "despite a medium-severity QC verdict. Not applicable for low "
+             "(no action needed) or high/critical (rewrite mandatory).",
+    )
+    qc_status_display = fields.Html(
+        string="QC Status",
+        compute="_compute_qc_status_display",
+        sanitize=False,
+    )
     qc_input_tokens = fields.Integer(string="Prompt QC Input Tokens", default=0)
     qc_output_tokens = fields.Integer(string="Prompt QC Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
@@ -904,6 +953,42 @@ class AtlasTurn(models.Model):
                 rec.session_label = "Session %d" % (sessions.index(sid) + 1)
             else:
                 rec.session_label = "Session"
+
+    @api.depends("qc_severity", "qc_justification")
+    def _compute_qc_status_display(self):
+        colors = {
+            "low": "#198754",
+            "medium": "#ffc107",
+            "high": "#fd7e14",
+            "critical": "#dc3545",
+        }
+        for rec in self:
+            sev = rec.qc_severity or ""
+            if not sev:
+                rec.qc_status_display = False
+                continue
+            sev_label = sev.capitalize()
+            color = colors.get(sev, "#6c757d")
+            badge = (
+                '<span style="display:inline-block;padding:2px 8px;'
+                'border-radius:10px;background:%s;color:#fff;'
+                'font-weight:600;font-size:0.85em;">%s</span>'
+            ) % (color, sev_label)
+            justif = (rec.qc_justification or "").strip()
+            if justif:
+                safe = (
+                    justif.replace("&", "&amp;")
+                          .replace("<", "&lt;")
+                          .replace(">", "&gt;")
+                )
+                rec.qc_status_display = (
+                    '%s<div style="margin-top:4px;color:#664d03;'
+                    'background:#fff3cd;border:1px solid #ffe69c;'
+                    'border-radius:4px;padding:4px 6px;font-size:0.85em;'
+                    'white-space:pre-wrap;">%s</div>'
+                ) % (badge, safe)
+            else:
+                rec.qc_status_display = badge
 
     @api.depends("tool_calls")
     def _compute_tool_names(self):

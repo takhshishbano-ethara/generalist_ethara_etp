@@ -22,14 +22,14 @@ Schema:
   "corrected_text": "the complete input with all corrections applied",
   "issues": [
     {
-      "category": "grammar|misspelling|punctuation|clarity",
+      "category": "grammar|misspelling|punctuation|clarity|typography|capitalization|miscellaneous",
       "severity": "low|medium|high",
       "text": "exact problematic word/phrase from input",
       "suggestion_text": "correction",
       "message": "brief explanation"
     }
   ],
-  "summary": {"grammar": 0, "misspelling": 0, "punctuation": 0, "clarity": 0}
+  "summary": {"grammar": 0, "misspelling": 0, "punctuation": 0, "clarity": 0, "typography": 0, "capitalization": 0, "miscellaneous": 0}
 }
 
 Rules:
@@ -548,6 +548,7 @@ class TaskForgeTaskController(http.Controller):
             'time_taken_mins': round(int(task.pause_time) / 60, 2) if task.pause_time else 0,
             # 'time_taken_mins': task.time_taken_mins or 0,
             # 'time_taken_mins': duration_display,
+            'is_justification_required': task.is_justification_required or False,
             'start_screenshot_url': task.start_screenshot_url or '',
             'end_screenshot_url': task.end_screenshot_url or '',
             'blocker_reason': ", ".join(Blocker.mapped('name')) if Blocker else "",
@@ -624,13 +625,17 @@ class TaskForgeTaskController(http.Controller):
     @http.route('/api/v2/taskforge/tasks/grammar_check', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
-        'prompt': {'type': 'str', 'required': True}
+        'prompt': {'type': 'str', 'required': True},
+        'task_id': {'type': 'int', 'required': True}
     })
     def grammar_check(self, **kwargs):
         try:
             jdata = kwargs.get('jdata')
             prompt = (jdata.get('prompt') or '').strip()
             justification = (jdata.get('justification') or '').strip()
+            task = request.env['task.forge.log'].sudo().browse(int(jdata.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
 
             result = {'is_perfect': True, 'prompt': None, 'justification': None}
 
@@ -644,13 +649,46 @@ class TaskForgeTaskController(http.Controller):
                 if not result['justification']['is_correct']:
                     result['is_perfect'] = False
 
+            p_data = result.get('prompt') or {}
+            j_data = result.get('justification') or {}
+            total_issues = p_data.get('issue_count', 0) + j_data.get('issue_count', 0)
+
+            p_summary = p_data.get('summary') or {}
+            j_summary = j_data.get('summary') or {}
+
+            task.write({
+                'prompt_text': prompt or task.prompt_text,
+                'justification_text': justification or task.justification_text,
+                'grammar_checked': True,
+                'grammar_is_perfect': result['is_perfect'],
+                'prompt_error_percentage': p_data.get('error_percentage', 0),
+                'justification_error_percentage': j_data.get('error_percentage', 0),
+                'prompt_issue_count': p_data.get('issue_count', 0),
+                'justification_issue_count': j_data.get('issue_count', 0),
+                'total_grammar_issues': total_issues,
+                'prompt_corrected': p_data.get('corrected', ''),
+                'justification_corrected': j_data.get('corrected', ''),
+                'prompt_grammar_count': p_summary.get('grammar', 0),
+                'prompt_misspelling_count': p_summary.get('misspelling', 0),
+                'prompt_punctuation_count': p_summary.get('punctuation', 0),
+                'prompt_clarity_count': p_summary.get('clarity', 0),
+                'prompt_typography_count': p_summary.get('typography', 0),
+                'prompt_capitalization_count': p_summary.get('capitalization', 0),
+                'prompt_miscellaneous_count': p_summary.get('miscellaneous', 0),
+                'justification_grammar_count': j_summary.get('grammar', 0),
+                'justification_misspelling_count': j_summary.get('misspelling', 0),
+                'justification_punctuation_count': j_summary.get('punctuation', 0),
+                'justification_clarity_count': j_summary.get('clarity', 0),
+                'justification_typography_count': j_summary.get('typography', 0),
+                'justification_capitalization_count': j_summary.get('capitalization', 0),
+                'justification_miscellaneous_count': j_summary.get('miscellaneous', 0),
+            })
+
             if result['is_perfect']:
                 return return_Response(message="No issues found.", status=200, data=result)
 
-            total = (result.get('prompt') or {}).get('issue_count', 0) + \
-                    (result.get('justification') or {}).get('issue_count', 0)
             return return_Response(
-                message="Found %d issue(s)." % total,
+                message="Found %d issue(s)." % total_issues,
                 status=200,
                 data=result,
             )

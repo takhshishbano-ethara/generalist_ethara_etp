@@ -10,3 +10,6 @@ access_project_skills,project.skills,model_project_skills,,1,1,1,1
 access_project_category,project.category,model_project_category,,1,1,1,1
 access_project_ai_recommendation,project.ai.recommendation,model_project_ai_recommendation,,1,1,1,1
 access_project_member_history,project.member.history,model_project_member_history,,1,1,1,1
+access_rubric_category,rubric.category,model_rubric_category,,1,1,1,1
+access_rubric_category_option,rubric.category.option,model_rubric_category_option,,1,1,1,1
+access_rubric_dimension,rubric.dimension,model_rubric_dimension,,1,1,1,1

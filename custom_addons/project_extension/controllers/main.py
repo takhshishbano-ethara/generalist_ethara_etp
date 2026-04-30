@@ -196,6 +196,11 @@ class ProjectController(http.Controller):
             vals['stage_id'] = request.env.ref(stage_xml).id
             vals['non_stemp_project_status'] = "draft" if kwargs.get('save_as_draft') == '1' else "not_started"
 
+            if kwargs.get('is_rubrics_required') in ['1', 1, True, 'true']:
+                vals['is_rubrics_required'] = True
+            if kwargs.get('is_justification_required') in ['1', 1, True, 'true']:
+                vals['is_justification_required'] = True
+
             attachment_ids = []
             files = request.httprequest.files.getlist('files')
 
@@ -257,6 +262,34 @@ class ProjectController(http.Controller):
                 if attachment_ids:
                     vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             project = request.env['project.project'].sudo().create(vals)
+
+            if kwargs.get('rubric_categories'):
+                import json as _json
+                raw = kwargs.get('rubric_categories')
+                if isinstance(raw, str):
+                    raw = _json.loads(raw)
+                if isinstance(raw, list):
+                    for cat_data in raw:
+                        cat = request.env['rubric.category'].sudo().create({
+                            'name': cat_data.get('name', ''),
+                            'project_id': project.id,
+                            'sequence': cat_data.get('sequence', 10),
+                        })
+                        for opt in cat_data.get('options', []):
+                            request.env['rubric.category.option'].sudo().create({
+                                'name': opt.get('name', ''),
+                                'value': int(opt.get('value', 0)),
+                                'sequence': opt.get('sequence', 10),
+                                'category_id': cat.id,
+                            })
+                        for dim in cat_data.get('dimensions', []):
+                            request.env['rubric.dimension'].sudo().create({
+                                'name': dim.get('name', ''),
+                                'description': dim.get('description', ''),
+                                'sequence': dim.get('sequence', 10),
+                                'category_id': cat.id,
+                            })
+
             try:
                 request.env['kubera.notification'].sudo().create({
                     'title': 'New Project Created',
@@ -373,6 +406,45 @@ class ProjectController(http.Controller):
                 vals['project_qc_reviewer'] = [(6, 0, parse_ids('project_qc_reviewer') or project.project_qc_reviewer.ids)]
             if kwargs.get('project_tasker'):
                 vals['project_tasker'] = [(6, 0, parse_ids('project_tasker') or project.project_tasker.ids)]
+
+            if kwargs.get('is_rubrics_required') in ['1', 1, True, 'true']:
+                vals['is_rubrics_required'] = True
+            elif kwargs.get('is_rubrics_required') in ['0', 0, False, 'false']:
+                vals['is_rubrics_required'] = False
+            if kwargs.get('is_justification_required') in ['1', 1, True, 'true']:
+                vals['is_justification_required'] = True
+            elif kwargs.get('is_justification_required') in ['0', 0, False, 'false']:
+                vals['is_justification_required'] = False
+
+            if kwargs.get('rubric_categories'):
+                import json as _json
+                raw = kwargs.get('rubric_categories')
+                if isinstance(raw, str):
+                    raw = _json.loads(raw)
+                if isinstance(raw, list):
+                    project.rubric_category_ids.unlink()
+                    for cat_data in raw:
+                        options = cat_data.get('options', [])
+                        dimensions = cat_data.get('dimensions', [])
+                        cat = request.env['rubric.category'].sudo().create({
+                            'name': cat_data.get('name', ''),
+                            'project_id': project.id,
+                            'sequence': cat_data.get('sequence', 10),
+                        })
+                        for opt in options:
+                            request.env['rubric.category.option'].sudo().create({
+                                'name': opt.get('name', ''),
+                                'value': int(opt.get('value', 0)),
+                                'sequence': opt.get('sequence', 10),
+                                'category_id': cat.id,
+                            })
+                        for dim in dimensions:
+                            request.env['rubric.dimension'].sudo().create({
+                                'name': dim.get('name', ''),
+                                'description': dim.get('description', ''),
+                                'sequence': dim.get('sequence', 10),
+                                'category_id': cat.id,
+                            })
 
             if kwargs.get('whatsapp_group_members'):
                 raw_wgm = kwargs.get('whatsapp_group_members')
@@ -708,6 +780,30 @@ class ProjectController(http.Controller):
                 "meeting_bcc_mails": safe_get_value(project, 'meeting_bcc_mails', 'str'),
                 "meeting_subject": safe_get_value(project, 'meeting_subject', 'str'),
                 "meeting_body": safe_get_value(project, 'meeting_body', 'str'),
+                "is_rubrics_required": project.is_rubrics_required or False,
+                "is_justification_required": project.is_justification_required or False,
+                "rubric_categories": [{
+                    'id': cat.id,
+                    'name': cat.name or '',
+                    'sequence': cat.sequence,
+                    'options': [{
+                        'id': opt.id,
+                        'name': opt.name or '',
+                        'value': opt.value,
+                        'sequence': opt.sequence,
+                    } for opt in cat.option_ids],
+                    'dimensions': [{
+                        'id': dim.id,
+                        'name': dim.name or '',
+                        'description': dim.description or '',
+                        'sequence': dim.sequence,
+                        'options': [{
+                            'id': o.id,
+                            'name': o.name or '',
+                            'value': o.value,
+                        } for o in dim.option_ids],
+                    } for dim in cat.dimension_ids],
+                } for cat in project.rubric_category_ids],
             }
             return return_Response(
                 message="Success",
