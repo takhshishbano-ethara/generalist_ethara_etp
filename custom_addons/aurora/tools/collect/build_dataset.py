@@ -478,10 +478,18 @@ def main(
             base_tag = group.get("base_tag", "")
             head_tag = group.get("head_tag", "")
 
-            # Build instance_id — sort PR numbers for deterministic ordering
+            # instance_id spec: {org}__{repo}-{base_tag}..{head_tag} (Aurora_project_guide.md §3); PR-number fallback only when tags missing.
             sorted_pr_numbers = sorted(pr_numbers)
-            pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
-            instance_id = f"{org.lower()}__{repo.lower()}-{pr_numbers_str}"
+            if base_tag and head_tag:
+                instance_id = f"{org.lower()}__{repo.lower()}-{base_tag}..{head_tag}"
+            else:
+                pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
+                instance_id = f"{org.lower()}__{repo.lower()}-{pr_numbers_str}"
+                print(
+                    f"  WARNING: missing tag metadata for group "
+                    f"(base_tag={base_tag!r}, head_tag={head_tag!r}); "
+                    f"falling back to PR-number instance_id: {instance_id}"
+                )
 
             if instance_id in existing_ids:
                 continue

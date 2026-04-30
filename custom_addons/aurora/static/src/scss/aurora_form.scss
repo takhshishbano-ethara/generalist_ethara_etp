@@ -638,7 +638,8 @@
    ================================================================ */
 
 .aurora-dashboard {
-    min-height: 100vh;
+    height: 100%;
+    overflow-y: auto;
     background: #f4f6f9;
     padding: 0;
     color: #141720;
@@ -722,7 +723,7 @@
 
 .aurora-dash-stats-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 18px;
     margin-bottom: 28px;
 }
@@ -802,7 +803,7 @@
 
 .aurora-dash-panels {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 18px;
 }
 
@@ -815,7 +816,6 @@
 }
 
 .aurora-dash-panel-full {
-    grid-column: 1 / -1;
     margin-top: 18px;
 }
 

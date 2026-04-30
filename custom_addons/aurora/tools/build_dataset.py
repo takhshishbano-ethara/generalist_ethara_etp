@@ -54,6 +54,15 @@ try:
 except ImportError:
     from util import get_tokens, optional_int, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 
+
+def _check_cancelled():
+    try:
+        from odoo.addons.aurora.worker.run_pipeline import check_cancelled
+        check_cancelled()
+    except ImportError:
+        pass
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -421,16 +430,25 @@ def main(
     records_written = 0
     with open(out_file, "a", encoding="utf-8") as f:
         for group in tqdm(tag_groups, desc="Building dataset"):
+            _check_cancelled()
             base_sha = group.get("base_sha", "")
             head_sha = group.get("head_sha", "")
             pr_numbers = group.get("pr_numbers", [])
             base_tag = group.get("base_tag", "")
             head_tag = group.get("head_tag", "")
 
-            # Build instance_id — sort PR numbers for deterministic ordering
+            # instance_id spec: {org}__{repo}-{base_tag}..{head_tag} (Aurora_project_guide.md §3); PR-number fallback only when tags missing.
             sorted_pr_numbers = sorted(pr_numbers)
-            pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
-            instance_id = f"{org.lower()}__{repo.lower()}-{pr_numbers_str}"
+            if base_tag and head_tag:
+                instance_id = f"{org.lower()}__{repo.lower()}-{base_tag}..{head_tag}"
+            else:
+                pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
+                instance_id = f"{org.lower()}__{repo.lower()}-{pr_numbers_str}"
+                _logger.warning(
+                    "Missing tag metadata for group (base_tag=%r, head_tag=%r); "
+                    "falling back to PR-number instance_id: %s",
+                    base_tag, head_tag, instance_id,
+                )
 
             if instance_id in existing_ids:
                 continue

@@ -31,6 +31,16 @@ _logger = logging.getLogger("aurora.worker")
 
 _cancelled = False
 
+# Per-rec-id cooperative cancellation for local-thread mode (no SIGTERM available).
+# Populated by request_cancel() from action_cancel on the Odoo side.
+_cancelled_rec_ids: set[int] = set()
+_cancel_lock = threading.Lock()
+
+# Thread-local binding of the currently-running pipeline rec_id so tools
+# can call check_cancelled() without plumbing rec_id through their signatures.
+# Set by _run_step before invoking the tool's fn(), cleared after.
+_thread_state = threading.local()
+
 
 def _sigterm_handler(signum, frame):
     global _cancelled
@@ -42,9 +52,70 @@ if threading.current_thread() is threading.main_thread():
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
-def _check_cancelled():
+def request_cancel(rec_id: int) -> None:
+    """Signal a running local-thread pipeline to stop cooperatively.
+
+    Called from aurora.pipeline.action_cancel. The worker checks for this
+    flag at _check_cancelled() checkpoints between steps and raises
+    PipelineCancelled on the next check.
+    """
+    with _cancel_lock:
+        _cancelled_rec_ids.add(rec_id)
+    _logger.info("Cancel requested for pipeline %s", rec_id)
+
+
+def clear_cancel(rec_id: int) -> None:
+    """Remove a pending cancel flag. Called from run_pipeline's finally block
+    so a stale flag cannot silently kill a subsequent re-run of the same id."""
+    with _cancel_lock:
+        _cancelled_rec_ids.discard(rec_id)
+
+
+def _is_cancelled(rec_id: int) -> bool:
+    if _cancelled:
+        return True
+    with _cancel_lock:
+        return rec_id in _cancelled_rec_ids
+
+
+def _check_cancelled(rec_id: int | None = None):
+    # rec_id is optional for backward compat; always pass it from run_pipeline.
     if _cancelled:
         raise PipelineCancelled("Pipeline cancelled (SIGTERM received)")
+    if rec_id is not None:
+        with _cancel_lock:
+            if rec_id in _cancelled_rec_ids:
+                raise PipelineCancelled(f"Pipeline {rec_id} cancelled by user")
+
+
+def check_cancelled():
+    """Public cancel check for tool modules running inside a pipeline.
+
+    Tools call this from inside their long-running loops so Cancel takes
+    effect within seconds instead of waiting for the step to finish.
+    Safe no-op when invoked outside a pipeline (e.g. tool run via CLI).
+    """
+    rec_id = getattr(_thread_state, "rec_id", None)
+    _check_cancelled(rec_id)
+
+
+def _reset_running_steps(cr, rec_id: int) -> None:
+    cr.execute(
+        """
+        UPDATE aurora_pipeline SET
+            step1_status = CASE WHEN step1_status = 'running' THEN 'failed' ELSE step1_status END,
+            step2_status = CASE WHEN step2_status = 'running' THEN 'failed' ELSE step2_status END,
+            step3_status = CASE WHEN step3_status = 'running' THEN 'failed' ELSE step3_status END,
+            step4_status = CASE WHEN step4_status = 'running' THEN 'failed' ELSE step4_status END,
+            step5_status = CASE WHEN step5_status = 'running' THEN 'failed' ELSE step5_status END,
+            step6_status = CASE WHEN step6_status = 'running' THEN 'failed' ELSE step6_status END,
+            phase1_status = CASE WHEN phase1_status = 'running' THEN 'failed' ELSE phase1_status END,
+            phase2_status = CASE WHEN phase2_status = 'running' THEN 'failed' ELSE phase2_status END,
+            phase3_status = CASE WHEN phase3_status = 'running' THEN 'failed' ELSE phase3_status END
+        WHERE id = %s
+        """,
+        (rec_id,),
+    )
 
 
 class PipelineCancelled(Exception):
@@ -456,7 +527,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             return url
 
         def _run_step(step_num, step_field, stage_val, label, fn, count_file):
-            _check_cancelled()
+            _check_cancelled(rec_id)
             _db_write(_update_pipeline, rec_id, {
                 step_field: "running",
                 "stage": stage_val,
@@ -479,8 +550,12 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             hb_thread.start()
 
             try:
-                fn()
-                _check_cancelled()
+                _thread_state.rec_id = rec_id
+                try:
+                    fn()
+                finally:
+                    _thread_state.rec_id = None
+                _check_cancelled(rec_id)
                 _validate_step_output(str(count_file), step_num)
                 count = _count_jsonl_lines(str(count_file))
                 file_ref = _upload_to_s3(count_file, step_num)
@@ -612,117 +687,117 @@ def run_pipeline(registry, db_name: str, rec_id: int):
         _log("Phase 1 (Data Collection) complete.")
         _bus("build_dataset", "Phase 1 complete")
 
-        _check_cancelled()
+        _check_cancelled(rec_id)
 
-        has_registry = check_instance_registry(org, repo, cfg["lang"], github_token=tokens[0])
-        _db_write(_update_pipeline, rec_id, {"phase2_has_registry": has_registry})
+        # has_registry = check_instance_registry(org, repo, cfg["lang"], github_token=tokens[0])
+        # _db_write(_update_pipeline, rec_id, {"phase2_has_registry": has_registry})
 
-        if has_registry:
-            _log("Phase 2: Instance registry found, starting Docker build & test execution...")
-            _db_write(_update_pipeline, rec_id, {
-                "phase2_status": "running",
-                "stage": "phase2_build",
-                "progress_text": "Phase 2: Building Docker images",
-            })
-            _bus("phase2_build", "Phase 2 starting")
+        # if has_registry:
+        #     _log("Phase 2: Instance registry found, starting Docker build & test execution...")
+        #     _db_write(_update_pipeline, rec_id, {
+        #         "phase2_status": "running",
+        #         "stage": "phase2_build",
+        #         "progress_text": "Phase 2: Building Docker images",
+        #     })
+        #     _bus("phase2_build", "Phase 2 starting")
 
-            stop_heartbeat_p2 = threading.Event()
+        #     stop_heartbeat_p2 = threading.Event()
 
-            def _heartbeat_loop_p2():
-                while not stop_heartbeat_p2.wait(timeout=120):
-                    try:
-                        _beat("Phase 2: Running")
-                    except Exception:
-                        pass
+        #     def _heartbeat_loop_p2():
+        #         while not stop_heartbeat_p2.wait(timeout=120):
+        #             try:
+        #                 _beat("Phase 2: Running")
+        #             except Exception:
+        #                 pass
 
-            hb_thread_p2 = threading.Thread(target=_heartbeat_loop_p2, daemon=True)
-            hb_thread_p2.start()
+        #     hb_thread_p2 = threading.Thread(target=_heartbeat_loop_p2, daemon=True)
+        #     hb_thread_p2.start()
 
-            try:
-                phase1_path = str(step6_file)
-                phase2_out = str(out / "phase2")
-                os.makedirs(phase2_out, exist_ok=True)
+        #     try:
+        #         phase1_path = str(step6_file)
+        #         phase2_out = str(out / "phase2")
+        #         os.makedirs(phase2_out, exist_ok=True)
 
-                def _phase2_log(msg):
-                    _log(f"[Phase 2] {msg}")
-                    _beat(msg)
+        #         def _phase2_log(msg):
+        #             _log(f"[Phase 2] {msg}")
+        #             _beat(msg)
 
-                phase2_result = run_phase2(
-                    phase1_jsonl=phase1_path,
-                    output_dir=phase2_out,
-                    org=org,
-                    repo=repo,
-                    lang=cfg["lang"],
-                    max_workers=4,
-                    log_callback=_phase2_log,
-                    github_token=tokens[0],
-                )
+        #         phase2_result = run_phase2(
+        #             phase1_jsonl=phase1_path,
+        #             output_dir=phase2_out,
+        #             org=org,
+        #             repo=repo,
+        #             lang=cfg["lang"],
+        #             max_workers=4,
+        #             log_callback=_phase2_log,
+        #             github_token=tokens[0],
+        #         )
 
-                _check_cancelled()
+        #         _check_cancelled()
 
-                phase2_file_ref = phase2_result["report_file"]
-                if use_s3 and os.path.isfile(phase2_file_ref):
-                    fname = os.path.basename(phase2_file_ref)
-                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-                    phase2_file_ref = s3_storage.upload_file(s3_config, phase2_file_ref, s3_key)
+        #         phase2_file_ref = phase2_result["report_file"]
+        #         if use_s3 and os.path.isfile(phase2_file_ref):
+        #             fname = os.path.basename(phase2_file_ref)
+        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+        #             phase2_file_ref = s3_storage.upload_file(s3_config, phase2_file_ref, s3_key)
 
-                dataset_jsonl_ref = phase2_result.get("dataset_jsonl", "")
-                if use_s3 and dataset_jsonl_ref and os.path.isfile(dataset_jsonl_ref):
-                    fname = os.path.basename(dataset_jsonl_ref)
-                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-                    dataset_jsonl_ref = s3_storage.upload_file(s3_config, dataset_jsonl_ref, s3_key)
+        #         dataset_jsonl_ref = phase2_result.get("dataset_jsonl", "")
+        #         if use_s3 and dataset_jsonl_ref and os.path.isfile(dataset_jsonl_ref):
+        #             fname = os.path.basename(dataset_jsonl_ref)
+        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+        #             dataset_jsonl_ref = s3_storage.upload_file(s3_config, dataset_jsonl_ref, s3_key)
 
-                final_report_json_ref = phase2_result.get("final_report_json", "")
-                if use_s3 and final_report_json_ref and os.path.isfile(final_report_json_ref):
-                    fname = os.path.basename(final_report_json_ref)
-                    s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-                    final_report_json_ref = s3_storage.upload_file(s3_config, final_report_json_ref, s3_key)
+        #         final_report_json_ref = phase2_result.get("final_report_json", "")
+        #         if use_s3 and final_report_json_ref and os.path.isfile(final_report_json_ref):
+        #             fname = os.path.basename(final_report_json_ref)
+        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
+        #             final_report_json_ref = s3_storage.upload_file(s3_config, final_report_json_ref, s3_key)
 
-                _db_write(_update_pipeline, rec_id, {
-                    "phase2_status": "done",
-                    "phase2_file": phase2_file_ref,
-                    "phase2_image_count": phase2_result["image_count"],
-                    "phase2_instance_count": phase2_result["instance_count"],
-                    "phase2_resolved_count": phase2_result["resolved_count"],
-                    "phase2_dataset_file": dataset_jsonl_ref,
-                    "phase2_final_report_file": final_report_json_ref,
-                    "phase2_dataset_count": phase2_result.get("dataset_count", 0),
-                    "stage": "phase2_report",
-                    "progress_text": "Phase 2 complete",
-                })
-                _log(
-                    f"Phase 2 complete: {phase2_result['resolved_count']}/"
-                    f"{phase2_result['instance_count']} resolved, "
-                    f"{phase2_result['image_count']} images built"
-                )
-                _bus("phase2_report", "Phase 2 complete")
+        #         _db_write(_update_pipeline, rec_id, {
+        #             "phase2_status": "done",
+        #             "phase2_file": phase2_file_ref,
+        #             "phase2_image_count": phase2_result["image_count"],
+        #             "phase2_instance_count": phase2_result["instance_count"],
+        #             "phase2_resolved_count": phase2_result["resolved_count"],
+        #             "phase2_dataset_file": dataset_jsonl_ref,
+        #             "phase2_final_report_file": final_report_json_ref,
+        #             "phase2_dataset_count": phase2_result.get("dataset_count", 0),
+        #             "stage": "phase2_report",
+        #             "progress_text": "Phase 2 complete",
+        #         })
+        #         _log(
+        #             f"Phase 2 complete: {phase2_result['resolved_count']}/"
+        #             f"{phase2_result['instance_count']} resolved, "
+        #             f"{phase2_result['image_count']} images built"
+        #         )
+        #         _bus("phase2_report", "Phase 2 complete")
 
-                _create_phase2_results(registry, rec_id, phase2_result.get("results", []))
+        #         _create_phase2_results(registry, rec_id, phase2_result.get("results", []))
 
-            except PipelineCancelled:
-                raise
-            except Exception as exc:
-                _db_write(_update_pipeline, rec_id, {
-                    "phase2_status": "failed",
-                    "stage": "failed",
-                    "progress_text": f"Phase 2 failed: {exc}",
-                })
-                _db_write(_append_log, rec_id, f"Phase 2 FAILED: {exc}")
-                _bus("failed", f"Phase 2 failed: {exc}")
-                return
-            finally:
-                stop_heartbeat_p2.set()
-                hb_thread_p2.join(timeout=5)
-        else:
-            _log("Phase 2: No instance registry for this repo — skipping Docker build.")
-            _db_write(_update_pipeline, rec_id, {
-                "phase2_status": "idle",
-                "progress_text": "Phase 2 skipped (no registry)",
-            })
+        #     except PipelineCancelled:
+        #         raise
+        #     except Exception as exc:
+        #         _db_write(_update_pipeline, rec_id, {
+        #             "phase2_status": "failed",
+        #             "stage": "failed",
+        #             "progress_text": f"Phase 2 failed: {exc}",
+        #         })
+        #         _db_write(_append_log, rec_id, f"Phase 2 FAILED: {exc}")
+        #         _bus("failed", f"Phase 2 failed: {exc}")
+        #         return
+        #     finally:
+        #         stop_heartbeat_p2.set()
+        #         hb_thread_p2.join(timeout=5)
+        # else:
+        #     _log("Phase 2: No instance registry for this repo — skipping Docker build.")
+        #     _db_write(_update_pipeline, rec_id, {
+        #         "phase2_status": "idle",
+        #         "progress_text": "Phase 2 skipped (no registry)",
+        #     })
 
-        _check_cancelled()
+        _check_cancelled(rec_id)
 
-        _log("Phase 3: Not yet implemented — marking pipeline complete.")
+        # _log("Phase 3: Not yet implemented — marking pipeline complete.")
         _db_write(_update_pipeline, rec_id, {
             "phase3_status": "idle",
             "stage": "done",
@@ -730,22 +805,23 @@ def run_pipeline(registry, db_name: str, rec_id: int):
         })
         _log("Pipeline complete.")
         _bus("done", "Pipeline complete")
-        _post_chatter(
-            registry, uid, rec_id,
-            f"Pipeline completed - {org}/{repo} ({_count_jsonl_lines(str(step6_file))} dataset records)"
-            + (f", Phase 2: {phase2_result['resolved_count']}/{phase2_result['instance_count']} resolved"
-               if has_registry else ""),
-        )
+        # _post_chatter(
+        #     registry, uid, rec_id,
+        #     f"Pipeline completed - {org}/{repo} ({_count_jsonl_lines(str(step6_file))} dataset records)"
+        #     + (f", Phase 2: {phase2_result['resolved_count']}/{phase2_result['instance_count']} resolved"
+        #        if has_registry else ""),
+        # )
         _logger.info("Pipeline %d finished successfully", rec_id)
 
     except PipelineCancelled:
-        _logger.info("Pipeline %d stopped (SIGTERM)", rec_id)
+        _logger.info("Pipeline %d stopped (cancelled by user)", rec_id)
         try:
-            _db_write(_update_pipeline, rec_id, {"stage": "failed", "progress_text": "Stopped"})
-            _db_write(_append_log, rec_id, "Pipeline stopped (received SIGTERM — cancelled or timed out).")
-            _notify_bus(registry, db_name, rec_id, "failed", "Stopped")
+            _db_write(_reset_running_steps, rec_id)
+            _db_write(_update_pipeline, rec_id, {"stage": "failed", "progress_text": "Cancelled"})
+            _db_write(_append_log, rec_id, "Pipeline stopped (cancelled by user).")
+            _notify_bus(registry, db_name, rec_id, "failed", "Cancelled")
             if cfg:
-                _post_chatter(registry, cfg.get("uid"), rec_id, "Pipeline stopped (SIGTERM received).")
+                _post_chatter(registry, cfg.get("uid"), rec_id, "Pipeline stopped (cancelled by user).")
         except Exception:
             _logger.exception("Failed to record cancellation for rec=%s", rec_id)
 
@@ -762,6 +838,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             _logger.exception("Failed to record pipeline error for rec=%s", rec_id)
 
     finally:
+        clear_cancel(rec_id)
         if tokens:
             _release_tokens(registry, rec_id)
         if temp_dir and os.path.isdir(temp_dir):

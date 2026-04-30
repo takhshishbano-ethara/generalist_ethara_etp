@@ -55,6 +55,15 @@ try:
 except ImportError:
     from util import get_tokens, TokenRotator
 
+
+def _check_cancelled():
+    try:
+        from odoo.addons.aurora.worker.run_pipeline import check_cancelled
+        check_cancelled()
+    except ImportError:
+        pass
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -235,6 +244,7 @@ def main(tokens: list[str], out_dir: Path, org: str, repo: str, max_tags: int = 
     _RATE_CHECK_INTERVAL = 50
 
     for tag in tqdm(r.get_tags(), desc="Fetching tags"):
+        _check_cancelled()
         if len(tag_records) >= max_tags:
             _logger.info(f"Reached max_tags limit ({max_tags}), stopping tag fetch")
             break

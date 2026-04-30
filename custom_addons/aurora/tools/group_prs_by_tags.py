@@ -73,6 +73,15 @@ try:
 except ImportError:
     from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 
+
+def _check_cancelled():
+    try:
+        from odoo.addons.aurora.worker.run_pipeline import check_cancelled
+        check_cancelled()
+    except ImportError:
+        pass
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -643,6 +652,7 @@ def main(
 
             # Pair consecutive tags within each release line
             for line, line_tags in release_groups.items():
+                _check_cancelled()
                 if len(line_tags) < 2:
                     continue
 
@@ -651,6 +661,7 @@ def main(
                     desc=f"Pairing tags in {line}",
                     leave=False,
                 ):
+                    _check_cancelled()
                     base_tag = line_tags[i]
                     head_tag = line_tags[i + 1]
                     base_sha = base_tag.get("sha", "")
@@ -679,6 +690,7 @@ def main(
             all_sorted = sorted(filtered_tags, key=lambda t: t.get("sort_key", ()))
             cross_pairs = _find_cross_line_pairs(all_sorted, existing_pairs, repo_path)
             for base_tag, head_tag, cross_line in cross_pairs:
+                _check_cancelled()
                 _maybe_emit_group(
                     base_tag, head_tag, cross_line,
                     pr_by_sha, pr_by_number, prs,

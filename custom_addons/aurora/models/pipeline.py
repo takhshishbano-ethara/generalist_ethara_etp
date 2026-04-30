@@ -584,13 +584,7 @@ class AuroraPipeline(models.Model):
         else:
             self._run_pipeline_local()
 
-        return {
-            "type": "ir.actions.act_window",
-            "res_model": self._name,
-            "res_id": self.id,
-            "view_mode": "form",
-            "target": "current",
-        }
+        return {"type": "ir.actions.client", "tag": "soft_reload"}
 
     def _run_pipeline_local(self):
         from odoo.modules.registry import Registry
@@ -645,8 +639,28 @@ class AuroraPipeline(models.Model):
                     exc_info=True,
                 )
 
-        self.write({"stage": "failed"})
+        # Signal cooperative cancellation for local-thread workers (no K8s Job
+        # to delete). Safe no-op when there is no running worker for this id.
+        try:
+            from ..worker import run_pipeline as _aurora_worker
+            _aurora_worker.request_cancel(self.id)
+        except Exception:
+            _logger.exception("Failed to signal cancel to local worker for pipeline %s", self.id)
+        try:
+            from . import pipeline_executor as _aurora_executor
+            _aurora_executor.request_cancel(self.id)
+        except Exception:
+            _logger.exception("Failed to signal cancel to executor for pipeline %s", self.id)
+
+        vals = {"stage": "failed"}
+        for f in ("step1_status", "step2_status", "step3_status", "step4_status",
+                  "step5_status", "step6_status", "phase1_status", "phase2_status",
+                  "phase3_status"):
+            if self[f] == "running":
+                vals[f] = "failed"
+        self.write(vals)
         self.message_post(body="Pipeline cancelled by user.")
+        return {"type": "ir.actions.client", "tag": "soft_reload"}
 
     def action_reset_to_draft(self):
         self.ensure_one()
@@ -655,12 +669,36 @@ class AuroraPipeline(models.Model):
         self.write({
             "stage": "draft",
             "job_name": False,
+            "output_dir": False,
+            "detected_lang": False,
+            "last_heartbeat": False,
+            "progress_text": False,
+            "dataset_url": False,
+            "dataset_filename": False,
+            "pr_count": 0,
+            "filtered_pr_count": 0,
+            "tag_count": 0,
+            "group_count": 0,
+            "issue_count": 0,
+            "dataset_count": 0,
             "step1_status": "idle",
             "step2_status": "idle",
             "step3_status": "idle",
             "step4_status": "idle",
             "step5_status": "idle",
             "step6_status": "idle",
+            "step1_file": False,
+            "step2_file": False,
+            "step3_file": False,
+            "step4_file": False,
+            "step5_file": False,
+            "step6_file": False,
+            "step1_log": False,
+            "step2_log": False,
+            "step3_log": False,
+            "step4_log": False,
+            "step5_log": False,
+            "step6_log": False,
             "phase1_status": "idle",
             "phase1_file": False,
             "phase2_status": "idle",
@@ -678,12 +716,6 @@ class AuroraPipeline(models.Model):
             "phase3_inference_count": 0,
             "phase3_pass_at_k": 0.0,
             "phase3_log": False,
-            "step1_log": False,
-            "step2_log": False,
-            "step3_log": False,
-            "step4_log": False,
-            "step5_log": False,
-            "step6_log": False,
             "log": False,
         })
         self.phase2_result_ids.unlink()
