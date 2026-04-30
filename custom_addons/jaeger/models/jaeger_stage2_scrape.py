@@ -188,11 +188,13 @@ class JaegerRepositoryStage2(models.Model):
         webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         if not webhook_secret:
             webhook_secret = ICP.get_param("jaeger.pipeline_webhook_token", "")
-        # Use dedicated jaeger.webhook_base_url to avoid Odoo auto-overwriting
-        # web.base.url with the browser's origin (e.g. http://localhost:8069),
-        # which is unreachable from K8s pods.
+        # Webhook URL resolution order:
+        # 1. JAEGER_WEBHOOK_BASE_URL env var on Odoo pod (set by devops in Deployment)
+        # 2. jaeger.webhook_base_url config param (UI settings override)
+        # 3. web.base.url fallback (often wrong for in-cluster use)
         base_url = (
-            ICP.get_param("jaeger.webhook_base_url")
+            os.environ.get("JAEGER_WEBHOOK_BASE_URL")
+            or ICP.get_param("jaeger.webhook_base_url")
             or ICP.get_param("web.base.url", "http://localhost:8069")
         )
         webhook_url = "%s/jaeger/webhook/pipeline" % base_url.rstrip("/")
