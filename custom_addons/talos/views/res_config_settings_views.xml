@@ -72,6 +72,9 @@
                         <setting string="Disable Trajectory QC" help="Skip trajectory validation and LLM-powered trajectory QC. Enable this for testing and debugging only.">
                             <field name="talos_disable_trajectory_qc" widget="boolean_toggle"/>
                         </setting>
+                        <setting string="Disable Auto-Hint" help="Skip automated hint evaluation and generation. Enable this for testing and debugging only.">
+                            <field name="talos_disable_auto_hint" widget="boolean_toggle"/>
+                        </setting>
                     </block>
                 </app>
             </xpath>

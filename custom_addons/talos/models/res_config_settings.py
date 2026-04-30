@@ -98,6 +98,12 @@ class TalosConfigSettings(models.TransientModel):
         default=False,
         help="Skip trajectory validation and LLM-powered trajectory QC. Useful for testing and debugging.",
     )
+    talos_disable_auto_hint = fields.Boolean(
+        string="Disable Auto-Hint",
+        config_parameter="talos.disable_auto_hint",
+        default=False,
+        help="Skip automated hint evaluation and generation. Useful for testing and debugging.",
+    )
 
     @api.depends_context("uid")
     def _compute_talos_docker_available(self):

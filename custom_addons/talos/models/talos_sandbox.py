@@ -2728,6 +2728,15 @@ class TalosSandbox(models.Model):
 
         from ..controllers.auto_hint import _AUTO_HINT_POOL, _auto_hint_eval_bg
 
+        ICP = self.env["ir.config_parameter"].sudo()
+        if ICP.get_param("talos.disable_auto_hint", "False").lower() == "true":
+            _logger.info(
+                "auto_process_trigger_hint_eval: SKIPPED turn=%s sandbox=%s (disabled in Settings)",
+                turn_id,
+                sandbox_id,
+            )
+            return {"skipped": True, "reason": "Auto-Hint disabled in Settings"}
+
         turn = self.env["talos.turn"].browse(turn_id)
         if not turn.exists():
             return {"error": "Turn not found"}
