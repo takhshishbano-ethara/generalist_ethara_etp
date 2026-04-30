@@ -81,35 +81,63 @@ class Project(models.Model):
     member_history_ids = fields.One2many('project.member.history', 'project_id', string='Member History')
 
     def create_slack_channel(self):
-        user_ids = []
-        for i in self.slack_members:
-            if i.user_id:
-                user_ids.append(i.user_id.id)
-        if user_ids:
-            url = "https://etp.stage.ethara.ai/api/create_slack_channel"
-            # url = "http://localhost:8069/api/create_slack_channel"
-            headers = {
-                'Content-Type': 'application/json'
-            }
+        if not self.slack_channel_name:
+            _logger.info('No slack_channel_name set for project %s, skipping', self.name)
+            return
 
-            payload = {
-                "channel_name": f"{self.slack_channel_name}-{self.id}",
-                "admin_id": user_ids[0],
-                "user_ids": user_ids
-            }
+        users_with_slack = []
+        users_without_slack = []
+        for emp in self.slack_members:
+            if not emp.user_id:
+                continue
+            user = emp.user_id.sudo()
+            if not user.slack_user_ref:
+                try:
+                    user.lookup_slack_id_by_email()
+                except Exception as e:
+                    _logger.error('Slack lookup failed for %s: %s', user.login, str(e))
+            if user.slack_user_ref:
+                users_with_slack.append(user)
+            else:
+                users_without_slack.append(user)
 
-            try:
-                response = requests.post(url, headers=headers, data=json.dumps(payload))
-                if response.status_code == 200:
-                    res_json = response.json()
-                    channel_info = res_json.get('data', {})
-                    channel_id = channel_info.get('slack_channel_id')
-                    self.slack_channels_id = channel_id
-                    print(f"Successfully retrieved Channel ID: {channel_id}")
+        if not users_with_slack:
+            _logger.warning('No slack members with Slack accounts for project %s. Cannot create channel.', self.name)
+            for user in users_without_slack:
+                result = user.invite_to_slack()
+                if result.get('success'):
+                    _logger.info('Slack invitation sent to %s', user.login)
                 else:
-                    print("Failed to get a successful response.")
-            except Exception as err:
-                print(f"An error occurred: {err}")
+                    _logger.warning('Slack invite for %s: %s', user.login, result.get('error', ''))
+            return
+
+        admin_id = users_with_slack[0].id
+        all_user_ids = [u.id for u in users_with_slack]
+
+        try:
+            channel_name = '%s-%s' % (self.slack_channel_name, self.id)
+            DiscussChannel = self.env['discuss.channel'].sudo()
+            result = DiscussChannel.create_slack_channel(
+                channel_name=channel_name.lower().replace(' ', '-')[:80],
+                admin_id=admin_id,
+                user_ids=all_user_ids,
+            )
+
+            if result.get('success'):
+                self.slack_channels_id = result.get('slack_channel_id', '')
+                _logger.info('Slack channel created for project %s: %s', self.name, result.get('slack_channel_id'))
+            else:
+                _logger.error('Slack channel creation failed for %s: %s', self.name, result.get('error', ''))
+
+        except Exception as err:
+            _logger.error('create_slack_channel error for project %s: %s', self.name, str(err))
+
+        for user in users_without_slack:
+            result = user.invite_to_slack()
+            if result.get('success'):
+                _logger.info('Slack invitation sent to %s', user.login)
+            else:
+                _logger.warning('Slack invite for %s: %s', user.login, result.get('error', ''))
 
     def kick_off_send_mail(self):
         outgoing_server_name = self.env['ir.mail_server'].sudo().search([], limit=1).name or "atech@yopmail.com"
@@ -162,26 +190,30 @@ class Project(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        from odoo.addons.task_forge_core.services.background_tasks import run_many_in_background
+
         for vals in vals_list:
             vals['project_seq'] = self.env['ir.sequence'].next_by_code('project.project')
         projects = super(Project, self).create(vals_list)
         for project, vals in zip(projects, vals_list):
             project._sync_member_history(vals)
-            try:
-                project.kick_off_send_mail()
-            except Exception as e:
-                _logger.error('kick_off_send_mail failed: %s', e)
-            try:
-                project.create_google_drive_folders()
-            except Exception as e:
-                _logger.error('create_google_drive_folders failed: %s', e)
-            try:
-                project.create_slack_channel()
-            except Exception as e:
-                _logger.error('create_slack_channel failed: %s', e)
+
+            db_name = self.env.cr.dbname
+            uid = self.env.uid
+            project_id = project.id
+
+            def _run_background(pid=project_id):
+                run_many_in_background(db_name, uid, [
+                    {'func': 'kick_off_send_mail', 'model': 'project.project', 'record_id': pid},
+                    {'func': 'create_google_drive_folders', 'model': 'project.project', 'record_id': pid},
+                    {'func': 'create_slack_channel', 'model': 'project.project', 'record_id': pid},
+                ])
+
+            self.env.cr.postcommit.add(_run_background)
         return projects
 
     def write(self, vals):
+
         old_members = {}
         for field_name in ROLE_FIELD_MAP:
             if field_name in vals:
