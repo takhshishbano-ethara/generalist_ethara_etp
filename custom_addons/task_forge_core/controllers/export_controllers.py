@@ -1,13 +1,35 @@
 import io
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from odoo import http, fields
 from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, generate_s3_link,
 )
+
+_logger = logging.getLogger(__name__)
+
+IST_OFFSET = timedelta(hours=5, minutes=30)
+
+
+def _to_ist_str(dt_val, fmt='%Y-%m-%d %H:%M'):
+    if not dt_val:
+        return ''
+    if isinstance(dt_val, str):
+        return dt_val
+    return (dt_val + IST_OFFSET).strftime(fmt)
+
+
+def _to_ist_date_str(dt_val):
+    if not dt_val:
+        return ''
+    if isinstance(dt_val, str):
+        return dt_val
+    if hasattr(dt_val, 'hour'):
+        return (dt_val + IST_OFFSET).strftime('%Y-%m-%d')
+    return str(dt_val)
 
 _logger = logging.getLogger(__name__)
 
@@ -310,7 +332,7 @@ class TaskForgeExportController(http.Controller):
                     len(p.project_qc_reviewer),
                     len(p.project_tasker),
                     len(p.project_swe),
-                    str(p.date_start) if p.date_start else '',
+                    _to_ist_date_str(p.date_start),
                     task_count,
                     blocker_count,
                     # p.task_forge_platform or '',
@@ -392,10 +414,10 @@ class TaskForgeExportController(http.Controller):
                     t.name or '',
                     t.employee_id.name if t.employee_id else '',
                     t.project_id.name if t.project_id else '',
-                    str(t.date) if t.date else '',
+                    _to_ist_date_str(t.date),
                     t.state or '',
-                    t.start_time.strftime('%Y-%m-%d %H:%M') if t.start_time else '',
-                    t.end_time.strftime('%Y-%m-%d %H:%M') if t.end_time else '',
+                    _to_ist_str(t.start_time),
+                    _to_ist_str(t.end_time),
                     # t.time_taken_mins or 0,
                     round(int(t.pause_time) / 60, 2) if t.pause_time else 0,
                     t.quality_score or 0,
@@ -506,7 +528,7 @@ class TaskForgeExportController(http.Controller):
                     b.blocker_type or '',
                     b.blocker_reason or '',
                     b.qr_notes or '',
-                    b.create_date.strftime('%Y-%m-%d') if b.create_date else '',
+                    _to_ist_date_str(b.create_date),
                 ]
                 self._write_row(ws, fmt, idx + 3, row, col_types)
 
@@ -863,7 +885,7 @@ class TaskForgeExportController(http.Controller):
                         b.blocker_type or '',
                         b.blocker_reason or '',
                         b.qr_notes or '',
-                        b.create_date.strftime('%Y-%m-%d') if b.create_date else '',
+                        _to_ist_date_str(b.create_date),
                     ]
                     self._write_row(ws, fmt, idx + 3, row, col_types)
 
@@ -959,7 +981,7 @@ class TaskForgeExportController(http.Controller):
                     role_name,
                     emp.task_forge_pl_id.name if emp.task_forge_pl_id else '',
                     emp.task_forge_qr_id.name if emp.task_forge_qr_id else '',
-                    emp.create_date.strftime('%Y-%m-%d') if emp.create_date else '',
+                    _to_ist_date_str(emp.create_date),
                     total_tasks,
                     completed,
                     blocker_count,
@@ -1073,7 +1095,7 @@ class TaskForgeExportController(http.Controller):
                 ('Priority', priority_map.get(blocker.priority, blocker.priority or '')),
                 ('Blocker Type', blocker.blocker_type or ''),
                 ('Escalation Level', (blocker.escalation_level or 'qr').upper()),
-                ('Created', blocker.create_date.strftime('%d %b %Y, %I:%M %p') if blocker.create_date else ''),
+                ('Created', _to_ist_str(blocker.create_date, '%d %b %Y, %I:%M %p')),
             ]
             for label, value in info_rows:
                 ws.write(row, 0, label, fmt['kv_label'])
@@ -1139,9 +1161,9 @@ class TaskForgeExportController(http.Controller):
 
             ts_format = '%d %b %Y, %I:%M %p'
             timestamps = [
-                ('Created', blocker.create_date.strftime(ts_format) if blocker.create_date else '', 'QR Action', blocker.qr_action_at.strftime(ts_format) if blocker.qr_action_at else ''),
-                ('PL Action', blocker.pl_action_at.strftime(ts_format) if blocker.pl_action_at else '', 'CTO Action', blocker.cto_action_at.strftime(ts_format) if blocker.cto_action_at else ''),
-                ('Resolved At', blocker.resolved_at.strftime(ts_format) if blocker.resolved_at else '', 'PL Validated', blocker.pl_validated_at.strftime(ts_format) if blocker.pl_validated_at else ''),
+                ('Created', _to_ist_str(blocker.create_date, ts_format), 'QR Action', _to_ist_str(blocker.qr_action_at, ts_format)),
+                ('PL Action', _to_ist_str(blocker.pl_action_at, ts_format), 'CTO Action', _to_ist_str(blocker.cto_action_at, ts_format)),
+                ('Resolved At', _to_ist_str(blocker.resolved_at, ts_format), 'PL Validated', _to_ist_str(blocker.pl_validated_at, ts_format)),
             ]
             for l1, v1, l2, v2 in timestamps:
                 ws.write(row, 0, l1, fmt['kv_label'])
@@ -1215,7 +1237,7 @@ class TaskForgeExportController(http.Controller):
                     log.notes or '',
                     log.image_url or '',
                     doc_urls,
-                    log.create_date.strftime('%d %b %Y, %I:%M %p') if log.create_date else '',
+                    _to_ist_str(log.create_date, '%d %b %Y, %I:%M %p'),
                 ]
                 self._write_row(ws2, fmt, idx + 3, row_data, col_types)
 
