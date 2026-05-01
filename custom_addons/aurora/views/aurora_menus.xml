@@ -23,17 +23,17 @@
               action="aurora_pipeline_action"
               sequence="10"/>
 
-    <menuitem id="aurora_menu_evaluation_parent"
+    <!-- <menuitem id="aurora_menu_evaluation_parent"
               name="Evaluation"
               parent="aurora_menu_root"
               sequence="20"
-              groups="aurora.group_aurora_user"/>
+              groups="aurora.group_aurora_user"/> -->
 
-    <menuitem id="aurora_menu_evaluation_runs"
+    <!-- <menuitem id="aurora_menu_evaluation_runs"
               name="Evaluation Runs"
               parent="aurora_menu_evaluation_parent"
               action="aurora_evaluation_action"
-              sequence="10"/>
+              sequence="10"/> -->
 
     <menuitem id="aurora_menu_config"
               name="Configuration"

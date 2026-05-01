@@ -11,9 +11,9 @@
                     <button class="btn aurora-dash-btn-new" t-on-click="openNewPipeline">
                         <i class="fa fa-plus me-1"/> New Pipeline
                     </button>
-                    <button class="btn aurora-dash-btn-new-alt" t-on-click="openNewEvaluation">
+                    <!-- <button class="btn aurora-dash-btn-new-alt" t-on-click="openNewEvaluation">
                         <i class="fa fa-plus me-1"/> New Evaluation
-                    </button>
+                    </button> -->
                 </div>
             </div>
 

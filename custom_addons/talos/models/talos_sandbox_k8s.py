@@ -867,10 +867,10 @@ class TalosSandboxK8s(models.AbstractModel):
                     path="/healthz",
                     port=18789,
                 ),
-                initial_delay_seconds=5,
-                period_seconds=3,
-                failure_threshold=40,
-                timeout_seconds=3,
+                initial_delay_seconds=10,
+                period_seconds=5,
+                failure_threshold=60,
+                timeout_seconds=5,
             ),
             readiness_probe=client.V1Probe(
                 http_get=client.V1HTTPGetAction(
@@ -1117,7 +1117,10 @@ class TalosSandboxK8s(models.AbstractModel):
                     },
                 ),
                 template=client.V1PodTemplateSpec(
-                    metadata=client.V1ObjectMeta(labels=labels),
+                    metadata=client.V1ObjectMeta(
+                        labels=labels,
+                        annotations={"karpenter.sh/do-not-disrupt": "true"},
+                    ),
                     spec=client.V1PodSpec(
                         service_account_name=SANDBOX_SERVICE_ACCOUNT,
                         termination_grace_period_seconds=TERMINATION_GRACE_PERIOD,
