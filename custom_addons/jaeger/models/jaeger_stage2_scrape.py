@@ -25,13 +25,15 @@ class JaegerRepositoryStage2(models.Model):
         try:
             self.write({"crawl_status": "running"})
             self._validate_repo_metadata()
-            vals = {"crawl_status": "done"}
+            # Write crawl_status=done BEFORE the gate check so the stage1 gate
+            # (which reads crawl_status from the DB) sees the completed state
+            # and auto-advance can proceed.
+            self.write({"crawl_status": "done"})
             gate_ok, _ = self._check_current_gate()
             if gate_ok:
                 next_stage = self._next_stage()
                 if next_stage:
-                    vals["current_stage"] = next_stage
-            self.write(vals)
+                    self.write({"current_stage": next_stage})
         except Exception as e:
             error_msg = str(e)[:2000]
             vals = {

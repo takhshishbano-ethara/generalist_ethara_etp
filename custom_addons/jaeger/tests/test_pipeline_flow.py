@@ -66,7 +66,9 @@ class TestWebhookHandler(TransactionCase):
                 "filtered_prs_count": 5,
                 "raw_dataset_count": 1,
             })
-            self.repo._create_instances_from_dataset(tmp_path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(tmp_path)
             self.repo.write({"pr_collection_status": "done", "pr_collection_step": ""})
 
             self.assertEqual(self.repo.pr_collection_status, "done")
@@ -120,7 +122,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
     def test_null_pr_number_does_not_crash(self):
         path = self._write_jsonl([self._valid_entry(number=None)])
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             inst = self.repo.instance_ids
             self.assertEqual(len(inst), 1)
             self.assertEqual(inst[0].pr_number, 0)
@@ -130,7 +134,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
     def test_string_pr_number_parsed(self):
         path = self._write_jsonl([self._valid_entry(number="42-57")])
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             self.assertEqual(self.repo.instance_ids[0].pr_number, 42)
         finally:
             os.unlink(path)
@@ -139,7 +145,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
         big_patch = "x" * (6 * 1024 * 1024)
         path = self._write_jsonl([self._valid_entry(number=99, fix_patch=big_patch)])
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             self.assertEqual(len(self.repo.instance_ids), 0)
         finally:
             os.unlink(path)
@@ -148,7 +156,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
         entry = self._valid_entry(number=7)
         path = self._write_jsonl([entry, entry])
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             matching = self.repo.instance_ids.filtered(lambda i: i.pr_number == 7)
             self.assertEqual(len(matching), 1)
         finally:
@@ -159,7 +169,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
         with open(path, "a") as f:
             f.write("\n\n\n")
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             self.assertEqual(len(self.repo.instance_ids), 1)
         finally:
             os.unlink(path)
@@ -170,7 +182,9 @@ class TestCreateInstancesFromDataset(TransactionCase):
         ])
         path = self._write_jsonl([entry])
         try:
-            self.repo._create_instances_from_dataset(path)
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                self.repo._create_instances_from_dataset(path)
             inst = self.repo.instance_ids[0]
             self.assertEqual(len(inst.resolved_issue_ids), 1)
             self.assertEqual(inst.resolved_issue_ids[0].issue_number, 5)
@@ -469,9 +483,30 @@ class TestStage4Orchestration(TransactionCase):
 
         inst = self.repo.instance_ids[0]
         inst.write({"fix_patch": ""})
-        result = _run_instance_tests_standalone(
-            self.env.cr.dbname, inst.id, 30,
-        )
+
+        # _run_instance_tests_standalone opens Registry(db_name).cursor() which
+        # is a fresh connection that cannot see uncommitted TransactionCase
+        # rows. Redirect that cursor to the test's cursor so the instance is
+        # visible while still exercising the real code path.
+        test_cr = self.env.cr
+
+        class _FakeRegistry:
+            def cursor(self_inner):
+                class _CM:
+                    def __enter__(self_cm):
+                        return test_cr
+
+                    def __exit__(self_cm, *a):
+                        return False
+                return _CM()
+
+        with patch(
+            "odoo.orm.registry.Registry",
+            return_value=_FakeRegistry(),
+        ):
+            result = _run_instance_tests_standalone(
+                self.env.cr.dbname, inst.id, 30,
+            )
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], "Empty fix_patch")
         inst.invalidate_recordset()
@@ -484,12 +519,10 @@ class TestStage4Orchestration(TransactionCase):
             "test_execution_status": "done",
             "instances_valid_count": 0,
             "instances_tested_count": 2,
-            "terminal_state": "no_valid_instances",
         })
         ok, msg = self.repo._check_current_gate()
         self.assertFalse(ok)
         self.assertIn("No valid instances", msg)
-        self.repo.write({"terminal_state": "none"})
 
 
 class TestStage5Orchestration(TransactionCase):
@@ -552,8 +585,16 @@ class TestStage5Orchestration(TransactionCase):
     def test_finalize_no_valid_instances_raises(self):
         self.inst.write({"is_valid": False})
         try:
-            with self.assertRaises(ValueError):
+            # Odoo's assertRaises wraps the body in a savepoint that rolls
+            # back on exception, which would discard the terminal_state write
+            # inside _build_final_dataset. Catch the ValueError manually so
+            # the write persists into the test transaction.
+            raised = False
+            try:
                 self.repo._build_final_dataset()
+            except ValueError:
+                raised = True
+            self.assertTrue(raised, "_build_final_dataset should raise ValueError")
             self.repo.invalidate_recordset()
             self.assertEqual(self.repo.terminal_state, "no_valid_instances")
         finally:
