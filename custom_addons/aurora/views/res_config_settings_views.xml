@@ -70,11 +70,11 @@
                         </setting>
                     </block>
 
-                    <!-- <block title="Concurrency">
+                    <block title="Concurrency">
                         <setting string="Max Active Pipeline Runs">
                             <field name="aurora_max_active_tasks"/>
                         </setting>
-                    </block> -->
+                    </block>
 
                     <block title="Kubernetes (EKS)">
                         <setting string="K8s Namespace">
