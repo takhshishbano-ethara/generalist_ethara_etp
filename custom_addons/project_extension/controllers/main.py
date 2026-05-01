@@ -785,6 +785,7 @@ class ProjectController(http.Controller):
                 "rubric_categories": [{
                     'id': cat.id,
                     'name': cat.name or '',
+                    'description': cat.description or '',
                     'sequence': cat.sequence,
                     'options': [{
                         'id': opt.id,
@@ -796,6 +797,7 @@ class ProjectController(http.Controller):
                         'id': dim.id,
                         'name': dim.name or '',
                         'description': dim.description or '',
+                        'is_required': dim.is_required,
                         'sequence': dim.sequence,
                         'options': [{
                             'id': o.id,

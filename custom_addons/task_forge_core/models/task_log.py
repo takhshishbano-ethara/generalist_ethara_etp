@@ -76,6 +76,14 @@ class TaskForgeLog(models.Model):
 
     blocker_ids = fields.One2many('task.forge.blocker', 'task_id', string='Blockers')
     bug_report_ids = fields.One2many('task.forge.bug.report', 'task_id', string='Bug Reports')
+    rubric_rating_ids = fields.One2many(
+        'task.forge.rubric.rating', 'log_id', string='Rubric Ratings',
+    )
+    rubric_completed = fields.Boolean(
+        string='Rubric Completed',
+        compute='_compute_rubric_completed',
+        store=True,
+    )
 
     employee_name = fields.Char(related='employee_id.name', store=True)
     project_name = fields.Char(related='project_id.name', store=True)
@@ -93,6 +101,28 @@ class TaskForgeLog(models.Model):
                 rec.time_taken_mins = int(delta.total_seconds() / 60)
             else:
                 rec.time_taken_mins = 0
+
+    @api.depends(
+        'project_id', 'project_id.is_rubrics_required',
+        'project_id.rubric_category_ids',
+        'project_id.rubric_category_ids.dimension_ids',
+        'project_id.rubric_category_ids.dimension_ids.is_required',
+        'rubric_rating_ids', 'rubric_rating_ids.dimension_id',
+    )
+    def _compute_rubric_completed(self):
+        for rec in self:
+            project = rec.project_id
+            if not project or not project.is_rubrics_required:
+                rec.rubric_completed = True
+                continue
+            required_dims = self.env['rubric.dimension']
+            for cat in project.rubric_category_ids:
+                required_dims |= cat.dimension_ids.filtered(lambda d: d.is_required)
+            if not required_dims:
+                rec.rubric_completed = True
+                continue
+            rated_dim_ids = set(rec.rubric_rating_ids.mapped('dimension_id.id'))
+            rec.rubric_completed = all(d.id in rated_dim_ids for d in required_dims)
 
     @api.model_create_multi
     def create(self, vals_list):
