@@ -53,6 +53,12 @@ export class RubricEditor extends Component {
             rubricQcSeverity: false,
             rubricQcFeedback: "",
             rubricQcExpanded: false,
+            showRubricPopup: false,
+            selectedRubricIds: [],
+            popupStep: 1, // 1 = select rubrics, 2 = assign scores, 3 = judgement
+            rubricScores: {}, // { criterionId: 0|1|2 }
+            judgements: {},
+            judgementsLoading: false,
         });
         this._pollTimer = null;
 
@@ -264,6 +270,9 @@ export class RubricEditor extends Component {
                     "id", "name", "category", "custom_category", "importance",
                     "is_negative", "suggestion", "sequence",
                     "qc_status", "qc_feedback", "qc_severity",
+                    "is_selected_for_trial", "trial_user_score",
+                    "trial_verdict", "trial_expected_score",
+                    "trial_why_correct", "trial_why_wrong",
                 ],
                 { order: "sequence, id" },
             );
@@ -786,6 +795,249 @@ export class RubricEditor extends Component {
         }
 
         return markup(out.join(""));
+    }
+
+    _hydrateTrialStateFromCriteria() {
+        const selected = [];
+        const scores = {};
+        const judgements = {};
+        for (const c of this.state.criteria) {
+            if (c.is_selected_for_trial) {
+                selected.push(c.id);
+            }
+            if (typeof c.trial_user_score === "number" && c.trial_user_score !== -1) {
+                scores[c.id] = c.trial_user_score;
+            }
+            if (c.trial_verdict) {
+                const expected =
+                    typeof c.trial_expected_score === "number" && c.trial_expected_score !== -1
+                        ? c.trial_expected_score
+                        : null;
+                judgements[c.id] = {
+                    loading: false,
+                    verdict: c.trial_verdict,
+                    expected_score: expected,
+                    why_correct: c.trial_why_correct || "",
+                    why_wrong: c.trial_why_wrong || "",
+                    error: null,
+                };
+            }
+        }
+        this.state.selectedRubricIds = selected;
+        this.state.rubricScores = scores;
+        this.state.judgements = judgements;
+        this.state.judgementsLoading = false;
+    }
+
+    _resumePopupStep() {
+        const hasJudgements = Object.keys(this.state.judgements).length > 0;
+        const hasScores = Object.keys(this.state.rubricScores).length > 0;
+        if (hasJudgements) {
+            this.state.popupStep = 3;
+        } else if (hasScores) {
+            this.state.popupStep = 2;
+        } else {
+            this.state.popupStep = 1;
+        }
+    }
+
+    async _persistTrialField(criterionId, vals) {
+        try {
+            await rpc("/atlas/rubric/trial/save", {
+                criterion_id: criterionId,
+                ...vals,
+            });
+        } catch (e) {
+            console.warn(`${LOG_PREFIX} trial save failed`, { criterionId, vals, error: e });
+        }
+    }
+
+    async onOpenRubricPopup() {
+        await this._loadCriteria();
+        this._hydrateTrialStateFromCriteria();
+        this._resumePopupStep();
+        this.state.showRubricPopup = true;
+    }
+
+    onCloseRubricPopup() {
+        this.state.showRubricPopup = false;
+    }
+
+    onToggleRubricSelection(criterionId) {
+        const idx = this.state.selectedRubricIds.indexOf(criterionId);
+        let selected;
+        if (idx === -1) {
+            this.state.selectedRubricIds.push(criterionId);
+            selected = true;
+        } else {
+            this.state.selectedRubricIds.splice(idx, 1);
+            selected = false;
+        }
+        this._persistTrialField(criterionId, { is_selected_for_trial: selected });
+    }
+
+    isRubricSelected(criterionId) {
+        return this.state.selectedRubricIds.includes(criterionId);
+    }
+
+    onSelectAllRubrics() {
+        const toAdd = this.state.criteria
+            .filter((c) => !this.state.selectedRubricIds.includes(c.id))
+            .map((c) => c.id);
+        this.state.selectedRubricIds = this.state.criteria.map((c) => c.id);
+        for (const id of toAdd) {
+            this._persistTrialField(id, { is_selected_for_trial: true });
+        }
+    }
+
+    onDeselectAllRubrics() {
+        const toRemove = [...this.state.selectedRubricIds];
+        this.state.selectedRubricIds = [];
+        for (const id of toRemove) {
+            this._persistTrialField(id, { is_selected_for_trial: false });
+        }
+    }
+
+    onGoToScoring() {
+        if (!this.state.selectedRubricIds.length) {
+            this.notification.add("Please select at least one rubric", { type: "warning" });
+            return;
+        }
+        const scores = {};
+        for (const id of this.state.selectedRubricIds) {
+            scores[id] = this.state.rubricScores[id] ?? null;
+        }
+        this.state.rubricScores = scores;
+        this.state.popupStep = 2;
+    }
+
+    onBackToSelection() {
+        this.state.popupStep = 1;
+    }
+
+    onSetRubricScore(criterionId, score) {
+        this.state.rubricScores[criterionId] = score;
+        this._persistTrialField(criterionId, { trial_user_score: score });
+    }
+
+    getRubricScore(criterionId) {
+        return this.state.rubricScores[criterionId] ?? null;
+    }
+
+    getSelectedCriteria() {
+        return this.state.criteria.filter((c) => this.state.selectedRubricIds.includes(c.id));
+    }
+
+    async onGoToJudgement() {
+        const selected = this.getSelectedCriteria();
+        const missing = selected.filter((c) => this.getRubricScore(c.id) === null);
+        if (missing.length) {
+            this.notification.add(
+                `Please assign a score for all ${selected.length} rubric(s) before continuing`,
+                { type: "warning" },
+            );
+            return;
+        }
+
+        const judgements = { ...this.state.judgements };
+        const toFetch = [];
+        for (const c of selected) {
+            const cached = judgements[c.id];
+            if (cached && cached.verdict && !cached.error) {
+                continue;
+            }
+            judgements[c.id] = {
+                loading: true,
+                verdict: null,
+                expected_score: null,
+                why_correct: "",
+                why_wrong: "",
+                error: null,
+            };
+            toFetch.push(c);
+        }
+        this.state.judgements = judgements;
+        this.state.popupStep = 3;
+
+        if (!toFetch.length) {
+            return;
+        }
+
+        this.state.judgementsLoading = true;
+        await Promise.all(
+            toFetch.map((c) => this._fetchJudgement(c.id, this.getRubricScore(c.id))),
+        );
+        this.state.judgementsLoading = false;
+    }
+
+    async onRefreshJudgements() {
+        const selected = this.getSelectedCriteria();
+        if (!selected.length) return;
+
+        const judgements = {};
+        for (const c of selected) {
+            judgements[c.id] = {
+                loading: true,
+                verdict: null,
+                expected_score: null,
+                why_correct: "",
+                why_wrong: "",
+                error: null,
+            };
+        }
+        this.state.judgements = judgements;
+        this.state.judgementsLoading = true;
+
+        await Promise.all(
+            selected.map((c) => this._fetchJudgement(c.id, this.getRubricScore(c.id))),
+        );
+
+        this.state.judgementsLoading = false;
+        await this._loadCriteria();
+    }
+
+    async _fetchJudgement(criterionId, userScore) {
+        try {
+            const res = await rpc("/atlas/rubric/judge", {
+                criterion_id: criterionId,
+                user_score: userScore,
+            });
+            const entry = this.state.judgements[criterionId];
+            if (!entry) return;
+            if (res?.error) {
+                entry.loading = false;
+                entry.error = res.error;
+                return;
+            }
+            entry.loading = false;
+            entry.verdict = res.verdict || "INCORRECT";
+            entry.expected_score = res.expected_score;
+            entry.why_correct = res.why_correct || "";
+            entry.why_wrong = res.why_wrong || "";
+        } catch (e) {
+            const entry = this.state.judgements[criterionId];
+            if (entry) {
+                entry.loading = false;
+                entry.error = e.message || "Request failed";
+            }
+        }
+    }
+
+    onBackToScoring() {
+        this.state.popupStep = 2;
+    }
+
+    getJudgement(criterionId) {
+        return this.state.judgements[criterionId] || null;
+    }
+
+    allJudgementsReviewed() {
+        const selected = this.getSelectedCriteria();
+        if (!selected.length) return false;
+        return selected.every((c) => {
+            const j = this.state.judgements[c.id];
+            return j && !j.loading && (j.verdict || j.error);
+        });
     }
 }
 

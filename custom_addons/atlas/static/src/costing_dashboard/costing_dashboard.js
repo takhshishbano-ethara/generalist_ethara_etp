@@ -107,7 +107,7 @@ export class CostingDashboard extends Component {
     get kimiTotal() {
         const t = this.state.totals;
         if (!t) return 0;
-        return (t.qc_total || 0) + (t.goal_total || 0) + (t.rubric_total || 0) + (t.rubric_qc_total || 0);
+        return (t.qc_total || 0) + (t.goal_total || 0) + (t.rubric_total || 0) + (t.rubric_qc_total || 0) + (t.rubric_trial_total || 0);
     }
 }
 

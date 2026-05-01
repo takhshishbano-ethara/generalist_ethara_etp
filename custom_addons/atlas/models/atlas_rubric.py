@@ -61,6 +61,27 @@ class AtlasRubricCriterion(models.Model):
         string="QC Severity",
     )
 
+    is_selected_for_trial = fields.Boolean(
+        string="Selected For Trial",
+        default=False,
+        help="Marks this criterion as selected in the rubric trial popup's step 1.",
+    )
+    trial_user_score = fields.Integer(
+        string="Trial: User Score",
+        default=-1,
+        help="Score the annotator assigned in the rubric trial popup's step 2. -1 means not set.",
+    )
+    trial_verdict = fields.Selection(
+        [("CORRECT", "Correct"), ("INCORRECT", "Incorrect")],
+        string="Trial: AI Verdict",
+    )
+    trial_expected_score = fields.Integer(
+        string="Trial: AI Expected Score",
+        default=-1,
+    )
+    trial_why_correct = fields.Text(string="Trial: Why Correct")
+    trial_why_wrong = fields.Text(string="Trial: Why Wrong")
+
     @api.model_create_multi
     def create(self, vals_list):
         return super().create(vals_list)

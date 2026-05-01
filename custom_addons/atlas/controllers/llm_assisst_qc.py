@@ -827,6 +827,201 @@ class LlmAssistQc(http.Controller):
 
         return {"success": True, "task_id": task_id}
 
+    @http.route("/atlas/rubric/judge", type="json", auth="user")
+    def rubric_judge_score(self, criterion_id=0, user_score=None, **kw):
+        criterion_id = int(criterion_id or 0)
+        if not criterion_id:
+            return {"error": "criterion_id is required"}
+        if user_score is None:
+            return {"error": "user_score is required"}
+
+        try:
+            user_score_int = int(user_score)
+        except (TypeError, ValueError):
+            return {"error": "user_score must be an integer"}
+
+        criterion = request.env["atlas.rubric.criterion"].browse(criterion_id)
+        if not criterion.exists():
+            return {"error": "Criterion not found"}
+
+        task = criterion.atlas_id
+        if not task.exists():
+            return {"error": "Task not found for this criterion"}
+
+        user = request.env.user
+        is_admin = (
+            user.has_group("base.group_system")
+            or user.has_group("atlas.group_atlas_admin")
+        )
+        owner = task.employee_id.user_id if task.employee_id else False
+        is_owner = bool(owner) and owner.id == user.id
+        if not (is_owner or is_admin):
+            return {"error": "Access denied"}
+
+        dotenv = _load_dotenv()
+        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+        region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
+        if not api_key or not inference_arn:
+            return {"error": "Bedrock credentials not configured"}
+
+        system_prompt = _get_prompt("rubric_judgement_prompt.md")
+        if not system_prompt:
+            return {"error": "Missing rubric_judgement_prompt.md"}
+
+        glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
+        session_id = glm_sandbox.current_session_id if glm_sandbox else ""
+
+        turns = task.turn_ids
+        if session_id:
+            filtered = turns.filtered(
+                lambda t, sid=session_id: t.session_id == sid
+            )
+            if filtered:
+                turns = filtered
+        turns = turns.sorted("turn_number")
+
+        conversation_parts = []
+        for t in turns:
+            if t.prompt and not t.is_hint_turn:
+                conversation_parts.append("User: %s" % t.prompt.strip()[:2000])
+            if t.response:
+                conversation_parts.append("Assistant: %s" % t.response.strip()[:2000])
+
+        if not conversation_parts:
+            return {"error": "No conversation data available for judgement"}
+
+        levels = criterion.level_ids.sorted("score")
+        level_lines = []
+        for lv in levels:
+            level_lines.append("- Score %d: %s" % (lv.score, lv.label or "(no label)"))
+        level_block = "\n".join(level_lines) if level_lines else "(no scoring levels defined)"
+
+        user_message = (
+            "## Rubric Criterion\n"
+            "Name: %s\n"
+            "Category: %s\n"
+            "Importance: %s\n"
+            "Is Negative: %s\n"
+            "Grounding / Scoring Suggestion: %s\n\n"
+            "## Scoring Levels\n%s\n\n"
+            "## Annotator's Assigned Score\n%d\n\n"
+            "## Conversation\n%s"
+        ) % (
+            criterion.name or "",
+            criterion.category or "",
+            criterion.importance or "",
+            "yes" if criterion.is_negative else "no",
+            (criterion.suggestion or "").strip() or "(none)",
+            level_block,
+            user_score_int,
+            "\n".join(conversation_parts),
+        )
+
+        try:
+            response_text, usage = _call_bedrock_converse(
+                api_key=api_key,
+                inference_arn=inference_arn,
+                region=region,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                max_tokens=1024,
+                temperature=0.2,
+                timeout=90.0,
+            )
+        except Exception as e:
+            _logger.exception("Rubric judge: Bedrock call failed for criterion=%s", criterion_id)
+            return {"error": "LLM call failed: %s" % str(e)[:200]}
+
+        parsed = _parse_json_response(response_text)
+        if not parsed or not isinstance(parsed, dict):
+            return {
+                "error": "Could not parse LLM response",
+                "raw_response": response_text[:500],
+            }
+
+        verdict_raw = (parsed.get("verdict") or "").strip().upper()
+        if verdict_raw not in ("CORRECT", "INCORRECT"):
+            verdict_raw = "INCORRECT"
+
+        try:
+            expected_score = int(parsed.get("expected_score"))
+        except (TypeError, ValueError):
+            expected_score = user_score_int
+
+        t_in = usage.get("input_tokens", 0)
+        t_out = usage.get("output_tokens", 0)
+        if t_in or t_out:
+            task.sudo().write({
+                "rubric_trial_input_tokens": (task.rubric_trial_input_tokens or 0) + t_in,
+                "rubric_trial_output_tokens": (task.rubric_trial_output_tokens or 0) + t_out,
+            })
+
+        why_correct_str = (parsed.get("why_correct") or "").strip()
+        why_wrong_str = (parsed.get("why_wrong") or "").strip()
+
+        criterion.sudo().write({
+            "trial_verdict": verdict_raw,
+            "trial_expected_score": expected_score,
+            "trial_why_correct": why_correct_str,
+            "trial_why_wrong": why_wrong_str,
+            "trial_user_score": user_score_int,
+            "is_selected_for_trial": True,
+        })
+
+        return {
+            "success": True,
+            "criterion_id": criterion_id,
+            "user_score": user_score_int,
+            "verdict": verdict_raw,
+            "expected_score": expected_score,
+            "why_correct": why_correct_str,
+            "why_wrong": why_wrong_str,
+        }
+
+    @http.route("/atlas/rubric/trial/save", type="json", auth="user")
+    def rubric_trial_save(self, criterion_id=0, **kw):
+        criterion_id = int(criterion_id or 0)
+        if not criterion_id:
+            return {"error": "criterion_id is required"}
+
+        criterion = request.env["atlas.rubric.criterion"].browse(criterion_id)
+        if not criterion.exists():
+            return {"error": "Criterion not found"}
+
+        task = criterion.atlas_id
+        if not task.exists():
+            return {"error": "Task not found for this criterion"}
+
+        user = request.env.user
+        is_admin = (
+            user.has_group("base.group_system")
+            or user.has_group("atlas.group_atlas_admin")
+        )
+        owner = task.employee_id.user_id if task.employee_id else False
+        is_owner = bool(owner) and owner.id == user.id
+        if not (is_owner or is_admin):
+            return {"error": "Access denied"}
+
+        vals = {}
+        if "is_selected_for_trial" in kw:
+            vals["is_selected_for_trial"] = bool(kw.get("is_selected_for_trial"))
+        if "trial_user_score" in kw:
+            raw_score = kw.get("trial_user_score")
+            if raw_score is None:
+                vals["trial_user_score"] = -1
+            else:
+                try:
+                    vals["trial_user_score"] = int(raw_score)
+                except (TypeError, ValueError):
+                    return {"error": "trial_user_score must be an integer or null"}
+
+        if not vals:
+            return {"success": True, "criterion_id": criterion_id, "noop": True}
+
+        criterion.sudo().write(vals)
+        return {"success": True, "criterion_id": criterion_id, "updated": list(vals.keys())}
+
     @http.route("/atlas/generation/status", type="json", auth="user")
     def generation_status(self, task_id=0, **kw):
         task_id = int(task_id or 0)
