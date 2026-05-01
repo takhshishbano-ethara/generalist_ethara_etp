@@ -25,13 +25,15 @@ class JaegerRepositoryStage2(models.Model):
         try:
             self.write({"crawl_status": "running"})
             self._validate_repo_metadata()
-            vals = {"crawl_status": "done"}
+            # Write crawl_status=done BEFORE the gate check so the stage1 gate
+            # (which reads crawl_status from the DB) sees the completed state
+            # and auto-advance can proceed.
+            self.write({"crawl_status": "done"})
             gate_ok, _ = self._check_current_gate()
             if gate_ok:
                 next_stage = self._next_stage()
                 if next_stage:
-                    vals["current_stage"] = next_stage
-            self.write(vals)
+                    self.write({"current_stage": next_stage})
         except Exception as e:
             error_msg = str(e)[:2000]
             vals = {
@@ -743,20 +745,30 @@ class JaegerRepositoryStage2(models.Model):
             self._append_log(f"Skipped {skipped} instances (oversized patches or lines)")
 
     def _create_instances_from_s3(self, s3_paths):
+        from urllib.parse import urlparse
+
         raw_dataset_s3 = s3_paths.get("raw_dataset", "")
         if not raw_dataset_s3:
             raise ValueError("No raw_dataset S3 path in webhook payload")
 
         ICP = self.env["ir.config_parameter"].sudo()
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
         s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
 
-        if not s3_bucket:
-            raise ValueError("S3 bucket not configured")
-
-        s3_key = raw_dataset_s3
-        if s3_key.startswith("s3://"):
-            s3_key = s3_key.split("/", 3)[-1] if s3_key.count("/") >= 3 else ""
+        # Prefer the bucket that the worker actually wrote to (from the s3://
+        # URI in the webhook payload). Only fall back to the configured
+        # bucket when the caller passed a plain key — e.g. the reconciler
+        # path via _recover_instances_from_s3.
+        if raw_dataset_s3.startswith("s3://"):
+            parsed = urlparse(raw_dataset_s3)
+            s3_bucket = parsed.netloc
+            s3_key = parsed.path.lstrip("/")
+            if not s3_bucket or not s3_key:
+                raise ValueError("Malformed S3 URI: %r" % raw_dataset_s3)
+        else:
+            s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
+            s3_key = raw_dataset_s3
+            if not s3_bucket:
+                raise ValueError("S3 bucket not configured")
 
         import boto3
         from botocore.config import Config as BotoConfig

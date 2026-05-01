@@ -346,7 +346,11 @@ class TaskForgeTaskController(http.Controller):
                 task.prompt_text = kwargs.get('prompt')
             if kwargs.get('justification'):
                 task.justification_text = kwargs.get('justification')
-            # Handle end screenshot
+
+            rubric_validation_error = self._validate_and_stage_rubric_ratings(task, kwargs)
+            if rubric_validation_error:
+                return rubric_validation_error
+
             end_screenshot_url = None
             screenshot_file = request.httprequest.files.get('end_screenshot')
             if screenshot_file:
@@ -359,6 +363,10 @@ class TaskForgeTaskController(http.Controller):
                 end_screenshot_url=end_screenshot_url,
                 blocker_reason=kwargs.get('blocker_reason'),
             )
+
+            if task.state == 'completed' and getattr(self, '_pending_rubric_vals', None):
+                request.env['task.forge.rubric.rating'].sudo().create(self._pending_rubric_vals)
+                self._pending_rubric_vals = None
 
             task.invalidate_recordset()
 
@@ -383,6 +391,114 @@ class TaskForgeTaskController(http.Controller):
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
+
+    def _validate_and_stage_rubric_ratings(self, task, kwargs):
+        """Parse rubric_ratings payload, validate, stash vals for create after action_end.
+
+        Returns a Response on error, or None on success (sets self._pending_rubric_vals).
+        """
+        self._pending_rubric_vals = None
+        if kwargs.get('blocker_reason'):
+            return None
+
+        project = task.project_id
+        if not project or not project.is_rubrics_required:
+            return None
+
+        raw = kwargs.get('rubric_ratings')
+        payload = []
+        if raw:
+            if isinstance(raw, str):
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    return return_Response(
+                        message="rubric_ratings must be valid JSON",
+                        status=400,
+                    )
+            elif isinstance(raw, list):
+                payload = raw
+            else:
+                return return_Response(
+                    message="rubric_ratings must be a JSON list",
+                    status=400,
+                )
+
+        if not isinstance(payload, list):
+            return return_Response(
+                message="rubric_ratings must be a JSON list",
+                status=400,
+            )
+
+        Dimension = request.env['rubric.dimension'].sudo()
+        Option = request.env['rubric.category.option'].sudo()
+
+        project_dim_ids = set()
+        required_dim_ids = set()
+        for cat in project.rubric_category_ids:
+            for dim in cat.dimension_ids:
+                project_dim_ids.add(dim.id)
+                if dim.is_required:
+                    required_dim_ids.add(dim.id)
+
+        seen_dims = set()
+        vals_list = []
+        for row in payload:
+            if not isinstance(row, dict):
+                return return_Response(
+                    message="Each rubric rating must be an object",
+                    status=400,
+                )
+            try:
+                dim_id = int(row.get('dimension_id'))
+                opt_id = int(row.get('option_id'))
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="dimension_id and option_id must be integers",
+                    status=400,
+                )
+
+            if dim_id in seen_dims:
+                return return_Response(
+                    message=f"Duplicate rating for dimension {dim_id}",
+                    status=400,
+                )
+            seen_dims.add(dim_id)
+
+            if dim_id not in project_dim_ids:
+                return return_Response(
+                    message=f"Dimension {dim_id} does not belong to this project",
+                    status=400,
+                )
+
+            dim = Dimension.browse(dim_id)
+            opt = Option.browse(opt_id)
+            if not dim.exists() or not opt.exists():
+                return return_Response(
+                    message=f"Unknown dimension or option (dim={dim_id}, opt={opt_id})",
+                    status=400,
+                )
+            if opt.category_id.id != dim.category_id.id:
+                return return_Response(
+                    message=f"Option {opt_id} does not belong to dimension {dim_id}'s category",
+                    status=400,
+                )
+
+            vals_list.append({
+                'log_id': task.id,
+                'dimension_id': dim_id,
+                'option_id': opt_id,
+            })
+
+        missing = required_dim_ids - seen_dims
+        if missing:
+            return return_Response(
+                message=f"Missing required dimensions: {sorted(missing)}",
+                status=400,
+            )
+
+        self._pending_rubric_vals = vals_list
+        return None
 
     @http.route('/api/v2/taskforge/tasks/pause', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
@@ -694,4 +810,75 @@ class TaskForgeTaskController(http.Controller):
             )
         except Exception as e:
             _logger.error('Grammar check failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/tasks/<int:task_id>/rubric_ratings', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def get_task_rubric_ratings(self, task_id, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(int(task_id))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            role = employee._get_task_forge_role() if hasattr(employee, '_get_task_forge_role') else 'tasker'
+            if role not in ('admin', 'pl', 'qr', 'ql') and task.employee_id.id != employee.id:
+                return return_Response(message="Not permitted", status=403)
+
+            project = task.project_id
+            rubric_categories = []
+            if project:
+                for cat in project.rubric_category_ids:
+                    rubric_categories.append({
+                        'id': cat.id,
+                        'name': cat.name or '',
+                        'description': cat.description or '',
+                        'sequence': cat.sequence,
+                        'options': [{
+                            'id': opt.id,
+                            'name': opt.name or '',
+                            'value': opt.value,
+                            'sequence': opt.sequence,
+                        } for opt in cat.option_ids],
+                        'dimensions': [{
+                            'id': dim.id,
+                            'name': dim.name or '',
+                            'description': dim.description or '',
+                            'is_required': dim.is_required,
+                            'sequence': dim.sequence,
+                            'options': [{
+                                'id': o.id,
+                                'name': o.name or '',
+                                'value': o.value,
+                            } for o in dim.option_ids],
+                        } for dim in cat.dimension_ids],
+                    })
+
+            ratings = [{
+                'id': r.id,
+                'dimension_id': r.dimension_id.id,
+                'dimension_name': r.dimension_name_snapshot or (r.dimension_id.name or ''),
+                'option_id': r.option_id.id,
+                'option_name': r.option_name_snapshot or (r.option_id.name or ''),
+                'option_value': r.option_value_snapshot or r.option_id.value,
+                'category_id': r.category_id.id,
+            } for r in task.rubric_rating_ids]
+
+            data = {
+                'task_id': task.id,
+                'project_id': project.id if project else False,
+                'is_rubrics_required': bool(project and project.is_rubrics_required),
+                'rubric_completed': task.rubric_completed,
+                'locked': task.state == 'completed',
+                'rubric_categories': rubric_categories,
+                'ratings': ratings,
+            }
+            return return_Response(message="Success", status=200, data={'data': data})
+        except Exception as e:
+            _logger.error('Get rubric ratings failed: %s', str(e))
             return return_Response(message=str(e), status=400)

@@ -16,12 +16,16 @@ Response envelope follows the existing project convention::
 
 Endpoints
 ---------
-GET  /api/v2/taskforge/main/summary              -> KPI cards row
-GET  /api/v2/taskforge/main/tasks_timeseries     -> Tasks Completed line chart
-GET  /api/v2/taskforge/main/active_blockers      -> Active Blockers table
-GET  /api/v2/taskforge/main/project_health       -> Project Health & AHT table
-GET  /api/v2/taskforge/main/performance_ranking  -> Performance Ranking tab
-GET  /api/v2/taskforge/main/qc_feedback          -> QC Feedback tab
+GET  /api/v2/taskforge/main/summary                                -> KPI cards row
+GET  /api/v2/taskforge/main/tasks_timeseries                       -> Tasks Completed line chart
+GET  /api/v2/taskforge/main/active_blockers                        -> Active Blockers table
+GET  /api/v2/taskforge/main/project_health                         -> Project Health & AHT table
+GET  /api/v2/taskforge/main/performance_ranking                    -> Performance Ranking tab (simple)
+GET  /api/v2/taskforge/main/qc_feedback                            -> QC Feedback tab (simple)
+GET  /api/v2/taskforge/main/performance_ranking_panel              -> Performance Ranking 4-table panel
+GET  /api/v2/taskforge/main/qc_feedback_summary                    -> QC Feedback KPI counts + chips
+GET  /api/v2/taskforge/main/qc_feedback_justification_breakdown    -> Per-project x per-member justification table
+GET  /api/v2/taskforge/main/qc_feedback_prompt_breakdown           -> Per-project x per-member prompt rejection table
 
 Shared helpers live in this module to avoid touching the legacy
 ``dashboard_controllers.py`` which is known to have several correctness
@@ -153,7 +157,7 @@ def _project_ids_in_category(kw):
 
 def _require_cto(user):
     """Return a 403 Response if the user is not CTO, else None."""
-    if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
+    if not user.has_group('etp_user_roles.group_cto'):
         return return_Response(
             message='Founder dashboard requires CTO role',
             status=403,
@@ -309,10 +313,7 @@ class MainDashboardController(http.Controller):
             completed_yesterday = TaskLog.search_count(completed_yesterday_domain)
 
             # --- Active projects (task_forge_status = live) ---
-            # active_proj_domain = [('task_forge_status', '=', 'live')]
-
-            active_proj_domain = [('stage_id', 'in', [request.env.ref('project_extension.project_project_stage_ethara_14').id, request.env.ref('project_extension.project_project_stage_ethara_4').id])]
-
+            active_proj_domain = [('task_forge_status', '=', 'live')]
             if project_ids is not None:
                 active_proj_domain.append(('id', 'in', project_ids))
             active_projects = Project.search(active_proj_domain)
@@ -1126,3 +1127,587 @@ class MainDashboardController(http.Controller):
             )
         except Exception as e:
             return _safe_error(e, 'qc_feedback')
+
+    # ------------------------------------------------------------------
+    # 7) Performance Ranking panel (4-table Founder view)
+    # ------------------------------------------------------------------
+    @http.route(
+        '/api/v2/taskforge/main/performance_ranking_panel',
+        type='http', auth='none', methods=['GET'], csrf=False, cors='*',
+    )
+    @validate_token
+    def performance_ranking_panel(self, **kw):
+        try:
+            user = request.env.user
+            forbid = _require_cto(user)
+            if forbid:
+                return forbid
+
+            date_from, date_to = _parse_range(kw)
+            dt_start, _ = _day_bounds(date_from)
+            _, dt_end = _day_bounds(date_to)
+
+            top_n = max(1, min(int(kw.get('top_n') or 5), 50))
+            bottom_n = max(1, min(int(kw.get('bottom_n') or 5), 50))
+            min_tasks = max(0, int(kw.get('min_tasks') or 5))
+
+            category_pids = _project_ids_in_category(kw)
+
+            Project = request.env['project.project'].sudo()
+            Employee = request.env['hr.employee'].sudo()
+            TaskLog = request.env['task.forge.log'].sudo()
+
+            base_project_domain = [('task_forge_status', '=', 'live')]
+            if category_pids is not None:
+                base_project_domain.append(('id', 'in', category_pids))
+
+            live_projects = Project.search(base_project_domain)
+
+            log_domain = [
+                ('date', '>=', date_from),
+                ('date', '<=', date_to),
+            ]
+            if category_pids is not None:
+                log_domain.append(('project_id', 'in', category_pids))
+
+            totals = TaskLog.read_group(
+                domain=log_domain,
+                fields=['employee_id'],
+                groupby=['employee_id'],
+            )
+            totals_by_emp = {
+                (r['employee_id'] and r['employee_id'][0]): r['employee_id_count']
+                for r in totals if r['employee_id']
+            }
+
+            completed_rows = TaskLog.read_group(
+                domain=log_domain + [('state', '=', 'completed')],
+                fields=['employee_id'],
+                groupby=['employee_id'],
+            )
+            completed_by_emp = {
+                (r['employee_id'] and r['employee_id'][0]): r['employee_id_count']
+                for r in completed_rows if r['employee_id']
+            }
+
+            minutes_rows = TaskLog.read_group(
+                domain=log_domain + [('state', '=', 'completed')],
+                fields=['employee_id', 'time_taken_mins:sum'],
+                groupby=['employee_id'],
+            )
+            minutes_by_emp = {
+                (r['employee_id'] and r['employee_id'][0]): (r.get('time_taken_mins') or 0)
+                for r in minutes_rows if r['employee_id']
+            }
+
+            quality_rows = TaskLog.read_group(
+                domain=log_domain + [('quality_score', '>', 0)],
+                fields=['employee_id', 'quality_score:avg'],
+                groupby=['employee_id'],
+            )
+            avg_quality_by_emp = {
+                (r['employee_id'] and r['employee_id'][0]): round(r.get('quality_score') or 0.0, 1)
+                for r in quality_rows if r['employee_id']
+            }
+
+            pl_project_map = {}
+            for proj in live_projects:
+                for pl in proj.project_lead:
+                    emp = pl.employee_id if hasattr(pl, 'employee_id') else None
+                    pl_project_map.setdefault(pl.id, {
+                        'user_id': pl.id,
+                        'name': pl.name,
+                        'employee_id': emp.id if emp else None,
+                        'project_ids': [],
+                    })
+                    pl_project_map[pl.id]['project_ids'].append(proj.id)
+
+            pl_rows = []
+            for info in pl_project_map.values():
+                pids = info['project_ids']
+                if not pids:
+                    continue
+                total = TaskLog.search_count(log_domain + [('project_id', 'in', pids)])
+                completed = TaskLog.search_count(
+                    log_domain + [('project_id', 'in', pids), ('state', '=', 'completed')]
+                )
+                pct = round((completed / total * 100) if total else 0.0, 1)
+                pl_rows.append({
+                    'user_id': info['user_id'],
+                    'employee_id': info['employee_id'],
+                    'name': info['name'],
+                    'completed': completed,
+                    'total': total,
+                    'percentage_completion': pct,
+                })
+            pl_rows.sort(key=lambda x: (-x['percentage_completion'], -x['total']))
+            top_project_leads = [
+                dict(rank=i + 1, **row) for i, row in enumerate(pl_rows[:top_n])
+            ]
+
+            qr_rows = []
+            all_active = Employee.search([('task_forge_active', '=', True)])
+            for emp in all_active:
+                if emp._get_task_forge_role() != 'qr':
+                    continue
+                team = Employee.search([
+                    ('task_forge_qr_id', '=', emp.id),
+                    ('task_forge_active', '=', True),
+                ])
+                tasker_count = len(team)
+                team_ids = team.ids
+                if not team_ids:
+                    continue
+                team_avg_q = TaskLog.read_group(
+                    domain=log_domain + [
+                        ('employee_id', 'in', team_ids),
+                        ('quality_score', '>', 0),
+                    ],
+                    fields=['quality_score:avg'],
+                    groupby=[],
+                )
+                avg_q = round((team_avg_q and team_avg_q[0].get('quality_score') or 0.0), 1)
+                if avg_q <= 0 and tasker_count == 0:
+                    continue
+                # QR score v1 reuses avg_quality; a weighted formula can replace this without changing the contract.
+                qr_score = avg_q
+                qr_rows.append({
+                    'employee_id': emp.id,
+                    'name': emp.name,
+                    'taskers': tasker_count,
+                    'avg_quality': avg_q,
+                    'qr_score': qr_score,
+                })
+            qr_rows.sort(key=lambda x: (-x['qr_score'], -x['taskers']))
+            top_quality_reviewers = [
+                dict(rank=i + 1, **row) for i, row in enumerate(qr_rows[:top_n])
+            ]
+
+            tasker_ids = set(totals_by_emp.keys())
+            emp_recs = Employee.browse(list(tasker_ids)) if tasker_ids else Employee.browse([])
+            name_by_emp = {e.id: e.name for e in emp_recs}
+
+            tasker_rows = []
+            for emp_id, total in totals_by_emp.items():
+                if not emp_id:
+                    continue
+                completed = completed_by_emp.get(emp_id, 0)
+                pct = round((completed / total * 100) if total else 0.0, 1)
+                tasker_rows.append({
+                    'employee_id': emp_id,
+                    'name': name_by_emp.get(emp_id, ''),
+                    'completed': completed,
+                    'total': total,
+                    'minutes': minutes_by_emp.get(emp_id, 0),
+                    'percentage_completion': pct,
+                })
+
+            top_taskers_src = sorted(
+                tasker_rows,
+                key=lambda x: (-x['percentage_completion'], -x['completed']),
+            )
+            top_taskers = [
+                dict(rank=i + 1, **row) for i, row in enumerate(top_taskers_src[:top_n])
+            ]
+
+            eligible = [r for r in tasker_rows if r['total'] >= min_tasks]
+            improvement_src = sorted(
+                eligible,
+                key=lambda x: (x['percentage_completion'], -x['total']),
+            )
+            improvement_needed = [
+                dict(rank=i + 1, **row) for i, row in enumerate(improvement_src[:bottom_n])
+            ]
+
+            data = {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'category': (kw.get('category') or 'all').lower(),
+                'top_project_leads': top_project_leads,
+                'top_quality_reviewers': top_quality_reviewers,
+                'top_taskers': top_taskers,
+                'improvement_needed': improvement_needed,
+            }
+
+            return return_Response(
+                message='Performance ranking panel',
+                status=200,
+                data={'data': data},
+            )
+        except Exception as e:
+            return _safe_error(e, 'performance_ranking_panel')
+
+    # ------------------------------------------------------------------
+    # 8) QC Feedback summary (KPIs + chip rows)
+    # ------------------------------------------------------------------
+    @http.route(
+        '/api/v2/taskforge/main/qc_feedback_summary',
+        type='http', auth='none', methods=['GET'], csrf=False, cors='*',
+    )
+    @validate_token
+    def qc_feedback_summary(self, **kw):
+        try:
+            user = request.env.user
+            forbid = _require_cto(user)
+            if forbid:
+                return forbid
+
+            date_from, date_to = _parse_range(kw)
+            dt_start, _ = _day_bounds(date_from)
+            _, dt_end = _day_bounds(date_to)
+
+            project_id = kw.get('project_id')
+            try:
+                project_id = int(project_id) if project_id else None
+            except (TypeError, ValueError):
+                project_id = None
+
+            category_pids = _project_ids_in_category(kw)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+
+            log_domain = [
+                ('date', '>=', date_from),
+                ('date', '<=', date_to),
+            ]
+            if category_pids is not None:
+                log_domain.append(('project_id', 'in', category_pids))
+            if project_id:
+                log_domain.append(('project_id', '=', project_id))
+
+            justification_count = TaskLog.search_count(
+                log_domain + [('justification_text', '!=', False)]
+            )
+            prompt_count = TaskLog.search_count(
+                log_domain + [('prompt_text', '!=', False)]
+            )
+
+            rejection_rows = []
+            PrefRanking = request.env.get('preference.ranking')
+            if PrefRanking is not None:
+                PrefRanking = PrefRanking.sudo()
+                pr_domain = [
+                    ('submitted_at', '>=', dt_start),
+                    ('submitted_at', '<=', dt_end),
+                    ('rejection_reason', '!=', False),
+                ]
+                if 'project_id' in PrefRanking._fields and project_id:
+                    pr_domain.append(('project_id', '=', project_id))
+                grouped = PrefRanking.read_group(
+                    domain=pr_domain,
+                    fields=['rejection_reason'],
+                    groupby=['rejection_reason'],
+                )
+                for row in grouped:
+                    key = row.get('rejection_reason')
+                    if not key:
+                        continue
+                    rejection_rows.append({
+                        'key': key,
+                        'label': key,
+                        'count': row.get('rejection_reason_count') or 0,
+                    })
+                rejection_rows.sort(key=lambda r: -r['count'])
+
+            data = {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'category': (kw.get('category') or 'all').lower(),
+                'project_id': project_id,
+                'justification_qc_count': justification_count,
+                'prompt_qc_count': prompt_count,
+                'justification_categories': [],
+                'prompt_rejection_reasons': rejection_rows,
+                'data_availability': {
+                    'justification_categories': 'pending_persistence',
+                    'prompt_rejection_reasons': 'live' if PrefRanking is not None else 'unavailable',
+                },
+            }
+
+            return return_Response(
+                message='QC feedback summary',
+                status=200,
+                data={'data': data},
+            )
+        except Exception as e:
+            return _safe_error(e, 'qc_feedback_summary')
+
+    # ------------------------------------------------------------------
+    # 9) QC Feedback justification breakdown (per project x per member)
+    # ------------------------------------------------------------------
+    @http.route(
+        '/api/v2/taskforge/main/qc_feedback_justification_breakdown',
+        type='http', auth='none', methods=['GET'], csrf=False, cors='*',
+    )
+    @validate_token
+    def qc_feedback_justification_breakdown(self, **kw):
+        try:
+            user = request.env.user
+            forbid = _require_cto(user)
+            if forbid:
+                return forbid
+
+            date_from, date_to = _parse_range(kw)
+
+            project_id = kw.get('project_id')
+            try:
+                project_id = int(project_id) if project_id else None
+            except (TypeError, ValueError):
+                project_id = None
+
+            search_text = (kw.get('search') or '').strip()
+
+            page = max(1, int(kw.get('page') or 1))
+            limit = max(1, min(int(kw.get('limit') or 50), 200))
+            offset = (page - 1) * limit
+
+            category_pids = _project_ids_in_category(kw)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            Employee = request.env['hr.employee'].sudo()
+
+            domain = [
+                ('date', '>=', date_from),
+                ('date', '<=', date_to),
+                ('justification_text', '!=', False),
+            ]
+            if category_pids is not None:
+                domain.append(('project_id', 'in', category_pids))
+            if project_id:
+                domain.append(('project_id', '=', project_id))
+            if search_text:
+                matched = Employee.search([('name', 'ilike', search_text)]).ids
+                domain.append(('employee_id', 'in', matched or [0]))
+
+            grouped = TaskLog.read_group(
+                domain=domain,
+                fields=['project_id', 'employee_id'],
+                groupby=['project_id', 'employee_id'],
+                lazy=False,
+            )
+
+            rows = []
+            for r in grouped:
+                pid = (r.get('project_id') or [None, None])[0]
+                pname = (r.get('project_id') or [None, ''])[1]
+                eid = (r.get('employee_id') or [None, None])[0]
+                ename = (r.get('employee_id') or [None, ''])[1]
+                rows.append({
+                    'project_id': pid,
+                    'project_name': pname,
+                    'employee_id': eid,
+                    'member_name': ename,
+                    'qc_tasks': r.get('__count') or 0,
+                    'issues_first_hit': None,
+                    'total_issues': None,
+                    'first_hit_pct': None,
+                    'top_categories': [],
+                })
+
+            SORT_KEYS = {
+                'qc_tasks_desc': ('qc_tasks', True),
+                'qc_tasks_asc':  ('qc_tasks', False),
+                'name_asc':      ('member_name', False),
+                'name_desc':     ('member_name', True),
+            }
+            field, reverse = SORT_KEYS.get(kw.get('sort'), ('qc_tasks', True))
+            rows.sort(
+                key=lambda r: (r.get(field) or 0) if field == 'qc_tasks'
+                else (r.get(field) or ''),
+                reverse=reverse,
+            )
+
+            total_items = len(rows)
+            paginated = rows[offset:offset + limit]
+
+            data = {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'category': (kw.get('category') or 'all').lower(),
+                'project_id': project_id,
+                'total': total_items,
+                'page': page,
+                'limit': limit,
+                'items': paginated,
+                'data_availability': 'partial',
+            }
+
+            return return_Response(
+                message='QC feedback justification breakdown',
+                status=200,
+                data={'data': data},
+            )
+        except Exception as e:
+            return _safe_error(e, 'qc_feedback_justification_breakdown')
+
+    # ------------------------------------------------------------------
+    # 10) QC Feedback prompt breakdown (per project x per member)
+    # ------------------------------------------------------------------
+    @http.route(
+        '/api/v2/taskforge/main/qc_feedback_prompt_breakdown',
+        type='http', auth='none', methods=['GET'], csrf=False, cors='*',
+    )
+    @validate_token
+    def qc_feedback_prompt_breakdown(self, **kw):
+        try:
+            user = request.env.user
+            forbid = _require_cto(user)
+            if forbid:
+                return forbid
+
+            date_from, date_to = _parse_range(kw)
+            dt_start, _ = _day_bounds(date_from)
+            _, dt_end = _day_bounds(date_to)
+
+            project_id = kw.get('project_id')
+            try:
+                project_id = int(project_id) if project_id else None
+            except (TypeError, ValueError):
+                project_id = None
+
+            search_text = (kw.get('search') or '').strip()
+
+            page = max(1, int(kw.get('page') or 1))
+            limit = max(1, min(int(kw.get('limit') or 50), 200))
+            offset = (page - 1) * limit
+
+            category_pids = _project_ids_in_category(kw)
+
+            PrefRanking = request.env.get('preference.ranking')
+            if PrefRanking is None:
+                return return_Response(
+                    message='preference.ranking module not installed',
+                    status=200,
+                    data={'data': {
+                        'date_from': date_from.isoformat(),
+                        'date_to': date_to.isoformat(),
+                        'total': 0, 'page': page, 'limit': limit,
+                        'items': [],
+                        'data_availability': 'unavailable',
+                        'project_scope_supported': False,
+                    }},
+                )
+            PrefRanking = PrefRanking.sudo()
+            Employee = request.env['hr.employee'].sudo()
+
+            # preference.ranking does not carry a project_id in every deployment; auto-probe the schema.
+            has_project = 'project_id' in PrefRanking._fields
+
+            base_domain = [
+                ('submitted_at', '>=', dt_start),
+                ('submitted_at', '<=', dt_end),
+            ]
+            if has_project and category_pids is not None:
+                base_domain.append(('project_id', 'in', category_pids))
+            if has_project and project_id:
+                base_domain.append(('project_id', '=', project_id))
+            if search_text:
+                matched = Employee.search([('name', 'ilike', search_text)]).ids
+                base_domain.append(('employee_id', 'in', matched or [0]))
+
+            group_by = ['project_id', 'employee_id'] if has_project else ['employee_id']
+            totals = PrefRanking.read_group(
+                domain=base_domain,
+                fields=group_by,
+                groupby=group_by,
+                lazy=False,
+            )
+            rejected_domain = base_domain + [('rejection_reason', '!=', False)]
+            rejected_groups = PrefRanking.read_group(
+                domain=rejected_domain,
+                fields=group_by + ['rejection_reason'],
+                groupby=group_by + ['rejection_reason'],
+                lazy=False,
+            )
+
+            def _key(r):
+                if has_project:
+                    return (
+                        (r.get('project_id') or [None])[0],
+                        (r.get('employee_id') or [None])[0],
+                    )
+                return (
+                    None,
+                    (r.get('employee_id') or [None])[0],
+                )
+
+            totals_map = {_key(r): r.get('__count') or 0 for r in totals}
+            rejected_count = {}
+            top_reason = {}
+            for r in rejected_groups:
+                k = _key(r)
+                cnt = r.get('__count') or 0
+                rejected_count[k] = rejected_count.get(k, 0) + cnt
+                reason = r.get('rejection_reason') or ''
+                prev = top_reason.get(k)
+                if not prev or cnt > prev['count']:
+                    top_reason[k] = {'key': reason, 'count': cnt}
+
+            rows = []
+            for k, prompts in totals_map.items():
+                pid, eid = k
+                pname = ''
+                ename = ''
+                if has_project:
+                    for r in totals:
+                        if (_key(r) == k):
+                            pname = (r.get('project_id') or [None, ''])[1] or ''
+                            ename = (r.get('employee_id') or [None, ''])[1] or ''
+                            break
+                else:
+                    for r in totals:
+                        if (_key(r) == k):
+                            ename = (r.get('employee_id') or [None, ''])[1] or ''
+                            break
+
+                rej = rejected_count.get(k, 0)
+                pct = round((rej / prompts * 100) if prompts else 0.0, 1)
+                rows.append({
+                    'project_id': pid,
+                    'project_name': pname,
+                    'employee_id': eid,
+                    'member_name': ename,
+                    'prompts': prompts,
+                    'rejected': rej,
+                    'rej_pct': pct,
+                    'top_reason': top_reason.get(k),
+                })
+
+            SORT_KEYS = {
+                'rej_pct_desc':  ('rej_pct', True),
+                'rej_pct_asc':   ('rej_pct', False),
+                'prompts_desc':  ('prompts', True),
+                'prompts_asc':   ('prompts', False),
+                'name_asc':      ('member_name', False),
+                'name_desc':     ('member_name', True),
+            }
+            field, reverse = SORT_KEYS.get(kw.get('sort'), ('rej_pct', True))
+            rows.sort(
+                key=lambda r: (r.get(field) or 0) if field in ('rej_pct', 'prompts')
+                else (r.get(field) or ''),
+                reverse=reverse,
+            )
+
+            total_items = len(rows)
+            paginated = rows[offset:offset + limit]
+
+            data = {
+                'date_from': date_from.isoformat(),
+                'date_to': date_to.isoformat(),
+                'category': (kw.get('category') or 'all').lower(),
+                'project_id': project_id,
+                'total': total_items,
+                'page': page,
+                'limit': limit,
+                'items': paginated,
+                'data_availability': 'live',
+                'project_scope_supported': has_project,
+            }
+
+            return return_Response(
+                message='QC feedback prompt breakdown',
+                status=200,
+                data={'data': data},
+            )
+        except Exception as e:
+            return _safe_error(e, 'qc_feedback_prompt_breakdown')
