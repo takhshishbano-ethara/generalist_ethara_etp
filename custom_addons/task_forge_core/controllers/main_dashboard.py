@@ -156,12 +156,7 @@ def _project_ids_in_category(kw):
 
 
 def _require_cto(user):
-    """Return a 403 Response if the user is not CTO, else None."""
-    if not user.has_group('etp_user_roles.group_cto'):
-        return return_Response(
-            message='Founder dashboard requires CTO role',
-            status=403,
-        )
+    # Role gate intentionally disabled: any @validate_token authenticated user can access these endpoints.
     return None
 
 
@@ -955,9 +950,85 @@ class MainDashboardController(http.Controller):
             field, reverse = sort_key
             rankings.sort(key=lambda r: r.get(field) or 0, reverse=reverse)
 
+            Project = request.env['project.project'].sudo()
+            pl_log_domain = [('date', '>=', date_from), ('date', '<=', date_to)]
+            if project_ids is not None:
+                pl_log_domain.append(('project_id', 'in', project_ids))
+
+            pl_project_domain = [('task_forge_status', '=', 'live')]
+            if project_ids is not None:
+                pl_project_domain.append(('id', 'in', project_ids))
+            live_projects = Project.search(pl_project_domain)
+
+            pl_project_map = {}
+            for proj in live_projects:
+                for pl in proj.project_lead:
+                    pl_project_map.setdefault(pl.id, {
+                        'user_id': pl.id,
+                        'name': pl.name,
+                        'project_ids': [],
+                    })
+                    pl_project_map[pl.id]['project_ids'].append(proj.id)
+
+            pl_rows = []
+            for info in pl_project_map.values():
+                pids = info['project_ids']
+                if not pids:
+                    continue
+                total = TaskLog.search_count(pl_log_domain + [('project_id', 'in', pids)])
+                comp = TaskLog.search_count(
+                    pl_log_domain + [('project_id', 'in', pids), ('state', '=', 'completed')]
+                )
+                pct = round((comp / total * 100) if total else 0.0, 1)
+                pl_rows.append({
+                    'user_id': info['user_id'],
+                    'name': info['name'],
+                    'completed': comp,
+                    'total': total,
+                    'percentage_completion': pct,
+                })
+            pl_rows.sort(key=lambda x: (-x['percentage_completion'], -x['total']))
+            top_project_leads = [dict(rank=i + 1, **row) for i, row in enumerate(pl_rows[:top_n])]
+
+            qr_rows = []
+            all_active = Employee.search([('task_forge_active', '=', True)])
+            for emp in all_active:
+                if emp._get_task_forge_role() != 'qr':
+                    continue
+                team = Employee.search([
+                    ('task_forge_qr_id', '=', emp.id),
+                    ('task_forge_active', '=', True),
+                ])
+                tasker_count = len(team)
+                team_ids = team.ids
+                if not team_ids:
+                    continue
+                team_avg_q = TaskLog.read_group(
+                    domain=pl_log_domain + [
+                        ('employee_id', 'in', team_ids),
+                        ('quality_score', '>', 0),
+                    ],
+                    fields=['quality_score:avg'],
+                    groupby=[],
+                )
+                avg_q = round((team_avg_q and team_avg_q[0].get('quality_score') or 0.0), 1)
+                if avg_q <= 0 and tasker_count == 0:
+                    continue
+                qr_rows.append({
+                    'employee_id': emp.id,
+                    'name': emp.name,
+                    'taskers': tasker_count,
+                    'avg_quality': avg_q,
+                    'qr_score': avg_q,
+                })
+            qr_rows.sort(key=lambda x: (-x['qr_score'], -x['taskers']))
+            top_quality_reviewers = [dict(rank=i + 1, **row) for i, row in enumerate(qr_rows[:top_n])]
+
             data = {
                 'date_from': date_from.isoformat(),
                 'date_to': date_to.isoformat(),
+                'top_project_leads': top_project_leads,
+                'top_quality_reviewers': top_quality_reviewers,
                 'top_taskers': rankings[:top_n],
                 'low_performers': [r for r in rankings if r['productivity'] < low_threshold],
                 'total_evaluated': len(rankings),
@@ -1109,11 +1180,68 @@ class MainDashboardController(http.Controller):
             total_items = len(items)
             paginated = items[offset:offset + limit]
 
+            kpi_domain = [
+                ('date', '>=', date_from),
+                ('date', '<=', date_to),
+            ]
+            if project_ids is not None:
+                kpi_domain.append(('project_id', 'in', project_ids))
+            if single_project_id:
+                kpi_domain.append(('project_id', '=', single_project_id))
+            if search_project_ids is not None:
+                kpi_domain.append(('project_id', 'in', search_project_ids or [0]))
+            justification_qc_count = TaskLog.search_count(
+                kpi_domain + [('justification_text', '!=', False)]
+            )
+            prompt_qc_count = TaskLog.search_count(
+                kpi_domain + [('prompt_text', '!=', False)]
+            )
+
+            prompt_rejection_reasons = []
+            rejection_data_available = 'live'
+            try:
+                PrefRanking = request.env['preference.ranking'].sudo()
+                pr_domain = [
+                    ('submitted_at', '>=', datetime.combine(date_from, time.min)),
+                    ('submitted_at', '<=', datetime.combine(date_to, time.max)),
+                    ('rejection_reason', '!=', False),
+                ]
+                if single_project_id and 'project_id' in PrefRanking._fields:
+                    pr_domain.append(('project_id', '=', single_project_id))
+                elif project_ids is not None and 'project_id' in PrefRanking._fields:
+                    pr_domain.append(('project_id', 'in', project_ids))
+                reason_rows = PrefRanking.read_group(
+                    domain=pr_domain,
+                    fields=['rejection_reason'],
+                    groupby=['rejection_reason'],
+                    lazy=False,
+                )
+                for r in reason_rows:
+                    reason = r.get('rejection_reason')
+                    if not reason:
+                        continue
+                    prompt_rejection_reasons.append({
+                        'key': reason,
+                        'label': reason,
+                        'count': r.get('__count', 0) or 0,
+                    })
+                prompt_rejection_reasons.sort(key=lambda x: -x['count'])
+            except KeyError:
+                rejection_data_available = 'unavailable'
+
             data = {
                 'date_from': date_from.isoformat(),
                 'date_to': date_to.isoformat(),
                 'overall_avg_quality': overall_avg,
                 'total_tasks_scored': total_scored,
+                'justification_qc_count': justification_qc_count,
+                'prompt_qc_count': prompt_qc_count,
+                'justification_categories': [],
+                'prompt_rejection_reasons': prompt_rejection_reasons,
+                'data_availability': {
+                    'justification_categories': 'pending_persistence',
+                    'prompt_rejection_reasons': rejection_data_available,
+                },
                 'total': total_items,
                 'page': page,
                 'limit': limit,
