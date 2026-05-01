@@ -413,7 +413,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name="talos-sandbox-creds-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=secret,
+                )
+            else:
                 raise
 
     def _create_persona_configmap(self, core_v1, task_id, labels, persona):
@@ -438,7 +444,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name="talos-sandbox-persona-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=cm,
+                )
+            else:
                 raise
 
     def _create_gog_secret(self, core_v1, task_id, labels, sandbox_record):
@@ -502,6 +514,23 @@ class TalosSandboxK8s(models.AbstractModel):
         string_data["_GOG_KEYRING_PASSWORD"] = gog_kp
         string_data["_GOG_ACCOUNT"] = gog_account
 
+        # Warn if encrypted token files exist but no keyring password is set
+        _reserved_keys = {
+            "client_secret.json",
+            "config.json",
+            "_GOG_KEYRING_PASSWORD",
+            "_GOG_ACCOUNT",
+        }
+        _has_token_files = any(k not in _reserved_keys for k in string_data)
+        if _has_token_files and not gog_kp:
+            _logger.warning(
+                "[GogAuth→K8s] GOG_KEYRING_PASSWORD is empty for task %s but %d "
+                "encrypted token file(s) are present; gog CLI will fail to "
+                "decrypt JWE tokens. Ensure talos_id.password is set.",
+                task_id,
+                sum(1 for k in string_data if k not in _reserved_keys),
+            )
+
         _logger.info(
             "[GogAuth→K8s] Creating GOG secret for task %s with %d keys: %s",
             task_id,
@@ -522,7 +551,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name="talos-sandbox-gog-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=secret,
+                )
+            else:
                 raise
 
     def _create_openclaw_config_configmap(
