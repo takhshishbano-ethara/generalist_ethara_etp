@@ -377,6 +377,182 @@ def _run_rubric_criterion_qc_background(db_name, criterion_id, task_id, session_
         _logger.exception("Rubric QC bg: unhandled error for criterion=%s", criterion_id)
 
 
+def _run_rubric_qc_all_background(db_name, task_id, session_id, notify_partner_id):
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["atlas.atlas"].browse(task_id)
+            if not task.exists():
+                return
+
+            dotenv = _load_dotenv()
+            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            inference_arn = dotenv.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
+            region = dotenv.get("KIMI_AWS_REGION", "us-east-1").strip()
+
+            if not api_key or not inference_arn:
+                task.write({
+                    "rubric_qc_all_status": "error",
+                    "rubric_qc_all_feedback": "Missing Bedrock credentials",
+                })
+                return
+
+            system_prompt = _get_prompt("rubric_qc_prompt.md")
+            if not system_prompt:
+                task.write({
+                    "rubric_qc_all_status": "error",
+                    "rubric_qc_all_feedback": "Missing rubric_qc_prompt.md",
+                })
+                return
+
+            if session_id:
+                turns = task.turn_ids.filtered(
+                    lambda t, sid=session_id: t.session_id == sid
+                ).sorted("turn_number")
+            if not session_id or not turns:
+                turns = task.turn_ids.sorted("turn_number")
+            conversation_parts = []
+            for t in turns:
+                if t.prompt and not t.is_hint_turn:
+                    conversation_parts.append("User: %s" % t.prompt.strip()[:800])
+                if t.response:
+                    conversation_parts.append("Assistant: %s" % t.response.strip()[:800])
+
+            all_criteria = task.rubric_criterion_ids.sorted("sequence, id")
+            if not all_criteria:
+                task.write({
+                    "rubric_qc_all_status": "error",
+                    "rubric_qc_all_feedback": "No criteria to evaluate",
+                })
+                return
+
+            rubric_rows = []
+            neg_index = 0
+            pos_index = 0
+            for c in all_criteria:
+                if c.is_negative:
+                    neg_index += 1
+                    prefix = "N%d" % neg_index
+                else:
+                    pos_index += 1
+                    prefix = str(pos_index)
+                sign = "❌" if c.is_negative else "✅"
+                w = "-%d" % c.weight if c.is_negative else "+%d" % c.weight
+                rubric_rows.append("| %s | %s | %s | %s | %s |" % (
+                    prefix, c.name, w, sign, c.suggestion or "",
+                ))
+
+            goal = task.goal_description or "(No goal generated)"
+            rubric_table = (
+                "| # | Criterion | Weight | +/- | Grounding |\n"
+                "|---|-----------|--------|-----|-----------|"
+            )
+            if rubric_rows:
+                rubric_table += "\n" + "\n".join(rubric_rows)
+
+            conv_block = "\n".join(conversation_parts) if conversation_parts else "(No conversation yet)"
+            user_message = (
+                "## Goal\n%s\n\n"
+                "## Full Rubric (all criteria — evaluate as a whole)\n%s\n\n"
+                "## Conversation\n%s\n\n"
+                "**IMPORTANT: Evaluate the rubric HOLISTICALLY. Assess coverage, "
+                "MECE (gaps and overlaps across criteria), weight proportionality, "
+                "negative-teeth adequacy, and overall alignment with the goal. "
+                "Your verdict is for the rubric as a whole, not for any single criterion.**"
+            ) % (goal, rubric_table, conv_block)
+
+            try:
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    max_tokens=2048,
+                    temperature=0.3,
+                    timeout=120.0,
+                )
+
+                if _is_degenerate(response_text):
+                    response_text, usage = _call_bedrock_converse(
+                        api_key=api_key,
+                        inference_arn=inference_arn,
+                        region=region,
+                        system_prompt=system_prompt,
+                        user_message=user_message,
+                        max_tokens=2048,
+                        temperature=0.1,
+                        top_p=0.7,
+                        timeout=120.0,
+                    )
+            except Exception:
+                _logger.exception("Rubric QC-ALL bg: Bedrock call failed for task=%s", task_id)
+                task.write({
+                    "rubric_qc_all_status": "error",
+                    "rubric_qc_all_feedback": "Bedrock call failed",
+                })
+                return
+
+            t_in = usage.get("input_tokens", 0)
+            t_out = usage.get("output_tokens", 0)
+            if t_in or t_out:
+                task.sudo().write({
+                    "rubric_qc_input_tokens": (task.rubric_qc_input_tokens or 0) + t_in,
+                    "rubric_qc_output_tokens": (task.rubric_qc_output_tokens or 0) + t_out,
+                })
+
+            verdict_match = re.search(
+                r"Rubric\s+QC\s+Verdict:\s*(PASS|FAIL)", response_text, re.IGNORECASE
+            )
+            check_rows = re.findall(
+                r"\|\s*(?:M?\d+)\s*\|[^|]+\|\s*(PASS|FAIL)\s*\|([^|]*)\|",
+                response_text, re.IGNORECASE,
+            )
+            fails = sum(1 for r, _ in check_rows if r.strip().upper() == "FAIL")
+            overall = verdict_match.group(1).strip().upper() if verdict_match else ""
+
+            # Severity from fail count across the 9-point + 4-point checks
+            # (13 total). Holistic rubric is more forgiving than per-prompt QC
+            # because partial failures are normal during iterative rubric
+            # design — only many concurrent failures escalate to critical.
+            if overall == "PASS" and fails == 0:
+                severity = "low"
+            elif fails <= 2:
+                severity = "medium"
+            elif fails <= 5:
+                severity = "high"
+            else:
+                severity = "critical"
+
+            feedback = response_text[:8000] if response_text else ""
+
+            task.write({
+                "rubric_qc_all_status": "done",
+                "rubric_qc_all_severity": severity,
+                "rubric_qc_all_feedback": feedback,
+            })
+
+            if notify_partner_id:
+                partner = env["res.partner"].browse(notify_partner_id)
+                if partner.exists():
+                    env["bus.bus"]._sendone(
+                        partner,
+                        "atlas/rubric_qc_all_done",
+                        {
+                            "task_id": task_id,
+                            "qc_status": task.rubric_qc_all_status,
+                            "qc_severity": task.rubric_qc_all_severity,
+                        },
+                    )
+
+            _logger.info(
+                "Rubric QC-ALL bg: done task=%s severity=%s fails=%s",
+                task_id, severity, fails,
+            )
+    except Exception:
+        _logger.exception("Rubric QC-ALL bg: unhandled error for task=%s", task_id)
+
+
 def _call_bedrock_converse(
     api_key,
     inference_arn,
@@ -598,6 +774,58 @@ class LlmAssistQc(http.Controller):
         request.env.cr.postcommit.add(_submit)
 
         return {"success": True, "criterion_id": criterion_id}
+
+    @http.route("/atlas/rubric/qc_all", type="json", auth="user")
+    def rubric_qc_all(self, task_id=0, **kw):
+        task_id = int(task_id or 0)
+        if not task_id:
+            return {"error": "task_id is required"}
+
+        task = request.env["atlas.atlas"].browse(task_id)
+        if not task.exists():
+            return {"error": "Task not found"}
+
+        user = request.env.user
+        is_admin = (
+            user.has_group("base.group_system")
+            or user.has_group("atlas.group_atlas_admin")
+        )
+        owner = task.employee_id.user_id if task.employee_id else False
+        is_owner = bool(owner) and owner.id == user.id
+        if not (is_owner or is_admin):
+            _logger.warning(
+                "/atlas/rubric/qc_all rejected: task=%s user=%s owner=%s",
+                task.id, user.id, owner.id if owner else None,
+            )
+            return {"error": "Access denied"}
+
+        if not task.rubric_criterion_ids:
+            return {"error": "No criteria to evaluate. Generate or add criteria first."}
+
+        glm_sandbox = task.sandbox_ids.filtered(lambda s: s.model_type == "glm")[:1]
+        session_id = glm_sandbox.current_session_id if glm_sandbox else ""
+
+        task.write({
+            "rubric_qc_all_status": "running",
+            "rubric_qc_all_feedback": False,
+            "rubric_qc_all_severity": False,
+        })
+
+        db_name = request.env.cr.dbname
+        notify_partner_id = request.env.user.partner_id.id
+
+        def _submit():
+            _RUBRIC_QC_POOL.submit(
+                _run_rubric_qc_all_background,
+                db_name,
+                task_id,
+                session_id,
+                notify_partner_id,
+            )
+
+        request.env.cr.postcommit.add(_submit)
+
+        return {"success": True, "task_id": task_id}
 
     @http.route("/atlas/generation/status", type="json", auth="user")
     def generation_status(self, task_id=0, **kw):

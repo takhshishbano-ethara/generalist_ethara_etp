@@ -154,10 +154,53 @@
                 </t>
 
                 <t t-if="!state.inlineAdd and state.editingId === null">
-                    <button class="btn btn-outline-primary btn-sm mt-3 w-100"
-                            t-on-click="onAddCriteria">
-                        <i class="fa fa-plus me-1"/> Add criteria
-                    </button>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-outline-primary btn-sm flex-grow-1"
+                                t-on-click="onAddCriteria">
+                            <i class="fa fa-plus me-1"/> Add criteria
+                        </button>
+                        <button class="btn btn-outline-info btn-sm"
+                                t-on-click="onQcAll"
+                                t-att-disabled="state.rubricQcStatus === 'running' or !state.criteria.length"
+                                title="Holistic QC of the full rubric (coverage, weights, gaps, overlaps)">
+                            <i t-att-class="'fa me-1 ' + (state.rubricQcStatus === 'running' ? 'fa-spinner fa-spin' : 'fa-shield')"/>
+                            QC All Criteria
+                        </button>
+                    </div>
+                </t>
+
+                <t t-if="state.rubricQcStatus !== 'idle'">
+                    <div class="o_atlas_rubric_qc_all mt-3"
+                         t-att-class="'o_atlas_rubric_qc_all o_atlas_rubric_qc_all_' + state.rubricQcStatus">
+                        <div class="o_atlas_rubric_qc_all_head" t-on-click="toggleRubricQcDetails">
+                            <t t-if="state.rubricQcStatus === 'running'">
+                                <i class="fa fa-spinner fa-spin me-2"/>
+                                <span class="fw-semibold">Evaluating rubric…</span>
+                            </t>
+                            <t t-elif="state.rubricQcStatus === 'error'">
+                                <i class="fa fa-exclamation-triangle me-2 text-danger"/>
+                                <span class="fw-semibold">Rubric QC failed</span>
+                            </t>
+                            <t t-elif="state.rubricQcStatus === 'done'">
+                                <i class="fa fa-shield me-2"/>
+                                <span class="fw-semibold">Rubric QC</span>
+                                <t t-if="state.rubricQcSeverity">
+                                    <span class="o_atlas_rubric_qc_all_pill ms-2"
+                                          t-att-style="'background: ' + rubricQcSeverityColor + ';'">
+                                        <t t-esc="state.rubricQcSeverity.toUpperCase()"/>
+                                    </span>
+                                </t>
+                                <i class="fa ms-auto"
+                                   t-att-class="state.rubricQcExpanded ? 'fa-chevron-up' : 'fa-chevron-down'"/>
+                            </t>
+                        </div>
+                        <t t-if="state.rubricQcStatus !== 'running' and state.rubricQcExpanded and state.rubricQcFeedback">
+                            <div class="o_atlas_rubric_qc_all_body">
+                                <div class="o_atlas_rubric_qc_all_feedback"
+                                     t-out="formatQcFeedback(state.rubricQcFeedback)"/>
+                            </div>
+                        </t>
+                    </div>
                 </t>
             </t>
         </div>

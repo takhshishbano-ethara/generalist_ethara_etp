@@ -49,6 +49,10 @@ export class RubricEditor extends Component {
             inlineAdd: false,
             editingId: null,
             form: this._emptyForm(),
+            rubricQcStatus: "idle",
+            rubricQcSeverity: false,
+            rubricQcFeedback: "",
+            rubricQcExpanded: false,
         });
         this._pollTimer = null;
 
@@ -108,6 +112,14 @@ export class RubricEditor extends Component {
     _syncFromRecord() {
         const recordGoal = this.props.record.data.goal_generation_status;
         const recordRubric = this.props.record.data.rubric_generation_status;
+        const recordQcAll = this.props.record.data.rubric_qc_all_status;
+        const recordQcAllSeverity = this.props.record.data.rubric_qc_all_severity;
+        const recordQcAllFeedback = this.props.record.data.rubric_qc_all_feedback;
+        if (recordQcAll && this.state.rubricQcStatus !== "running") {
+            this.state.rubricQcStatus = recordQcAll === "pending" ? "idle" : recordQcAll;
+            this.state.rubricQcSeverity = recordQcAllSeverity || false;
+            this.state.rubricQcFeedback = recordQcAllFeedback || "";
+        }
         const isRecordRunning = recordGoal === "running" || recordRubric === "running";
         const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
         if (isRecordRunning && !isStateRunning) {
@@ -481,6 +493,71 @@ export class RubricEditor extends Component {
         setTimeout(poll, 3000);
     }
 
+    async onQcAll() {
+        if (!this.taskId) return;
+        if (this.state.rubricQcStatus === "running") return;
+        if (!this.state.criteria.length) {
+            this.notification.add("No criteria to evaluate", { type: "warning" });
+            return;
+        }
+
+        this.state.rubricQcStatus = "running";
+        this.state.rubricQcSeverity = false;
+        this.state.rubricQcFeedback = "";
+        this.state.rubricQcExpanded = true;
+
+        try {
+            const res = await rpc("/atlas/rubric/qc_all", { task_id: this.taskId });
+            if (res?.error) {
+                this.state.rubricQcStatus = "error";
+                this.state.rubricQcFeedback = res.error;
+                this.notification.add(res.error, { type: "danger" });
+                return;
+            }
+            this._startRubricQcAllPoll();
+        } catch {
+            this.state.rubricQcStatus = "error";
+            this.state.rubricQcFeedback = "Failed to start rubric QC";
+            this.notification.add("Failed to start rubric QC", { type: "danger" });
+        }
+    }
+
+    _startRubricQcAllPoll() {
+        const poll = async () => {
+            if (!this.taskId) return;
+            try {
+                const data = await this.orm.read(
+                    "atlas.atlas",
+                    [this.taskId],
+                    ["rubric_qc_all_status", "rubric_qc_all_severity", "rubric_qc_all_feedback"],
+                );
+                if (!data.length) return;
+                const updated = data[0];
+                this.state.rubricQcStatus = updated.rubric_qc_all_status || "idle";
+                this.state.rubricQcSeverity = updated.rubric_qc_all_severity || false;
+                this.state.rubricQcFeedback = updated.rubric_qc_all_feedback || "";
+
+                if (this.state.rubricQcStatus === "running") {
+                    setTimeout(poll, 3000);
+                } else if (this.state.rubricQcStatus === "done") {
+                    this.notification.add("Rubric QC complete", { type: "success" });
+                }
+            } catch {
+                // silent
+            }
+        };
+        setTimeout(poll, 3000);
+    }
+
+    toggleRubricQcDetails() {
+        this.state.rubricQcExpanded = !this.state.rubricQcExpanded;
+    }
+
+    get rubricQcSeverityColor() {
+        const m = { low: "#198754", medium: "#ffc107", high: "#fd7e14", critical: "#dc3545" };
+        return m[this.state.rubricQcSeverity] || "#6c757d";
+    }
+
     qcStatusIcon(status) {
         const map = {
             running: "fa-spinner fa-spin",
@@ -490,17 +567,225 @@ export class RubricEditor extends Component {
         return map[status] || "";
     }
 
+    // Render the holistic "QC All Criteria" report returned by the LLM.
+    // Supported CommonMark subset: leading "## Rubric QC Verdict: PASS|FAIL" banner,
+    // "### Section" headings, pipe-tables (header + `---` separator + rows, arbitrary
+    // column count, PASS/FAIL pills on "Result" column, ✅/❌ on "+/-" column),
+    // ordered lists (`^\d+\. `), indented (2+ space) monospace scoring blocks,
+    // `**bold**` inline, and plain paragraphs. Missing sections degrade gracefully;
+    // plain-string inputs (error state) render as a single paragraph.
     formatQcFeedback(text) {
         if (!text) return "";
-        let html = text
+        const esc = (s) => String(s)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
-        html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-        html = html.replace(/^(\d+)\.\s+/gm, '<div class="o_qc_item"><span class="o_qc_num">$1.</span> ');
-        html = html.replace(/(<div class="o_qc_item">.*?)(?=<div class="o_qc_item">|$)/gs, "$1</div>");
-        html = html.replace(/\n/g, "<br/>");
-        return markup(html);
+        const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+        const raw = String(text).replace(/\r\n?/g, "\n");
+        const lines = raw.split("\n");
+        const out = [];
+
+        let i = 0;
+        while (i < lines.length && lines[i].trim() === "") i++;
+        const verdictRe = /^##\s*\*{0,2}\s*Rubric QC Verdict\s*:\s*\*{0,2}\s*(PASS|FAIL)\s*\*{0,2}\s*$/i;
+        if (i < lines.length && verdictRe.test(lines[i].trim())) {
+            const m = lines[i].trim().match(verdictRe);
+            const verdict = m[1].toUpperCase();
+            const cls = verdict === "PASS" ? "o_rqc_verdict_pass" : "o_rqc_verdict_fail";
+            const icon = verdict === "PASS" ? "fa-check-circle" : "fa-exclamation-circle";
+            out.push(
+                `<div class="o_rqc_verdict ${cls}">` +
+                `<i class="fa ${icon}"></i>` +
+                `<span>Rubric QC Verdict: ${verdict}</span>` +
+                `</div>`
+            );
+            i++;
+        }
+
+        const isSectionHeading = (ln) => /^###\s+(.+?)\s*$/.exec(ln.trim());
+        const isTableHeader = (ln) => /^\|.*\|\s*$/.test(ln);
+        const isTableSep = (ln) => /^\|[\s\-:|]+\|\s*$/.test(ln);
+        const isOlItem = (ln) => /^\d+\.\s+/.test(ln);
+        const isIndented = (ln) => /^[ \t]{2,}\S/.test(ln);
+
+        const renderTable = (headers, rows) => {
+            const headLc = headers.map((h) => h.trim().toLowerCase());
+            const resultIdx = headLc.findIndex((h) => h === "result");
+            const signIdx = headLc.findIndex((h) => h === "+/-" || h === "+/−");
+            const checkIdx = headLc.findIndex((h) => h === "check");
+            // Tag each <th> with a column class so SCSS can size specific
+            // columns (Check wide, Result narrow) regardless of column order.
+            const th = headers
+                .map((h, idx) => {
+                    const cls =
+                        idx === checkIdx
+                            ? ' class="o_rqc_col_check"'
+                            : idx === resultIdx
+                            ? ' class="o_rqc_col_result"'
+                            : idx === signIdx
+                            ? ' class="o_rqc_col_sign"'
+                            : "";
+                    return `<th${cls}>${inline(h.trim())}</th>`;
+                })
+                .join("");
+            const body = rows
+                .map((cells) => {
+                    const tds = cells.map((c, idx) => {
+                        const val = c.trim();
+                        if (idx === resultIdx) {
+                            const norm = val
+                                .replace(/[*_`]/g, "")
+                                .replace(/[^A-Za-z]/g, "")
+                                .toUpperCase();
+                            if (norm === "PASS") {
+                                return `<td class="o_rqc_col_result"><span class="o_rqc_pass_pill">PASS</span></td>`;
+                            }
+                            if (norm === "FAIL") {
+                                return `<td class="o_rqc_col_result"><span class="o_rqc_fail_pill">FAIL</span></td>`;
+                            }
+                            return `<td class="o_rqc_col_result">${inline(val)}</td>`;
+                        }
+                        if (idx === signIdx) {
+                            return `<td class="o_rqc_sign_cell o_rqc_col_sign">${inline(val)}</td>`;
+                        }
+                        if (idx === checkIdx) {
+                            return `<td class="o_rqc_col_check">${inline(val)}</td>`;
+                        }
+                        return `<td>${inline(val)}</td>`;
+                    });
+                    while (tds.length < headers.length) {
+                        tds.push("<td></td>");
+                    }
+                    return `<tr>${tds.join("")}</tr>`;
+                })
+                .join("");
+            return `<table class="o_rqc_table"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+        };
+
+        const splitPipe = (ln) => {
+            let s = ln.trim();
+            if (s.startsWith("|")) s = s.slice(1);
+            if (s.endsWith("|")) s = s.slice(0, -1);
+            return s.split("|");
+        };
+
+        const renderBody = (bodyLines, sectionName) => {
+            const pieces = [];
+            let j = 0;
+            const N = bodyLines.length;
+            while (j < N) {
+                const ln = bodyLines[j];
+                if (ln.trim() === "") { j++; continue; }
+
+                if (isTableHeader(ln) && j + 1 < N && isTableSep(bodyLines[j + 1])) {
+                    const headers = splitPipe(ln);
+                    j += 2;
+                    const rows = [];
+                    while (j < N && isTableHeader(bodyLines[j]) && !isTableSep(bodyLines[j])) {
+                        rows.push(splitPipe(bodyLines[j]));
+                        j++;
+                    }
+                    pieces.push(renderTable(headers, rows));
+                    continue;
+                }
+
+                if (isOlItem(ln)) {
+                    const items = [];
+                    while (j < N) {
+                        const cur = bodyLines[j];
+                        if (!isOlItem(cur)) break;
+                        const m = /^(\d+)\.\s+(.*)$/.exec(cur);
+                        let numStr = m[1];
+                        let content = m[2];
+                        j++;
+                        while (
+                            j < N &&
+                            bodyLines[j].trim() !== "" &&
+                            !isOlItem(bodyLines[j]) &&
+                            !isTableHeader(bodyLines[j]) &&
+                            !isSectionHeading(bodyLines[j])
+                        ) {
+                            content += " " + bodyLines[j].trim();
+                            j++;
+                        }
+                        items.push(
+                            `<li class="o_rqc_issue"><span class="o_rqc_issue_num">${esc(numStr)}.</span> ${inline(content)}</li>`
+                        );
+                    }
+                    pieces.push(`<ol class="o_rqc_issues">${items.join("")}</ol>`);
+                    continue;
+                }
+
+                if (isIndented(ln)) {
+                    const buf = [];
+                    while (j < N && (isIndented(bodyLines[j]) || (bodyLines[j].trim() === "" && j + 1 < N && isIndented(bodyLines[j + 1])))) {
+                        buf.push(bodyLines[j]);
+                        j++;
+                    }
+                    pieces.push(`<pre class="o_rqc_scoring">${esc(buf.join("\n"))}</pre>`);
+                    continue;
+                }
+
+                const para = [];
+                while (
+                    j < N &&
+                    bodyLines[j].trim() !== "" &&
+                    !isTableHeader(bodyLines[j]) &&
+                    !isOlItem(bodyLines[j]) &&
+                    !isIndented(bodyLines[j]) &&
+                    !isSectionHeading(bodyLines[j])
+                ) {
+                    para.push(bodyLines[j].trim());
+                    j++;
+                }
+                if (para.length) {
+                    const txt = para.join(" ");
+                    const sectLc = (sectionName || "").toLowerCase();
+                    if (sectLc.includes("weakest passing")) {
+                        pieces.push(`<div class="o_rqc_callout">${inline(txt)}</div>`);
+                    } else {
+                        pieces.push(`<p>${inline(txt)}</p>`);
+                    }
+                }
+            }
+            return pieces.join("");
+        };
+
+        let firstSection = -1;
+        for (let k = i; k < lines.length; k++) {
+            if (isSectionHeading(lines[k])) { firstSection = k; break; }
+        }
+
+        if (firstSection === -1) {
+            const body = renderBody(lines.slice(i), "");
+            if (body) out.push(body);
+        } else {
+            if (firstSection > i) {
+                const lead = renderBody(lines.slice(i, firstSection), "");
+                if (lead) out.push(lead);
+            }
+            let cur = firstSection;
+            while (cur < lines.length) {
+                const m = isSectionHeading(lines[cur]);
+                if (!m) { cur++; continue; }
+                const sectionName = m[1].trim();
+                let end = lines.length;
+                for (let k = cur + 1; k < lines.length; k++) {
+                    if (isSectionHeading(lines[k])) { end = k; break; }
+                }
+                const body = renderBody(lines.slice(cur + 1, end), sectionName);
+                out.push(
+                    `<div class="o_rqc_section">` +
+                    `<div class="o_rqc_section_label">${inline(sectionName)}</div>` +
+                    body +
+                    `</div>`
+                );
+                cur = end;
+            }
+        }
+
+        return markup(out.join(""));
     }
 }
 

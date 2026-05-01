@@ -623,6 +623,30 @@ class Atlas(models.Model):
     rubric_qc_input_tokens = fields.Integer(string="Rubric QC Input Tokens", default=0)
     rubric_qc_output_tokens = fields.Integer(string="Rubric QC Output Tokens", default=0)
 
+    # Holistic rubric-level QC (evaluates the full rubric as one unit —
+    # coverage, weighting, gaps, overlaps — distinct from per-criterion QC
+    # which lives on atlas.rubric.criterion).
+    rubric_qc_all_status = fields.Selection(
+        [
+            ("pending", "Pending"),
+            ("running", "Running"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Rubric QC (All) Status",
+        default="pending",
+    )
+    rubric_qc_all_severity = fields.Selection(
+        [
+            ("low", "Low"),
+            ("medium", "Medium"),
+            ("high", "High"),
+            ("critical", "Critical"),
+        ],
+        string="Rubric QC (All) Severity",
+    )
+    rubric_qc_all_feedback = fields.Text(string="Rubric QC (All) Feedback")
+
     turn_ids = fields.One2many(
         "atlas.turn", "atlas_id", string="Turn History"
     )
