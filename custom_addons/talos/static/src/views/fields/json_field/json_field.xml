@@ -12,6 +12,13 @@
                                     <t t-if="entry.timestamp">
                                         <span class="talos-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
                                     </t>
+                                    <t t-if="entry.hasTokens">
+                                        <span class="talos-json-tokens ms-2 text-muted small">
+                                            In: <t t-esc="formatNumber(entry.tokensIn)"/>
+                                             | Out: <t t-esc="formatNumber(entry.tokensOut)"/>
+                                             | Total: <t t-esc="formatNumber(entry.tokensTotal)"/>
+                                        </span>
+                                    </t>
                                     <t t-if="entry.deleted">
                                         <span class="badge bg-danger ms-2">Deleted — QC Failed</span>
                                     </t>
