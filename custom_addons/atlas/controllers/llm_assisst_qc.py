@@ -141,16 +141,21 @@ def _parse_qc_verdict(text):
     fails = sum(1 for r, _ in check_rows if r.strip().upper() == "FAIL")
     passes = sum(1 for r, _ in check_rows if r.strip().upper() == "PASS")
 
-    if overall == "PASS" and fails == 0:
-        severity = "low"
-    elif fails == 1:
-        severity = "medium"
-    elif fails == 2:
-        severity = "high"
-    elif fails >= 3:
+    # Severity policy (product rule, user-approved):
+    #   0 fails -> low  (UI treats as no-gate; user proceeds directly)
+    #   1 fail  -> low  (same UI behavior; quality is still acceptable)
+    #   2 fails -> medium   (UI offers Rewrite or Add Justification)
+    #   3 fails -> high     (UI forces Rewrite; no justification escape)
+    #   4 fails -> critical (UI forces Rewrite; no justification escape)
+    # Derived strictly from the FAIL count, independent of LLM self-rating.
+    if fails >= 4:
         severity = "critical"
+    elif fails == 3:
+        severity = "high"
+    elif fails == 2:
+        severity = "medium"
     else:
-        severity = "low" if overall == "PASS" else "high"
+        severity = "low"
 
     checks = []
     check_names = ["Grammar & Language", "Clear Ask", "Realistic", "Feasible"]

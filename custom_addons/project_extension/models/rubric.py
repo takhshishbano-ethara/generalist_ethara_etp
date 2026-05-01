@@ -7,6 +7,7 @@ class RubricCategory(models.Model):
     _order = 'sequence, id'
 
     name = fields.Char(string='Category Name', required=True)
+    description = fields.Text(string='Description')
     sequence = fields.Integer(default=10)
     project_id = fields.Many2one('project.project', string='Project', ondelete='cascade', index=True)
     option_ids = fields.One2many('rubric.category.option', 'category_id', string='Options')
@@ -63,6 +64,7 @@ class RubricDimension(models.Model):
 
     name = fields.Char(string='Dimension Name', required=True)
     description = fields.Text(string='Description')
+    is_required = fields.Boolean(string='Required', default=True)
     sequence = fields.Integer(default=10)
     category_id = fields.Many2one('rubric.category', string='Category', ondelete='cascade', required=True)
     project_id = fields.Many2one(related='category_id.project_id', store=True)

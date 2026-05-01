@@ -21,3 +21,4 @@ access_tf_file_admin,task.forge.file.admin,model_task_forge_file,,1,1,1,1
 access_task_forge_image,task.forge.image,model_task_forge_image,,1,1,1,1
 access_tf_escalation_log,task.forge.blocker.escalation.log,model_task_forge_blocker_escalation_log,,1,1,1,1
 access_res_blocker_issues,res.blocker.issues,model_res_blocker_issues,,1,1,1,1
+access_tf_rubric_rating,task.forge.rubric.rating,model_task_forge_rubric_rating,,1,1,1,1
