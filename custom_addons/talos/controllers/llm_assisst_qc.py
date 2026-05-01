@@ -231,8 +231,9 @@ def _run_trajectory_qc_background(
 def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_result):
     """Write qc_status and qc_result into a specific trajectory entry in DB.
 
-    If the QC result severity is 'critical', the trajectory entry is auto-deleted.
     Retries up to 3 times on serialization/concurrent-update errors.
+    Never deletes the entry: QC failures surface via qc_status/qc_result for
+    the UI to render; deletion is a user-driven action only.
     """
     max_retries = 3
     for attempt in range(max_retries):
@@ -251,47 +252,6 @@ def _update_qc_entry(env, record_id, field_name, entry_index, qc_status, qc_resu
             if entry_index < 0 or entry_index >= len(entries):
                 return
             if entries[entry_index].get("qc_status") == "aborted":
-                return
-
-            # Check if QC failed critically — auto-delete the trajectory entry
-            severity = (
-                qc_result.get("severity", "") if isinstance(qc_result, dict) else ""
-            )
-            if qc_status == "done" and severity == "critical":
-                entry = entries[entry_index]
-                # Safety: verify we're deleting the right entry by checking
-                # its qc_status is "pending" (set when QC was triggered)
-                entry_qc = entry.get("qc_status", "")
-                if entry_qc not in ("pending", "done", ""):
-                    _logger.warning(
-                        "QC auto-delete: skipping — entry qc_status is '%s' "
-                        "(expected 'pending'), record=%s field=%s entry=%s",
-                        entry_qc,
-                        record_id,
-                        field_name,
-                        entry_index,
-                    )
-                else:
-                    _logger.info(
-                        "QC auto-delete: removing trajectory entry record=%s field=%s "
-                        "entry=%s (severity=critical, fails=%s)",
-                        record_id,
-                        field_name,
-                        entry_index,
-                        qc_result.get("total_fails", "?"),
-                    )
-                    # Replace trajectory with tombstone that preserves QC feedback
-                    entries[entry_index] = {
-                        "session_id": entry.get("session_id", ""),
-                        "timestamp": entry.get("timestamp", ""),
-                        "deleted": True,
-                        "deleted_reason": "QC failed (severity: critical)",
-                        "qc_status": "done",
-                        "qc_result": qc_result,
-                    }
-                    new_value = json.dumps(entries, indent=2, ensure_ascii=False)
-                    task.write({field_name: new_value})
-                    env.cr.commit()
                 return
 
             entries[entry_index]["qc_status"] = qc_status
