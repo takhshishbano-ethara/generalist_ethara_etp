@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import patch, MagicMock
 
 from odoo import fields
@@ -104,7 +105,7 @@ class TestCreateInstancesFromDataset(TransactionCase):
         f.close()
         return f.name
 
-    def _valid_entry(self, number=1, **overrides):
+    def _valid_entry(self, number: Any = 1, **overrides):
         entry = {
             "org": "edgeorg", "repo": "edgerepo", "number": number,
             "state": "closed", "title": f"PR #{number}", "body": "desc",
@@ -206,6 +207,47 @@ class TestS3UriParsing(TransactionCase):
             self.assertEqual(call_args[0], "test-bucket")
             self.assertEqual(call_args[1], "jaeger/phase1/1/org__repo_raw_dataset.jsonl")
 
+    def test_s3_uri_bucket_overrides_icp(self):
+        # Regression guard: if the webhook delivers an s3:// URI whose bucket
+        # differs from ICP jaeger.s3_bucket, the URI's bucket wins. This is
+        # what prevents the production 403 where worker wrote to bucket A
+        # and Odoo tried to download from bucket B.
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("jaeger.s3_bucket", "stale-config-bucket")
+        s3_paths = {"raw_dataset": "s3://worker-actual-bucket/jaeger/phase1/1/f.jsonl"}
+        with patch("boto3.client") as mock_boto:
+            mock_client = MagicMock()
+            mock_boto.return_value = mock_client
+            mock_client.download_file.side_effect = Exception("test-abort")
+
+            with self.assertRaises(Exception):
+                self.repo._create_instances_from_s3(s3_paths)
+
+            call_args = mock_client.download_file.call_args[0]
+            self.assertEqual(call_args[0], "worker-actual-bucket")
+        # Restore for later tests in the class
+        ICP.set_param("jaeger.s3_bucket", "test-bucket")
+
+    def test_s3_uri_with_dots_and_hyphens_in_bucket(self):
+        s3_paths = {"raw_dataset": "s3://my.prod-bucket.eu/jaeger/phase1/1/f.jsonl"}
+        with patch("boto3.client") as mock_boto:
+            mock_client = MagicMock()
+            mock_boto.return_value = mock_client
+            mock_client.download_file.side_effect = Exception("test-abort")
+
+            with self.assertRaises(Exception):
+                self.repo._create_instances_from_s3(s3_paths)
+
+            call_args = mock_client.download_file.call_args[0]
+            self.assertEqual(call_args[0], "my.prod-bucket.eu")
+            self.assertEqual(call_args[1], "jaeger/phase1/1/f.jsonl")
+
+    def test_malformed_s3_uri_empty_key_raises(self):
+        with self.assertRaises(ValueError):
+            self.repo._create_instances_from_s3({"raw_dataset": "s3://bucket-only"})
+        with self.assertRaises(ValueError):
+            self.repo._create_instances_from_s3({"raw_dataset": "s3://bucket-only/"})
+
     def test_bare_key_used_as_is(self):
         s3_paths = {"raw_dataset": "jaeger/phase1/1/org__repo_raw_dataset.jsonl"}
         with patch("boto3.client") as mock_boto:
@@ -217,6 +259,7 @@ class TestS3UriParsing(TransactionCase):
                 self.repo._create_instances_from_s3(s3_paths)
 
             call_args = mock_client.download_file.call_args[0]
+            self.assertEqual(call_args[0], "test-bucket")
             self.assertEqual(call_args[1], "jaeger/phase1/1/org__repo_raw_dataset.jsonl")
 
     def test_missing_raw_dataset_key_raises(self):
@@ -318,9 +361,10 @@ class TestValidateRepoErrorHandling(TransactionCase):
     def test_not_found_sets_terminal_state(self):
         try:
             from github import UnknownObjectException
-            exc = UnknownObjectException(404, {"message": "Not Found"}, None)
         except ImportError:
             self.skipTest("PyGithub not installed")
+            return
+        exc = UnknownObjectException(404, {"message": "Not Found"}, None)
 
         repo = self._create_repo()
         with patch.object(type(repo), "_validate_repo_metadata",
@@ -492,7 +536,12 @@ class TestStage5Orchestration(TransactionCase):
         self.repo.write({"current_stage": "stage5"})
 
     def test_finalize_creates_final_dataset(self):
-        self.repo.run_dataset_finalization()
+        # run_dataset_finalization() calls env.cr.commit(), which TransactionCase
+        # forbids. Mock the cursor's commit/rollback to no-ops so the body runs
+        # inside the test transaction.
+        with patch.object(self.env.cr, "commit"), \
+                patch.object(self.env.cr, "rollback"):
+            self.repo.run_dataset_finalization()
         self.assertEqual(self.repo.dataset_status, "done")
         self.assertEqual(self.repo.final_dataset_count, 1)
         self.assertTrue(self.repo.final_dataset_jsonl_path)
