@@ -60,7 +60,7 @@ def generate_description_from_turns(env, turns):
     if not turns:
         return "", {}
 
-    system_prompt = _get_prompt("description_prompt.md") or _get_prompt("task_description_prompt.md")
+    system_prompt = _get_prompt("description_prompt.md")
     if not system_prompt:
         _logger.warning("generate_description_from_turns: no description_prompt.md")
         return "", {}

@@ -729,7 +729,7 @@ class TalosSandbox(models.Model):
             )
         return total_in, total_out
 
-    def _query_litellm_spend(self):
+    def _query_litellm_spend(self, window_start=None, window_end=None):
         self.ensure_one()
         import hashlib
         import urllib.error
@@ -768,6 +768,10 @@ class TalosSandbox(models.Model):
             base_url = "http://localhost:%d" % litellm_port
             dotenv = _load_dotenv()
             litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+            if not litellm_key and self.docker_gateway_token:
+                # Mirror the derivation in _build_compose_env so boot-time and
+                # query-time agree when no dotenv key is set.
+                litellm_key = "sk-talos-%s" % self.docker_gateway_token[:16]
 
         if not litellm_key:
             _logger.warning(
@@ -805,9 +809,15 @@ class TalosSandbox(models.Model):
             from datetime import datetime as _dt
             from datetime import timezone as _tz
 
-            start_dt = self.create_date
-            if start_dt.tzinfo is None:
-                start_dt = start_dt.replace(tzinfo=_tz.utc)
+            def _as_utc(dt):
+                if dt is None:
+                    return None
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=_tz.utc)
+                return dt
+
+            start_dt = _as_utc(window_start) or _as_utc(self.create_date)
+            end_dt = _as_utc(window_end)
 
             def _within_window(entry):
                 start_time = entry.get("startTime") or entry.get("start_time")
@@ -818,7 +828,11 @@ class TalosSandbox(models.Model):
                     entry_dt = _dt.fromisoformat(ts)
                     if entry_dt.tzinfo is None:
                         entry_dt = entry_dt.replace(tzinfo=_tz.utc)
-                    return entry_dt >= start_dt
+                    if start_dt and entry_dt < start_dt:
+                        return False
+                    if end_dt and entry_dt > end_dt:
+                        return False
+                    return True
                 except Exception:
                     return True
 
@@ -1355,52 +1369,52 @@ class TalosSandbox(models.Model):
         if trajectory:
             field_name = TRAJECTORY_FIELD_MAP.get(self.model_type)
             if field_name and self.talos_id:
+                from datetime import datetime as _dt
+                from datetime import timezone as _tz
+
+                # Replace-on-stop semantics: each sandbox stop for this model
+                # REPLACES any previously stored trajectory. One trajectory
+                # per model, always the latest. Token spend window therefore
+                # spans this sandbox's full lifetime (create_date -> now).
+                window_end = _dt.now(_tz.utc)
+
+                session_in, session_out = 0, 0
+                source = "none"
+                if self.model_type in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+                    session_in, session_out = self._query_litellm_spend(
+                        window_start=None, window_end=window_end
+                    )
+                    source = "litellm"
+                    if session_in == 0 and session_out == 0 and jsonl_entries:
+                        session_in, session_out = self._extract_tokens_from_jsonl(
+                            jsonl_entries
+                        )
+                        source = "jsonl"
+
                 session_entry = {
                     "session_id": secrets.token_hex(8),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "trajectory": trajectory,
+                    "tokens_in": session_in,
+                    "tokens_out": session_out,
+                    "token_source": source,
+                    "window_end": window_end.isoformat(),
                 }
 
-                existing_raw = self.talos_id[field_name] or ""
-                entries = []
-                if existing_raw.strip():
-                    try:
-                        parsed = json.loads(existing_raw)
-                        if isinstance(parsed, list):
-                            entries = parsed
-                        else:
-                            entries = [
-                                {
-                                    "session_id": "legacy",
-                                    "timestamp": "",
-                                    "trajectory": parsed,
-                                }
-                            ]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                entries.append(session_entry)
+                entries = [session_entry]
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.talos_id.write({field_name: new_value})
                 _logger.info(
-                    "Appended trajectory session %s (%d total entries) to %s for task %s",
+                    "Stored trajectory session %s (tokens_in=%d, tokens_out=%d, source=%s) to %s for task %s",
                     session_entry["session_id"],
-                    len(entries),
+                    session_in,
+                    session_out,
+                    source,
                     field_name,
                     self.talos_id.id,
                 )
 
-        # Extract token usage: LiteLLM spend API (primary), JSONL (fallback)
-        if self.talos_id:
-            total_in, total_out = self._query_litellm_spend()
-            source = "litellm"
-            if total_in == 0 and total_out == 0:
-                token_entries = jsonl_entries if jsonl_entries else []
-                if token_entries:
-                    total_in, total_out = self._extract_tokens_from_jsonl(token_entries)
-                    source = "jsonl"
-            if total_in > 0 or total_out > 0:
                 token_field_map = {
                     "claude": ("claude_input_tokens", "claude_output_tokens"),
                     "glm": ("glm_input_tokens", "glm_output_tokens"),
@@ -1413,19 +1427,19 @@ class TalosSandbox(models.Model):
                 if fields_pair:
                     self.talos_id.write(
                         {
-                            fields_pair[0]: total_in,
-                            fields_pair[1]: total_out,
+                            fields_pair[0]: session_in,
+                            fields_pair[1]: session_out,
                         }
                     )
                     _logger.info(
-                        "Saved token usage from %s (in=%d, out=%d) to %s/%s for task %s",
-                        source,
-                        total_in,
-                        total_out,
+                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        session_in,
+                        session_out,
                         fields_pair[0],
                         fields_pair[1],
                         self.talos_id.id,
                     )
+
 
         if self.turn_ids:
             # Aggregate bedrock QC tokens to task level before deleting turns
@@ -2304,7 +2318,10 @@ class TalosSandbox(models.Model):
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
         if not env.get("LITELLM_MASTER_KEY"):
-            env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
+            # Derive from gateway_token so _query_litellm_spend can reconstruct
+            # the same key without persistence. Random keys would drift between
+            # boot and query, causing 401 against LiteLLM_VerificationTokenTable.
+            env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % gateway_token[:16]
 
         gog_kp = self.talos_id.password or ""
         if gog_kp:

@@ -2,48 +2,37 @@
 <templates xml:space="preserve">
     <t t-name="atlas.SandboxCard">
         <div t-attf-class="o_atlas_card #{props.disabled ? 'o_atlas_card_disabled' : ''}">
-            <div class="o_atlas_card_header">
-                <div class="o_atlas_card_title"/>
-                <div class="o_atlas_card_actions">
-                    <button
-                        t-if="!props.disabled"
-                        class="btn btn-sm btn-outline-secondary"
-                        t-on-click="onNewSession"
-                        t-att-disabled="state.qcRunning or state.responseSaving"
-                        title="Start a fresh conversation session (clears context for new turns)">
-                        <i class="fa fa-plus me-1"/> New Session
-                    </button>
-                    <!--
-                    ============================================================
-                    START / STOP SANDBOX (COMMENTED OUT - not in use)
-                    JS handlers (onStartClick, onStopClick, onExportClick) stay
-                    so TaskDashboard's prop contract still holds. Uncomment this
-                    block to restore the sandbox Start/Stop buttons.
+            <!--
+            ============================================================
+            START / STOP SANDBOX (COMMENTED OUT - not in use)
+            JS handlers (onStartClick, onStopClick, onExportClick) stay
+            so TaskDashboard's prop contract still holds. Uncomment this
+            block (and wrap it in an .o_atlas_card_header if you also
+            want the container back) to restore the sandbox Start/Stop
+            buttons.
 
-                    <t t-if="props.disabled">
-                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
-                            Coming Soon
-                        </button>
-                    </t>
-                    <t t-elif="props.loading">
-                        <button class="btn btn-sm btn-outline-secondary" disabled="true">
-                            <i class="fa fa-spinner fa-spin me-1"/> Working...
-                        </button>
-                    </t>
-                    <t t-elif="isRunning or isStarting">
-                        <button class="btn btn-sm btn-outline-danger" t-on-click="onStopClick">
-                            <i class="fa fa-stop me-1"/> Stop
-                        </button>
-                    </t>
-                    <t t-else="">
-                        <button class="btn btn-sm btn-primary" t-on-click="onStartClick">
-                            <i class="fa fa-play me-1"/> Start Sandbox
-                        </button>
-                    </t>
-                    ============================================================
-                    -->
-                </div>
-            </div>
+            <t t-if="props.disabled">
+                <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                    Coming Soon
+                </button>
+            </t>
+            <t t-elif="props.loading">
+                <button class="btn btn-sm btn-outline-secondary" disabled="true">
+                    <i class="fa fa-spinner fa-spin me-1"/> Working...
+                </button>
+            </t>
+            <t t-elif="isRunning or isStarting">
+                <button class="btn btn-sm btn-outline-danger" t-on-click="onStopClick">
+                    <i class="fa fa-stop me-1"/> Stop
+                </button>
+            </t>
+            <t t-else="">
+                <button class="btn btn-sm btn-primary" t-on-click="onStartClick">
+                    <i class="fa fa-play me-1"/> Start Sandbox
+                </button>
+            </t>
+            ============================================================
+            -->
 
             <div t-if="props.dockerError" class="o_atlas_card_error">
                 <i class="fa fa-exclamation-triangle me-1"/>
@@ -85,14 +74,21 @@
                             <span class="o_atlas_history_title">
                                 <i class="fa fa-comments me-1"/> Conversation
                             </span>
-                            <span t-if="state.turns.length" class="badge bg-light text-muted ms-2">
+                            <span t-if="state.turns.length" class="o_atlas_history_count ms-2">
                                 <t t-out="state.turns.length"/> turns
                             </span>
                             <span t-if="state.historyLoading" class="ms-2 text-muted small">
                                 <i class="fa fa-spinner fa-spin"/>
                             </span>
                             <button
-                                class="btn btn-sm btn-outline-primary ms-auto"
+                                class="btn btn-sm btn-outline-secondary ms-auto"
+                                t-on-click="onNewSession"
+                                t-att-disabled="state.qcRunning or state.responseSaving"
+                                title="Start a fresh conversation session (clears context for new turns)">
+                                <i class="fa fa-plus me-1"/> New Session
+                            </button>
+                            <button
+                                class="btn btn-sm btn-outline-primary ms-2"
                                 t-on-click="onGenerateGoalRubric"
                                 t-att-disabled="!canGenerateGoalRubric"
                                 title="Generate goal description and scoring rubric from this conversation">
@@ -113,12 +109,12 @@
                             </div>
                             <div t-foreach="state.turns" t-as="turn" t-key="turn.id" class="o_atlas_history_turn">
                                 <div class="o_atlas_history_turn_head">
-                                    <span class="badge bg-light text-muted">#<t t-out="turn.turn_number"/></span>
+                                    <span class="o_atlas_turn_number">Turn <t t-out="turn.turn_number"/></span>
                                     <span t-if="turn.qc_severity"
-                                          t-attf-class="badge ms-2 text-bg-#{severityColor(turn.qc_severity)}">
-                                        QC: <t t-out="turn.qc_severity.toUpperCase()"/>
+                                          t-attf-class="badge rounded-pill ms-2 text-bg-#{severityColor(turn.qc_severity)}">
+                                        <t t-out="turn.qc_severity.toUpperCase()"/>
                                     </span>
-                                    <span t-if="turn.status" class="badge bg-light text-muted ms-2">
+                                    <span t-if="turn.status" class="badge rounded-pill bg-light text-muted ms-2">
                                         <t t-out="turn.status"/>
                                     </span>
                                 </div>
@@ -138,15 +134,15 @@
                         </div>
                     </div>
 
-                    <div class="o_atlas_manual_inputs">
+                    <div class="o_atlas_compose">
 
-                        <div class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
+                        <div class="o_atlas_compose_step o_atlas_compose_step_first">
+                            <div class="o_atlas_step_label">
+                                <span class="o_atlas_step_label_text">
                                     <i class="fa fa-pencil me-1"/> Prompt
                                 </span>
-                                <span t-if="state.currentTurnId" class="badge bg-light text-muted ms-2">
-                                    Turn #<t t-out="state.currentTurnId"/>
+                                <span t-if="state.currentTurnId" class="o_atlas_step_meta ms-2">
+                                    Turn <t t-out="state.currentTurnId"/>
                                 </span>
                             </div>
                             <textarea
@@ -175,9 +171,9 @@
                             </div>
                         </div>
 
-                        <div t-if="state.qcResult" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
+                        <div t-if="state.qcResult" class="o_atlas_compose_step">
+                            <div class="o_atlas_step_label">
+                                <span class="o_atlas_step_label_text">
                                     <i class="fa fa-shield me-1"/> QC Result
                                 </span>
                                 <span t-attf-class="badge rounded-pill ms-2 text-bg-#{qcSeverityColor}">
@@ -205,13 +201,11 @@
                             </div>
                         </div>
 
-                        <div t-if="state.qcResult and canSelectGate" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
-                                    <i class="fa fa-exclamation-circle text-warning me-1"/> Action required
-                                </span>
+                        <div t-if="state.qcResult and canSelectGate" class="o_atlas_compose_step o_atlas_gate_strip">
+                            <div class="o_atlas_gate_heading">
+                                <i class="fa fa-exclamation-circle me-1"/> Action required
                             </div>
-                            <div class="small text-muted mb-2">
+                            <div class="o_atlas_gate_text">
                                 QC flagged this prompt as <strong>medium</strong> severity. Rewrite the prompt or provide a justification for keeping it as-is.
                             </div>
                             <div class="o_atlas_manual_actions">
@@ -224,22 +218,18 @@
                             </div>
                         </div>
 
-                        <div t-if="state.qcResult and rewriteIsMandatory and !state.gateResolved" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
-                                    <i class="fa fa-exclamation-triangle text-danger me-1"/> Rewrite required
-                                </span>
+                        <div t-if="state.qcResult and rewriteIsMandatory and !state.gateResolved" class="o_atlas_compose_step o_atlas_gate_strip o_atlas_gate_forced">
+                            <div class="o_atlas_gate_heading">
+                                <i class="fa fa-exclamation-triangle me-1"/> Rewrite required
                             </div>
-                            <div class="small text-muted mb-2">
+                            <div class="o_atlas_gate_text">
                                 QC severity is <strong><t t-out="(state.qcResult.severity or '').toUpperCase()"/></strong>. You must rewrite the prompt and re-run QC before submitting a response.
                             </div>
                         </div>
 
-                        <div t-if="showRewriteBox and !state.gateResolved" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
-                                    <i class="fa fa-pencil me-1"/> Rewrite prompt
-                                </span>
+                        <div t-if="showRewriteBox and !state.gateResolved" class="o_atlas_compose_step o_atlas_gate_strip">
+                            <div class="o_atlas_gate_heading">
+                                <i class="fa fa-pencil me-1"/> Rewrite prompt
                             </div>
                             <textarea
                                 class="form-control o_atlas_manual_textarea"
@@ -263,11 +253,9 @@
                             </div>
                         </div>
 
-                        <div t-if="showJustificationBox and !state.gateResolved" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
-                                    <i class="fa fa-comment me-1"/> Justification
-                                </span>
+                        <div t-if="showJustificationBox and !state.gateResolved" class="o_atlas_compose_step o_atlas_gate_strip">
+                            <div class="o_atlas_gate_heading">
+                                <i class="fa fa-comment me-1"/> Justification
                             </div>
                             <textarea
                                 class="form-control o_atlas_manual_textarea"
@@ -286,12 +274,14 @@
                             </div>
                         </div>
 
-                        <div t-if="state.currentTurnId and state.gateResolved" class="o_atlas_manual_section">
-                            <div class="o_atlas_manual_section_header">
-                                <span class="o_atlas_manual_title">
+                        <div t-if="state.currentTurnId and state.gateResolved" class="o_atlas_compose_step">
+                            <div class="o_atlas_step_label">
+                                <span class="o_atlas_step_label_text">
                                     <i class="fa fa-reply me-1"/> Response
                                 </span>
-                                <span t-if="state.responseSaved" class="badge bg-success ms-2">Saved</span>
+                                <span t-if="state.responseSaved" class="o_atlas_saved_mark ms-2">
+                                    <i class="fa fa-check"/> saved
+                                </span>
                             </div>
                             <textarea
                                 class="form-control o_atlas_manual_textarea"

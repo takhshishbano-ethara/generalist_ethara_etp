@@ -1174,28 +1174,90 @@ class TalosSandboxK8s(models.AbstractModel):
                 raise
 
     def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host, nginx_image):
+        # Reconcile the ConfigMap on EVERY call. The deployment itself is
+        # idempotent below, but ConfigMap drift (WS_ROUTER_NGINX_CONF edited
+        # in code after the router was first deployed) would otherwise go
+        # undetected - nginx would keep serving the old routes forever.
+        import hashlib
+
+        desired_conf = WS_ROUTER_NGINX_CONF
+        desired_hash = hashlib.sha256(desired_conf.encode("utf-8")).hexdigest()[:16]
+        cm_changed = False
+
+        cm_body = client.V1ConfigMap(
+            metadata=client.V1ObjectMeta(
+                name="talos-ws-router-conf",
+                namespace=NAMESPACE,
+                labels=WS_ROUTER_LABELS,
+                annotations={"talos.ethara.ai/conf-hash": desired_hash},
+            ),
+            data={"default.conf": desired_conf},
+        )
+
         try:
-            apps_v1.read_namespaced_deployment(name=WS_ROUTER_NAME, namespace=NAMESPACE)
+            existing_cm = core_v1.read_namespaced_config_map(
+                name="talos-ws-router-conf", namespace=NAMESPACE
+            )
+            existing_conf = (existing_cm.data or {}).get("default.conf", "")
+            if existing_conf != desired_conf:
+                core_v1.replace_namespaced_config_map(
+                    name="talos-ws-router-conf",
+                    namespace=NAMESPACE,
+                    body=cm_body,
+                )
+                cm_changed = True
+                _logger.info(
+                    "WS router ConfigMap drift detected, patched (new hash=%s)",
+                    desired_hash,
+                )
+        except ApiException as e:
+            if e.status == 404:
+                try:
+                    core_v1.create_namespaced_config_map(
+                        namespace=NAMESPACE, body=cm_body
+                    )
+                    cm_changed = True
+                except ApiException as e2:
+                    if e2.status != 409:
+                        raise
+            else:
+                raise
+
+        # Deployment existence check comes AFTER ConfigMap reconciliation so a
+        # running router with stale config still gets its ConfigMap fixed.
+        try:
+            apps_v1.read_namespaced_deployment(
+                name=WS_ROUTER_NAME, namespace=NAMESPACE
+            )
+            if cm_changed:
+                # Rolling restart so nginx picks up the new config. Annotation
+                # change on pod template forces ReplicaSet rollover.
+                import datetime as _dt
+
+                patch = {
+                    "spec": {
+                        "template": {
+                            "metadata": {
+                                "annotations": {
+                                    "talos.ethara.ai/conf-hash": desired_hash,
+                                    "talos.ethara.ai/restarted-at": _dt.datetime.utcnow().isoformat(),
+                                }
+                            }
+                        }
+                    }
+                }
+                apps_v1.patch_namespaced_deployment(
+                    name=WS_ROUTER_NAME, namespace=NAMESPACE, body=patch
+                )
+                _logger.info(
+                    "Triggered rolling restart of WS router to pick up new ConfigMap"
+                )
             return
         except ApiException as e:
             if e.status != 404:
                 raise
 
         _logger.info("Creating WS router deployment in namespace %s", NAMESPACE)
-
-        cm = client.V1ConfigMap(
-            metadata=client.V1ObjectMeta(
-                name="talos-ws-router-conf",
-                namespace=NAMESPACE,
-                labels=WS_ROUTER_LABELS,
-            ),
-            data={"default.conf": WS_ROUTER_NGINX_CONF},
-        )
-        try:
-            core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
-        except ApiException as e:
-            if e.status != 409:
-                raise
 
         container = client.V1Container(
             name="nginx",

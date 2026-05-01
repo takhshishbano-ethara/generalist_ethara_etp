@@ -57,13 +57,13 @@
             <field name="has_turns" invisible="1"/>
 
             <div class="d-flex gap-3 mt-3" style="height: 720px;">
-              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0; height: 100%; overflow-y: auto;">
+              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0; height: 720px; overflow-y: auto;">
                 <widget name="atlas_task_dashboard"/>
               </div>
 
-              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0; height: 100%; overflow-y: auto;">
+              <div class="flex-grow-1" style="flex: 1 1 50%; min-width: 0; height: 720px; overflow-y: auto;">
                 <widget name="atlas_goal_status"/>
-                <div class="border rounded p-3 mb-3">
+                <div class="border rounded p-3 mb-3" style="border-radius: 10px !important;">
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="mb-0">Goal</h5>
                     <button name="action_regenerate_goal" type="object"
@@ -84,7 +84,7 @@
                   </div>
                 </div>
 
-                <div class="border rounded p-3">
+                <div class="border rounded p-3" style="border-radius: 10px !important;">
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <h5 class="mb-0">Scoring Criteria</h5>
                     <button name="action_regenerate_rubric" type="object"

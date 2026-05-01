@@ -14,26 +14,6 @@
     position: relative;
 }
 
-.o_atlas_card_header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--o-border-color, #dee2e6);
-    background: var(--o-gray-100, #f8f9fa);
-}
-
-.o_atlas_card_title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.o_atlas_card_label {
-    font-weight: 600;
-    font-size: 14px;
-}
-
 .o_atlas_card_error {
     padding: 8px 16px;
     background: #fde8e8;
@@ -53,34 +33,6 @@
     min-height: 300px;
 }
 
-.o_atlas_card_tabs {
-    display: flex;
-    border-bottom: 1px solid var(--o-border-color, #dee2e6);
-    background: var(--o-gray-100, #f8f9fa);
-    padding: 0 8px;
-}
-
-.o_atlas_card_tab {
-    padding: 8px 14px;
-    border: none;
-    background: none;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--o-text-color-muted, #6c757d);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
-
-    &:hover {
-        color: var(--o-brand-primary, #714B67);
-    }
-
-    &.active {
-        color: var(--o-brand-primary, #714B67);
-        border-bottom-color: var(--o-brand-primary, #714B67);
-    }
-}
-
 .o_atlas_card_content {
     flex: 1;
     overflow: hidden;
@@ -95,91 +47,34 @@
     flex-direction: column;
 }
 
-.o_atlas_card_iframe {
-    width: 100%;
-    flex: 1;
-    min-height: 500px;
-    border: none;
-}
-
-.o_atlas_card_placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 20px;
-    flex: 1;
-}
-
-.o_atlas_turns_table {
-    font-size: 12px;
-    margin: 0;
-
-    th {
-        font-weight: 600;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-    }
-}
-
-.o_atlas_turn_cell {
-    max-width: 300px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
+// ============================================================================
+// Manual input flow: history (top) + single compose card (bottom)
+// ============================================================================
 
 .o_atlas_manual_main {
     display: flex;
     flex-direction: column;
     gap: 16px;
     padding: 16px;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
+    height: 720px;
+    overflow: hidden;
 }
 
-.o_atlas_manual_inputs {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.o_atlas_manual_section {
-    border: 1px solid var(--o-border-color, #dee2e6);
-    border-radius: 8px;
-    padding: 12px 14px;
-    background: var(--o-view-background-color, #fff);
-}
-
-.o_atlas_manual_section_header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 8px;
-    font-size: 13px;
-}
-
-.o_atlas_manual_title {
-    font-weight: 600;
-    font-size: 13px;
-}
+// ---- Conversation history (unchanged shell, softened badges) ---------------
 
 .o_atlas_history {
-    border: 1px solid var(--o-border-color, #dee2e6);
-    border-radius: 8px;
     background: var(--o-view-background-color, #fff);
     display: flex;
     flex-direction: column;
-    max-height: 320px;
+    flex: 1;
+    min-height: 0;
 }
 
 .o_atlas_history_header {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--o-border-color, #dee2e6);
-    background: var(--o-gray-100, #f8f9fa);
+    padding: 4px 0 8px 0;
+    border-bottom: 1px solid var(--o-border-color, #eef0f2);
     font-size: 13px;
 }
 
@@ -187,12 +82,20 @@
     font-weight: 600;
 }
 
+.o_atlas_history_count {
+    font-size: 11px;
+    color: var(--o-text-color-muted, #6c757d);
+    font-weight: 500;
+}
+
 .o_atlas_history_list {
     overflow-y: auto;
-    padding: 8px 12px;
+    padding: 8px 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex: 1;
+    min-height: 0;
 }
 
 .o_atlas_history_empty {
@@ -214,6 +117,15 @@
     align-items: center;
     margin-bottom: 6px;
     font-size: 11px;
+    gap: 2px;
+}
+
+.o_atlas_turn_number {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--o-text-color-muted, #6c757d);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
 }
 
 .o_atlas_history_msg {
@@ -244,23 +156,126 @@
 
 .o_atlas_history_response .o_atlas_history_msg_body {
     color: var(--o-text-color, #212529);
-    background: #fff;
-    border: 1px solid var(--o-border-color, #e5e7eb);
-    border-radius: 4px;
-    padding: 6px 8px;
 }
 
-.o_atlas_history_justification .o_atlas_history_msg_body {
-    color: #664d03;
+.o_atlas_history_justification {
     background: #fff3cd;
     border: 1px solid #ffe69c;
     border-radius: 4px;
     padding: 6px 8px;
 }
 
+.o_atlas_history_justification .o_atlas_history_msg_body {
+    color: #664d03;
+}
+
 .o_atlas_history_justification .o_atlas_history_msg_label {
     color: #664d03;
 }
+
+// ---- Compose card: ONE outer border, inline steps inside -----------------
+
+.o_atlas_compose {
+    background: var(--o-view-background-color, #fff);
+    padding: 14px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    max-height: 55%;
+    overflow-y: auto;
+    border-top: 1px solid var(--o-border-color, #eef0f2);
+}
+
+.o_atlas_compose_step {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--o-border-color, #eef0f2);
+
+    &.o_atlas_compose_step_first {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+}
+
+.o_atlas_step_label {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--o-text-color-muted, #6c757d);
+}
+
+.o_atlas_step_label_text {
+    font-weight: 700;
+}
+
+.o_atlas_step_meta {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--o-text-color-muted, #6c757d);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.o_atlas_saved_mark {
+    font-size: 11px;
+    font-weight: 500;
+    color: #198754;
+    text-transform: none;
+    letter-spacing: 0;
+
+    i {
+        margin-right: 2px;
+    }
+}
+
+// ---- Gate strip: single tinted block for rewrite/justify/action-required -
+
+.o_atlas_gate_strip {
+    background: #fff9e6;
+    border-left: 3px solid #ffc107;
+    border-top: none;
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-top: 12px;
+
+    &.o_atlas_gate_forced {
+        background: #fdecea;
+        border-left-color: #dc3545;
+    }
+
+    // Consecutive gate strips collapse visually (shared group)
+    & + & {
+        margin-top: 8px;
+    }
+}
+
+.o_atlas_gate_heading {
+    font-size: 12px;
+    font-weight: 600;
+    color: #664d03;
+    margin-bottom: 4px;
+
+    .o_atlas_gate_forced & {
+        color: #842029;
+    }
+}
+
+.o_atlas_gate_text {
+    font-size: 12px;
+    color: #664d03;
+    margin-bottom: 8px;
+    line-height: 1.4;
+
+    .o_atlas_gate_forced & {
+        color: #842029;
+    }
+}
+
+// ---- Shared form elements inside compose ---------------------------------
 
 .o_atlas_manual_textarea {
     font-family: var(--o-font-family-monospace, monospace);
@@ -274,6 +289,8 @@
     margin-top: 8px;
     flex-wrap: wrap;
 }
+
+// ---- QC result block ------------------------------------------------------
 
 .o_atlas_qc_summary {
     font-size: 13px;

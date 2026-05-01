@@ -297,20 +297,33 @@ export class TalosJsonField extends Component {
         if (raw === this._lastRawValue) return;
         this._lastRawValue = raw;
         const parsed = parseEntries(raw);
-        this.state.entries = parsed.map((entry, idx) => ({
-            index: idx,
-            sessionId: entry.session_id || `session-${idx + 1}`,
-            timestamp: entry.timestamp || "",
-            trajectory: entry.trajectory,
-            html: entry.deleted
-                ? markup("")
-                : markup(renderTrajectoryHtml(entry.trajectory)),
-            deleted: !!entry.deleted,
-            deletedReason: entry.deleted_reason || "",
-            qcStatus: entry.qc_status || null,
-            qcResult: entry.qc_result || null,
-            taskDescriptionStatus: entry.task_description_status || null,
-        }));
+        this.state.entries = parsed.map((entry, idx) => {
+            const tokensIn = Number.isFinite(entry.tokens_in) ? entry.tokens_in : null;
+            const tokensOut = Number.isFinite(entry.tokens_out) ? entry.tokens_out : null;
+            const hasTokens = tokensIn !== null || tokensOut !== null;
+            return {
+                index: idx,
+                sessionId: entry.session_id || `session-${idx + 1}`,
+                timestamp: entry.timestamp || "",
+                trajectory: entry.trajectory,
+                html: entry.deleted
+                    ? markup("")
+                    : markup(renderTrajectoryHtml(entry.trajectory)),
+                deleted: !!entry.deleted,
+                deletedReason: entry.deleted_reason || "",
+                qcStatus: entry.qc_status || null,
+                qcResult: entry.qc_result || null,
+                taskDescriptionStatus: entry.task_description_status || null,
+                hasTokens,
+                tokensIn: tokensIn || 0,
+                tokensOut: tokensOut || 0,
+                tokensTotal: (tokensIn || 0) + (tokensOut || 0),
+            };
+        });
+    }
+
+    formatNumber(n) {
+        return new Intl.NumberFormat().format(n);
     }
 
     get hasEntries() {
