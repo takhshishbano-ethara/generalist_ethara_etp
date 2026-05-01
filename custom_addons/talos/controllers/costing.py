@@ -8,6 +8,58 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 
 
+def _task_row(task):
+    bi = task.bedrock_input_tokens or 0
+    bo = task.bedrock_output_tokens or 0
+    ci = task.claude_input_tokens or 0
+    co = task.claude_output_tokens or 0
+    gi = task.glm_input_tokens or 0
+    go = task.glm_output_tokens or 0
+    oi = task.oneP_input_tokens or 0
+    oo = task.oneP_output_tokens or 0
+    tqi = task.traj_qc_input_tokens or 0
+    tqo = task.traj_qc_output_tokens or 0
+    tdi = task.taskdesc_input_tokens or 0
+    tdo = task.taskdesc_output_tokens or 0
+    gdi = task.golden_input_tokens or 0
+    gdo = task.golden_output_tokens or 0
+
+    bt = bi + bo
+    ct = ci + co
+    gt = gi + go
+    ot = oi + oo
+    tqt = tqi + tqo
+    tdt = tdi + tdo
+    gdt = gdi + gdo
+
+    return {
+        "task_id": task.id,
+        "task_name": task.name or ("Task #%d" % task.id),
+        "bedrock_input": bi,
+        "bedrock_output": bo,
+        "bedrock_total": bt,
+        "claude_input": ci,
+        "claude_output": co,
+        "claude_total": ct,
+        "glm_input": gi,
+        "glm_output": go,
+        "glm_total": gt,
+        "oneP_input": oi,
+        "oneP_output": oo,
+        "oneP_total": ot,
+        "traj_qc_input": tqi,
+        "traj_qc_output": tqo,
+        "traj_qc_total": tqt,
+        "taskdesc_input": tdi,
+        "taskdesc_output": tdo,
+        "taskdesc_total": tdt,
+        "golden_input": gdi,
+        "golden_output": gdo,
+        "golden_total": gdt,
+        "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+    }
+
+
 class TalosCostingController(http.Controller):
     @http.route("/talos/costing/data", type="json", auth="user")
     def costing_data(self, period="week", **kw):
@@ -51,6 +103,7 @@ class TalosCostingController(http.Controller):
                     "taskdesc_output": 0,
                     "golden_input": 0,
                     "golden_output": 0,
+                    "tasks": [],
                 }
             emp_map[eid]["bedrock_input"] += task.bedrock_input_tokens or 0
             emp_map[eid]["bedrock_output"] += task.bedrock_output_tokens or 0
@@ -66,6 +119,7 @@ class TalosCostingController(http.Controller):
             emp_map[eid]["taskdesc_output"] += task.taskdesc_output_tokens or 0
             emp_map[eid]["golden_input"] += task.golden_input_tokens or 0
             emp_map[eid]["golden_output"] += task.golden_output_tokens or 0
+            emp_map[eid]["tasks"].append(_task_row(task))
 
         rows = []
         total_keys = [
@@ -88,6 +142,10 @@ class TalosCostingController(http.Controller):
             tqt = data["traj_qc_input"] + data["traj_qc_output"]
             tdt = data["taskdesc_input"] + data["taskdesc_output"]
             gdt = data["golden_input"] + data["golden_output"]
+
+            tasks_sorted = sorted(
+                data["tasks"], key=lambda t: t["grand_total"], reverse=True
+            )
 
             row = {
                 "employee_id": data["employee_id"],
@@ -114,6 +172,7 @@ class TalosCostingController(http.Controller):
                 "golden_output": data["golden_output"],
                 "golden_total": gdt,
                 "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+                "tasks": tasks_sorted,
             }
             rows.append(row)
             for k in total_keys:

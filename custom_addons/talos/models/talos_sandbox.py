@@ -768,6 +768,10 @@ class TalosSandbox(models.Model):
             base_url = "http://localhost:%d" % litellm_port
             dotenv = _load_dotenv()
             litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+            if not litellm_key and self.docker_gateway_token:
+                # Mirror the derivation in _build_compose_env so boot-time and
+                # query-time agree when no dotenv key is set.
+                litellm_key = "sk-talos-%s" % self.docker_gateway_token[:16]
 
         if not litellm_key:
             _logger.warning(
@@ -1368,48 +1372,17 @@ class TalosSandbox(models.Model):
                 from datetime import datetime as _dt
                 from datetime import timezone as _tz
 
-                existing_raw = self.talos_id[field_name] or ""
-                entries = []
-                if existing_raw.strip():
-                    try:
-                        parsed = json.loads(existing_raw)
-                        if isinstance(parsed, list):
-                            entries = parsed
-                        else:
-                            entries = [
-                                {
-                                    "session_id": "legacy",
-                                    "timestamp": "",
-                                    "trajectory": parsed,
-                                }
-                            ]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                # Per-session spend window: start at the end of the previous
-                # session's window (so a single task with multiple sandbox
-                # stops doesn't double-count), falling back to sandbox
-                # creation. End at "now", captured BEFORE the spend query so
-                # the next session picks up exactly where this one ends.
-                window_start = None
-                for prev in reversed(entries):
-                    prev_end = prev.get("window_end")
-                    if prev_end:
-                        try:
-                            ts = prev_end.replace("Z", "+00:00")
-                            window_start = _dt.fromisoformat(ts)
-                            if window_start.tzinfo is None:
-                                window_start = window_start.replace(tzinfo=_tz.utc)
-                            break
-                        except Exception:
-                            continue
+                # Replace-on-stop semantics: each sandbox stop for this model
+                # REPLACES any previously stored trajectory. One trajectory
+                # per model, always the latest. Token spend window therefore
+                # spans this sandbox's full lifetime (create_date -> now).
                 window_end = _dt.now(_tz.utc)
 
                 session_in, session_out = 0, 0
                 source = "none"
                 if self.model_type in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
                     session_in, session_out = self._query_litellm_spend(
-                        window_start=window_start, window_end=window_end
+                        window_start=None, window_end=window_end
                     )
                     source = "litellm"
                     if session_in == 0 and session_out == 0 and jsonl_entries:
@@ -1428,14 +1401,13 @@ class TalosSandbox(models.Model):
                     "window_end": window_end.isoformat(),
                 }
 
-                entries.append(session_entry)
+                entries = [session_entry]
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.talos_id.write({field_name: new_value})
                 _logger.info(
-                    "Appended trajectory session %s (%d total entries, session_in=%d, session_out=%d, source=%s) to %s for task %s",
+                    "Stored trajectory session %s (tokens_in=%d, tokens_out=%d, source=%s) to %s for task %s",
                     session_entry["session_id"],
-                    len(entries),
                     session_in,
                     session_out,
                     source,
@@ -1453,22 +1425,16 @@ class TalosSandbox(models.Model):
                 }
                 fields_pair = token_field_map.get(self.model_type)
                 if fields_pair:
-                    # Aggregate the task-level scalar from per-session tokens.
-                    # This supersedes the old single-query approach and keeps
-                    # the costing dashboard correct across multi-stop tasks.
-                    agg_in = sum(int(e.get("tokens_in") or 0) for e in entries)
-                    agg_out = sum(int(e.get("tokens_out") or 0) for e in entries)
                     self.talos_id.write(
                         {
-                            fields_pair[0]: agg_in,
-                            fields_pair[1]: agg_out,
+                            fields_pair[0]: session_in,
+                            fields_pair[1]: session_out,
                         }
                     )
                     _logger.info(
-                        "Saved token usage (agg_in=%d, agg_out=%d across %d sessions) to %s/%s for task %s",
-                        agg_in,
-                        agg_out,
-                        len(entries),
+                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        session_in,
+                        session_out,
                         fields_pair[0],
                         fields_pair[1],
                         self.talos_id.id,
@@ -2352,7 +2318,10 @@ class TalosSandbox(models.Model):
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
         if not env.get("LITELLM_MASTER_KEY"):
-            env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % secrets.token_hex(8)
+            # Derive from gateway_token so _query_litellm_spend can reconstruct
+            # the same key without persistence. Random keys would drift between
+            # boot and query, causing 401 against LiteLLM_VerificationTokenTable.
+            env["LITELLM_MASTER_KEY"] = "sk-talos-%s" % gateway_token[:16]
 
         gog_kp = self.talos_id.password or ""
         if gog_kp:

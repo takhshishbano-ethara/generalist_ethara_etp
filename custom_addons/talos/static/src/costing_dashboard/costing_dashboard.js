@@ -33,6 +33,7 @@ export class CostingDashboard extends Component {
             endDate: "",
             sortField: "grand_total",
             sortAsc: false,
+            expanded: {},
         });
 
         onMounted(() => this._loadData());
@@ -66,6 +67,17 @@ export class CostingDashboard extends Component {
             this.state.sortField = field;
             this.state.sortAsc = false;
         }
+    }
+
+    onToggleEmployee(employeeId) {
+        this.state.expanded = {
+            ...this.state.expanded,
+            [employeeId]: !this.state.expanded[employeeId],
+        };
+    }
+
+    isExpanded(employeeId) {
+        return !!this.state.expanded[employeeId];
     }
 
     get sortedRows() {

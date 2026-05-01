@@ -1068,6 +1068,15 @@ class Talos(models.Model):
             "1pd": "onePD_trajectory",
         }
 
+        token_fields_map = {
+            "claude": ("claude_input_tokens", "claude_output_tokens"),
+            "glm": ("glm_input_tokens", "glm_output_tokens"),
+            "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
+            "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
+            "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
+            "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
+        }
+
         sandbox = self.env["talos.sandbox"].browse(int(sandbox_id or 0))
         if not sandbox.exists() or sandbox.talos_id.id != self.id:
             raise UserError("Sandbox not found for this task.")
@@ -1087,7 +1096,12 @@ class Talos(models.Model):
         turn_count = len(sandbox.turn_ids)
         sandbox.turn_ids.unlink()
 
-        self.write({field_name: False})
+        write_values: dict = {field_name: False}
+        token_fields = token_fields_map.get(sandbox.model_type)
+        if token_fields:
+            write_values[token_fields[0]] = 0
+            write_values[token_fields[1]] = 0
+        self.write(write_values)
 
         _logger.info(
             "Deleted %s trajectory and %d turns for sandbox=%s task=%s by user=%s",
@@ -1119,7 +1133,11 @@ class Talos(models.Model):
                 raise AccessError(
                     "Only Quality Leads and Project Leads can delete trajectories."
                 )
-            self.write({"golden_trajectory": False})
+            self.write({
+                "golden_trajectory": False,
+                "golden_input_tokens": 0,
+                "golden_output_tokens": 0,
+            })
             _logger.info(
                 "Deleted golden_trajectory for task=%s by user=%s",
                 self.id,
