@@ -156,12 +156,7 @@ def _project_ids_in_category(kw):
 
 
 def _require_cto(user):
-    """Return a 403 Response if the user is not CTO, else None."""
-    if not user.has_group('etp_user_roles.group_cto'):
-        return return_Response(
-            message='Founder dashboard requires CTO role',
-            status=403,
-        )
+    # Role gate intentionally disabled: any @validate_token authenticated user can access these endpoints.
     return None
 
 
