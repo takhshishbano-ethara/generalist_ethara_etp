@@ -100,8 +100,8 @@ client only sees a short sanitised message and `status_code: 400`.
 | 2 | GET    | `/api/v2/taskforge/main/tasks_timeseries`                        | "Tasks Completed" line chart                       |
 | 3 | GET    | `/api/v2/taskforge/main/active_blockers`                         | "Active Blockers" right table                      |
 | 4 | GET    | `/api/v2/taskforge/main/project_health`                          | "Project Health & AHT" table                       |
-| 5 | GET    | `/api/v2/taskforge/main/performance_ranking`                     | "Performance Ranking" tab (legacy top/low split)   |
-| 6 | GET    | `/api/v2/taskforge/main/qc_feedback`                             | "QC Feedback" tab — project × quality aggregation  |
+| 5 | GET    | `/api/v2/taskforge/main/performance_ranking`                     | "Performance Ranking" tab — PLs + QRs + Taskers + Low performers   |
+| 6 | GET    | `/api/v2/taskforge/main/qc_feedback`                             | "QC Feedback" tab — KPI counts + rejection chips + per-project quality |
 | 7 | GET    | `/api/v2/taskforge/main/performance_ranking_panel`               | Performance Ranking **panel** (4 ranked cards)     |
 | 8 | GET    | `/api/v2/taskforge/main/qc_feedback_summary`                     | QC Feedback tab — 2 KPIs + chip rows               |
 | 9 | GET    | `/api/v2/taskforge/main/qc_feedback_justification_breakdown`     | QC Feedback → Justification tab — per-member table |
@@ -317,25 +317,28 @@ else                                -> healthy
 
 ---
 
-## 5. `GET /api/v2/taskforge/main/performance_ranking` — Ranking tab (legacy split)
+## 5. `GET /api/v2/taskforge/main/performance_ranking` — Ranking tab (PLs + QRs + Taskers in one call)
 
-Ranks every employee who has at least 1 task in the selected range.
-Zero-task employees are excluded entirely (fix for a legacy bug that
-mis-flagged inactive employees as low performers).
+Returns 4 independent ranking blocks in a single response:
+`top_project_leads`, `top_quality_reviewers`, `top_taskers`, `low_performers`.
+Zero-task employees are excluded from `low_performers` (fix for a legacy
+bug that mis-flagged inactive employees as low performers).
 
 **Own filters**:
 
 | Param           | Values                    | Default | Purpose |
 |-----------------|---------------------------|---------|---------|
-| `top_n`         | integer 1–50              | `10`    | Size of `top_taskers` list |
+| `top_n`         | integer 1–50              | `10`    | Size of each top-N list (PLs, QRs, taskers) |
 | `low_threshold` | float (percent)           | `50`    | Cutoff for `low_performers` list |
-| `project_id`    | integer                   | —       | Restrict to one project |
-| `employee_id`   | integer                   | —       | Restrict to one employee |
-| `search`        | string                    | —       | ilike on employee name |
-| `sort`          | see list below            | `productivity_desc` | In-memory sort |
+| `project_id`    | integer                   | —       | Restrict taskers + PLs + log aggregation to one project |
+| `employee_id`   | integer                   | —       | Restrict `top_taskers` / `low_performers` to one employee |
+| `search`        | string                    | —       | ilike on employee name (applies to tasker/low-performer block) |
+| `sort`          | see list below            | `productivity_desc` | In-memory sort for taskers |
 
-**Sort values**: `productivity_desc`/`_asc`, `total_desc`/`_asc`,
+**Sort values** (taskers only): `productivity_desc`/`_asc`, `total_desc`/`_asc`,
 `completed_desc`/`_asc`, `minutes_desc`/`_asc`.
+PL and QR lists are always sorted by `percentage_completion desc`
+and `qr_score desc` respectively.
 
 **Response `data`**:
 
@@ -343,6 +346,26 @@ mis-flagged inactive employees as low performers).
 {
   "date_from": "2026-04-01",
   "date_to": "2026-04-30",
+  "top_project_leads": [
+    {
+      "rank": 1,
+      "user_id": 17,
+      "name": "Arjun Mehta",
+      "completed": 4812,
+      "total": 5100,
+      "percentage_completion": 94.4
+    }
+  ],
+  "top_quality_reviewers": [
+    {
+      "rank": 1,
+      "employee_id": 52,
+      "name": "Sneha Kulkarni",
+      "taskers": 42,
+      "avg_quality": 9.2,
+      "qr_score": 9.2
+    }
+  ],
   "top_taskers": [
     {
       "employee_id": 104,
@@ -367,24 +390,41 @@ mis-flagged inactive employees as low performers).
 }
 ```
 
+**Field sources**:
+
+| Field | Source |
+|---|---|
+| `top_project_leads[].user_id` / `name` | `project.project.project_lead` (res.users) |
+| `top_project_leads[].completed` / `total` | `task.forge.log` count scoped to each PL's live projects |
+| `top_quality_reviewers[].employee_id` / `name` | `hr.employee` where `_get_task_forge_role() == 'qr'` |
+| `top_quality_reviewers[].taskers` | count of `hr.employee` with `task_forge_qr_id=QR.id` AND `task_forge_active=True` |
+| `top_quality_reviewers[].avg_quality` / `qr_score` | `read_group` avg of `quality_score > 0` across the QR's team |
+| `top_taskers` / `low_performers` | `task.forge.log` group-by `employee_id`, productivity = completed/total |
+
 `productivity = round(completed / total_tasks * 100, 1)`.
+QR scope is company-wide (filtered by `_get_task_forge_role() == 'qr'`)
+— the `project_id` / `employee_id` / `search` filters only apply to the
+task-log aggregation, not to QR identity detection.
 
 ---
 
-## 6. `GET /api/v2/taskforge/main/qc_feedback` — QC tab (project × quality)
+## 6. `GET /api/v2/taskforge/main/qc_feedback` — QC tab (KPIs + chips + project × quality)
 
-Per-project quality aggregation: average `quality_score` on completed
-tasks plus count of QR `no_issue` resolutions.
+Returns 3 independent blocks in a single response:
+- **KPI counts**: `justification_qc_count`, `prompt_qc_count`.
+- **Chip row**: `prompt_rejection_reasons[]` from `preference.ranking.rejection_reason`.
+- **Project × quality table**: `items[]` — per-project `avg_quality` +
+  `qr_no_issue_count` (unchanged legacy behaviour, still paginated).
 
 **Own filters**:
 
 | Param        | Values              | Default | Purpose |
 |--------------|---------------------|---------|---------|
-| `page`       | integer ≥ 1         | `1`     | Pagination |
-| `limit`      | integer 1–200       | `50`    | Page size |
-| `project_id` | integer             | —       | Single-project view |
-| `search`     | string              | —       | ilike on `project.name` |
-| `sort`       | see list below      | `quality_desc` | In-memory sort |
+| `page`       | integer ≥ 1         | `1`     | Pagination (items only) |
+| `limit`      | integer 1–200       | `50`    | Page size (items only) |
+| `project_id` | integer             | —       | Single-project view (all 3 blocks) |
+| `search`     | string              | —       | ilike on `project.name` (applies to items + KPIs) |
+| `sort`       | see list below      | `quality_desc` | In-memory sort for items |
 
 **Sort values**: `quality_desc`/`_asc`, `scored_desc`/`_asc`,
 `no_issue_desc`/`_asc`, `name_asc`/`name_desc`.
@@ -397,6 +437,23 @@ tasks plus count of QR `no_issue` resolutions.
   "date_to": "2026-04-30",
   "overall_avg_quality": 8.3,
   "total_tasks_scored": 1204,
+
+  "justification_qc_count": 1836,
+  "prompt_qc_count": 742,
+
+  "justification_categories": [],
+  "prompt_rejection_reasons": [
+    {"key": "Vague / Generic", "label": "Vague / Generic", "count": 891},
+    {"key": "Too Short",       "label": "Too Short",       "count": 387},
+    {"key": "Copy-Paste",      "label": "Copy-Paste",      "count": 214},
+    {"key": "Contradictory",   "label": "Contradictory",   "count": 132},
+    {"key": "Grammar",         "label": "Grammar",         "count": 132}
+  ],
+  "data_availability": {
+    "justification_categories": "pending_persistence",
+    "prompt_rejection_reasons": "live"
+  },
+
   "total": 42,
   "page": 1,
   "limit": 50,
@@ -412,9 +469,24 @@ tasks plus count of QR `no_issue` resolutions.
 }
 ```
 
-Only tasks with `state='completed'` AND `quality_score > 0` are
-counted. `qr_no_issue_count` uses `task.forge.blocker` rows where
-`state='no_issue'` and `qr_action_at` falls inside the range.
+**Field sources**:
+
+| Field | Source |
+|---|---|
+| `justification_qc_count` | `task.forge.log` count where `justification_text IS NOT NULL` in range |
+| `prompt_qc_count` | `task.forge.log` count where `prompt_text IS NOT NULL` in range |
+| `justification_categories` | empty stub — `grammar_check` controller returns categories per-call but does not persist them (`data_availability: 'pending_persistence'`) |
+| `prompt_rejection_reasons` | `preference.ranking.read_group` on `rejection_reason` with `submitted_at` in range |
+| `data_availability.prompt_rejection_reasons` | `'live'` when `preference.ranking` is installed, `'unavailable'` on KeyError |
+| `items[].avg_quality` / `tasks_scored` | `task.forge.log` group-by `project_id` where `state='completed'` AND `quality_score > 0` |
+| `items[].qr_no_issue_count` | `task.forge.blocker` group-by `project_id` where `state='no_issue'` and `qr_action_at` in range |
+
+Only tasks with `state='completed'` AND `quality_score > 0` contribute
+to `items`. `items` may be empty if nobody has scored tasks — the KPIs
+and chips are independent of that filter and will still populate.
+If `preference.ranking` is not installed or the rejection_reason field
+is missing, `prompt_rejection_reasons=[]` and
+`data_availability.prompt_rejection_reasons='unavailable'`.
 
 ---
 
