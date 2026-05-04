@@ -682,8 +682,13 @@ body:has(.vk-portal) .o_footer_copyright {
 .vk-charts-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.vk-charts-3 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.vk-charts-3 .vk-chart--hero { grid-column: 1 / -1; }
 @media (max-width: 768px) {
-  .vk-charts, .vk-charts-2 { grid-template-columns: 1fr; gap: 16px; }
+  .vk-charts, .vk-charts-2, .vk-charts-3 { grid-template-columns: 1fr; gap: 16px; }
+  .vk-charts-3 .vk-chart--hero { grid-column: auto; }
 }
 .vk-chart {
   margin: 0;
@@ -702,7 +707,7 @@ body:has(.vk-portal) .o_footer_copyright {
   object-fit: contain;
   border: 1px solid var(--vk-border);
 }
-.vk-chart--hero img { max-height: 280px; }
+.vk-chart--hero img { max-height: none; }
 .vk-chart figcaption {
   margin-top: 12px;
   font-family: var(--vk-font-mono);

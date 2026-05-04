@@ -17,6 +17,9 @@
             var saved = localStorage.getItem('kaiju:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+              document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
             }
           } catch(e) {}
         })();
@@ -180,21 +183,24 @@
     <div class="charts">
       <figure class="chart" style="grid-column: 1 / -1;">
         <button type="button" class="chart-trigger" aria-label="Preview combined results chart full size">
-          <img src="/kaiju_dashboard/static/src/portal/img/chart_combined.png" alt="Library Generation from Scratch: Stage 3 Pass Rate by Files Affected" loading="lazy" />
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/chart_combined.png" alt="Library Generation from Scratch: Stage 3 Pass Rate by Files Affected" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_chart_combined.png" alt="Library Generation from Scratch: Stage 3 Pass Rate by Files Affected" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Stage 3 Pass Rate by Files Affected</figcaption>
       </figure>
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview heatmap chart full size">
-          <img src="/kaiju_dashboard/static/src/portal/img/commit0_table1_heatmap.png" alt="Mean Pass Rate by Model and Stage" loading="lazy" />
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/commit0_table1_heatmap.png" alt="Mean Pass Rate by Model and Stage" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_heatmap.png" alt="Mean Pass Rate by Model and Stage" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 2 — Mean Pass Rate by Model and Stage</figcaption>
       </figure>
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview difficulty stages chart full size">
-          <img src="/kaiju_dashboard/static/src/portal/img/commit0_fig4_difficulty_stages.png" alt="Stage-wise Performance by Difficulty" loading="lazy" />
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/commit0_fig4_difficulty_stages.png" alt="Stage-wise Performance by Difficulty" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_difficulty_stages.png" alt="Stage-wise Performance by Difficulty" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 3 — Stage Performance by Difficulty</figcaption>
