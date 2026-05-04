@@ -109,10 +109,10 @@
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
-          <div class="glance-row"><dt>Repositories</dt><dd><b>13</b></dd></div>
-          <div class="glance-row"><dt>Languages</dt><dd><b>5</b></dd></div>
-          <div class="glance-row"><dt>Embedded images</dt><dd><b>67</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10000</b></dd></div>
+          <div class="glance-row"><dt>Repositories</dt><dd><b>1100</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
+          <div class="glance-row"><dt>Embedded images</dt><dd><b>24000</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
         </dl>
         <!-- <p class="glance-foot mono">Benchmark · v1 · 2026</p> -->
@@ -127,22 +127,22 @@
     <div class="kpi-row" aria-label="Valid instances composition">
       <div class="kpi-card">
         <p class="kpi-label">Repositories</p>
-        <p class="kpi-value"><span class="kpi-big">13</span></p>
+        <p class="kpi-value"><span class="kpi-big">1100</span></p>
         <p class="kpi-sub mono">open-source projects</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Languages</p>
-        <p class="kpi-value"><span class="kpi-big">5</span></p>
+        <p class="kpi-value"><span class="kpi-big">8</span></p>
         <p class="kpi-sub mono">across the stack</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Embedded images</p>
-        <p class="kpi-value"><span class="kpi-big">67</span></p>
+        <p class="kpi-value"><span class="kpi-big">24000</span></p>
         <p class="kpi-sub mono">screenshots · diagrams · plots</p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Instances</p>
-        <p class="kpi-value"><span class="kpi-big">20</span></p>
+        <p class="kpi-value"><span class="kpi-big">10000</span></p>
         <p class="kpi-sub mono">production PRs reconstructed</p>
       </div>
     </div>
