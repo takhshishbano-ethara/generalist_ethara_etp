@@ -101,7 +101,7 @@
     <p class="section-label" id="overview-label">§01 — The environment</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>MILO-Bench trains AI agents to perform long-horizon software evolution extended from SWE-EVO. Given real-world codebases and their development history, the system works through sequences of 1 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++. Unlike single-issue setups, it requires maintaining coherent, consistent development over extended timelines. Each instance reconstructs a milestone from post-training-cutoff repositories, with hermetic Docker environments.</p>
+        <p>MILO-Bench trains AI agents to perform long-horizon software evolution extended from SWE-EVO. Given real-world codebases and their development history, the system works through sequences of 2 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++. Unlike single-issue setups, it requires maintaining coherent, consistent development over extended timelines. Each instance reconstructs a milestone from post-training-cutoff repositories, with hermetic Docker environments.</p>
         <ul class="capabilities">
           <li>Long-horizon evaluation: 2–100+ consecutive PR sequences per instance</li>
           <li>Multi-language coverage across 8 programming languages</li>
@@ -362,21 +362,6 @@
   </footer>
 
 </div><!-- /.page -->
-
-      <!-- Drawer backdrop — semi-transparent overlay behind the panel. -->
-      <div class="drawer-backdrop" id="drawer-backdrop"></div>
-
-      <!-- Drawer panel — slides in from right when a table row is clicked.
-           JS populates drawer-body with instance detail dl pairs. -->
-      <div class="drawer" id="drawer" aria-hidden="true" role="dialog"
-           aria-modal="false" hidden="hidden">
-        <div class="drawer-head">
-          <p class="drawer-label mono">Run detail</p>
-          <button class="drawer-close" id="drawer-close"
-                  aria-label="Close detail panel">×</button>
-        </div>
-        <div class="drawer-body" id="drawer-body"></div>
-      </div>
 
       <!-- Lightbox overlay — hidden until a chart image is clicked.
            JS sets the <img> src + alt from the trigger, then toggles

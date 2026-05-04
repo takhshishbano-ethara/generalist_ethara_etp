@@ -1335,6 +1335,25 @@ body.drawer-open {
 }
 
 /* ============================================================
+   INLINE ROW-EXPAND (detail row)
+   ============================================================ */
+.detail-row td { padding: 0; background: var(--bg-3); }
+.detail-content { padding: 24px 28px; }
+.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+.detail-block-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.detail-row-item { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.detail-row-item:last-child { border-bottom: none; }
+.detail-key { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-3); }
+.detail-val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); font-weight: 500; text-align: right; }
+.expand-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; transition: transform 200ms ease; }
+.expand-icon svg { width: 14px; height: 14px; color: var(--ink-3); }
+.matrix-row.row-expanded .expand-icon { transform: rotate(90deg); }
+.matrix-row.row-expanded .expand-icon svg { color: var(--accent); }
+.matrix-row { cursor: pointer; }
+.matrix-row:hover { background: var(--bg-3); }
+
+/* ============================================================
    REDUCED MOTION — respect user preference.
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {

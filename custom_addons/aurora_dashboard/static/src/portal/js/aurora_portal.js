@@ -478,13 +478,13 @@
     return '<span class="au-eval-run ' + cls + '">' + esc(result) + '</span>';
   }
 
-  function evalRenderRow(d) {
+  function evalRenderRow(d, isExpanded) {
     var claude = d.models && d.models["Claude Opus 4.6"] ? d.models["Claude Opus 4.6"] : {};
     var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
     var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
 
     return (
-      '<tr data-eval-id="' + esc(d.instance_id) + '">' +
+      '<tr class="matrix-row' + (isExpanded ? ' row-expanded' : '') + '" data-eval-id="' + esc(d.instance_id) + '">' +
         '<td class="au-etd-instance">' +
           '<span class="au-eval-instance-name">' + esc(d.instance_id) + '</span>' +
         '</td>' +
@@ -496,93 +496,9 @@
         '<td class="au-etd-repo">' +
           (d.repo_url ? '<a class="au-pr-link" href="' + esc(d.repo_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">View</a>' : '<span class="au-text-muted">—</span>') +
         '</td>' +
-        '<td class="au-etd-expand"><span class="au-expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
+        '<td class="au-etd-expand"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
       '</tr>'
     );
-  }
-
-  var drawerPrevFocus = null;
-
-  function openDrawer(d) {
-    var drawer = document.getElementById("drawer");
-    var body = document.getElementById("drawer-body");
-    var backdrop = document.getElementById("drawer-backdrop");
-    if (!drawer || !body) return;
-
-    drawerPrevFocus = document.activeElement;
-
-    var claude = d.models && d.models["Claude Opus 4.6"] ? d.models["Claude Opus 4.6"] : {};
-    var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
-    var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
-
-    function runBadgeHtml(result) {
-      if (!result) return '<span style="color:var(--ink-muted,#64748b)">—</span>';
-      if (result === "Pass") return '<span class="drawer-run-badge drawer-run-pass">' + esc(result) + '</span>';
-      return '<span class="drawer-run-badge drawer-run-fail">' + esc(result) + '</span>';
-    }
-
-    function modelDlHtml(name, m) {
-      var html = '<p class="drawer-section-title">' + esc(name) + '</p>';
-      html += '<dt>Run 1</dt><dd>' + runBadgeHtml(m.run_1) + '</dd>';
-      html += '<dt>Run 2</dt><dd>' + runBadgeHtml(m.run_2) + '</dd>';
-      html += '<dt>Run 3</dt><dd>' + runBadgeHtml(m.run_3) + '</dd>';
-      html += '<dt>Pass@3</dt><dd><b>' + esc(m.pass_at_3 || "0.00%") + '</b></dd>';
-      if (m.trajectory) {
-        html += '<dt>Trajectory</dt><dd><a href="' + esc(m.trajectory) + '" target="_blank" rel="noopener">View →</a></dd>';
-      }
-      return html;
-    }
-
-    var dl = '<dl>';
-    dl += '<p class="drawer-section-title">Instance Info</p>';
-    dl += '<dt>Instance</dt><dd>' + esc(d.instance_id) + '</dd>';
-    dl += '<dt>Task ID</dt><dd>' + esc(d.task_id || d.instance_id) + '</dd>';
-    dl += '<dt>Category</dt><dd>' + esc((d.category || "").replace(/_/g, " ")) + '</dd>';
-    dl += '<dt>Language</dt><dd>' + esc(d.language || "N/A") + '</dd>';
-    dl += '<dt>PR Range</dt><dd>' + esc(d.pr_range || "N/A") + '</dd>';
-    dl += '<dt>Avg Files</dt><dd>' + (d.avg_files_modified || 0).toFixed(1) + '</dd>';
-    dl += '<dt>Avg Tool Calls</dt><dd>' + (d.avg_tool_calls || 0).toFixed(1) + '</dd>';
-    dl += '<dt>Avg Turns</dt><dd>' + (d.avg_turns || 0).toFixed(1) + '</dd>';
-    dl += '<dt>Est. Time</dt><dd>' + (d.estimated_time || 0).toFixed(1) + ' min</dd>';
-    dl += '<dt>PRs</dt><dd>' + ((d.pr_urls || []).length) + '</dd>';
-    if (d.repo_url) {
-      dl += '<dt>Repository</dt><dd><a href="' + esc(d.repo_url) + '" target="_blank" rel="noopener">View on GitHub →</a></dd>';
-    }
-    dl += modelDlHtml("Claude Opus 4.6", claude);
-    dl += modelDlHtml("GLM 5", glm);
-    dl += modelDlHtml("Kimi K2.5", kimi);
-    dl += '</dl>';
-
-    body.innerHTML = dl;
-
-    drawer.removeAttribute("hidden");
-    drawer.setAttribute("data-open", "true");
-    drawer.setAttribute("aria-hidden", "false");
-    if (backdrop) backdrop.classList.add("is-visible");
-    document.body.classList.add("drawer-open");
-
-    var closeBtn = document.getElementById("drawer-close");
-    if (closeBtn) closeBtn.focus();
-  }
-
-  function closeDrawer() {
-    var drawer = document.getElementById("drawer");
-    var backdrop = document.getElementById("drawer-backdrop");
-    if (!drawer) return;
-
-    drawer.setAttribute("data-open", "false");
-    drawer.setAttribute("aria-hidden", "true");
-    if (backdrop) backdrop.classList.remove("is-visible");
-    document.body.classList.remove("drawer-open");
-
-    setTimeout(function () {
-      drawer.setAttribute("hidden", "hidden");
-    }, 320);
-
-    if (drawerPrevFocus && typeof drawerPrevFocus.focus === "function") {
-      drawerPrevFocus.focus();
-    }
-    drawerPrevFocus = null;
   }
 
   function evalRenderDetailRow(d) {
@@ -639,7 +555,10 @@
     var html = "";
 
     for (var i = 0; i < pageData.length; i++) {
-      html += evalRenderRow(pageData[i]);
+      var d = pageData[i];
+      var isExpanded = d.instance_id === evalExpandedId;
+      html += evalRenderRow(d, isExpanded);
+      if (isExpanded) html += evalRenderDetailRow(d);
     }
 
     if (pageData.length === 0) {
@@ -800,30 +719,14 @@
     var tableWrap = document.getElementById("au-eval-table-wrap");
     if (tableWrap) {
       tableWrap.addEventListener("click", function (e) {
+        if (e.target.closest("a")) return;
         var row = e.target.closest("tr[data-eval-id]");
         if (!row) return;
         var id = row.getAttribute("data-eval-id");
-        var d = evalAllData.find(function (item) { return item.instance_id === id; });
-        if (d) openDrawer(d);
+        evalExpandedId = (evalExpandedId === id) ? null : id;
+        evalRenderTable();
       });
     }
-
-    var drawerCloseBtn = document.getElementById("drawer-close");
-    if (drawerCloseBtn) {
-      drawerCloseBtn.addEventListener("click", closeDrawer);
-    }
-    var drawerBackdrop = document.getElementById("drawer-backdrop");
-    if (drawerBackdrop) {
-      drawerBackdrop.addEventListener("click", closeDrawer);
-    }
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") {
-        var drawer = document.getElementById("drawer");
-        if (drawer && drawer.getAttribute("data-open") === "true") {
-          closeDrawer();
-        }
-      }
-    });
 
     var pagination = document.getElementById("au-eval-pagination");
     if (pagination) {

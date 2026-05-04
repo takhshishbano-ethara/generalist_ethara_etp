@@ -117,7 +117,7 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Repos Covered</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="7" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="6" aria-hidden="true">0</span></span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Difficulty Levels</p>
@@ -403,14 +403,6 @@
         </figure>
       </div>
 
-      <div class="drawer-backdrop" id="drawer-backdrop"></div>
-      <div class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="false" hidden="hidden">
-        <div class="drawer-head">
-          <p class="drawer-label mono">Run detail</p>
-          <button class="drawer-close" id="drawer-close" aria-label="Close detail panel">×</button>
-        </div>
-        <div class="drawer-body" id="drawer-body"></div>
-      </div>
     </body>
     </html>
   </template>

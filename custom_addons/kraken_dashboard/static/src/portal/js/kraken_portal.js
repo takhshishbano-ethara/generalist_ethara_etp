@@ -317,6 +317,43 @@
     return sorted;
   }
 
+  let expandedId = null;
+
+  function renderDetailRow(inst) {
+    const glm5 = inst.runs['GLM-5'] || {};
+    const nova = inst.runs['Nova-2-Lite'] || {};
+    const outcomeColor = (o) => o === 'pass' ? 'var(--pass)' : (o === 'correct_but_slow' ? 'var(--accent)' : 'var(--fail)');
+    const item = (k, v) => `<div class="detail-row-item"><span class="detail-key">${esc(k)}</span><span class="detail-val">${v}</span></div>`;
+
+    function modelBlock(title, m) {
+      const o = m.outcome || 'fail';
+      return `<div class="detail-block"><div class="detail-block-title">${esc(title)}</div>`
+        + item('Outcome', `<b style="color:${outcomeColor(o)}">${outcomeLabel(o).toUpperCase()}</b>`)
+        + item('HSR', Number(m.hsr || 0).toFixed(4))
+        + item('Speedup (LM)', Number(m.speedup_lm || 0).toFixed(4) + '\u00d7')
+        + item('Speedup (Adj)', Number(m.speedup_adjusted || 0).toFixed(4) + '\u00d7')
+        + item('Tests', (m.tests_passed ?? '-') + ' / ' + (m.tests_total ?? '-'))
+        + item('Correctness', Number(m.correctness_pct || 0).toFixed(1) + '%')
+        + item('Files modified', esc(String(m.files_modified ?? '-')))
+        + item('Tool calls', esc(String(m.tool_calls ?? '-')))
+        + item('Cost', fmtCost(m.cost))
+        + item('Time', fmtTime(m.time_secs))
+        + `</div>`;
+    }
+
+    return `<tr class="detail-row" data-detail-for="${esc(inst.instance_id)}"><td colspan="8"><div class="detail-content"><div class="detail-grid">`
+      + `<div class="detail-block"><div class="detail-block-title">Instance</div>`
+        + item('Instance ID', esc(inst.instance_id))
+        + item('Repo', inst.repo_url ? `<a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a>` : esc(inst.repo))
+        + item('Difficulty', esc(inst.difficulty))
+        + item('Gold Speedup', Number(inst.gold_speedup).toFixed(2) + '\u00d7')
+        + item('Language', esc(inst.language))
+      + `</div>`
+      + modelBlock('GLM-5', glm5)
+      + modelBlock('Nova-2-Lite', nova)
+      + `</div></div></td></tr>`;
+  }
+
   function renderDataset() {
     const tb = document.getElementById('matrix-tbody');
     if (!tb) return;
@@ -327,33 +364,36 @@
     const start = (currentPage - 1) * pageSize;
     const page = sorted.slice(start, start + pageSize);
 
-    tb.innerHTML = page.map((inst, i) => {
+    let html = '';
+    page.forEach((inst, i) => {
       const glm5 = inst.runs['GLM-5'];
       const nova = inst.runs['Nova-2-Lite'];
       const glm5Outcome = glm5?.outcome || 'fail';
       const novaOutcome = nova?.outcome || 'fail';
       const tagStyle = 'display:inline-flex;align-items:center;justify-content:center;max-width:100%;min-height:34px;text-align:center;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;padding:3px 5px;border:1px solid currentColor;white-space:normal;line-height:1.3;box-sizing:border-box;';
-      const detailStyle = 'display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:10px;border:1px solid var(--border-2);cursor:pointer;color:var(--ink-3);background:transparent;font-family:var(--font-mono);';
       const diffColors = { easy:'color:var(--pass);', medium:'color:var(--accent);', hard:'color:var(--fail);', expert:'color:#7c3aed;' };
       const diffStyle = diffColors[(inst.difficulty || '').toLowerCase()] || 'color:var(--ink-3);';
-      return `
-        <tr class="matrix-row">
+      const isExpanded = inst.instance_id === expandedId;
+      html += `
+        <tr class="matrix-row${isExpanded ? ' row-expanded' : ''}" data-id="${esc(inst.instance_id)}">
           <td class="matrix-id"><span class="num mono">#${String(start + i + 1).padStart(2, '0')}</span> ${esc(inst.instance_id)}</td>
           <td class="matrix-meta"><span style="${tagStyle}${diffStyle}">${esc(inst.difficulty)}</span></td>
           <td class="matrix-meta">${Number(inst.gold_speedup).toFixed(2)}x</td>
           <td class="matrix-meta">${glm5 ? Number(glm5.hsr).toFixed(4) : '-'}</td>
           <td class="matrix-meta">${nova ? Number(nova.hsr).toFixed(4) : '-'}</td>
-          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(glm5Outcome)}" style="${tagStyle}" data-instance="${esc(inst.instance_id)}" data-model="GLM-5">${outcomeLabel(glm5Outcome)}</span></td>
-          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(novaOutcome)}" style="${tagStyle}" data-instance="${esc(inst.instance_id)}" data-model="Nova-2-Lite">${outcomeLabel(novaOutcome)}</span></td>
-          <td class="matrix-cell"><button style="${detailStyle}" data-instance="${esc(inst.instance_id)}" data-model="GLM-5">&#9654;</button></td>
+          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(glm5Outcome)}" style="${tagStyle}">${outcomeLabel(glm5Outcome)}</span></td>
+          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(novaOutcome)}" style="${tagStyle}">${outcomeLabel(novaOutcome)}</span></td>
+          <td class="matrix-cell"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>
         </tr>
       `;
-    }).join('');
+      if (isExpanded) html += renderDetailRow(inst);
+    });
 
     if (!page.length) {
-      tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted);">No instances match your filters</td></tr>';
+      html = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted);">No instances match your filters</td></tr>';
     }
 
+    tb.innerHTML = html;
     renderPagination(totalPages);
   }
 
@@ -401,94 +441,15 @@
 
   renderDataset();
 
-  let lastFocus = null;
-
-  const getDrawer = () => document.getElementById('drawer');
-  const getDrawerBody = () => document.getElementById('drawer-body');
-  const getDrawerClose = () => document.getElementById('drawer-close');
-
-  const ensureBackdrop = () => {
-    let bd = document.getElementById('drawer-backdrop');
-    if (!bd) {
-      bd = document.createElement('div');
-      bd.id = 'drawer-backdrop';
-      bd.className = 'drawer-backdrop';
-      document.body.appendChild(bd);
-    }
-    return bd;
-  };
-
-  const openDrawer = (instanceId, modelKey) => {
-    const drawer = getDrawer();
-    const drawerBody = getDrawerBody();
-    if (!drawer || !drawerBody) return;
-
-    const inst = byId.get(instanceId);
-    if (!inst) return;
-    const run = inst.runs[modelKey];
-    if (!run) return;
-    const outcome = run.outcome || 'fail';
-    const outcomeColor = outcome === 'pass' ? 'var(--pass)' : (outcome === 'correct_but_slow' ? 'var(--accent)' : 'var(--fail)');
-    drawerBody.innerHTML = `
-      <dl>
-        <dt>Instance</dt><dd><a href="${esc(inst.pr_url || inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.instance_id)}</a></dd>
-        <dt>Model</dt><dd class="${modelKey === 'GLM-5' ? 'tok-glm5' : 'tok-nova'}">${esc(modelKey)}</dd>
-        <dt>Outcome</dt><dd><b style="color:${outcomeColor}">${outcomeLabel(outcome).toUpperCase()}</b></dd>
-        <dt>Repo</dt><dd><a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a></dd>
-        <dt>Language</dt><dd>${esc(inst.language)}</dd>
-        <dt>Difficulty</dt><dd>${esc(inst.difficulty)}</dd>
-        <dt>Gold Speedup</dt><dd>${Number(inst.gold_speedup).toFixed(2)}×</dd>
-        <dt>HSR</dt><dd>${Number(run.hsr).toFixed(4)}</dd>
-        <dt>Speedup (LM)</dt><dd>${Number(run.speedup_lm).toFixed(4)}×</dd>
-        <dt>Speedup (Adj)</dt><dd>${Number(run.speedup_adjusted).toFixed(4)}×</dd>
-        <dt>Tests</dt><dd>${run.tests_passed} / ${run.tests_total}</dd>
-        <dt>Correctness</dt><dd>${Number(run.correctness_pct).toFixed(1)}%</dd>
-        <dt>Files changed</dt><dd>${esc(run.files_modified)}</dd>
-        <dt>Tool calls</dt><dd>${esc(run.tool_calls)}</dd>
-        <dt>Cost</dt><dd>${fmtCost(run.cost)}</dd>
-        <dt>Time</dt><dd>${fmtTime(run.time_secs)}</dd>
-        <dt>PR</dt><dd><a href="${esc(inst.pr_url)}" target="_blank" rel="noopener">original PR →</a></dd>
-      </dl>
-    `;
-    drawer.removeAttribute('hidden');
-    drawer.style.display = '';
-    document.body.classList.add('drawer-open');
-    ensureBackdrop().classList.add('is-visible');
-    requestAnimationFrame(() => {
-      drawer.setAttribute('data-open', 'true');
-      drawer.setAttribute('aria-hidden', 'false');
-    });
-    lastFocus = document.activeElement;
-    const closeBtn = getDrawerClose();
-    if (closeBtn) closeBtn.focus();
-  };
-
-  const closeDrawer = () => {
-    const drawer = getDrawer();
-    if (!drawer) return;
-    drawer.setAttribute('data-open', 'false');
-    drawer.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('drawer-open');
-    ensureBackdrop().classList.remove('is-visible');
-    setTimeout(() => { drawer.setAttribute('hidden', ''); }, prefersReduced ? 0 : 240);
-    if (lastFocus && lastFocus.focus) lastFocus.focus();
-  };
-
+  // Row-expand click handler
   document.addEventListener('click', (e) => {
-    if (e.target.closest('#drawer-close') || e.target.closest('.drawer-backdrop')) {
-      closeDrawer();
-      return;
-    }
-    const tileBtn = e.target.closest('#matrix [data-instance]');
-    if (tileBtn && tileBtn.dataset.instance) {
-      openDrawer(tileBtn.dataset.instance, tileBtn.dataset.model);
-      return;
-    }
-  });
-
-  document.addEventListener('keydown', (e) => {
-    const drawer = getDrawer();
-    if (e.key === 'Escape' && drawer && !drawer.hasAttribute('hidden')) closeDrawer();
+    const row = e.target.closest('#matrix tr[data-id]');
+    if (!row) return;
+    // Don't toggle if clicking a link
+    if (e.target.closest('a')) return;
+    const id = row.dataset.id;
+    expandedId = (expandedId === id) ? null : id;
+    renderDataset();
   });
 
   const lightbox = document.getElementById('lightbox');
