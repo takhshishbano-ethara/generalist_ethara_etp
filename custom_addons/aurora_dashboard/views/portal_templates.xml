@@ -160,7 +160,7 @@
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
-        <h2 class="pipeline-title">Three phases turn raw repositories into scored benchmarks.</h2>
+        <h2 class="pipeline-title">Three phases turn raw repositories into scored RL Environment.</h2>
       </div>
 
       <div class="pipeline">
@@ -342,7 +342,7 @@
       <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Code</p>
         <p class="res-title">Trajectories on GitHub</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Aurora</p>
+        <p class="res-url mono">github.com/Ethara-Ai/milo-bench-paper</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
