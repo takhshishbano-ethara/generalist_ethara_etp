@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,8 @@ try:
     from .util import get_tokens, TokenRotator
 except ImportError:
     from util import get_tokens, TokenRotator
+
+_logger = logging.getLogger(__name__)
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -49,11 +52,11 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def main(tokens: list[str], out_dir: Path, org: str, repo: str):
-    print("starting get all pull requests")
-    print(f"Output directory: {out_dir}")
-    print(f"Using {len(tokens)} token(s)")
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
+    _logger.info("starting get all pull requests")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"Using {len(tokens)} token(s)")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
 
     rotator = TokenRotator(tokens)
     g = rotator.get_client()
@@ -64,8 +67,12 @@ def main(tokens: list[str], out_dir: Path, org: str, repo: str):
             return obj.isoformat()
         return obj
 
+    _RATE_CHECK_INTERVAL = 200
+
     with open(out_dir / f"{org}__{repo}_prs.jsonl", "w", encoding="utf-8") as file:
-        for pull in tqdm(r.get_pulls("all"), desc="Pull Requests"):
+        count = 0
+        for pull in tqdm(r.get_pulls(state="all"), desc="Pull Requests"):
+            count += 1
             file.write(
                 json.dumps(
                     {

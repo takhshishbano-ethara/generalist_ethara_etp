@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="kraken_dashboard.Showcase">
+        <div class="kr-backend-showcase">
+            <div class="kr-backend-header">
+                <h1>Kraken Dashboard</h1>
+                <p>Repository-Level Performance Optimization Benchmark</p>
+            </div>
+
+            <div class="kr-backend-metrics">
+                <div class="kr-backend-metric">
+                    <span class="kr-backend-metric__value">20</span>
+                    <span class="kr-backend-metric__label">Instances</span>
+                </div>
+                <div class="kr-backend-metric">
+                    <span class="kr-backend-metric__value">2</span>
+                    <span class="kr-backend-metric__label">Models</span>
+                </div>
+                <div class="kr-backend-metric">
+                    <span class="kr-backend-metric__value">0.313</span>
+                    <span class="kr-backend-metric__label">Best HSR</span>
+                </div>
+                <div class="kr-backend-metric">
+                    <span class="kr-backend-metric__value">26.9x</span>
+                    <span class="kr-backend-metric__label">Max Speedup</span>
+                </div>
+            </div>
+
+            <div class="kr-backend-comparison">
+                <div class="kr-backend-model">
+                    <h3>GLM-5</h3>
+                    <div class="kr-backend-model__stat">HSR: <strong>0.313</strong></div>
+                    <div class="kr-backend-model__stat">Correctness: <strong>65%</strong></div>
+                    <div class="kr-backend-model__stat">Pass@1: <strong>7/20</strong></div>
+                </div>
+                <div class="kr-backend-model">
+                    <h3>Nova-2-Lite</h3>
+                    <div class="kr-backend-model__stat">HSR: <strong>0.268</strong></div>
+                    <div class="kr-backend-model__stat">Correctness: <strong>55%</strong></div>
+                    <div class="kr-backend-model__stat">Pass@1: <strong>2/20</strong></div>
+                </div>
+            </div>
+
+            <div class="kr-backend-links">
+                <a t-att-href="state.trajectories_url" target="_blank" class="kr-backend-link">
+                    📂 GitHub Repository
+                </a>
+                <a t-att-href="state.dataset_url" target="_blank" class="kr-backend-link">
+                    🤗 HuggingFace Dataset
+                </a>
+                <a t-att-href="state.paper_url" target="_blank" class="kr-backend-link">
+                    📄 Research Paper
+                </a>
+                <a href="/kraken" target="_blank" class="kr-backend-link">
+                    🌐 Portal View
+                </a>
+            </div>
+        </div>
+    </t>
+</templates>

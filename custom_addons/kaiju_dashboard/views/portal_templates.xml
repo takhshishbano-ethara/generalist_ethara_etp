@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_showcase" name="Kaiju Showcase">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Kaiju — Library Generation from Scratch · Ethara AI Labs</title>
+      <meta name="description" content="Kaiju evaluates frontier AI coding models on whole-library generation from specification, measuring module-level pass rates across a multi-stage refinement pipeline."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('kaiju:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+              document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <!-- Kaiju editorial stylesheet served as a static asset (bypasses web.assets_frontend so Bootstrap/portal chrome does not override the design). -->
+      <link rel="stylesheet" href="/kaiju_dashboard/static/src/portal/css/kaiju_portal.css"/>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/kaiju_dashboard/static/src/portal/js/kaiju_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+      <div class="scroll-progress" aria-hidden="true"></div>
+
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">KAIJU</h1>
+      <span class="badge">GENERATION</span>
+    </div>
+    <hr class="rule" />
+    <p class="thesis">Library Generation from <em>Scratch</em></p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+  </header>
+
+  <main id="main">
+
+  <!-- §01 — Overview -->
+  <section class="section" id="overview" aria-labelledby="overview-label">
+    <p class="section-label" id="overview-label">§01 — Overview</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Nova-2-Lite) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
+      </div>
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
+          <div class="glance-row"><dt>Pipeline runs</dt><dd><b>40</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
+          <div class="glance-row"><dt>Stages</dt><dd><b>3</b> (Draft → Lint → Test)</dd></div>
+          <div class="glance-row"><dt>Completeness</dt><dd>100% structural</dd></div>
+        </dl>
+        <!-- <p class="glance-foot mono">v1 · 2026</p> -->
+      </aside>
+    </div>
+  </section>
+
+  <!-- §02 — Scale -->
+  <section class="section" id="scale" aria-labelledby="scale-label">
+    <p class="section-label" id="scale-label">§02 — Key Metrics</p>
+    <p class="section-desc">Four numbers that define the scope of Kaiju.</p>
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <p class="kpi-label">Library Instances</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="10000">0</span></span></p>
+        <p class="kpi-sub mono">100% structural completeness</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Frontier Models</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="2">0</span></span></p>
+        <p class="kpi-sub mono">GLM-5 &amp; Nova-2-Lite</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Languages</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="8">0</span></span></p>
+        <p class="kpi-sub mono">Python, JS, TS, Go, Rust, C, C++, Java</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Refinement Stages</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="3">0</span></span></p>
+        <p class="kpi-sub mono">Generate → Lint → Test</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- §03 — Pipeline -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
+    <p class="section-label" id="pipeline-label">§03 — Pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">Three stages turn a specification into a working library.</h2>
+        <p class="pipeline-sub">From spec PDF through code generation to refinement, each stage builds on the last.</p>
+      </div>
+      <div class="pipeline pipeline-a">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">Instance Preparation</h4>
+          <ul class="phase-body">
+            <li>Identify target open-source libraries</li>
+            <li>Create specification PDFs</li>
+            <li>Build Dockerfiles &amp; setup scripts for hermetic environments</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">Code Generation</h4>
+          <ul class="phase-body">
+            <li>Run AI models in sandboxes</li>
+            <li>Generate complete library implementations from specifications</li>
+            <li>Produce per-module outputs</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">Evaluation &amp; Refinement</h4>
+          <ul class="phase-body">
+            <li>Execute test suites, score pass rates</li>
+            <li>Run lint and test refinement stages</li>
+            <li>Produce confidence scores</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- §04 — Results -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label">
+    <p class="section-label" id="results-label">§04 — Results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        Stage 3 pass rate by number of files affected for two frontier models.
+      </p>
+      <p class="reveal-line reveal-kicker">
+        Both models show clear performance degradation as library complexity
+        increases: from <b>~57%</b> at 1–5 files to <b>~16%</b> beyond 100 files.
+      </p>
+    </div>
+
+    <div class="charts">
+      <figure class="chart" style="grid-column: 1 / -1;">
+        <button type="button" class="chart-trigger" aria-label="Preview combined results chart full size">
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/chart_combined.png" alt="Library Generation from Scratch: Stage 3 Pass Rate by Files Affected" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_chart_combined.png" alt="Library Generation from Scratch: Stage 3 Pass Rate by Files Affected" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 — Stage 3 Pass Rate by Files Affected</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview heatmap chart full size">
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/commit0_table1_heatmap.png" alt="Mean Pass Rate by Model and Stage" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_heatmap.png" alt="Mean Pass Rate by Model and Stage" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 2 — Mean Pass Rate by Model and Stage</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview difficulty stages chart full size">
+          <img class="chart-light" src="/kaiju_dashboard/static/src/portal/img/commit0_fig4_difficulty_stages.png" alt="Stage-wise Performance by Difficulty" loading="lazy" />
+          <img class="chart-dark" src="/kaiju_dashboard/static/src/portal/img/dark_difficulty_stages.png" alt="Stage-wise Performance by Difficulty" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 3 — Stage Performance by Difficulty</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- §05 — Dataset Viewer -->
+  <section class="section" id="instances" aria-labelledby="instances-label">
+    <p class="section-label" id="instances-label">§05 — Dataset Viewer</p>
+    <p class="section-desc">Browse sample instances in the Kaiju dataset. Click any row to expand full details.</p>
+
+    <div class="viewer-controls">
+      <div class="viewer-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="viewer-search" placeholder="Search instances..." autocomplete="off"/>
+      </div>
+      <div class="viewer-filters">
+        <select id="viewer-difficulty">
+          <option value="">All Difficulties</option>
+          <option value="Easy">Easy</option>
+          <option value="Medium">Medium</option>
+          <option value="Hard">Hard</option>
+        </select>
+        <select id="viewer-sort">
+          <option value="instance_id">Name (A-Z)</option>
+          <option value="difficulty">Difficulty</option>
+          <option value="test_count">Test Count</option>
+          <option value="glm5_stage3">GLM-5 Pass Rate</option>
+          <option value="nova_stage3">Nova-2-Lite Pass Rate</option>
+        </select>
+      </div>
+      <div class="viewer-meta">
+        <span id="viewer-count">Loading...</span>
+      </div>
+    </div>
+
+    <div class="matrix-wrap">
+      <table class="viewer-table" id="viewer-table">
+        <thead>
+          <tr>
+            <th class="th-instance">Instance</th>
+            <th class="th-diff">Difficulty</th>
+            <th class="th-tests">Tests</th>
+            <th class="th-python">Python</th>
+            <th class="th-glm">GLM-5 (s3)</th>
+            <th class="th-nova">Nova-2-Lite (s3)</th>
+            <th class="th-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="viewer-tbody"></tbody>
+      </table>
+    </div>
+    <div class="viewer-pagination" id="viewer-pagination"></div>
+  </section>
+
+  <!-- §06 — Pass Rate Distribution -->
+  <section class="section" id="quality" aria-labelledby="quality-label">
+    <p class="section-label" id="quality-label">§06 — Pass Rate Distribution</p>
+    <p class="section-desc">Distribution of best stage-3 pass rate (highest of GLM-5 and Nova-2-Lite) across all evaluated library instances.</p>
+
+    <div class="kpi-row">
+      <div class="kpi-card quality-clean">
+        <p class="kpi-label">≥ 50% Pass</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="10">0</span></span></p>
+        <p class="kpi-sub">50.0% of instances</p>
+        <div class="quality-bar"><div class="quality-fill" style="width: 50%"></div></div>
+      </div>
+      <div class="kpi-card quality-fixable">
+        <p class="kpi-label">10–49% Pass</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="10">0</span></span></p>
+        <p class="kpi-sub">50.0% of instances</p>
+        <div class="quality-bar"><div class="quality-fill" style="width: 50%"></div></div>
+      </div>
+      <div class="kpi-card quality-degraded">
+        <p class="kpi-label">&lt; 10% Pass</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub">0% of instances</p>
+        <div class="quality-bar"><div class="quality-fill" style="width: 0%"></div></div>
+      </div>
+      <div class="kpi-card quality-broken">
+        <p class="kpi-label">0% Pass</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub">0% of instances</p>
+        <div class="quality-bar"><div class="quality-fill" style="width: 0%"></div></div>
+      </div>
+    </div>
+
+    <div class="confidence-strip">
+      <div class="confidence-left">
+        <span class="kpi-big confidence-big"><span class="kpi-num" data-target="42.7" data-suffix="%">0</span></span>
+        <span class="confidence-lbl mono">Mean Pass Rate</span>
+      </div>
+      <div class="confidence-right">
+        <div class="confidence-range">
+          <span class="mono">Min <b>5.2%</b></span>
+          <div class="confidence-track">
+            <div class="confidence-marker" style="left: 42.7%"></div>
+          </div>
+          <span class="mono">Max <b>96.6%</b></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- §07 — Resources -->
+  <section class="section" id="resources" aria-labelledby="resources-label">
+    <p class="section-label" id="resources-label">§07 — Resources</p>
+    <div class="resources">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
+        <p class="res-url mono">github.com/Ethara-Ai/kaiju_ots</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Kaiju</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono">© 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> · Project Kaiju </p>
+    </div>
+  </footer>
+
+</div>
+
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"/>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

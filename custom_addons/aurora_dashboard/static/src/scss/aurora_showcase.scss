@@ -1,0 +1,272 @@
+/* ===================================================================
+   Aurora Dashboard — Backend (OWL) Styles
+   Prefix: au-  |  Max-width: 900px
+   =================================================================== */
+
+.au-showcase {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a2e;
+    line-height: 1.6;
+}
+
+/* ---------- Header ---------- */
+.au-showcase-header {
+    text-align: center;
+    margin-bottom: 48px;
+}
+
+.au-showcase-header .au-tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #6366f1;
+    border: 1px solid #6366f1;
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 12px;
+}
+
+.au-showcase-header .au-title {
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: #1a1a2e;
+    margin: 0 0 12px;
+}
+
+.au-showcase-header .au-subtitle {
+    font-size: 1rem;
+    color: #6c757d;
+    margin: 0 0 6px;
+}
+
+.au-showcase-header .au-byline {
+    font-size: 0.8rem;
+    color: #9ca3af;
+    margin: 0;
+}
+
+.au-showcase-header .au-byline a {
+    color: #6366f1;
+    text-decoration: none;
+}
+
+.au-showcase-header .au-byline a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Sections ---------- */
+.au-showcase .au-section {
+    margin-bottom: 48px;
+    padding: 0;
+}
+
+/* ---------- Description ---------- */
+.au-showcase .au-description p {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto;
+    font-size: 0.95rem;
+    color: #6c757d;
+    line-height: 1.7;
+}
+
+/* ---------- Capabilities ---------- */
+.au-showcase .au-capabilities-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 auto 24px;
+    max-width: 680px;
+}
+
+.au-showcase .au-capabilities-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: #6c757d;
+    padding: 6px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.au-showcase .au-capabilities-list li:last-child {
+    border-bottom: none;
+}
+
+.au-showcase .au-cap-arrow {
+    color: #4f46e5;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+
+/* ---------- Metrics ---------- */
+.au-showcase .au-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.au-showcase .au-metric-card {
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.au-showcase .au-metric-value {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #6366f1;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.au-showcase .au-metric-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.au-showcase .au-metric-detail {
+    display: block;
+    font-size: 0.7rem;
+    color: #9ca3af;
+}
+
+/* ---------- Phases ---------- */
+.au-showcase .au-phases-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+}
+
+.au-showcase .au-phase-card {
+    flex: 1;
+    max-width: 240px;
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.au-showcase .au-phase-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.au-showcase .au-phase-card h3 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: #1a1a2e;
+}
+
+.au-showcase .au-phase-card p {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.au-showcase .au-phase-arrow {
+    display: flex;
+    align-items: center;
+    padding-top: 28px;
+    color: #9ca3af;
+    font-size: 1.2rem;
+}
+
+/* ---------- Links ---------- */
+.au-showcase .au-links {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.au-showcase .au-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid #e5e7eb;
+    color: #1a1a2e;
+    background: #fff;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.au-showcase .au-btn:hover {
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+.au-showcase .au-btn-filled {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+}
+
+.au-showcase .au-btn-filled:hover {
+    background: #818cf8;
+    border-color: #818cf8;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 700px) {
+    .au-showcase {
+        padding: 24px 16px;
+    }
+
+    .au-showcase-header .au-title {
+        font-size: 2rem;
+    }
+
+    .au-showcase .au-metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .au-showcase .au-phases-row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .au-showcase .au-phase-card {
+        max-width: 100%;
+    }
+
+    .au-showcase .au-phase-arrow {
+        transform: rotate(90deg);
+        padding-top: 0;
+    }
+
+    .au-showcase .au-links {
+        flex-direction: column;
+        align-items: center;
+    }
+}

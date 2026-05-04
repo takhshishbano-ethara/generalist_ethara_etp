@@ -309,35 +309,12 @@ class TestEvaluationExecutor(TransactionCase):
             self.assertEqual(args[0][3], 99)
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # _notify_bus
+    # _notify_bus (deprecated no-op — UI updates now flow through HTTP polling)
     # ═══════════════════════════════════════════════════════════════════════════
 
-    @patch("odoo.addons.aurora.models.evaluation_executor._open_cursor")
-    def test_notify_bus_sends(self, mock_open):
+    def test_notify_bus_is_noop(self):
         from ..models.evaluation_executor import _notify_bus
-        mock_cr = MagicMock()
-        mock_open.return_value = mock_cr
-        mock_env = MagicMock()
-        with patch("odoo.api.Environment", return_value=mock_env):
-            _notify_bus("testdb", 42)
-        mock_env['bus.bus']._sendone.assert_called_once()
-        mock_cr.commit.assert_called()
-        mock_cr.close.assert_called()
-
-    @patch("odoo.addons.aurora.models.evaluation_executor._open_cursor")
-    def test_notify_bus_handles_error(self, mock_open):
-        from ..models.evaluation_executor import _notify_bus
-        mock_open.side_effect = Exception("DB down")
-        _notify_bus("testdb", 42)
-
-    @patch("odoo.addons.aurora.models.evaluation_executor._open_cursor")
-    def test_notify_bus_closes_cursor_on_error(self, mock_open):
-        from ..models.evaluation_executor import _notify_bus
-        mock_cr = MagicMock()
-        mock_open.return_value = mock_cr
-        with patch("odoo.api.Environment", side_effect=Exception("fail")):
-            _notify_bus("testdb", 42)
-        mock_cr.close.assert_called()
+        self.assertIsNone(_notify_bus("testdb", 42))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # _post_chatter

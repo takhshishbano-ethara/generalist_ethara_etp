@@ -1,7 +1,9 @@
-"""Per-PR evaluation instance record.
+"""Per-instance evaluation record (LHT tag-interval model).
 
-Every Phase-2 evaluation expands into N per-PR instances. This model stores:
-  - Identifying info (org, repo, pr_number, image_tag).
+Every Phase-2 evaluation expands into N per-instance records, one per LHT
+version interval (not per individual PR). This model stores:
+  - Identifying info (org, repo, instance_id, tag_start/tag_end, pr_numbers,
+    image_tag).
   - Current status (pending/building/built/running/resolved/unresolved/error).
   - Per-artifact S3 URIs (durable storage).
   - Small artifact content inlined in DB (Dockerfile, report.json, fix.patch).
@@ -27,8 +29,8 @@ EVAL_INSTANCE_STATUS = [
 
 class AuroraEvaluationInstance(models.Model):
     _name = "aurora.evaluation.instance"
-    _description = "Aurora Evaluation Instance (per PR)"
-    _order = "evaluation_id desc, pr_number asc"
+    _description = "Aurora Evaluation Instance (LHT interval)"
+    _order = "evaluation_id desc, instance_id asc"
     _rec_name = "display_name"
 
     evaluation_id = fields.Many2one(
@@ -40,16 +42,38 @@ class AuroraEvaluationInstance(models.Model):
     )
     org = fields.Char(string="Org", required=True)
     repo = fields.Char(string="Repo", required=True)
-    pr_number = fields.Integer(string="PR #", required=True, index=True)
+    instance_id = fields.Char(
+        string="Instance ID", required=True, index=True,
+        help="LHT instance identifier: {org}__{repo}-{tag_start}..{tag_end}",
+    )
+    tag_start = fields.Char(string="Tag Start")
+    tag_end = fields.Char(string="Tag End")
+    pr_numbers = fields.Char(
+        string="PR Numbers",
+        help="Comma-separated list of PR numbers merged in this version interval.",
+    )
+    pr_attribution_method = fields.Selection(
+        [
+            ("merge_log", "Merge Log"),
+            ("compare_api", "Compare API"),
+            ("git_cherry", "Git Cherry"),
+            ("date_range", "Date Range"),
+        ],
+        string="Attribution Method",
+    )
+    version_scheme = fields.Selection(
+        [("semver", "Semver"), ("calver", "Calver"), ("mixed", "Mixed")],
+        string="Version Scheme",
+    )
     image_tag = fields.Char(
         string="Image Tag",
-        help="Docker image tag (e.g. pr-123). Multiple PRs can share one image.",
+        help="Docker image tag assigned by the harness "
+             "(e.g. v4.28.0..v4.28.1).",
     )
     image_workdir = fields.Char(
         string="Image Workdir",
         help="Name of the subdir under workdir/<org>/<repo>/images/. Matches "
-             "instance.dependency().workdir() — usually pr-<number>, or "
-             "pr-<first>-<last> for PR bundles.",
+             "instance.dependency().workdir() — harness-defined.",
     )
 
     status = fields.Selection(
@@ -104,17 +128,19 @@ class AuroraEvaluationInstance(models.Model):
 
     _sql_constraints = [
         (
-            "uniq_eval_pr",
-            "UNIQUE(evaluation_id, pr_number)",
-            "Each PR can appear only once per evaluation.",
+            "uniq_eval_instance",
+            "UNIQUE(evaluation_id, instance_id)",
+            "Each LHT instance can appear only once per evaluation.",
         ),
     ]
 
-    @api.depends("org", "repo", "pr_number")
+    @api.depends("org", "repo", "tag_start", "tag_end", "instance_id")
     def _compute_display_name(self):
         for rec in self:
-            if rec.org and rec.repo and rec.pr_number:
-                rec.display_name = f"{rec.org}/{rec.repo}#{rec.pr_number}"
+            if rec.org and rec.repo and rec.tag_start and rec.tag_end:
+                rec.display_name = f"{rec.org}/{rec.repo}-{rec.tag_start}..{rec.tag_end}"
+            elif rec.instance_id:
+                rec.display_name = rec.instance_id
             else:
                 rec.display_name = f"Instance {rec.id}"
 

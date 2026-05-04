@@ -1,0 +1,18 @@
+// -------------------------------------------------------------------
+// Backend SCSS for the Tesseract showcase (loaded via web.assets_backend
+// bundle). Scoped under #tesseract-showcase-backend so Odoo's own
+// backend styles are not overridden globally.
+//
+// The portal page uses a separate plain-CSS file at
+// static/src/portal/css/tesseract_portal.css — do not @import it here
+// (Odoo loads portal/backend bundles independently). Keep the two
+// files in sync manually or extract shared tokens to a _tokens.scss
+// partial if the design drifts.
+// -------------------------------------------------------------------
+
+#tesseract-showcase-backend {
+    // Backend-only overrides go here. The full theme lives in the
+    // portal CSS; this file is a stub kept present to mirror Kaiju's
+    // module layout. Add rules as the backend view grows.
+    min-height: 100vh;
+}

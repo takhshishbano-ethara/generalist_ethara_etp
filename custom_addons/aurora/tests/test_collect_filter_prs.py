@@ -131,8 +131,8 @@ class TestFilterPrsMain(TestCase):
                     "number": 2, "state": "open", "merged_at": None,
                     "title": "", "body": "", "base": {},
                 }) + "\n")
-            main(["ghp_fake"], out_dir, prs_file, skip_commit_message=True, mode="aurora")
-            out_file = out_dir / "org__repo_filtered_prs.jsonl"
+            main(["ghp_fake"], out_dir, prs_file, skip_commit_message=True)
+            out_file = out_dir / "org__repo_lht_filtered_prs.jsonl"
             self.assertTrue(out_file.exists())
             with open(out_file) as f:
                 lines = [l for l in f if l.strip()]
@@ -149,7 +149,7 @@ class TestFilterPrsMain(TestCase):
                     "title": "fix #1", "body": "", "base": {},
                 }) + "\n")
             main(["ghp_fake"], Path(tmpdir), prs_file, skip_commit_message=True)
-            out_file = Path(tmpdir) / "org__repo_filtered_prs.jsonl"
+            out_file = Path(tmpdir) / "org__repo_lht_filtered_prs.jsonl"
             with open(out_file) as f:
                 lines = [l for l in f if l.strip()]
             self.assertEqual(len(lines), 0)

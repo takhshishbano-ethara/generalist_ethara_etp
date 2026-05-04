@@ -15,8 +15,29 @@ class AuroraPipelineResult(models.Model):
     )
     sequence = fields.Integer(default=10)
 
-    instance_id = fields.Char(string="Instance ID", readonly=True)
-    pr_number = fields.Integer(string="PR #", readonly=True)
+    instance_id = fields.Char(
+        string="Instance ID", readonly=True,
+        help="LHT instance identifier: {org}__{repo}-{tag_start}..{tag_end}",
+    )
+    tag_start = fields.Char(string="Tag Start", readonly=True)
+    tag_end = fields.Char(string="Tag End", readonly=True)
+    pr_numbers = fields.Char(
+        string="PR Numbers", readonly=True,
+        help="Comma-separated list of PR numbers in this version interval",
+    )
+    pr_attribution_method = fields.Selection(
+        [
+            ("merge_log", "Merge Log"),
+            ("compare_api", "Compare API"),
+            ("git_cherry", "Git Cherry"),
+            ("date_range", "Date Range"),
+        ],
+        string="Attribution Method", readonly=True,
+    )
+    version_scheme = fields.Selection(
+        [("semver", "Semver"), ("calver", "Calver"), ("mixed", "Mixed")],
+        string="Version Scheme", readonly=True,
+    )
     valid = fields.Boolean(string="Resolved", readonly=True)
 
     # --- Test category counts ---

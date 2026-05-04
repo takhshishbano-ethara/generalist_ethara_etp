@@ -175,18 +175,49 @@ class AuroraEvaluation(models.Model):
                 if not line:
                     continue
                 entry = json.loads(line)
+                number = self._resolve_entry_number(entry)
+                if number is None:
+                    continue
                 patch_entry = {
                     "org": entry["org"],
                     "repo": entry["repo"],
-                    "number": entry["number"],
+                    "number": number,
                     "fix_patch": entry.get("fix_patch", ""),
                 }
                 f_out.write(json.dumps(patch_entry, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _resolve_entry_number(entry):
+        if "number" in entry:
+            val = entry["number"]
+            if isinstance(val, int):
+                return val
+            if isinstance(val, str) and val.isdigit():
+                return int(val)
+            if isinstance(val, str) and "-" in val:
+                head = val.split("-", 1)[0]
+                if head.isdigit():
+                    return int(head)
+        pr_numbers = entry.get("pr_numbers") or []
+        if isinstance(pr_numbers, list) and pr_numbers:
+            try:
+                return int(pr_numbers[0])
+            except (TypeError, ValueError):
+                pass
+        return None
 
     def action_run_evaluation(self):
         self.ensure_one()
         if self.stage != "draft":
             raise UserError("Evaluation can only be started from Draft stage.")
+
+        if self.specific_prs and "org/repo:pr-" in self.specific_prs:
+            raise UserError(
+                "The 'Specific PRs' field contains the placeholder text "
+                "'org/repo:pr-123,org/repo:pr-456'. This is example text \u2014 not a valid filter. "
+                "Clear the field to evaluate all dataset entries, or set it to real "
+                "instance_id values from the dataset (e.g. 'gorilla/mux:pr-337')."
+            )
 
         pl = self.pipeline_id
         if pl and not self.dataset_file and pl.step6_file:

@@ -49,6 +49,16 @@ export class RubricEditor extends Component {
             inlineAdd: false,
             editingId: null,
             form: this._emptyForm(),
+            rubricQcStatus: "idle",
+            rubricQcSeverity: false,
+            rubricQcFeedback: "",
+            rubricQcExpanded: false,
+            showRubricPopup: false,
+            selectedRubricIds: [],
+            popupStep: 1, // 1 = select rubrics, 2 = assign scores, 3 = judgement
+            rubricScores: {}, // { criterionId: 0|1|2 }
+            judgements: {},
+            judgementsLoading: false,
         });
         this._pollTimer = null;
 
@@ -108,6 +118,14 @@ export class RubricEditor extends Component {
     _syncFromRecord() {
         const recordGoal = this.props.record.data.goal_generation_status;
         const recordRubric = this.props.record.data.rubric_generation_status;
+        const recordQcAll = this.props.record.data.rubric_qc_all_status;
+        const recordQcAllSeverity = this.props.record.data.rubric_qc_all_severity;
+        const recordQcAllFeedback = this.props.record.data.rubric_qc_all_feedback;
+        if (recordQcAll && this.state.rubricQcStatus !== "running") {
+            this.state.rubricQcStatus = recordQcAll === "pending" ? "idle" : recordQcAll;
+            this.state.rubricQcSeverity = recordQcAllSeverity || false;
+            this.state.rubricQcFeedback = recordQcAllFeedback || "";
+        }
         const isRecordRunning = recordGoal === "running" || recordRubric === "running";
         const isStateRunning = this.state.goalStatus === "running" || this.state.rubricStatus === "running";
         if (isRecordRunning && !isStateRunning) {
@@ -252,6 +270,9 @@ export class RubricEditor extends Component {
                     "id", "name", "category", "custom_category", "importance",
                     "is_negative", "suggestion", "sequence",
                     "qc_status", "qc_feedback", "qc_severity",
+                    "is_selected_for_trial", "trial_user_score",
+                    "trial_verdict", "trial_expected_score",
+                    "trial_why_correct", "trial_why_wrong",
                 ],
                 { order: "sequence, id" },
             );
@@ -481,6 +502,71 @@ export class RubricEditor extends Component {
         setTimeout(poll, 3000);
     }
 
+    async onQcAll() {
+        if (!this.taskId) return;
+        if (this.state.rubricQcStatus === "running") return;
+        if (!this.state.criteria.length) {
+            this.notification.add("No criteria to evaluate", { type: "warning" });
+            return;
+        }
+
+        this.state.rubricQcStatus = "running";
+        this.state.rubricQcSeverity = false;
+        this.state.rubricQcFeedback = "";
+        this.state.rubricQcExpanded = true;
+
+        try {
+            const res = await rpc("/atlas/rubric/qc_all", { task_id: this.taskId });
+            if (res?.error) {
+                this.state.rubricQcStatus = "error";
+                this.state.rubricQcFeedback = res.error;
+                this.notification.add(res.error, { type: "danger" });
+                return;
+            }
+            this._startRubricQcAllPoll();
+        } catch {
+            this.state.rubricQcStatus = "error";
+            this.state.rubricQcFeedback = "Failed to start rubric QC";
+            this.notification.add("Failed to start rubric QC", { type: "danger" });
+        }
+    }
+
+    _startRubricQcAllPoll() {
+        const poll = async () => {
+            if (!this.taskId) return;
+            try {
+                const data = await this.orm.read(
+                    "atlas.atlas",
+                    [this.taskId],
+                    ["rubric_qc_all_status", "rubric_qc_all_severity", "rubric_qc_all_feedback"],
+                );
+                if (!data.length) return;
+                const updated = data[0];
+                this.state.rubricQcStatus = updated.rubric_qc_all_status || "idle";
+                this.state.rubricQcSeverity = updated.rubric_qc_all_severity || false;
+                this.state.rubricQcFeedback = updated.rubric_qc_all_feedback || "";
+
+                if (this.state.rubricQcStatus === "running") {
+                    setTimeout(poll, 3000);
+                } else if (this.state.rubricQcStatus === "done") {
+                    this.notification.add("Rubric QC complete", { type: "success" });
+                }
+            } catch {
+                // silent
+            }
+        };
+        setTimeout(poll, 3000);
+    }
+
+    toggleRubricQcDetails() {
+        this.state.rubricQcExpanded = !this.state.rubricQcExpanded;
+    }
+
+    get rubricQcSeverityColor() {
+        const m = { low: "#198754", medium: "#ffc107", high: "#fd7e14", critical: "#dc3545" };
+        return m[this.state.rubricQcSeverity] || "#6c757d";
+    }
+
     qcStatusIcon(status) {
         const map = {
             running: "fa-spinner fa-spin",
@@ -490,17 +576,468 @@ export class RubricEditor extends Component {
         return map[status] || "";
     }
 
+    // Render the holistic "QC All Criteria" report returned by the LLM.
+    // Supported CommonMark subset: leading "## Rubric QC Verdict: PASS|FAIL" banner,
+    // "### Section" headings, pipe-tables (header + `---` separator + rows, arbitrary
+    // column count, PASS/FAIL pills on "Result" column, ✅/❌ on "+/-" column),
+    // ordered lists (`^\d+\. `), indented (2+ space) monospace scoring blocks,
+    // `**bold**` inline, and plain paragraphs. Missing sections degrade gracefully;
+    // plain-string inputs (error state) render as a single paragraph.
     formatQcFeedback(text) {
         if (!text) return "";
-        let html = text
+        const esc = (s) => String(s)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
-        html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-        html = html.replace(/^(\d+)\.\s+/gm, '<div class="o_qc_item"><span class="o_qc_num">$1.</span> ');
-        html = html.replace(/(<div class="o_qc_item">.*?)(?=<div class="o_qc_item">|$)/gs, "$1</div>");
-        html = html.replace(/\n/g, "<br/>");
-        return markup(html);
+        const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+        const raw = String(text).replace(/\r\n?/g, "\n");
+        const lines = raw.split("\n");
+        const out = [];
+
+        let i = 0;
+        while (i < lines.length && lines[i].trim() === "") i++;
+        const verdictRe = /^##\s*\*{0,2}\s*Rubric QC Verdict\s*:\s*\*{0,2}\s*(PASS|FAIL)\s*\*{0,2}\s*$/i;
+        if (i < lines.length && verdictRe.test(lines[i].trim())) {
+            const m = lines[i].trim().match(verdictRe);
+            const verdict = m[1].toUpperCase();
+            const cls = verdict === "PASS" ? "o_rqc_verdict_pass" : "o_rqc_verdict_fail";
+            const icon = verdict === "PASS" ? "fa-check-circle" : "fa-exclamation-circle";
+            out.push(
+                `<div class="o_rqc_verdict ${cls}">` +
+                `<i class="fa ${icon}"></i>` +
+                `<span>Rubric QC Verdict: ${verdict}</span>` +
+                `</div>`
+            );
+            i++;
+        }
+
+        const isSectionHeading = (ln) => /^###\s+(.+?)\s*$/.exec(ln.trim());
+        const isTableHeader = (ln) => /^\|.*\|\s*$/.test(ln);
+        const isTableSep = (ln) => /^\|[\s\-:|]+\|\s*$/.test(ln);
+        const isOlItem = (ln) => /^\d+\.\s+/.test(ln);
+        const isIndented = (ln) => /^[ \t]{2,}\S/.test(ln);
+
+        const renderTable = (headers, rows) => {
+            const headLc = headers.map((h) => h.trim().toLowerCase());
+            const resultIdx = headLc.findIndex((h) => h === "result");
+            const signIdx = headLc.findIndex((h) => h === "+/-" || h === "+/−");
+            const checkIdx = headLc.findIndex((h) => h === "check");
+            // Tag each <th> with a column class so SCSS can size specific
+            // columns (Check wide, Result narrow) regardless of column order.
+            const th = headers
+                .map((h, idx) => {
+                    const cls =
+                        idx === checkIdx
+                            ? ' class="o_rqc_col_check"'
+                            : idx === resultIdx
+                            ? ' class="o_rqc_col_result"'
+                            : idx === signIdx
+                            ? ' class="o_rqc_col_sign"'
+                            : "";
+                    return `<th${cls}>${inline(h.trim())}</th>`;
+                })
+                .join("");
+            const body = rows
+                .map((cells) => {
+                    const tds = cells.map((c, idx) => {
+                        const val = c.trim();
+                        if (idx === resultIdx) {
+                            const norm = val
+                                .replace(/[*_`]/g, "")
+                                .replace(/[^A-Za-z]/g, "")
+                                .toUpperCase();
+                            if (norm === "PASS") {
+                                return `<td class="o_rqc_col_result"><span class="o_rqc_pass_pill">PASS</span></td>`;
+                            }
+                            if (norm === "FAIL") {
+                                return `<td class="o_rqc_col_result"><span class="o_rqc_fail_pill">FAIL</span></td>`;
+                            }
+                            return `<td class="o_rqc_col_result">${inline(val)}</td>`;
+                        }
+                        if (idx === signIdx) {
+                            return `<td class="o_rqc_sign_cell o_rqc_col_sign">${inline(val)}</td>`;
+                        }
+                        if (idx === checkIdx) {
+                            return `<td class="o_rqc_col_check">${inline(val)}</td>`;
+                        }
+                        return `<td>${inline(val)}</td>`;
+                    });
+                    while (tds.length < headers.length) {
+                        tds.push("<td></td>");
+                    }
+                    return `<tr>${tds.join("")}</tr>`;
+                })
+                .join("");
+            return `<table class="o_rqc_table"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+        };
+
+        const splitPipe = (ln) => {
+            let s = ln.trim();
+            if (s.startsWith("|")) s = s.slice(1);
+            if (s.endsWith("|")) s = s.slice(0, -1);
+            return s.split("|");
+        };
+
+        const renderBody = (bodyLines, sectionName) => {
+            const pieces = [];
+            let j = 0;
+            const N = bodyLines.length;
+            while (j < N) {
+                const ln = bodyLines[j];
+                if (ln.trim() === "") { j++; continue; }
+
+                if (isTableHeader(ln) && j + 1 < N && isTableSep(bodyLines[j + 1])) {
+                    const headers = splitPipe(ln);
+                    j += 2;
+                    const rows = [];
+                    while (j < N && isTableHeader(bodyLines[j]) && !isTableSep(bodyLines[j])) {
+                        rows.push(splitPipe(bodyLines[j]));
+                        j++;
+                    }
+                    pieces.push(renderTable(headers, rows));
+                    continue;
+                }
+
+                if (isOlItem(ln)) {
+                    const items = [];
+                    while (j < N) {
+                        const cur = bodyLines[j];
+                        if (!isOlItem(cur)) break;
+                        const m = /^(\d+)\.\s+(.*)$/.exec(cur);
+                        let numStr = m[1];
+                        let content = m[2];
+                        j++;
+                        while (
+                            j < N &&
+                            bodyLines[j].trim() !== "" &&
+                            !isOlItem(bodyLines[j]) &&
+                            !isTableHeader(bodyLines[j]) &&
+                            !isSectionHeading(bodyLines[j])
+                        ) {
+                            content += " " + bodyLines[j].trim();
+                            j++;
+                        }
+                        items.push(
+                            `<li class="o_rqc_issue"><span class="o_rqc_issue_num">${esc(numStr)}.</span> ${inline(content)}</li>`
+                        );
+                    }
+                    pieces.push(`<ol class="o_rqc_issues">${items.join("")}</ol>`);
+                    continue;
+                }
+
+                if (isIndented(ln)) {
+                    const buf = [];
+                    while (j < N && (isIndented(bodyLines[j]) || (bodyLines[j].trim() === "" && j + 1 < N && isIndented(bodyLines[j + 1])))) {
+                        buf.push(bodyLines[j]);
+                        j++;
+                    }
+                    pieces.push(`<pre class="o_rqc_scoring">${esc(buf.join("\n"))}</pre>`);
+                    continue;
+                }
+
+                const para = [];
+                while (
+                    j < N &&
+                    bodyLines[j].trim() !== "" &&
+                    !isTableHeader(bodyLines[j]) &&
+                    !isOlItem(bodyLines[j]) &&
+                    !isIndented(bodyLines[j]) &&
+                    !isSectionHeading(bodyLines[j])
+                ) {
+                    para.push(bodyLines[j].trim());
+                    j++;
+                }
+                if (para.length) {
+                    const txt = para.join(" ");
+                    const sectLc = (sectionName || "").toLowerCase();
+                    if (sectLc.includes("weakest passing")) {
+                        pieces.push(`<div class="o_rqc_callout">${inline(txt)}</div>`);
+                    } else {
+                        pieces.push(`<p>${inline(txt)}</p>`);
+                    }
+                }
+            }
+            return pieces.join("");
+        };
+
+        let firstSection = -1;
+        for (let k = i; k < lines.length; k++) {
+            if (isSectionHeading(lines[k])) { firstSection = k; break; }
+        }
+
+        if (firstSection === -1) {
+            const body = renderBody(lines.slice(i), "");
+            if (body) out.push(body);
+        } else {
+            if (firstSection > i) {
+                const lead = renderBody(lines.slice(i, firstSection), "");
+                if (lead) out.push(lead);
+            }
+            let cur = firstSection;
+            while (cur < lines.length) {
+                const m = isSectionHeading(lines[cur]);
+                if (!m) { cur++; continue; }
+                const sectionName = m[1].trim();
+                let end = lines.length;
+                for (let k = cur + 1; k < lines.length; k++) {
+                    if (isSectionHeading(lines[k])) { end = k; break; }
+                }
+                const body = renderBody(lines.slice(cur + 1, end), sectionName);
+                out.push(
+                    `<div class="o_rqc_section">` +
+                    `<div class="o_rqc_section_label">${inline(sectionName)}</div>` +
+                    body +
+                    `</div>`
+                );
+                cur = end;
+            }
+        }
+
+        return markup(out.join(""));
+    }
+
+    _hydrateTrialStateFromCriteria() {
+        const selected = [];
+        const scores = {};
+        const judgements = {};
+        for (const c of this.state.criteria) {
+            if (c.is_selected_for_trial) {
+                selected.push(c.id);
+            }
+            if (typeof c.trial_user_score === "number" && c.trial_user_score !== -1) {
+                scores[c.id] = c.trial_user_score;
+            }
+            if (c.trial_verdict) {
+                const expected =
+                    typeof c.trial_expected_score === "number" && c.trial_expected_score !== -1
+                        ? c.trial_expected_score
+                        : null;
+                judgements[c.id] = {
+                    loading: false,
+                    verdict: c.trial_verdict,
+                    expected_score: expected,
+                    why_correct: c.trial_why_correct || "",
+                    why_wrong: c.trial_why_wrong || "",
+                    error: null,
+                };
+            }
+        }
+        this.state.selectedRubricIds = selected;
+        this.state.rubricScores = scores;
+        this.state.judgements = judgements;
+        this.state.judgementsLoading = false;
+    }
+
+    _resumePopupStep() {
+        const hasJudgements = Object.keys(this.state.judgements).length > 0;
+        const hasScores = Object.keys(this.state.rubricScores).length > 0;
+        if (hasJudgements) {
+            this.state.popupStep = 3;
+        } else if (hasScores) {
+            this.state.popupStep = 2;
+        } else {
+            this.state.popupStep = 1;
+        }
+    }
+
+    async _persistTrialField(criterionId, vals) {
+        try {
+            await rpc("/atlas/rubric/trial/save", {
+                criterion_id: criterionId,
+                ...vals,
+            });
+        } catch (e) {
+            console.warn(`${LOG_PREFIX} trial save failed`, { criterionId, vals, error: e });
+        }
+    }
+
+    async onOpenRubricPopup() {
+        await this._loadCriteria();
+        this._hydrateTrialStateFromCriteria();
+        this._resumePopupStep();
+        this.state.showRubricPopup = true;
+    }
+
+    onCloseRubricPopup() {
+        this.state.showRubricPopup = false;
+    }
+
+    onToggleRubricSelection(criterionId) {
+        const idx = this.state.selectedRubricIds.indexOf(criterionId);
+        let selected;
+        if (idx === -1) {
+            this.state.selectedRubricIds.push(criterionId);
+            selected = true;
+        } else {
+            this.state.selectedRubricIds.splice(idx, 1);
+            selected = false;
+        }
+        this._persistTrialField(criterionId, { is_selected_for_trial: selected });
+    }
+
+    isRubricSelected(criterionId) {
+        return this.state.selectedRubricIds.includes(criterionId);
+    }
+
+    onSelectAllRubrics() {
+        const toAdd = this.state.criteria
+            .filter((c) => !this.state.selectedRubricIds.includes(c.id))
+            .map((c) => c.id);
+        this.state.selectedRubricIds = this.state.criteria.map((c) => c.id);
+        for (const id of toAdd) {
+            this._persistTrialField(id, { is_selected_for_trial: true });
+        }
+    }
+
+    onDeselectAllRubrics() {
+        const toRemove = [...this.state.selectedRubricIds];
+        this.state.selectedRubricIds = [];
+        for (const id of toRemove) {
+            this._persistTrialField(id, { is_selected_for_trial: false });
+        }
+    }
+
+    onGoToScoring() {
+        if (!this.state.selectedRubricIds.length) {
+            this.notification.add("Please select at least one rubric", { type: "warning" });
+            return;
+        }
+        const scores = {};
+        for (const id of this.state.selectedRubricIds) {
+            scores[id] = this.state.rubricScores[id] ?? null;
+        }
+        this.state.rubricScores = scores;
+        this.state.popupStep = 2;
+    }
+
+    onBackToSelection() {
+        this.state.popupStep = 1;
+    }
+
+    onSetRubricScore(criterionId, score) {
+        this.state.rubricScores[criterionId] = score;
+        this._persistTrialField(criterionId, { trial_user_score: score });
+    }
+
+    getRubricScore(criterionId) {
+        return this.state.rubricScores[criterionId] ?? null;
+    }
+
+    getSelectedCriteria() {
+        return this.state.criteria.filter((c) => this.state.selectedRubricIds.includes(c.id));
+    }
+
+    async onGoToJudgement() {
+        const selected = this.getSelectedCriteria();
+        const missing = selected.filter((c) => this.getRubricScore(c.id) === null);
+        if (missing.length) {
+            this.notification.add(
+                `Please assign a score for all ${selected.length} rubric(s) before continuing`,
+                { type: "warning" },
+            );
+            return;
+        }
+
+        const judgements = { ...this.state.judgements };
+        const toFetch = [];
+        for (const c of selected) {
+            const cached = judgements[c.id];
+            if (cached && cached.verdict && !cached.error) {
+                continue;
+            }
+            judgements[c.id] = {
+                loading: true,
+                verdict: null,
+                expected_score: null,
+                why_correct: "",
+                why_wrong: "",
+                error: null,
+            };
+            toFetch.push(c);
+        }
+        this.state.judgements = judgements;
+        this.state.popupStep = 3;
+
+        if (!toFetch.length) {
+            return;
+        }
+
+        this.state.judgementsLoading = true;
+        await Promise.all(
+            toFetch.map((c) => this._fetchJudgement(c.id, this.getRubricScore(c.id))),
+        );
+        this.state.judgementsLoading = false;
+    }
+
+    async onRefreshJudgements() {
+        const selected = this.getSelectedCriteria();
+        if (!selected.length) return;
+
+        const judgements = {};
+        for (const c of selected) {
+            judgements[c.id] = {
+                loading: true,
+                verdict: null,
+                expected_score: null,
+                why_correct: "",
+                why_wrong: "",
+                error: null,
+            };
+        }
+        this.state.judgements = judgements;
+        this.state.judgementsLoading = true;
+
+        await Promise.all(
+            selected.map((c) => this._fetchJudgement(c.id, this.getRubricScore(c.id))),
+        );
+
+        this.state.judgementsLoading = false;
+        await this._loadCriteria();
+    }
+
+    async _fetchJudgement(criterionId, userScore) {
+        try {
+            const res = await rpc("/atlas/rubric/judge", {
+                criterion_id: criterionId,
+                user_score: userScore,
+            });
+            const entry = this.state.judgements[criterionId];
+            if (!entry) return;
+            if (res?.error) {
+                entry.loading = false;
+                entry.error = res.error;
+                return;
+            }
+            entry.loading = false;
+            entry.verdict = res.verdict || "INCORRECT";
+            entry.expected_score = res.expected_score;
+            entry.why_correct = res.why_correct || "";
+            entry.why_wrong = res.why_wrong || "";
+        } catch (e) {
+            const entry = this.state.judgements[criterionId];
+            if (entry) {
+                entry.loading = false;
+                entry.error = e.message || "Request failed";
+            }
+        }
+    }
+
+    onBackToScoring() {
+        this.state.popupStep = 2;
+    }
+
+    getJudgement(criterionId) {
+        return this.state.judgements[criterionId] || null;
+    }
+
+    allJudgementsReviewed() {
+        const selected = this.getSelectedCriteria();
+        if (!selected.length) return false;
+        return selected.every((c) => {
+            const j = this.state.judgements[c.id];
+            return j && !j.loading && (j.verdict || j.error);
+        });
     }
 }
 

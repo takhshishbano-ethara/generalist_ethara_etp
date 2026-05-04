@@ -1,9 +1,13 @@
+import logging
+
 from odoo import api, fields, models
 
 from .credential_manager import (
     encrypt_value,
     decrypt_value,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 LANGUAGE_SELECTION = [
@@ -215,6 +219,33 @@ class AuroraSettings(models.TransientModel):
         help="K8s Secret containing odoo.conf (DB credentials, addons path, etc.). Mounted at /etc/odoo/.",
     )
 
+    # -- Webhook (worker -> Odoo progress notifications) ---------------------
+    aurora_webhook_secret = fields.Char(
+        string="Webhook Secret",
+    )
+    aurora_webhook_url = fields.Char(
+        string="Webhook URL",
+        config_parameter="aurora.webhook_url",
+        help="Base URL where k8s worker pods POST pipeline progress. Typically the public Odoo URL (e.g. https://odoo.your-domain.com). Leave empty to disable webhook notifications from k8s workers.",
+    )
+
+    # -- Harness Registry Git Sync (Option B: UI uploads pushed to GitHub) ---
+    aurora_github_registry_write_token = fields.Char(
+        string="GitHub Registry Write Token",
+    )
+    aurora_harness_git_repo = fields.Char(
+        string="Harness Git Repo",
+        config_parameter="aurora.harness_git_repo",
+        default="EtharaAI/multi-swe-bench",
+        help="owner/repo slug for the multi_swe_bench harness. UI uploads are committed here and worker pods sync from here.",
+    )
+    aurora_harness_git_branch = fields.Char(
+        string="Harness Git Branch",
+        config_parameter="aurora.harness_git_branch",
+        default="main",
+        help="Branch of the harness repo to read and write. Use a fork/dev branch for testing before promoting to main.",
+    )
+
     @api.onchange("aurora_lang_detection_mode")
     def _onchange_lang_detection_mode(self):
         running = self.env["aurora.pipeline"].sudo().search_count([
@@ -240,6 +271,8 @@ class AuroraSettings(models.TransientModel):
     _ENCRYPTED_FIELD_MAP = {
         "aurora_s3_access_key": "aurora.s3_access_key",
         "aurora_s3_secret_key": "aurora.s3_secret_key",
+        "aurora_webhook_secret": "aurora.webhook_secret",
+        "aurora_github_registry_write_token": "aurora.github_registry_write_token",
     }
 
     def get_values(self):
@@ -247,7 +280,12 @@ class AuroraSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         for field_name, param_key in self._ENCRYPTED_FIELD_MAP.items():
             stored = ICP.get_param(param_key, "")
-            res[field_name] = decrypt_value(ICP, stored) if stored else ""
+            if not stored:
+                res[field_name] = ""
+            elif stored.startswith("fernet:1:"):
+                res[field_name] = decrypt_value(ICP, stored)
+            else:
+                res[field_name] = stored
         return res
 
     def set_values(self):
@@ -255,4 +293,10 @@ class AuroraSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         for field_name, param_key in self._ENCRYPTED_FIELD_MAP.items():
             plaintext = self[field_name] or ""
-            ICP.set_param(param_key, encrypt_value(ICP, plaintext))
+            try:
+                ICP.set_param(param_key, encrypt_value(ICP, plaintext))
+            except Exception:
+                _logger.warning(
+                    "Aurora: encryption failed for %s, storing plaintext.", param_key
+                )
+                ICP.set_param(param_key, plaintext)

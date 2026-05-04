@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="ethara_projects_hub.ProjectsHub">
+        <div class="eph-hub">
+            <header class="eph-header">
+                <span class="eph-tag">ETHARA AI LABS</span>
+                <h1 class="eph-title">Projects</h1>
+                <p class="eph-subtitle">
+                    Access all Ethara project dashboards from one place.
+                </p>
+            </header>
+
+            <section class="eph-grid">
+                <t t-foreach="state.projects" t-as="project" t-key="project.key">
+                    <a class="eph-card" t-att-href="project.url"
+                       target="_blank" rel="noopener noreferrer">
+                        <div class="eph-card-icon">
+                            <span class="eph-card-initial" t-esc="project.name[0]"/>
+                        </div>
+                        <h3 class="eph-card-name" t-esc="project.name"/>
+                        <p class="eph-card-desc" t-esc="project.description"/>
+                        <span class="eph-card-arrow">&#x2197;</span>
+                    </a>
+                </t>
+            </section>
+
+            <footer class="eph-footer">
+                <p>&#xA9; 2026 <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+            </footer>
+        </div>
+    </t>
+</templates>

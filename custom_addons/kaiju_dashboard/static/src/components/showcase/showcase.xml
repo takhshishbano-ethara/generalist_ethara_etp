@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kaiju_dashboard.KaijuShowcase">
+        <div class="kj-showcase">
+            <header class="kj-showcase-header">
+                <span class="kj-tag">OTS LIBRARY GENERATION</span>
+                <h1 class="kj-title">KAIJU</h1>
+                <p class="kj-subtitle">
+                    From-Scratch Python Library Generation &#xB7; Milo-Bench Framework
+                </p>
+                <p class="kj-byline">
+                    by <strong>Ethara AI Labs</strong> &#x2014;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="kj-section kj-description">
+                <p>
+                    Kaiju evaluates AI coding models on their ability to generate entire
+                    Python libraries from scratch &#x2014; 300 real open-source libraries
+                    serve as targets. Each instance provides a specification PDF and build
+                    infrastructure (Dockerfile + setup scripts), challenging models to produce
+                    working implementations that pass comprehensive test suites. Two frontier
+                    models (GLM-5, Nova-2-Lite) were evaluated through a 3-stage pipeline:
+                    initial generation, lint refinement, and test refinement.
+                </p>
+            </section>
+
+            <section class="kj-section kj-metrics">
+                <div class="kj-metric-grid">
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">300</span>
+                        <span class="kj-metric-label">Python Library Instances</span>
+                        <span class="kj-metric-detail">100% structural completeness</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">2</span>
+                        <span class="kj-metric-label">Frontier Models</span>
+                        <span class="kj-metric-detail">GLM-5 &#x26; Nova-2-Lite</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">49,299</span>
+                        <span class="kj-metric-label">Module Evaluations</span>
+                        <span class="kj-metric-detail">600 pipeline runs total</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">0</span>
+                        <span class="kj-metric-label">Infrastructure Failures</span>
+                        <span class="kj-metric-detail">0 PII leaks &#xB7; 0 OOM kills</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">61.8%</span>
+                        <span class="kj-metric-label">HIGH Confidence Signal</span>
+                        <span class="kj-metric-detail">38.2% MEDIUM &#xB7; 0% LOW</span>
+                    </div>
+                    <div class="kj-metric-card">
+                        <span class="kj-metric-value">3</span>
+                        <span class="kj-metric-label">Refinement Stages</span>
+                        <span class="kj-metric-detail">Generate &#x2192; Lint &#x2192; Test</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="kj-section kj-phases">
+                <div class="kj-phases-row">
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">1</div>
+                        <h3>Instance Preparation</h3>
+                        <p>
+                            Identify 300+ Python libraries. Create specification PDFs.
+                            Build Dockerfiles &#x26; setup scripts for hermetic environments.
+                        </p>
+                    </div>
+                    <div class="kj-phase-arrow">&#x2192;</div>
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">2</div>
+                        <h3>Code Generation</h3>
+                        <p>
+                            Run AI models in sandboxes. Generate complete library
+                            implementations from specifications. Produce per-module outputs.
+                        </p>
+                    </div>
+                    <div class="kj-phase-arrow">&#x2192;</div>
+                    <div class="kj-phase-card">
+                        <div class="kj-phase-number">3</div>
+                        <h3>Evaluation &#x26; Refinement</h3>
+                        <p>
+                            Execute test suites, score pass rates.
+                            Run lint and test refinement stages.
+                            Produce confidence scores.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="kj-section kj-stats">
+                <p class="kj-stats-caption">
+                    Instance Quality Distribution across 300 evaluated Python libraries.
+                    Zero BROKEN or EMPTY instances &#x2014; all 300 included in delivery.
+                </p>
+                <div class="kj-stats-grid">
+                    <div class="kj-stat-card kj-stat-clean">
+                        <span class="kj-stat-number">235</span>
+                        <span class="kj-stat-label">CLEAN</span>
+                        <span class="kj-stat-pct">78.3%</span>
+                    </div>
+                    <div class="kj-stat-card kj-stat-fixable">
+                        <span class="kj-stat-number">49</span>
+                        <span class="kj-stat-label">FIXABLE</span>
+                        <span class="kj-stat-pct">16.3%</span>
+                    </div>
+                    <div class="kj-stat-card kj-stat-degraded">
+                        <span class="kj-stat-number">16</span>
+                        <span class="kj-stat-label">DEGRADED</span>
+                        <span class="kj-stat-pct">5.3%</span>
+                    </div>
+                    <div class="kj-stat-card kj-stat-broken">
+                        <span class="kj-stat-number">0</span>
+                        <span class="kj-stat-label">BROKEN</span>
+                        <span class="kj-stat-pct">0%</span>
+                    </div>
+                </div>
+                <div class="kj-confidence-bar">
+                    <div class="kj-confidence-info">
+                        <span>Mean Confidence Score: <strong>78.7</strong></span>
+                        <span>Min: 50 &#xB7; Max: 100</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="kj-section kj-links">
+                <a class="kj-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Trajectories on GitHub
+                </a>
+                <a class="kj-btn kj-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset on HuggingFace
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>

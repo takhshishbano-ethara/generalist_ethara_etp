@@ -89,7 +89,7 @@
                         <field name="missing_registries" readonly="1" nolabel="1" class="d-block mt-1"/>
                         <p class="mt-2 mb-2 text-muted">No harness implementation found for the repo(s) above. Upload one to continue, or add it to <code>tools/harness/repos/</code>.</p>
                         <button name="action_upload_harness_for_missing"
-                                string="Upload Harness"
+                                string="Upload Registry"
                                 type="object"
                                 class="btn btn-primary btn-sm"
                                 icon="fa-upload"/>
@@ -227,13 +227,16 @@
                         </div>
                         <div class="aurora-config-body">
                             <field name="instance_ids" nolabel="1" readonly="1">
-                                <list default_order="pr_number asc"
+                                <list default_order="instance_id asc"
                                       decoration-success="status == 'resolved'"
                                       decoration-warning="status == 'unresolved'"
                                       decoration-danger="status == 'error'"
                                       decoration-info="status in ('building','running')"
                                       decoration-muted="status in ('pending','built')">
-                                    <field name="pr_number" string="PR"/>
+                                    <field name="instance_id" string="Instance"/>
+                                    <field name="tag_start" optional="show"/>
+                                    <field name="tag_end" optional="show"/>
+                                    <field name="pr_numbers" optional="hide" string="PRs"/>
                                     <field name="org" optional="hide"/>
                                     <field name="repo" optional="hide"/>
                                     <field name="image_tag"/>

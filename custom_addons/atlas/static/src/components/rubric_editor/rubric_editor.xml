@@ -33,6 +33,16 @@
                     </div>
                 </t>
 
+                <!-- Select Rubrics Popup Button -->
+                <t t-if="state.criteria.length and !isGenerating">
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-outline-info w-100"
+                                t-on-click="onOpenRubricPopup">
+                            <i class="fa fa-list-ul me-1"/> Select Rubrics
+                        </button>
+                    </div>
+                </t>
+
                 <t t-if="state.criteria.length">
                     <div class="o_atlas_rubric_cards">
                         <t t-foreach="state.criteria" t-as="c" t-key="c.id">
@@ -154,11 +164,59 @@
                 </t>
 
                 <t t-if="!state.inlineAdd and state.editingId === null">
-                    <button class="btn btn-outline-primary btn-sm mt-3 w-100"
-                            t-on-click="onAddCriteria">
-                        <i class="fa fa-plus me-1"/> Add criteria
-                    </button>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-outline-primary btn-sm flex-grow-1"
+                                t-on-click="onAddCriteria">
+                            <i class="fa fa-plus me-1"/> Add criteria
+                        </button>
+                        <button class="btn btn-outline-info btn-sm"
+                                t-on-click="onQcAll"
+                                t-att-disabled="state.rubricQcStatus === 'running' or !state.criteria.length"
+                                title="Holistic QC of the full rubric (coverage, weights, gaps, overlaps)">
+                            <i t-att-class="'fa me-1 ' + (state.rubricQcStatus === 'running' ? 'fa-spinner fa-spin' : 'fa-shield')"/>
+                            QC All Criteria
+                        </button>
+                    </div>
                 </t>
+
+                <t t-if="state.rubricQcStatus !== 'idle'">
+                    <div class="o_atlas_rubric_qc_all mt-3"
+                         t-att-class="'o_atlas_rubric_qc_all o_atlas_rubric_qc_all_' + state.rubricQcStatus">
+                        <div class="o_atlas_rubric_qc_all_head" t-on-click="toggleRubricQcDetails">
+                            <t t-if="state.rubricQcStatus === 'running'">
+                                <i class="fa fa-spinner fa-spin me-2"/>
+                                <span class="fw-semibold">Evaluating rubric…</span>
+                            </t>
+                            <t t-elif="state.rubricQcStatus === 'error'">
+                                <i class="fa fa-exclamation-triangle me-2 text-danger"/>
+                                <span class="fw-semibold">Rubric QC failed</span>
+                            </t>
+                            <t t-elif="state.rubricQcStatus === 'done'">
+                                <i class="fa fa-shield me-2"/>
+                                <span class="fw-semibold">Rubric QC</span>
+                                <t t-if="state.rubricQcSeverity">
+                                    <span class="o_atlas_rubric_qc_all_pill ms-2"
+                                          t-att-style="'background: ' + rubricQcSeverityColor + ';'">
+                                        <t t-esc="state.rubricQcSeverity.toUpperCase()"/>
+                                    </span>
+                                </t>
+                                <i class="fa ms-auto"
+                                   t-att-class="state.rubricQcExpanded ? 'fa-chevron-up' : 'fa-chevron-down'"/>
+                            </t>
+                        </div>
+                        <t t-if="state.rubricQcStatus !== 'running' and state.rubricQcExpanded and state.rubricQcFeedback">
+                            <div class="o_atlas_rubric_qc_all_body">
+                                <div class="o_atlas_rubric_qc_all_feedback"
+                                     t-out="formatQcFeedback(state.rubricQcFeedback)"/>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+            </t>
+
+            <!-- Rubric Selection Popup -->
+            <t t-if="state.showRubricPopup">
+                <t t-call="atlas.RubricEditor.RubricPopup"/>
             </t>
         </div>
     </t>
@@ -247,6 +305,303 @@
                 <button class="btn btn-primary btn-sm" t-on-click="onSaveCriteria">
                     Save
                 </button>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="atlas.RubricEditor.RubricPopup">
+        <div class="o_rubric_popup_overlay" t-on-click="onCloseRubricPopup">
+            <div class="o_rubric_popup_dialog" t-on-click.stop="">
+                <div class="o_rubric_popup_header d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">
+                        <t t-if="state.popupStep === 1">
+                            <i class="fa fa-list-ul me-2"/>Select Rubrics
+                        </t>
+                        <t t-elif="state.popupStep === 2">
+                            <i class="fa fa-star me-2"/>Assign Scores
+                        </t>
+                        <t t-else="">
+                            Ran your rubric against <t t-out="getSelectedCriteria().length"/> criteria
+                        </t>
+                    </h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <t t-if="state.popupStep !== 3">
+                            <span class="badge bg-secondary">Step <t t-out="state.popupStep"/> of 3</span>
+                        </t>
+                        <button class="btn btn-sm btn-close" t-on-click="onCloseRubricPopup"/>
+                    </div>
+                </div>
+
+                <!-- Step 1: Select Rubrics -->
+                <t t-if="state.popupStep === 1">
+                    <div class="o_rubric_popup_body o_rqc_body">
+                        <t t-if="!state.criteria.length">
+                            <div class="text-muted text-center py-3">No rubric criteria available.</div>
+                        </t>
+                        <t t-else="">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <p class="text-muted small mb-0">Choose which rubrics to score in the next step.</p>
+                                <t t-if="state.selectedRubricIds.length &lt; state.criteria.length">
+                                    <button class="btn btn-sm o_rqc_ghost_btn" t-on-click="onSelectAllRubrics">
+                                        <i class="fa fa-check-square-o me-1"/> Select All
+                                    </button>
+                                </t>
+                                <t t-else="">
+                                    <button class="btn btn-sm o_rqc_ghost_btn" t-on-click="onDeselectAllRubrics">
+                                        <i class="fa fa-square-o me-1"/> Deselect All
+                                    </button>
+                                </t>
+                            </div>
+                            <div class="o_rqc_list">
+                                <t t-foreach="state.criteria" t-as="c" t-key="c.id">
+                                    <div class="o_rqc_card o_rqc_select_card"
+                                         t-att-class="{ 'o_rqc_accepted': isRubricSelected(c.id) }"
+                                         t-on-click="() => this.onToggleRubricSelection(c.id)">
+                                        <div class="o_rqc_card_main">
+                                            <div class="o_rqc_headline">
+                                                <t t-out="c.name"/>
+                                            </div>
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                <span class="o_rqc_category_chip">
+                                                    <i t-att-class="'fa ' + categoryMeta(c.category).icon + ' me-1'"/>
+                                                    <t t-out="categoryMeta(c.category).label"/>
+                                                </span>
+                                                <span class="o_rqc_importance_chip"
+                                                      t-att-style="'background:' + importanceColor(c.importance) + '20; color:' + importanceColor(c.importance)">
+                                                    <t t-out="importanceLabel(c.importance)"/>
+                                                </span>
+                                                <t t-if="c.is_negative">
+                                                    <span class="o_rqc_chip_danger">Negative</span>
+                                                </t>
+                                            </div>
+                                        </div>
+                                        <div class="o_rqc_card_actions">
+                                            <input type="checkbox"
+                                                   class="o_rqc_select_checkbox"
+                                                   t-att-checked="isRubricSelected(c.id)"
+                                                   t-on-click.stop="() => this.onToggleRubricSelection(c.id)"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                    <div class="o_rubric_popup_footer o_rqc_footer d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                        <span class="text-muted small">
+                            <strong><t t-out="state.selectedRubricIds.length"/></strong> of <t t-out="state.criteria.length"/> selected
+                        </span>
+                        <button class="btn btn-sm o_rqc_submit_btn" t-on-click="onGoToScoring"
+                                t-att-disabled="!state.selectedRubricIds.length">
+                            Next: Assign Scores <i class="fa fa-arrow-right ms-1"/>
+                        </button>
+                    </div>
+                </t>
+
+                <!-- Step 2: Assign Scores -->
+                <t t-if="state.popupStep === 2">
+                    <div class="o_rubric_popup_body o_rqc_body">
+                        <p class="text-muted small mb-3">Select a scoring level for each rubric.</p>
+                        <div class="o_rqc_list">
+                            <t t-foreach="getSelectedCriteria()" t-as="c" t-key="c.id">
+                                <div class="o_rqc_card o_rqc_score_card">
+                                    <div class="o_rqc_card_main">
+                                        <div class="o_rqc_headline">
+                                            <t t-out="c.name"/>
+                                        </div>
+                                        <div>
+                                            <span class="o_rqc_category_chip">
+                                                <i t-att-class="'fa ' + categoryMeta(c.category).icon + ' me-1'"/>
+                                                <t t-out="categoryMeta(c.category).label"/>
+                                            </span>
+                                        </div>
+
+                                        <div class="o_rqc_levels_panel">
+                                            <div class="o_rqc_criterion_label">Choose a score:</div>
+                                            <t t-if="c.levels and c.levels.length">
+                                                <t t-foreach="c.levels" t-as="lv" t-key="lv.id || lv_index">
+                                                    <t t-set="isPicked" t-value="getRubricScore(c.id) === lv.score"/>
+                                                    <div class="o_rqc_level_row o_rqc_level_clickable"
+                                                         t-att-class="{ 'o_rqc_level_active': isPicked }"
+                                                         t-on-click="() => this.onSetRubricScore(c.id, lv.score)">
+                                                        <span class="o_rqc_level_circle"
+                                                              t-att-class="{ 'o_rqc_level_circle_active': isPicked }">
+                                                            <t t-out="lv.score"/>
+                                                        </span>
+                                                        <span class="o_rqc_level_label">
+                                                            <t t-if="lv.label"><t t-out="lv.label"/></t>
+                                                            <t t-else="">\u2014</t>
+                                                        </span>
+                                                    </div>
+                                                </t>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="text-muted small">No scoring levels defined</span>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="o_rubric_popup_footer o_rqc_footer d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                        <button class="btn btn-sm o_rqc_ghost_btn" t-on-click="onBackToSelection">
+                            <i class="fa fa-arrow-left me-1"/> Back
+                        </button>
+                        <button class="btn btn-sm o_rqc_submit_btn" t-on-click="onGoToJudgement">
+                            Next: Review Judgement <i class="fa fa-arrow-right ms-1"/>
+                        </button>
+                    </div>
+                </t>
+
+                <!-- Step 3: LLM-judged review of your scores -->
+                <t t-if="state.popupStep === 3">
+                    <div class="o_rubric_popup_body o_rqc_body">
+                        <p class="text-muted small mb-3">
+                            The AI has reviewed each of your scores against the session's responses. A tick means your score matches the evidence; a cross means it does not.
+                        </p>
+                        <div class="o_rqc_list">
+                            <t t-foreach="getSelectedCriteria()" t-as="c" t-key="c.id">
+                                <t t-set="j" t-value="getJudgement(c.id)"/>
+                                <t t-set="userScore" t-value="getRubricScore(c.id)"/>
+                                <div class="o_rqc_card"
+                                     t-att-class="{
+                                        'o_rqc_accepted': j and !j.loading and !j.error and j.verdict === 'CORRECT',
+                                        'o_rqc_rejected': j and !j.loading and !j.error and j.verdict === 'INCORRECT',
+                                        'o_rqc_error': j and j.error,
+                                     }">
+                                    <div class="o_rqc_card_main">
+                                        <div class="o_rqc_headline">
+                                            You scored a
+                                            <span class="o_rqc_score_pill">
+                                                <t t-out="userScore"/>
+                                            </span>
+                                            on this criteria
+                                        </div>
+
+                                        <div class="o_rqc_levels_panel">
+                                            <t t-if="c.name">
+                                                <div class="o_rqc_criterion_label">
+                                                    <t t-out="c.name"/>
+                                                </div>
+                                            </t>
+                                            <t t-if="c.levels and c.levels.length">
+                                                <t t-foreach="c.levels" t-as="lv" t-key="lv.id || lv_index">
+                                                    <t t-set="isUserPick" t-value="userScore === lv.score"/>
+                                                    <div class="o_rqc_level_row"
+                                                         t-att-class="{ 'o_rqc_level_active': isUserPick }">
+                                                        <span class="o_rqc_level_circle"
+                                                              t-att-class="{ 'o_rqc_level_circle_active': isUserPick }">
+                                                            <t t-out="lv.score"/>
+                                                        </span>
+                                                        <span class="o_rqc_level_label">
+                                                            <t t-if="lv.label"><t t-out="lv.label"/></t>
+                                                            <t t-else="">—</t>
+                                                        </span>
+                                                        <t t-if="isUserPick">
+                                                            <span class="o_rqc_level_badge o_rqc_level_badge_user">Your pick</span>
+                                                        </t>
+                                                    </div>
+                                                </t>
+                                            </t>
+                                        </div>
+
+                                        <div class="o_rqc_category_chip">
+                                            <i t-att-class="'fa ' + categoryMeta(c.category).icon + ' me-1'"/>
+                                            <t t-out="categoryMeta(c.category).label"/>
+                                        </div>
+
+                                        <t t-if="!j or j.loading">
+                                            <div class="o_rqc_judge_status_loading">
+                                                <i class="fa fa-spinner fa-spin me-2"/>
+                                                <span>AI is reviewing against the session response…</span>
+                                            </div>
+                                        </t>
+                                        <t t-elif="j.error">
+                                            <div class="o_rqc_judge_status_error">
+                                                <i class="fa fa-exclamation-triangle me-1"/>
+                                                <t t-out="j.error"/>
+                                            </div>
+                                        </t>
+                                        <t t-elif="j.verdict === 'CORRECT'">
+                                            <div class="o_rqc_verdict_panel o_rqc_verdict_correct">
+                                                <div class="o_rqc_verdict_header">
+                                                    <span class="o_rqc_verdict_icon o_rqc_verdict_icon_correct">
+                                                        <i class="fa fa-check"/>
+                                                    </span>
+                                                    <span class="o_rqc_verdict_label">AI agrees with your score</span>
+                                                </div>
+                                                <t t-if="j.why_correct">
+                                                    <div class="o_rqc_verdict_body">
+                                                        <t t-out="j.why_correct"/>
+                                                    </div>
+                                                </t>
+                                            </div>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="o_rqc_verdict_panel o_rqc_verdict_incorrect">
+                                                <div class="o_rqc_verdict_header">
+                                                    <span class="o_rqc_verdict_icon o_rqc_verdict_icon_incorrect">
+                                                        <i class="fa fa-times"/>
+                                                    </span>
+                                                    <span class="o_rqc_verdict_label">
+                                                        AI disagrees
+                                                        <t t-if="j.expected_score !== null and j.expected_score !== undefined">
+                                                            — expected
+                                                            <span class="o_rqc_verdict_expected"><t t-out="j.expected_score"/></span>
+                                                        </t>
+                                                    </span>
+                                                </div>
+                                                <t t-if="j.why_wrong">
+                                                    <div class="o_rqc_verdict_body">
+                                                        <t t-out="j.why_wrong"/>
+                                                    </div>
+                                                </t>
+                                            </div>
+                                        </t>
+                                    </div>
+
+                                    <div class="o_rqc_card_actions">
+                                        <t t-if="j and !j.loading and !j.error">
+                                            <div class="o_rqc_verdict_badge"
+                                                 t-att-class="j.verdict === 'CORRECT' ? 'o_rqc_verdict_badge_correct' : 'o_rqc_verdict_badge_incorrect'"
+                                                 t-att-title="j.verdict === 'CORRECT' ? 'AI marked this correct' : 'AI marked this incorrect'">
+                                                <i t-att-class="'fa ' + (j.verdict === 'CORRECT' ? 'fa-check' : 'fa-times')"/>
+                                            </div>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="o_rqc_verdict_badge o_rqc_verdict_badge_pending">
+                                                <i class="fa fa-spinner fa-spin"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="o_rubric_popup_footer o_rqc_footer d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                        <button class="btn btn-sm o_rqc_ghost_btn" t-on-click="onBackToScoring"
+                                t-att-disabled="state.judgementsLoading">
+                            <i class="fa fa-arrow-left me-1"/> Back
+                        </button>
+                        <div class="d-flex align-items-center gap-3">
+                            <t t-if="state.judgementsLoading">
+                                <span class="o_rqc_hint small">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Running AI review…
+                                </span>
+                            </t>
+                            <t t-else="">
+                                <span class="o_rqc_autosave_hint small">
+                                    <i class="fa fa-check-circle me-1"/>Saved automatically
+                                </span>
+                            </t>
+                            <button class="btn btn-sm o_rqc_ghost_btn"
+                                    t-on-click="onRefreshJudgements"
+                                    t-att-disabled="state.judgementsLoading">
+                                <i class="fa fa-refresh me-1"/> Re-run AI review
+                            </button>
+                        </div>
+                    </div>
+                </t>
             </div>
         </div>
     </t>

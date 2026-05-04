@@ -87,6 +87,15 @@
                             <span>Out: <strong t-out="formatNumber(state.totals.rubric_qc_output)"/></span>
                         </div>
                     </div>
+                    <div class="o_atlas_summary_card">
+                        <div class="o_atlas_summary_icon"><i class="fa fa-gavel"/></div>
+                        <div class="o_atlas_summary_label">Rubric Trial</div>
+                        <div class="o_atlas_summary_value bedrock" t-out="formatNumber(state.totals.rubric_trial_total || 0)"/>
+                        <div class="o_atlas_summary_sub">
+                            <span>In: <strong t-out="formatNumber(state.totals.rubric_trial_input)"/></span>
+                            <span>Out: <strong t-out="formatNumber(state.totals.rubric_trial_output)"/></span>
+                        </div>
+                    </div>
                     <div class="o_atlas_summary_card grand">
                         <div class="o_atlas_summary_icon"><i class="fa fa-tachometer"/></div>
                         <div class="o_atlas_summary_label">Kimi 2.5 Total</div>
@@ -162,6 +171,7 @@
                         <th class="col-group-header col-group-taskdesc" colspan="3">Goal Gen</th>
                         <th class="col-group-header col-group-golden" colspan="3">Rubric Gen</th>
                         <th class="col-group-header col-group-bedrock" colspan="3">Rubric QC</th>
+                        <th class="col-group-header col-group-bedrock" colspan="3">Rubric Trial</th>
                         <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
                             Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
                         </th>
@@ -182,6 +192,10 @@
                         <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_qc_input')">In</th>
                         <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_qc_output')">Out</th>
                         <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('rubric_qc_total')">Σ</th>
+
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_trial_input')">In</th>
+                        <th class="col-num col-bedrock" t-on-click="() => this.onSort('rubric_trial_output')">Out</th>
+                        <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('rubric_trial_total')">Σ</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -205,7 +219,11 @@
                             <td class="col-num col-bedrock" t-out="formatNumber(row.rubric_qc_output)"/>
                             <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.rubric_qc_total)"/>
 
-                            <td class="col-num col-grand" t-out="formatNumber((row.qc_total || 0) + (row.goal_total || 0) + (row.rubric_total || 0) + (row.rubric_qc_total || 0))"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.rubric_trial_input)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(row.rubric_trial_output)"/>
+                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.rubric_trial_total)"/>
+
+                            <td class="col-num col-grand" t-out="formatNumber((row.qc_total || 0) + (row.goal_total || 0) + (row.rubric_total || 0) + (row.rubric_qc_total || 0) + (row.rubric_trial_total || 0))"/>
                         </tr>
                     </t>
                 </tbody>
@@ -228,6 +246,10 @@
                         <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_qc_input)"/>
                         <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_qc_output)"/>
                         <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.rubric_qc_total)"/>
+
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_trial_input)"/>
+                        <td class="col-num col-bedrock" t-out="formatNumber(state.totals.rubric_trial_output)"/>
+                        <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.rubric_trial_total)"/>
 
                         <td class="col-num col-grand" t-out="formatNumber(kimiTotal)"/>
                     </tr>

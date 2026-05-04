@@ -2148,15 +2148,11 @@ class TalosSandbox(models.Model):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
-            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
             glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
             glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
-                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
-                kimi_aws_region=kimi_region,
                 glm_bedrock_arn=glm_arn or "PLACEHOLDER",
                 glm_aws_region=glm_region,
             )

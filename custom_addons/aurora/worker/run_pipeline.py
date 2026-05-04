@@ -4,7 +4,7 @@
 Env vars: PIPELINE_ID (int), ODOO_DB (str), ODOO_CONF (path, optional).
 
 Boots a headless Odoo registry, leases tokens, runs 6 steps, writes
-progress via bus.bus + aurora_pipeline.log.  Every DB operation uses a
+progress via HTTP webhook + aurora_pipeline.log.  Every DB operation uses a
 short-lived cursor (open-write-commit-close).  SIGTERM triggers graceful
 stop between steps.
 """
@@ -31,16 +31,6 @@ _logger = logging.getLogger("aurora.worker")
 
 _cancelled = False
 
-# Per-rec-id cooperative cancellation for local-thread mode (no SIGTERM available).
-# Populated by request_cancel() from action_cancel on the Odoo side.
-_cancelled_rec_ids: set[int] = set()
-_cancel_lock = threading.Lock()
-
-# Thread-local binding of the currently-running pipeline rec_id so tools
-# can call check_cancelled() without plumbing rec_id through their signatures.
-# Set by _run_step before invoking the tool's fn(), cleared after.
-_thread_state = threading.local()
-
 
 def _sigterm_handler(signum, frame):
     global _cancelled
@@ -52,70 +42,9 @@ if threading.current_thread() is threading.main_thread():
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
-def request_cancel(rec_id: int) -> None:
-    """Signal a running local-thread pipeline to stop cooperatively.
-
-    Called from aurora.pipeline.action_cancel. The worker checks for this
-    flag at _check_cancelled() checkpoints between steps and raises
-    PipelineCancelled on the next check.
-    """
-    with _cancel_lock:
-        _cancelled_rec_ids.add(rec_id)
-    _logger.info("Cancel requested for pipeline %s", rec_id)
-
-
-def clear_cancel(rec_id: int) -> None:
-    """Remove a pending cancel flag. Called from run_pipeline's finally block
-    so a stale flag cannot silently kill a subsequent re-run of the same id."""
-    with _cancel_lock:
-        _cancelled_rec_ids.discard(rec_id)
-
-
-def _is_cancelled(rec_id: int) -> bool:
-    if _cancelled:
-        return True
-    with _cancel_lock:
-        return rec_id in _cancelled_rec_ids
-
-
-def _check_cancelled(rec_id: int | None = None):
-    # rec_id is optional for backward compat; always pass it from run_pipeline.
+def _check_cancelled():
     if _cancelled:
         raise PipelineCancelled("Pipeline cancelled (SIGTERM received)")
-    if rec_id is not None:
-        with _cancel_lock:
-            if rec_id in _cancelled_rec_ids:
-                raise PipelineCancelled(f"Pipeline {rec_id} cancelled by user")
-
-
-def check_cancelled():
-    """Public cancel check for tool modules running inside a pipeline.
-
-    Tools call this from inside their long-running loops so Cancel takes
-    effect within seconds instead of waiting for the step to finish.
-    Safe no-op when invoked outside a pipeline (e.g. tool run via CLI).
-    """
-    rec_id = getattr(_thread_state, "rec_id", None)
-    _check_cancelled(rec_id)
-
-
-def _reset_running_steps(cr, rec_id: int) -> None:
-    cr.execute(
-        """
-        UPDATE aurora_pipeline SET
-            step1_status = CASE WHEN step1_status = 'running' THEN 'failed' ELSE step1_status END,
-            step2_status = CASE WHEN step2_status = 'running' THEN 'failed' ELSE step2_status END,
-            step3_status = CASE WHEN step3_status = 'running' THEN 'failed' ELSE step3_status END,
-            step4_status = CASE WHEN step4_status = 'running' THEN 'failed' ELSE step4_status END,
-            step5_status = CASE WHEN step5_status = 'running' THEN 'failed' ELSE step5_status END,
-            step6_status = CASE WHEN step6_status = 'running' THEN 'failed' ELSE step6_status END,
-            phase1_status = CASE WHEN phase1_status = 'running' THEN 'failed' ELSE phase1_status END,
-            phase2_status = CASE WHEN phase2_status = 'running' THEN 'failed' ELSE phase2_status END,
-            phase3_status = CASE WHEN phase3_status = 'running' THEN 'failed' ELSE phase3_status END
-        WHERE id = %s
-        """,
-        (rec_id,),
-    )
 
 
 class PipelineCancelled(Exception):
@@ -221,27 +150,47 @@ def _open_cursor(registry):
     return registry.cursor()
 
 
-def _notify_bus(registry, db_name: str, rec_id: int, stage: str, progress_text: Optional[str] = None) -> None:
-    cr = None
+def _notify_webhook(registry, db_name: str, rec_id: int, stage: str, progress_text: Optional[str] = None) -> None:
+    import hashlib
+    import hmac
+    import json
+    import os
+    import time
+    import requests
+    webhook_url = os.environ.get("AURORA_WEBHOOK_URL", "")
+    webhook_secret = os.environ.get("AURORA_WEBHOOK_SECRET", "")
+    if not webhook_url or not webhook_secret:
+        return
+    jsonrpc_body = {
+        "jsonrpc": "2.0",
+        "method": "call",
+        "params": {
+            "pipeline_id": rec_id,
+            "stage": stage,
+            "progress_text": progress_text or "",
+        },
+    }
+    raw_body = json.dumps(jsonrpc_body).encode("utf-8")
+    ts = str(int(time.time()))
+    sig = hmac.new(
+        webhook_secret.encode("utf-8"),
+        msg=f"{ts}.".encode("utf-8") + raw_body,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
     try:
-        from odoo import api, SUPERUSER_ID
-        cr = _open_cursor(registry)
-        env = api.Environment(cr, SUPERUSER_ID, {})
-        env["bus.bus"]._sendone(
-            f"aurora_pipeline_{rec_id}",
-            "aurora_pipeline_update",
-            {
-                "pipeline_id": rec_id,
-                "stage": stage,
-                "progress_text": progress_text or "",
+        requests.post(
+            webhook_url.rstrip("/") + "/aurora/webhook/pipeline",
+            data=raw_body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Aurora-Timestamp": ts,
+                "X-Aurora-Signature": sig,
+                "X-Aurora-Token": webhook_secret,
             },
+            timeout=30,
         )
-        cr.commit()
     except Exception:
-        _logger.debug("bus.bus notification failed for rec=%s", rec_id, exc_info=True)
-    finally:
-        if cr:
-            cr.close()
+        _logger.debug("webhook notification failed for rec=%s", rec_id, exc_info=True)
 
 
 def _post_chatter(registry, uid: Optional[int], rec_id: int, body: str) -> None:
@@ -282,7 +231,11 @@ def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
                 "pipeline_id": rec_id,
                 "sequence": idx + 1,
                 "instance_id": r.get("instance_id", ""),
-                "pr_number": r.get("pr_number", 0),
+                "tag_start": r.get("tag_start", ""),
+                "tag_end": r.get("tag_end", ""),
+                "pr_numbers": r.get("pr_numbers", ""),
+                "pr_attribution_method": r.get("pr_attribution_method") or False,
+                "version_scheme": r.get("version_scheme") or False,
                 "valid": r.get("valid", False),
                 "f2p_count": len(f2p),
                 "p2p_count": len(p2p),
@@ -323,7 +276,7 @@ def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
 def _read_config(registry, rec_id: int) -> dict[str, Any]:
     from odoo import api, SUPERUSER_ID
     from odoo.addons.aurora.models.credential_manager import get_encrypted_param_raw
-    from odoo.addons.aurora.tools.util import AuroraPipelineError
+    from odoo.addons.aurora.tools.collect.util import AuroraPipelineError
     cr = _open_cursor(registry)
     try:
         env = api.Environment(cr, SUPERUSER_ID, {})
@@ -425,15 +378,13 @@ def run_pipeline(registry, db_name: str, rec_id: int):
     if os.path.isdir(_docker_bin) and _docker_bin not in os.environ.get("PATH", ""):
         os.environ["PATH"] = _docker_bin + ":" + os.environ.get("PATH", "")
 
-    from odoo.addons.aurora.tools.get_all_prs import main as fetch_all_prs
-    from odoo.addons.aurora.tools.filter_prs import main as filter_prs
-    from odoo.addons.aurora.tools.get_version_tags import main as get_version_tags
-    from odoo.addons.aurora.tools.group_prs_by_tags import main as group_prs_by_tags
-    from odoo.addons.aurora.tools.get_related_issues import main as get_related_issues
-    from odoo.addons.aurora.tools.build_dataset import main as build_dataset
-    from odoo.addons.aurora.tools.phase2_docker_build import main as run_phase2
-    from odoo.addons.aurora.tools.phase2_docker_build import check_instance_registry
-    from odoo.addons.aurora.tools.util import AuroraPipelineError
+    from odoo.addons.aurora.tools.collect.get_all_prs import main as fetch_all_prs
+    from odoo.addons.aurora.tools.collect.filter_prs import main as filter_prs
+    from odoo.addons.aurora.tools.collect.get_version_tags import main as get_version_tags
+    from odoo.addons.aurora.tools.collect.group_prs_by_tags import main as group_prs_by_tags
+    from odoo.addons.aurora.tools.collect.get_related_issues import main as get_related_issues
+    from odoo.addons.aurora.tools.collect.build_dataset import main as build_dataset
+    from odoo.addons.aurora.tools.collect.util import AuroraPipelineError
     from odoo.addons.aurora.models import s3_storage
 
     tokens = None
@@ -476,7 +427,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
         _db_write(_heartbeat, rec_id, progress_text)
 
     def _bus(stage, text=None):
-        _notify_bus(registry, db_name, rec_id, stage, text)
+            _notify_webhook(registry, db_name, rec_id, stage, text)
 
     try:
         cfg = _read_config(registry, rec_id)
@@ -527,7 +478,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             return url
 
         def _run_step(step_num, step_field, stage_val, label, fn, count_file):
-            _check_cancelled(rec_id)
+            _check_cancelled()
             _db_write(_update_pipeline, rec_id, {
                 step_field: "running",
                 "stage": stage_val,
@@ -549,13 +500,32 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             hb_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
             hb_thread.start()
 
+            class _StepLogHandler(logging.Handler):
+                def __init__(self):
+                    super().__init__(level=logging.INFO)
+                    self._last_msg = None
+
+                def emit(self, record):
+                    try:
+                        msg = self.format(record)
+                    except Exception:
+                        return
+                    if not msg or msg == self._last_msg:
+                        return
+                    self._last_msg = msg
+                    try:
+                        _db_write(_append_step_log, rec_id, step_num, msg)
+                    except Exception:
+                        pass
+
+            step_log_handler = _StepLogHandler()
+            step_log_handler.setFormatter(logging.Formatter("%(message)s"))
+            tools_logger = logging.getLogger("odoo.addons.aurora.tools")
+            tools_logger.addHandler(step_log_handler)
+
             try:
-                _thread_state.rec_id = rec_id
-                try:
-                    fn()
-                finally:
-                    _thread_state.rec_id = None
-                _check_cancelled(rec_id)
+                fn()
+                _check_cancelled()
                 _validate_step_output(str(count_file), step_num)
                 count = _count_jsonl_lines(str(count_file))
                 file_ref = _upload_to_s3(count_file, step_num)
@@ -577,6 +547,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                 _bus(stage_val, f"Step {step_num} failed: {exc}")
                 return None
             finally:
+                tools_logger.removeHandler(step_log_handler)
                 stop_heartbeat.set()
                 hb_thread.join(timeout=5)
 
@@ -606,18 +577,43 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         result = _run_step(
             2, "step2_status", "filter_prs", "Filtering PRs",
-            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="lht"),
+            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True),
             step2_file,
         )
         if result is None:
             return
         _db_write(_update_pipeline, rec_id, {"filtered_pr_count": result})
 
+        def _make_progress_cb(step_num):
+            last_pct = [-1]
+            def _cb(done, total):
+                try:
+                    pct = int((done * 100) / total) if total else 0
+                except Exception:
+                    pct = 0
+                if pct == last_pct[0]:
+                    return
+                last_pct[0] = pct
+                msg = f"progress {done}/{total} ({pct}%)"
+                try:
+                    _db_write(_append_step_log, rec_id, step_num, msg)
+                except Exception:
+                    pass
+                try:
+                    _beat(f"Step {step_num}: {done}/{total}")
+                except Exception:
+                    pass
+            return _cb
+
         _rate_limit_heartbeat()
 
         result = _run_step(
             3, "step3_status", "discover_tags", "Discovering version tags",
-            lambda: get_version_tags(tokens, out, org, repo, max_tags=cfg["max_tags"]),
+            lambda: get_version_tags(
+                tokens, out, org, repo,
+                max_tags=cfg["max_tags"],
+                progress_callback=_make_progress_cb(3),
+            ),
             step3_file,
         )
         if result is None:
@@ -643,7 +639,10 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         result = _run_step(
             5, "step5_status", "fetch_issues", "Fetching related issues",
-            lambda: get_related_issues(tokens, out, step2_file),
+            lambda: get_related_issues(
+                tokens, out, step2_file,
+                progress_callback=_make_progress_cb(5),
+            ),
             step5_file,
         )
         if result is None:
@@ -660,6 +659,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
                 retry_attempts=cfg["retry_attempts"],
                 cache_dir=cfg["cache_dir"],
                 lang=cfg["lang"],
+                progress_callback=_make_progress_cb(6),
             ),
             step6_file,
         )
@@ -687,141 +687,28 @@ def run_pipeline(registry, db_name: str, rec_id: int):
         _log("Phase 1 (Data Collection) complete.")
         _bus("build_dataset", "Phase 1 complete")
 
-        _check_cancelled(rec_id)
+        _check_cancelled()
 
-        # has_registry = check_instance_registry(org, repo, cfg["lang"], github_token=tokens[0])
-        # _db_write(_update_pipeline, rec_id, {"phase2_has_registry": has_registry})
-
-        # if has_registry:
-        #     _log("Phase 2: Instance registry found, starting Docker build & test execution...")
-        #     _db_write(_update_pipeline, rec_id, {
-        #         "phase2_status": "running",
-        #         "stage": "phase2_build",
-        #         "progress_text": "Phase 2: Building Docker images",
-        #     })
-        #     _bus("phase2_build", "Phase 2 starting")
-
-        #     stop_heartbeat_p2 = threading.Event()
-
-        #     def _heartbeat_loop_p2():
-        #         while not stop_heartbeat_p2.wait(timeout=120):
-        #             try:
-        #                 _beat("Phase 2: Running")
-        #             except Exception:
-        #                 pass
-
-        #     hb_thread_p2 = threading.Thread(target=_heartbeat_loop_p2, daemon=True)
-        #     hb_thread_p2.start()
-
-        #     try:
-        #         phase1_path = str(step6_file)
-        #         phase2_out = str(out / "phase2")
-        #         os.makedirs(phase2_out, exist_ok=True)
-
-        #         def _phase2_log(msg):
-        #             _log(f"[Phase 2] {msg}")
-        #             _beat(msg)
-
-        #         phase2_result = run_phase2(
-        #             phase1_jsonl=phase1_path,
-        #             output_dir=phase2_out,
-        #             org=org,
-        #             repo=repo,
-        #             lang=cfg["lang"],
-        #             max_workers=4,
-        #             log_callback=_phase2_log,
-        #             github_token=tokens[0],
-        #         )
-
-        #         _check_cancelled()
-
-        #         phase2_file_ref = phase2_result["report_file"]
-        #         if use_s3 and os.path.isfile(phase2_file_ref):
-        #             fname = os.path.basename(phase2_file_ref)
-        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-        #             phase2_file_ref = s3_storage.upload_file(s3_config, phase2_file_ref, s3_key)
-
-        #         dataset_jsonl_ref = phase2_result.get("dataset_jsonl", "")
-        #         if use_s3 and dataset_jsonl_ref and os.path.isfile(dataset_jsonl_ref):
-        #             fname = os.path.basename(dataset_jsonl_ref)
-        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-        #             dataset_jsonl_ref = s3_storage.upload_file(s3_config, dataset_jsonl_ref, s3_key)
-
-        #         final_report_json_ref = phase2_result.get("final_report_json", "")
-        #         if use_s3 and final_report_json_ref and os.path.isfile(final_report_json_ref):
-        #             fname = os.path.basename(final_report_json_ref)
-        #             s3_key = s3_storage.build_s3_key(org, repo, run_number, fname, s3_folder)
-        #             final_report_json_ref = s3_storage.upload_file(s3_config, final_report_json_ref, s3_key)
-
-        #         _db_write(_update_pipeline, rec_id, {
-        #             "phase2_status": "done",
-        #             "phase2_file": phase2_file_ref,
-        #             "phase2_image_count": phase2_result["image_count"],
-        #             "phase2_instance_count": phase2_result["instance_count"],
-        #             "phase2_resolved_count": phase2_result["resolved_count"],
-        #             "phase2_dataset_file": dataset_jsonl_ref,
-        #             "phase2_final_report_file": final_report_json_ref,
-        #             "phase2_dataset_count": phase2_result.get("dataset_count", 0),
-        #             "stage": "phase2_report",
-        #             "progress_text": "Phase 2 complete",
-        #         })
-        #         _log(
-        #             f"Phase 2 complete: {phase2_result['resolved_count']}/"
-        #             f"{phase2_result['instance_count']} resolved, "
-        #             f"{phase2_result['image_count']} images built"
-        #         )
-        #         _bus("phase2_report", "Phase 2 complete")
-
-        #         _create_phase2_results(registry, rec_id, phase2_result.get("results", []))
-
-        #     except PipelineCancelled:
-        #         raise
-        #     except Exception as exc:
-        #         _db_write(_update_pipeline, rec_id, {
-        #             "phase2_status": "failed",
-        #             "stage": "failed",
-        #             "progress_text": f"Phase 2 failed: {exc}",
-        #         })
-        #         _db_write(_append_log, rec_id, f"Phase 2 FAILED: {exc}")
-        #         _bus("failed", f"Phase 2 failed: {exc}")
-        #         return
-        #     finally:
-        #         stop_heartbeat_p2.set()
-        #         hb_thread_p2.join(timeout=5)
-        # else:
-        #     _log("Phase 2: No instance registry for this repo — skipping Docker build.")
-        #     _db_write(_update_pipeline, rec_id, {
-        #         "phase2_status": "idle",
-        #         "progress_text": "Phase 2 skipped (no registry)",
-        #     })
-
-        _check_cancelled(rec_id)
-
-        # _log("Phase 3: Not yet implemented — marking pipeline complete.")
         _db_write(_update_pipeline, rec_id, {
-            "phase3_status": "idle",
             "stage": "done",
             "progress_text": "Pipeline complete",
         })
         _log("Pipeline complete.")
         _bus("done", "Pipeline complete")
-        # _post_chatter(
-        #     registry, uid, rec_id,
-        #     f"Pipeline completed - {org}/{repo} ({_count_jsonl_lines(str(step6_file))} dataset records)"
-        #     + (f", Phase 2: {phase2_result['resolved_count']}/{phase2_result['instance_count']} resolved"
-        #        if has_registry else ""),
-        # )
+        _post_chatter(
+            registry, uid, rec_id,
+            f"Pipeline completed - {org}/{repo} ({_count_jsonl_lines(str(step6_file))} dataset records)",
+        )
         _logger.info("Pipeline %d finished successfully", rec_id)
 
     except PipelineCancelled:
-        _logger.info("Pipeline %d stopped (cancelled by user)", rec_id)
+        _logger.info("Pipeline %d stopped (SIGTERM)", rec_id)
         try:
-            _db_write(_reset_running_steps, rec_id)
-            _db_write(_update_pipeline, rec_id, {"stage": "failed", "progress_text": "Cancelled"})
-            _db_write(_append_log, rec_id, "Pipeline stopped (cancelled by user).")
-            _notify_bus(registry, db_name, rec_id, "failed", "Cancelled")
+            _db_write(_update_pipeline, rec_id, {"stage": "failed", "progress_text": "Stopped"})
+            _db_write(_append_log, rec_id, "Pipeline stopped (received SIGTERM — cancelled or timed out).")
+            _notify_webhook(registry, db_name, rec_id, "failed", "Stopped")
             if cfg:
-                _post_chatter(registry, cfg.get("uid"), rec_id, "Pipeline stopped (cancelled by user).")
+                _post_chatter(registry, cfg.get("uid"), rec_id, "Pipeline stopped (SIGTERM received).")
         except Exception:
             _logger.exception("Failed to record cancellation for rec=%s", rec_id)
 
@@ -831,14 +718,13 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             err_msg = traceback.format_exc()[-500:]
             _db_write(_update_pipeline, rec_id, {"stage": "failed", "progress_text": "Fatal error"})
             _db_write(_append_log, rec_id, f"FATAL: {err_msg}")
-            _notify_bus(registry, db_name, rec_id, "failed", err_msg[:200])
+            _notify_webhook(registry, db_name, rec_id, "failed", err_msg[:200])
             if cfg:
                 _post_chatter(registry, cfg.get("uid"), rec_id, f"Pipeline failed:\n{err_msg}")
         except Exception:
             _logger.exception("Failed to record pipeline error for rec=%s", rec_id)
 
     finally:
-        clear_cancel(rec_id)
         if tokens:
             _release_tokens(registry, rec_id)
         if temp_dir and os.path.isdir(temp_dir):

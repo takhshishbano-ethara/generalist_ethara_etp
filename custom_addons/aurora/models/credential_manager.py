@@ -19,6 +19,8 @@ _ENCRYPTED_PREFIX = "fernet:1:"
 ENCRYPTED_PARAMS = frozenset({
     "aurora.s3_access_key",
     "aurora.s3_secret_key",
+    "aurora.webhook_secret",
+    "aurora.github_registry_write_token",
 })
 
 _key_cache_lock = threading.Lock()
@@ -37,23 +39,25 @@ def _get_or_create_key(ICP) -> bytes:
             return _cached_fernet_keys[db_name]
     key_str = ICP.get_param("aurora.encryption_key", "")
     if key_str:
-        _logger.error(
-            "Aurora: encryption key loaded from database — NOT SAFE FOR PRODUCTION. "
-            "Set AURORA_ENCRYPTION_KEY environment variable."
+        _logger.critical(
+            "Aurora: encryption key loaded from database. This is INSECURE — anyone with "
+            "DB read access can decrypt every stored secret. Copy the current value of "
+            "ir_config_parameter['aurora.encryption_key'] into the AURORA_ENCRYPTION_KEY "
+            "environment variable on every Odoo worker, restart, then manually delete the "
+            "DB row. Continuing with the DB-stored key for now to avoid breaking ciphertexts."
         )
         result = key_str.encode()
         with _key_cache_lock:
             _cached_fernet_keys[db_name] = result
         return result
-    key = Fernet.generate_key()
-    ICP.set_param("aurora.encryption_key", key.decode())
-    _logger.warning(
-        "Aurora: generated new Fernet encryption key and stored in database. "
-        "For production, set AURORA_ENCRYPTION_KEY environment variable."
+    raise RuntimeError(
+        "Aurora encryption key is not available. Set the AURORA_ENCRYPTION_KEY environment "
+        "variable on every Odoo worker (a Fernet key string, 44 bytes base64). "
+        "Auto-generation into the database has been disabled because it stores the key "
+        "next to the ciphertexts it protects — anyone with a DB dump would own every secret. "
+        "If this is a fresh install, generate one with: "
+        "`python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`"
     )
-    with _key_cache_lock:
-        _cached_fernet_keys[db_name] = key
-    return key
 
 
 def _get_previous_key(ICP) -> bytes | None:
@@ -88,27 +92,20 @@ def _get_or_create_key_raw(cr) -> bytes:
     )
     row = cr.fetchone()
     if row and row[0]:
-        _logger.error(
-            "Aurora: encryption key loaded from database (background thread) — NOT SAFE FOR PRODUCTION. "
-            "Set AURORA_ENCRYPTION_KEY environment variable."
+        _logger.critical(
+            "Aurora: encryption key loaded from database (background thread). This is INSECURE. "
+            "Copy ir_config_parameter['aurora.encryption_key'] into the AURORA_ENCRYPTION_KEY "
+            "environment variable, restart Odoo workers, then delete the DB row."
         )
         result = row[0].encode()
         with _key_cache_lock:
             _cached_fernet_keys_raw[db_name] = result
         return result
-    key = Fernet.generate_key()
-    cr.execute(
-        """
-        INSERT INTO ir_config_parameter (key, value, create_uid, write_uid, create_date, write_date)
-        VALUES (%s, %s, 1, 1, now() at time zone 'UTC', now() at time zone 'UTC')
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, write_date = now() at time zone 'UTC'
-        """,
-        ("aurora.encryption_key", key.decode()),
+    raise RuntimeError(
+        "Aurora encryption key is not available in background thread. Set AURORA_ENCRYPTION_KEY "
+        "environment variable on every Odoo worker. Auto-generation into the database has been "
+        "disabled for security reasons."
     )
-    _logger.info("Aurora: generated new Fernet encryption key (raw SQL). Caller must commit.")
-    with _key_cache_lock:
-        _cached_fernet_keys_raw[db_name] = key
-    return key
 
 
 def _get_previous_key_raw(cr) -> bytes | None:

@@ -373,30 +373,60 @@ class ReportCliArgs:
 
     def _ensure_instance_registry(self):
         from .instance import Instance
-        if Instance._registry:
-            return
         import importlib
+
+        # Always attempt to load local vendored repos (idempotent — already-
+        # imported modules are cached by Python and decorators won't re-fire).
         try:
             importlib.import_module("odoo.addons.aurora.tools.harness.repos")
         except Exception:
             repos_dir = Path(__file__).parent / "repos"
-            if not repos_dir.is_dir():
-                return
-            base_pkg = "odoo.addons.aurora.tools.harness.repos"
-            for lang_dir in sorted(repos_dir.iterdir()):
-                if not lang_dir.is_dir() or lang_dir.name.startswith("_"):
-                    continue
-                for org_dir in sorted(lang_dir.iterdir()):
-                    if not org_dir.is_dir() or org_dir.name.startswith("_"):
+            if repos_dir.is_dir():
+                base_pkg = "odoo.addons.aurora.tools.harness.repos"
+                for lang_dir in sorted(repos_dir.iterdir()):
+                    if not lang_dir.is_dir() or lang_dir.name.startswith("_"):
                         continue
-                    for py_file in sorted(org_dir.glob("*.py")):
-                        if py_file.name.startswith("_"):
+                    for org_dir in sorted(lang_dir.iterdir()):
+                        if not org_dir.is_dir() or org_dir.name.startswith("_"):
                             continue
-                        mod_name = f"{base_pkg}.{lang_dir.name}.{org_dir.name}.{py_file.stem}"
-                        try:
-                            importlib.import_module(mod_name)
-                        except Exception:
-                            pass
+                        for py_file in sorted(org_dir.glob("*.py")):
+                            if py_file.name.startswith("_"):
+                                continue
+                            mod_name = f"{base_pkg}.{lang_dir.name}.{org_dir.name}.{py_file.stem}"
+                            try:
+                                importlib.import_module(mod_name)
+                            except Exception:
+                                pass
+
+        # Also scan the external harness registry root (GitHub-synced repos
+        # written by phase2_docker_build._sync_registry_from_github).  On EKS
+        # pods this is the only location for dynamically-onboarded repos.
+        try:
+            from ..harness_bridge.phase2_docker_build import (
+                _HARNESS_REPOS_ROOT,
+                _ensure_harness_importable,
+            )
+            if _HARNESS_REPOS_ROOT.is_dir():
+                _ensure_harness_importable()
+                for lang_dir in sorted(_HARNESS_REPOS_ROOT.iterdir()):
+                    if not lang_dir.is_dir() or lang_dir.name.startswith("_"):
+                        continue
+                    for org_dir in sorted(lang_dir.iterdir()):
+                        if not org_dir.is_dir() or org_dir.name.startswith("_"):
+                            continue
+                        for py_file in sorted(org_dir.glob("*.py")):
+                            if py_file.name.startswith("_"):
+                                continue
+                            mod_name = (
+                                f"multi_swe_bench.harness.repos"
+                                f".{lang_dir.name}.{org_dir.name}.{py_file.stem}"
+                            )
+                            try:
+                                importlib.import_module(mod_name)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
 
     def run_evaluation(self):
         self._ensure_instance_registry()

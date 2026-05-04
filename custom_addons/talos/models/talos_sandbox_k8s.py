@@ -286,6 +286,7 @@ class TalosSandboxK8s(models.AbstractModel):
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
         llama_api_key = env.get("LLAMA_API_KEY", "").strip()
+        moonshot_api_key = env.get("MOONSHOT_API_KEY", "").strip()
 
         openclaw_image = self._get_config_param(
             "talos.openclaw_image",
@@ -312,6 +313,7 @@ class TalosSandboxK8s(models.AbstractModel):
             litellm_db_password=litellm_db_password,
             aws_bearer=aws_bearer,
             llama_api_key=llama_api_key,
+            moonshot_api_key=moonshot_api_key,
         )
 
         self._create_persona_configmap(
@@ -340,15 +342,11 @@ class TalosSandboxK8s(models.AbstractModel):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
-            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
             glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
             glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
-                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
-                kimi_aws_region=kimi_region,
                 glm_bedrock_arn=glm_arn or "PLACEHOLDER",
                 glm_aws_region=glm_region,
             )
@@ -393,6 +391,7 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_db_password,
         aws_bearer,
         llama_api_key="",
+        moonshot_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
@@ -408,12 +407,19 @@ class TalosSandboxK8s(models.AbstractModel):
                 "LITELLM_DB_PASSWORD": litellm_db_password,
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
                 "LLAMA_API_KEY": llama_api_key,
+                "MOONSHOT_API_KEY": moonshot_api_key,
             },
         )
         try:
             core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name="talos-sandbox-creds-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=secret,
+                )
+            else:
                 raise
 
     def _create_persona_configmap(self, core_v1, task_id, labels, persona):
@@ -438,7 +444,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name="talos-sandbox-persona-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=cm,
+                )
+            else:
                 raise
 
     def _create_gog_secret(self, core_v1, task_id, labels, sandbox_record):
@@ -502,6 +514,23 @@ class TalosSandboxK8s(models.AbstractModel):
         string_data["_GOG_KEYRING_PASSWORD"] = gog_kp
         string_data["_GOG_ACCOUNT"] = gog_account
 
+        # Warn if encrypted token files exist but no keyring password is set
+        _reserved_keys = {
+            "client_secret.json",
+            "config.json",
+            "_GOG_KEYRING_PASSWORD",
+            "_GOG_ACCOUNT",
+        }
+        _has_token_files = any(k not in _reserved_keys for k in string_data)
+        if _has_token_files and not gog_kp:
+            _logger.warning(
+                "[GogAuth→K8s] GOG_KEYRING_PASSWORD is empty for task %s but %d "
+                "encrypted token file(s) are present; gog CLI will fail to "
+                "decrypt JWE tokens. Ensure talos_id.password is set.",
+                task_id,
+                sum(1 for k in string_data if k not in _reserved_keys),
+            )
+
         _logger.info(
             "[GogAuth→K8s] Creating GOG secret for task %s with %d keys: %s",
             task_id,
@@ -522,7 +551,13 @@ class TalosSandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name="talos-sandbox-gog-%s" % task_id,
+                    namespace=NAMESPACE,
+                    body=secret,
+                )
+            else:
                 raise
 
     def _create_openclaw_config_configmap(
@@ -942,6 +977,15 @@ class TalosSandboxK8s(models.AbstractModel):
                         secret_key_ref=client.V1SecretKeySelector(
                             name=secret_name,
                             key="LLAMA_API_KEY",
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="MOONSHOT_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="MOONSHOT_API_KEY",
                         ),
                     ),
                 ),

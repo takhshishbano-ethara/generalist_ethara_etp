@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+      OWL template for the backend TesseractShowcase component.
+      Mirrors the portal page DOM in views/portal_templates.xml so
+      both surfaces share the same CSS/JS.
+
+      The two link URLs read from ir.config_parameter are bound here
+      via t-att-href="state.trajectoriesUrl" / state.datasetUrl so
+      Settings overrides apply to the backend view too.
+    -->
+    <t t-name="tesseract_dashboard.TesseractShowcase">
+        <div class="page" id="tesseract-showcase-backend">
+            <!--
+              Content intentionally minimal in this stub. The portal
+              template at views/portal_templates.xml holds the full
+              markup; when you want the backend surface to render the
+              same content, copy the body of the portal template here
+              and rewrite the two resource card hrefs to use
+              t-att-href="state.trajectoriesUrl" and
+              t-att-href="state.datasetUrl".
+            -->
+            <header class="masthead">
+                <div class="mast-top">
+                    <h1 class="wordmark">TESSERACT</h1>
+                    <span class="badge">MULTIMODAL SWE-BENCH</span>
+                </div>
+                <p class="byline">
+                    Backend view &#xB7; see the public page at
+                    <a href="/tesseract" target="_blank">/tesseract</a>.
+                </p>
+            </header>
+        </div>
+    </t>
+
+</templates>

@@ -35,12 +35,14 @@ _ALLOWED_COLUMNS = frozenset({
     "s3_run_number",
 })
 
-_MAX_LOG_SIZE = 500_000
+_MAX_LOG_SIZE = 2_000_000
 
 _ALLOWED_INSTANCE_COLUMNS = frozenset({
     "status", "resolved", "error_message",
     "f2p_count", "p2p_count", "s2p_count", "n2p_count",
     "image_tag", "image_workdir",
+    "tag_start", "tag_end", "pr_numbers",
+    "pr_attribution_method", "version_scheme",
     "dockerfile_content", "report_json_content", "fix_patch_content",
     "build_log_tail", "run_log_tail", "test_patch_log_tail", "fix_patch_log_tail",
     "dockerfile_s3_uri", "build_log_s3_uri", "run_log_s3_uri",
@@ -55,6 +57,44 @@ _INLINE_DOCKERFILE_CAP = 16 * 1024
 _INLINE_REPORT_CAP = 128 * 1024
 _INLINE_FIX_PATCH_CAP = 256 * 1024
 _LOG_TAIL_BYTES = 64 * 1024
+
+
+_lht_metadata_cache: dict[tuple[str, str, int], dict[str, Any]] = {}
+_lht_metadata_lock = threading.Lock()
+
+
+def register_lht_metadata(org: str, repo: str, pr_number: int,
+                          metadata: dict[str, Any]) -> None:
+    """Register LHT fields for a (org, repo, pr_number) before evaluation.
+
+    Called by phase2_docker_build._translate_phase1_jsonl (and the pipeline
+    worker's equivalent) to bridge LHT dataset fields into the executor,
+    which consumes harness `pr` objects that lack these fields natively.
+
+    ``metadata`` keys: instance_id, tag_start, tag_end, pr_numbers,
+    pr_attribution_method, version_scheme.
+    """
+    with _lht_metadata_lock:
+        _lht_metadata_cache[(org, repo, int(pr_number))] = dict(metadata)
+
+
+def _lookup_lht(org: str, repo: str, pr_number: int) -> dict[str, Any]:
+    with _lht_metadata_lock:
+        return dict(_lht_metadata_cache.get((org, repo, int(pr_number)), {}))
+
+
+def _instance_id_for(pr) -> str:
+    """Resolve the LHT instance_id for a harness pr object.
+
+    Falls back to ``{org}__{repo}-pr-{number}`` only if no LHT metadata was
+    registered — which is an authoring bug (the translator should always
+    register before evaluation runs).
+    """
+    meta = _lookup_lht(pr.org, pr.repo, pr.number)
+    iid = meta.get("instance_id")
+    if iid:
+        return iid
+    return f"{pr.org}__{pr.repo}-pr-{pr.number}"
 
 
 def request_cancel(rec_id: int) -> bool:
@@ -148,30 +188,8 @@ def _append_log(cr: Any, rec_id: int, msg: str) -> None:
 
 
 def _notify_bus(db_name: str, rec_id: int) -> None:
-    notify_cr = None
-    try:
-        from odoo import api, SUPERUSER_ID
-        notify_cr = _open_cursor(db_name)
-        env = api.Environment(notify_cr, SUPERUSER_ID, {})
-        env["bus.bus"]._sendone(
-            f"aurora_evaluation_{rec_id}",
-            "aurora_evaluation_update",
-            {"evaluation_id": rec_id},
-        )
-        notify_cr.commit()
-    except Exception:
-        _logger.debug("Failed to send bus notification for eval rec=%s", rec_id, exc_info=True)
-        if notify_cr:
-            try:
-                notify_cr.rollback()
-            except Exception:
-                pass
-    finally:
-        if notify_cr:
-            try:
-                notify_cr.close()
-            except Exception:
-                pass
+    """Deprecated no-op: UI updates flow through HTTP polling after DB writes."""
+    return
 
 
 def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> None:
@@ -185,6 +203,82 @@ def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> Non
 def _fail_eval(cr: Any, rec_id: int, step_field: str, exc) -> None:
     _update_eval(cr, rec_id, {step_field: "failed", "stage": "failed"})
     _append_log(cr, rec_id, f"FAILED ({step_field}): {exc}")
+
+
+def _promote_linked_staging_record(cr: Any, eval_rec_id: int) -> None:
+    try:
+        cr.execute(
+            "UPDATE aurora_harness_staging "
+            "SET stage = 'done' "
+            "WHERE eval_id = %s AND stage = 'evaluating'",
+            [eval_rec_id],
+        )
+    except Exception:
+        _logger.exception(
+            "Failed to promote linked harness staging record for eval_id=%s", eval_rec_id,
+        )
+
+
+def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
+    """Ensure every (org, repo) in the dataset has a harness class registered.
+
+    Lookup order per (org, repo): staging overlay (already loaded before this
+    call in _load_staging_for_eval) > in-process registry (vendored tree that
+    may have been imported earlier) > remote GitHub sync from the harness
+    registry repo (env: AURORA_HARNESS_GIT_TOKEN, AURORA_HARNESS_GIT_REPO).
+
+    Anything still missing after this step surfaces in the downstream
+    'missing registries' error branch with actionable guidance.
+    """
+    from ..tools.harness.instance import Instance
+
+    token = os.environ.get("AURORA_HARNESS_GIT_TOKEN", "").strip()
+    pairs: set[tuple[str, str, str]] = set()
+    for pr in eval_config.dataset.values():
+        pairs.add((pr.org, pr.repo, getattr(pr, "lang", "") or "python"))
+
+    needing_sync = [
+        (org, repo, lang) for (org, repo, lang) in pairs
+        if f"{org}/{repo}" not in Instance._registry
+    ]
+    if not needing_sync:
+        return
+
+    if not token:
+        _append_log(
+            cr, rec_id,
+            f"{len(needing_sync)} repo(s) missing from local registry and "
+            f"AURORA_HARNESS_GIT_TOKEN is unset. Skipping dynamic registry "
+            f"sync; evaluation will fail unless a staging upload is present.",
+        )
+        return
+
+    try:
+        from ..tools.harness_bridge.phase2_docker_build import (
+            check_instance_registry,
+            _import_all_repo_modules,
+        )
+    except Exception as exc:
+        _logger.warning("harness_bridge not importable: %s", exc, exc_info=True)
+        return
+
+    synced_count = 0
+    failed: list[str] = []
+    for org, repo, lang in needing_sync:
+        try:
+            if check_instance_registry(org, repo, lang, github_token=token):
+                _import_all_repo_modules(org, repo, lang)
+                synced_count += 1
+                _append_log(cr, rec_id, f"Synced harness registry for {org}/{repo} (lang={lang}) from GitHub.")
+            else:
+                failed.append(f"{org}/{repo}")
+        except Exception as exc:
+            _logger.exception("Registry sync failed for %s/%s", org, repo)
+            failed.append(f"{org}/{repo}")
+            _append_log(cr, rec_id, f"Registry sync failed for {org}/{repo}: {exc}")
+
+    if synced_count:
+        cr.commit()
 
 
 def _load_s3_config(cr: Any) -> dict:
@@ -240,33 +334,53 @@ def _update_instance(cr: Any, instance_id: int, vals: dict[str, Any]) -> None:
 
 
 def _ensure_instance(cr: Any, evaluation_id: int, org: str, repo: str,
-                     pr_number: int, image_tag: Optional[str] = None,
+                     instance_id: str,
+                     tag_start: Optional[str] = None,
+                     tag_end: Optional[str] = None,
+                     pr_numbers: Optional[str] = None,
+                     pr_attribution_method: Optional[str] = None,
+                     version_scheme: Optional[str] = None,
+                     image_tag: Optional[str] = None,
                      image_workdir: Optional[str] = None) -> int:
     cr.execute(
         "SELECT id FROM aurora_evaluation_instance "
-        "WHERE evaluation_id = %s AND pr_number = %s",
-        [evaluation_id, pr_number],
+        "WHERE evaluation_id = %s AND instance_id = %s",
+        [evaluation_id, instance_id],
     )
     row = cr.fetchone()
     if row:
-        if image_tag or image_workdir:
-            vals = {}
-            if image_tag:
-                vals["image_tag"] = image_tag
-            if image_workdir:
-                vals["image_workdir"] = image_workdir
-            if vals:
-                _update_instance(cr, row[0], vals)
+        vals: dict[str, Any] = {}
+        for key, val in (
+            ("tag_start", tag_start),
+            ("tag_end", tag_end),
+            ("pr_numbers", pr_numbers),
+            ("pr_attribution_method", pr_attribution_method),
+            ("version_scheme", version_scheme),
+            ("image_tag", image_tag),
+            ("image_workdir", image_workdir),
+        ):
+            if val:
+                vals[key] = val
+        if vals:
+            _update_instance(cr, row[0], vals)
         return row[0]
 
     insert_sql = (
         "INSERT INTO aurora_evaluation_instance "
-        "(evaluation_id, org, repo, pr_number, image_tag, image_workdir, status, resolved, "
-        "f2p_count, p2p_count, s2p_count, n2p_count, create_uid, create_date, write_uid, write_date) "
-        "VALUES (%s, %s, %s, %s, %s, %s, 'pending', FALSE, 0, 0, 0, 0, 1, NOW(), 1, NOW()) "
+        "(evaluation_id, org, repo, instance_id, tag_start, tag_end, "
+        "pr_numbers, pr_attribution_method, version_scheme, "
+        "image_tag, image_workdir, status, resolved, "
+        "f2p_count, p2p_count, s2p_count, n2p_count, "
+        "create_uid, create_date, write_uid, write_date) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+        "'pending', FALSE, 0, 0, 0, 0, 1, NOW(), 1, NOW()) "
         "RETURNING id"
     )
-    insert_params = [evaluation_id, org, repo, pr_number, image_tag, image_workdir]
+    insert_params = [
+        evaluation_id, org, repo, instance_id, tag_start, tag_end,
+        pr_numbers, pr_attribution_method, version_scheme,
+        image_tag, image_workdir,
+    ]
     for attempt in range(_SERIALIZATION_RETRIES):
         try:
             cr.execute(insert_sql, insert_params)
@@ -277,14 +391,15 @@ def _ensure_instance(cr: Any, evaluation_id: int, org: str, repo: str,
                 time.sleep(_SERIALIZATION_BACKOFF * (2 ** attempt))
             else:
                 _logger.warning(
-                    "SerializationFailure inserting aurora_evaluation_instance eval=%s pr=%s after %d retries; "
+                    "SerializationFailure inserting aurora_evaluation_instance "
+                    "eval=%s instance_id=%s after %d retries; "
                     "re-selecting in case a concurrent transaction won the race",
-                    evaluation_id, pr_number, _SERIALIZATION_RETRIES,
+                    evaluation_id, instance_id, _SERIALIZATION_RETRIES,
                 )
                 cr.execute(
                     "SELECT id FROM aurora_evaluation_instance "
-                    "WHERE evaluation_id = %s AND pr_number = %s",
-                    [evaluation_id, pr_number],
+                    "WHERE evaluation_id = %s AND instance_id = %s",
+                    [evaluation_id, instance_id],
                 )
                 again = cr.fetchone()
                 if again:
@@ -334,8 +449,8 @@ def _upload_artifact(s3_config: dict, use_s3: bool, local_path: Optional[str],
 
 
 def _build_instance_key(s3_folder: str, phase: str, org: str, repo: str,
-                        run_number: int, pr_number: int, filename: str) -> str:
-    nested = f"pr-{pr_number}/{filename}"
+                        run_number: int, instance_id: str, filename: str) -> str:
+    nested = f"{instance_id}/{filename}"
     return s3_storage.build_s3_key(org, repo, run_number, nested, folder=s3_folder, phase=phase)
 
 
@@ -378,8 +493,15 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
         dockerfile_path = img_dir / dockerfile_name
         build_log_path = img_dir / BUILD_IMAGE_LOG_FILE
         image_tag_str = image.image_full_name() if hasattr(image, "image_full_name") else image_workdir_name
+        lht = _lookup_lht(pr.org, pr.repo, pr.number)
+        iid = lht.get("instance_id") or _instance_id_for(pr)
         instance_id = _ensure_instance(
-            cr, rec_id, pr.org, pr.repo, pr.number,
+            cr, rec_id, pr.org, pr.repo, iid,
+            tag_start=lht.get("tag_start"),
+            tag_end=lht.get("tag_end"),
+            pr_numbers=lht.get("pr_numbers"),
+            pr_attribution_method=lht.get("pr_attribution_method"),
+            version_scheme=lht.get("version_scheme"),
             image_tag=image_tag_str,
             image_workdir=image_workdir_name,
         )
@@ -391,7 +513,7 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                 vals["dockerfile_content"] = content
             s3_uri = _upload_artifact(
                 s3_config, use_s3, str(dockerfile_path),
-                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, pr.number, dockerfile_name),
+                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, dockerfile_name),
             )
             if s3_uri:
                 vals["dockerfile_s3_uri"] = s3_uri
@@ -402,7 +524,7 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                 vals["build_log_tail"] = tail
             s3_uri = _upload_artifact(
                 s3_config, use_s3, str(build_log_path),
-                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, pr.number, BUILD_IMAGE_LOG_FILE),
+                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, BUILD_IMAGE_LOG_FILE),
             )
             if s3_uri:
                 vals["build_log_s3_uri"] = s3_uri
@@ -428,7 +550,8 @@ def _populate_run_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
         image_workdir_name = instance.dependency().workdir()
         run_number = run_numbers.get((pr.org, pr.repo), 1)
         eval_dir = Path(workdir) / pr.org / pr.repo / EVALUATION_WORKDIR / image_workdir_name
-        instance_id = _ensure_instance(cr, rec_id, pr.org, pr.repo, pr.number)
+        iid = _instance_id_for(pr)
+        instance_id = _ensure_instance(cr, rec_id, pr.org, pr.repo, iid)
         vals: dict[str, Any] = {"status": "running"}
         for attr_local, attr_tail, attr_s3, fname in [
             ("run_log_local_path", "run_log_tail", "run_log_s3_uri", RUN_LOG_FILE),
@@ -443,7 +566,7 @@ def _populate_run_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                     vals[attr_tail] = tail
                 s3_uri = _upload_artifact(
                     s3_config, use_s3, str(p),
-                    _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, pr.number, fname),
+                    _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, fname),
                 )
                 if s3_uri:
                     vals[attr_s3] = s3_uri
@@ -454,7 +577,7 @@ def _populate_run_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                 vals["fix_patch_content"] = content
             s3_uri = _upload_artifact(
                 s3_config, use_s3, str(fix_patch_path),
-                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, pr.number, "fix.patch"),
+                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, "fix.patch"),
             )
             if s3_uri:
                 vals["fix_patch_s3_uri"] = s3_uri
@@ -483,7 +606,8 @@ def _populate_report_artifacts(cr: Any, rec_id: int, workdir: str, output_dir: s
         image_workdir_name = instance.dependency().workdir()
         run_number = run_numbers.get((pr.org, pr.repo), 1)
         eval_dir = Path(workdir) / pr.org / pr.repo / EVALUATION_WORKDIR / image_workdir_name
-        instance_id = _ensure_instance(cr, rec_id, pr.org, pr.repo, pr.number)
+        iid = _instance_id_for(pr)
+        instance_id = _ensure_instance(cr, rec_id, pr.org, pr.repo, iid)
         pr_id = f"{pr.org}/{pr.repo}:pr-{pr.number}"
 
         vals: dict[str, Any] = {}
@@ -517,10 +641,10 @@ def _populate_report_artifacts(cr: Any, rec_id: int, workdir: str, output_dir: s
                 if err_msg:
                     vals["error_message"] = err_msg[:4000]
             except Exception:
-                _logger.debug("Failed to parse per-instance report for PR=%s", pr.number, exc_info=True)
+                _logger.debug("Failed to parse per-instance report for instance=%s", iid, exc_info=True)
             s3_uri = _upload_artifact(
                 s3_config, use_s3, str(report_path),
-                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, pr.number, REPORT_FILE),
+                _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, REPORT_FILE),
             )
             if s3_uri:
                 vals["report_json_s3_uri"] = s3_uri
@@ -624,7 +748,7 @@ def _safe_worker(fn):
 
 
 def _load_staging_for_eval(db_name: str, user_id: int) -> dict:
-    from ..tools.harness.staging_loader import load_staging_harness
+    from ..tools.harness.staging_loader import load_staging_harness, load_staging_directory
     staging_cr = _open_cursor(db_name)
     all_originals: dict = {}
     try:
@@ -651,7 +775,11 @@ def _load_staging_for_eval(db_name: str, user_id: int) -> dict:
         for rec in staging_records:
             try:
                 staging_path = rec._ensure_staging_file()
-                originals = load_staging_harness(staging_path, rec.org, rec.repo)
+                if rec._is_zip_upload():
+                    staging_dir = os.path.dirname(staging_path)
+                    originals = load_staging_directory(staging_dir, rec.org, rec.repo)
+                else:
+                    originals = load_staging_harness(staging_path, rec.org, rec.repo)
                 all_originals.update(originals)
             except Exception:
                 _logger.warning(
@@ -765,21 +893,59 @@ def _run_evaluation(db_name, uid, rec_id):
         cr.commit()
 
         total_dataset = len(eval_config.dataset)
+
+        _sync_missing_registries(cr, rec_id, eval_config)
+
         total_instances = len(eval_config.instances)
+        parse_failures = getattr(eval_config, "_dataset_parse_failures", []) or []
+        total_lines = getattr(eval_config, "_dataset_total_lines", 0)
         if total_instances == 0:
-            missing_repos = set()
-            from ..tools.harness.instance import Instance
-            for pr in eval_config.dataset.values():
-                key = f"{pr.org}/{pr.repo}"
-                if key not in Instance._registry:
-                    missing_repos.add(key)
-            missing_list = ", ".join(sorted(missing_repos))
-            msg = (
-                f"No registered harness instances found. "
-                f"Dataset has {total_dataset} entries but 0 could be matched to a harness implementation.\n"
-                f"Missing harness registry for: {missing_list}\n"
-                f"Add a harness implementation in tools/harness/repos/ for these repos."
-            )
+            missing_list = ""
+            if total_dataset == 0:
+                if parse_failures:
+                    sample = parse_failures[0]
+                    sample_summary = (
+                        f"  line {sample[1]}: {sample[2]}"
+                    )
+                    msg = (
+                        f"Dataset file found but every record failed schema validation.\n"
+                        f"Dataset file: {dataset_file_abs}\n"
+                        f"Lines read: {total_lines}. Parse failures: {len(parse_failures)}.\n"
+                        f"First failure:\n{sample_summary}\n"
+                        f"Typical cause: the dataset was built before a harness-schema change "
+                        f"(e.g. missing required `number` field). "
+                        f"Rebuild the dataset via the pipeline and retry."
+                    )
+                elif specifics:
+                    msg = (
+                        f"No dataset entries matched the Specific PRs filter.\n"
+                        f"Specifics: {sorted(specifics)}\n"
+                        f"Dataset file: {dataset_file_abs}\n"
+                        f"Clear the 'Specific PRs' field to evaluate all entries, "
+                        f"or set it to real instance_id values from the dataset."
+                    )
+                else:
+                    msg = (
+                        f"Dataset is empty or unreadable.\n"
+                        f"Dataset file: {dataset_file_abs}\n"
+                        f"File exists on worker: {os.path.isfile(dataset_file_abs) if dataset_file_abs else False}\n"
+                        f"Verify the dataset path is absolute and the file is reachable "
+                        f"from the Odoo worker process."
+                    )
+            else:
+                missing_repos = set()
+                from ..tools.harness.instance import Instance
+                for pr in eval_config.dataset.values():
+                    key = f"{pr.org}/{pr.repo}"
+                    if key not in Instance._registry:
+                        missing_repos.add(key)
+                missing_list = ", ".join(sorted(missing_repos))
+                msg = (
+                    f"No registered harness instances found. "
+                    f"Dataset has {total_dataset} entries but 0 could be matched to a harness implementation.\n"
+                    f"Missing harness registry for: {missing_list}\n"
+                    f"Add a harness implementation in tools/harness/repos/ for these repos."
+                )
             _fail_eval(cr, rec_id, "build_status", msg)
             _update_eval(cr, rec_id, {"missing_registries": missing_list})
             _append_log(cr, rec_id, msg)
@@ -803,14 +969,25 @@ def _run_evaluation(db_name, uid, rec_id):
             _update_eval(cr, rec_id, {"s3_run_number": max(run_numbers.values())})
             cr.commit()
 
-        _safe_phase_hook(cr, rec_id, "pre-build-seed",
-                         lambda: [_ensure_instance(
-                             cr, rec_id, inst.pr.org, inst.pr.repo, inst.pr.number,
-                             image_tag=(inst.dependency().image_full_name()
-                                        if hasattr(inst.dependency(), "image_full_name")
-                                        else inst.dependency().workdir()),
-                             image_workdir=inst.dependency().workdir(),
-                         ) for inst in eval_config.instances])
+        def _seed_instances():
+            for inst in eval_config.instances:
+                pr = inst.pr
+                lht = _lookup_lht(pr.org, pr.repo, pr.number)
+                iid = lht.get("instance_id") or _instance_id_for(pr)
+                _ensure_instance(
+                    cr, rec_id, pr.org, pr.repo, iid,
+                    tag_start=lht.get("tag_start"),
+                    tag_end=lht.get("tag_end"),
+                    pr_numbers=lht.get("pr_numbers"),
+                    pr_attribution_method=lht.get("pr_attribution_method"),
+                    version_scheme=lht.get("version_scheme"),
+                    image_tag=(inst.dependency().image_full_name()
+                               if hasattr(inst.dependency(), "image_full_name")
+                               else inst.dependency().workdir()),
+                    image_workdir=inst.dependency().workdir(),
+                )
+
+        _safe_phase_hook(cr, rec_id, "pre-build-seed", _seed_instances)
         _update_eval(cr, rec_id, {"total_instances": total_instances})
         cr.commit()
 
@@ -930,9 +1107,12 @@ def _run_evaluation(db_name, uid, rec_id):
         _notify_bus(db_name, rec_id)
         cr.commit()
 
+        _promote_linked_staging_record(cr, rec_id)
+        cr.commit()
+
         _post_chatter(
             db_name, uid, rec_id,
-            f"Evaluation completed — {resolved}/{total} instances resolved, "
+            f"Evaluation completed \u2014 {resolved}/{total} instances resolved, "
             f"{unresolved} unresolved, {errors} errors."
         )
 

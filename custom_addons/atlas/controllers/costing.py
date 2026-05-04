@@ -12,6 +12,7 @@ TOKEN_CATEGORIES = [
     ("goal", "Goal Generation", "goal_input_tokens", "goal_output_tokens"),
     ("rubric", "Rubric Generation", "rubric_input_tokens", "rubric_output_tokens"),
     ("rubric_qc", "Rubric QC", "rubric_qc_input_tokens", "rubric_qc_output_tokens"),
+    ("rubric_trial", "Rubric Trial", "rubric_trial_input_tokens", "rubric_trial_output_tokens"),
 ]
 
 

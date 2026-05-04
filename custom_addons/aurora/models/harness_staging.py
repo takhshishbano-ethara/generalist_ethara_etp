@@ -1,10 +1,12 @@
 import ast
 import base64
+import io
 import logging
 import os
+import zipfile
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from . import harness_staging_executor
 
@@ -291,11 +293,42 @@ class AuroraHarnessStaging(models.Model):
         for rec in self:
             if not rec.harness_file:
                 continue
-            if rec.harness_filename and not rec.harness_filename.endswith(".py"):
-                raise ValidationError("Harness file must be a .py file.")
+            fname = rec.harness_filename or ""
+            if fname and not fname.endswith(".py") and not fname.endswith(".zip"):
+                raise ValidationError("Upload a single .py file or a .zip containing multiple .py files.")
             raw = base64.b64decode(rec.harness_file)
-            if len(raw) > 100_000:
-                raise ValidationError("Harness file exceeds 100KB limit.")
+            if fname.endswith(".zip"):
+                if len(raw) > 2_000_000:
+                    raise ValidationError("ZIP file exceeds 2MB limit.")
+            else:
+                if len(raw) > 100_000:
+                    raise ValidationError("Harness file exceeds 100KB limit.")
+
+    def _is_zip_upload(self) -> bool:
+        return bool(self.harness_filename and self.harness_filename.endswith(".zip"))
+
+    def _extract_zip_files(self) -> list[tuple[str, bytes]]:
+        raw = base64.b64decode(self.harness_file)
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+        except zipfile.BadZipFile as exc:
+            raise UserError(f"Uploaded file is not a valid ZIP: {exc}") from exc
+        py_files: list[tuple[str, bytes]] = []
+        for name in sorted(zf.namelist()):
+            if name.endswith("/") or not name.endswith(".py"):
+                continue
+            if name.startswith("__") or "/__" in name:
+                continue
+            basename = os.path.basename(name)
+            if basename.startswith("_"):
+                continue
+            content = zf.read(name)
+            if len(content) > 100_000:
+                raise UserError(f"File {basename} in ZIP exceeds 100KB limit.")
+            py_files.append((basename, content))
+        if not py_files:
+            raise UserError("ZIP file contains no .py files (excluding __init__.py).")
+        return py_files
 
     def _validate_harness_content(self, content: bytes) -> None:
         try:
@@ -369,14 +402,23 @@ class AuroraHarnessStaging(models.Model):
         )
         os.makedirs(staging_dir, exist_ok=True)
 
-        filename = self.harness_filename or f"{self.repo}.py"
-        file_path = os.path.join(staging_dir, filename)
-
-        raw = base64.b64decode(self.harness_file)
-        with open(file_path, "wb") as f:
-            f.write(raw)
-
-        return file_path
+        if self._is_zip_upload():
+            py_files = self._extract_zip_files()
+            first_path = ""
+            for fname, content in py_files:
+                file_path = os.path.join(staging_dir, fname)
+                with open(file_path, "wb") as f:
+                    f.write(content)
+                if not first_path:
+                    first_path = file_path
+            return first_path
+        else:
+            filename = self.harness_filename or f"{self.repo}.py"
+            file_path = os.path.join(staging_dir, filename)
+            raw = base64.b64decode(self.harness_file)
+            with open(file_path, "wb") as f:
+                f.write(raw)
+            return file_path
 
     def _ensure_staging_file(self) -> str:
         self.ensure_one()
@@ -386,34 +428,55 @@ class AuroraHarnessStaging(models.Model):
         self.sudo().write({"staging_path": path})
         return path
 
+    @staticmethod
+    def _require_admin(env, action: str):
+        if not env.user.has_group("aurora.group_aurora_admin"):
+            raise AccessError(
+                f"Only Aurora Administrators may {action}. "
+                "Harness uploads execute arbitrary Python on the Odoo worker, "
+                "so this capability is restricted to admins."
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
+        self._require_admin(self.env, "create harness staging records")
         records = super().create(vals_list)
         for rec in records:
             if rec.harness_file:
-                raw = base64.b64decode(rec.harness_file)
-                rec._validate_harness_content(raw)
+                if rec._is_zip_upload():
+                    for fname, content in rec._extract_zip_files():
+                        rec._validate_harness_content(content)
+                else:
+                    raw = base64.b64decode(rec.harness_file)
+                    rec._validate_harness_content(raw)
                 path = rec._write_staging_file()
                 rec.sudo().write({"staging_path": path})
         return records
 
     def write(self, vals):
+        if "harness_file" in vals and vals["harness_file"]:
+            self._require_admin(self.env, "upload harness files")
         res = super().write(vals)
         if "harness_file" in vals and vals["harness_file"]:
             for rec in self:
-                raw = base64.b64decode(rec.harness_file)
-                rec._validate_harness_content(raw)
+                if rec._is_zip_upload():
+                    for fname, content in rec._extract_zip_files():
+                        rec._validate_harness_content(content)
+                else:
+                    raw = base64.b64decode(rec.harness_file)
+                    rec._validate_harness_content(raw)
                 path = rec._write_staging_file()
                 rec.sudo().write({"staging_path": path})
         return res
 
     def action_test_harness(self):
         self.ensure_one()
+        self._require_admin(self.env, "execute harness tests")
         if self.stage == "testing":
             raise UserError("Test already in progress.")
         if not self.harness_file:
             raise UserError(
-                "Harness File is required. Upload a .py file before running a test."
+                "Registry File is required. Upload a .py file or a .zip containing multiple .py files."
             )
         if not self.dataset_file:
             raise UserError(
@@ -421,6 +484,13 @@ class AuroraHarnessStaging(models.Model):
             )
         if not os.path.isfile(self.dataset_file):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
+
+        if not harness_staging_executor.is_test_slot_available():
+            raise UserError(
+                "Another staging test is already running on this Odoo server. "
+                "Only one staging test runs at a time to avoid harness registry "
+                "races. Wait for the current test to finish and retry."
+            )
 
         self._ensure_staging_file()
         self.write({
@@ -450,6 +520,7 @@ class AuroraHarnessStaging(models.Model):
 
     def action_run_full_evaluation(self):
         self.ensure_one()
+        self._require_admin(self.env, "run full harness evaluations")
         if self.stage != "tested" or self.test_result != "success":
             raise UserError("Run a successful test first before full evaluation.")
         if not self.dataset_file:
@@ -481,33 +552,6 @@ class AuroraHarnessStaging(models.Model):
             "view_mode": "form",
             "target": "current",
         }
-
-    def action_notify_admin(self):
-        self.ensure_one()
-        if self.stage not in ("done", "tested"):
-            raise UserError("Complete testing or evaluation before notifying admin.")
-
-        self.write({
-            "stage": "notified",
-            "notified_at": fields.Datetime.now(),
-        })
-
-        admin_group = self.env.ref("aurora.group_aurora_admin", raise_if_not_found=False)
-        if admin_group and admin_group.all_user_ids:
-            self.activity_schedule(
-                "mail.mail_activity_data_todo",
-                user_id=admin_group.all_user_ids[0].id,
-                summary=f"Harness ready for deployment: {self.org}/{self.repo}",
-                note=(
-                    f"Developer {self.user_id.name} has completed testing. "
-                    f"Please review and push to GitHub."
-                ),
-            )
-        self.message_post(
-            body=f"Admin notified for deployment of {self.org}/{self.repo}.",
-            message_type="comment",
-            subtype_xmlid="mail.mt_note",
-        )
 
     def action_download_file(self):
         self.ensure_one()
@@ -569,30 +613,146 @@ class AuroraHarnessStaging(models.Model):
 
     def action_download_readme_harness(self):
         self.ensure_one()
-        repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        aurora_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..")
         )
-        candidate = os.path.join(repo_root, "README-HARNESS.md")
+        candidate = os.path.join(aurora_root, "README-HARNESS.md")
         if not os.path.isfile(candidate):
             raise UserError(
                 f"README-HARNESS.md not found at {candidate!r}. "
-                "Ensure the file exists at the repo root."
+                "Ensure the file exists in the aurora addon directory."
             )
         return self._download_local_file(candidate, "README-HARNESS.md")
 
     def action_mark_deployed(self):
         self.ensure_one()
+        self._require_admin(self.env, "push harness registry to GitHub")
+
+        if self.test_result != "success" or self.stage not in ("tested", "done", "evaluating"):
+            raise UserError(
+                "Push is only allowed after a successful harness test. "
+                "Run 'Test Harness' first and wait for test_result=success."
+            )
+        if not self.staging_path or not os.path.isfile(self.staging_path):
+            raise UserError(
+                "Staging file missing on disk. Re-upload the harness file and retry."
+            )
+
+        from . import registry_git_sync
+        commit_msg = (
+            f"Deploy registry for {self.org}/{self.repo} (lang={self.language}) "
+            f"via Aurora Harness Staging by {self.user_id.login or self.user_id.name}"
+        )
+
+        push_infos: list[dict] = []
+
+        if self._is_zip_upload():
+            py_files = self._extract_zip_files()
+            for fname, content in py_files:
+                text = content.decode("utf-8")
+                push_info = registry_git_sync.push_registry_to_github(
+                    env=self.env,
+                    lang=self.language,
+                    org=self.org,
+                    filename=fname,
+                    content=text,
+                    commit_msg=f"{commit_msg} ({fname})",
+                )
+                if push_info is None:
+                    raise UserError(
+                        "GitHub push skipped: aurora.github_registry_write_token is not configured. "
+                        "Configure the token in Settings → Aurora Pipeline → GitHub Registry Write Token, "
+                        "then retry. Harness NOT deployed."
+                    )
+                push_infos.append(push_info)
+        else:
+            with open(self.staging_path, "r", encoding="utf-8") as fh:
+                content = fh.read()
+
+            repo_safe = self.repo.replace("-", "_").lower()
+            filename = f"{repo_safe}.py"
+
+            push_info = registry_git_sync.push_registry_to_github(
+                env=self.env,
+                lang=self.language,
+                org=self.org,
+                filename=filename,
+                content=content,
+                commit_msg=commit_msg,
+            )
+            if push_info is None:
+                raise UserError(
+                    "GitHub push skipped: aurora.github_registry_write_token is not configured. "
+                    "Configure the token in Settings → Aurora Pipeline → GitHub Registry Write Token, "
+                    "then retry. Harness NOT deployed."
+                )
+            push_infos.append(push_info)
+
+        extra_stems = None
+        if self._is_zip_upload():
+            extra_stems = [fname[:-3] for fname, _ in self._extract_zip_files()]
+
+        try:
+            init_pushes = registry_git_sync.ensure_init_files_on_github(
+                env=self.env,
+                lang=self.language,
+                org=self.org,
+                repo=self.repo,
+                extra_stems=extra_stems,
+            )
+        except UserError:
+            raise
+        except Exception as exc:
+            _logger.exception("Unexpected error pushing __init__.py files to GitHub")
+            raise UserError(
+                f"Harness .py pushed successfully, but __init__.py updates failed: {exc}. "
+                f"K8s pods will still work (they regenerate init files locally on sync), "
+                f"but the GitHub repo tree is incomplete. Investigate and retry."
+            ) from exc
+
         self.write({
             "stage": "deployed",
             "deployed_at": fields.Datetime.now(),
         })
-        if self.staging_path and os.path.exists(self.staging_path):
-            try:
-                os.remove(self.staging_path)
-            except OSError:
-                pass
+
+        staging_dir = os.path.dirname(self.staging_path)
+        if self._is_zip_upload():
+            for fname, _ in self._extract_zip_files():
+                fpath = os.path.join(staging_dir, fname)
+                if os.path.exists(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+        else:
+            if self.staging_path and os.path.exists(self.staging_path):
+                try:
+                    os.remove(self.staging_path)
+                except OSError:
+                    pass
+
+        init_summary = ""
+        if init_pushes:
+            init_summary = (
+                f" Also updated {len(init_pushes)} __init__.py file(s): "
+                + ", ".join(f"<code>{p.get('path')}</code>" for p in init_pushes)
+                + "."
+            )
+
+        files_pushed = ", ".join(
+            f"<code>{p.get('path', '?')}</code>" for p in push_infos
+        )
+        first_push = push_infos[0] if push_infos else {}
+        body = (
+            f"Harness deployed to GitHub ({len(push_infos)} file(s)): "
+            f"{files_pushed} "
+            f"@ <code>{first_push.get('branch', '?')}</code> "
+            f"(commit {(first_push.get('commit_sha') or '')[:8]})."
+            f"{init_summary} "
+            f"K8s worker pods will sync this registry on the next evaluation."
+        )
         self.message_post(
-            body="Harness marked as deployed.",
+            body=body,
             message_type="comment",
             subtype_xmlid="mail.mt_note",
         )

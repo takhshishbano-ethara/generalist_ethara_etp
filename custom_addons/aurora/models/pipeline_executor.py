@@ -138,7 +138,7 @@ def _update_pipeline(cr: Any, rec_id: int, vals: dict[str, Any]) -> None:
                 raise
 
 
-_MAX_LOG_SIZE = 500_000
+_MAX_LOG_SIZE = 2_000_000
 
 def _append_log(cr: Any, rec_id: int, msg: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -271,27 +271,8 @@ def _post_chatter(db_name: str, uid: Optional[int], rec_id: int, body: str) -> N
 
 
 def _notify_bus(db_name: str, rec_id: int, stage: str, progress_text: Optional[str] = None) -> None:
-    """Send bus.Bus notification about pipeline state change."""
-    cr = None
-    try:
-        from odoo import api, SUPERUSER_ID
-        cr = _open_cursor(db_name)
-        env = api.Environment(cr, SUPERUSER_ID, {})
-        env['bus.bus']._sendone(
-            f'aurora_pipeline_{rec_id}',
-            'aurora_pipeline_update',
-            {
-                'pipeline_id': rec_id,
-                'stage': stage,
-                'progress_text': progress_text or '',
-            },
-        )
-        cr.commit()
-    except Exception:
-        _logger.debug("Failed to send bus notification for rec=%s", rec_id, exc_info=True)
-    finally:
-        if cr:
-            cr.close()
+    """Deprecated no-op: UI updates flow through HTTP polling after DB writes."""
+    return
 
 
 def _safe_worker(fn):
@@ -583,11 +564,11 @@ def _run_pipeline(db_name, uid, rec_id):
         prefix = f"{org}__{repo}"
 
         step1_file = out / f"{prefix}_prs.jsonl"
-        step2_file = out / f"{prefix}_filtered_prs.jsonl"
+        step2_file = out / f"{prefix}_lht_filtered_prs.jsonl"
         step3_file = out / f"{prefix}_tags.jsonl"
         step4_file = out / f"{prefix}_tag_groups.jsonl"
         step5_file = out / f"{prefix}_related_issues.jsonl"
-        step6_file = out / f"{prefix}_dataset.jsonl"
+        step6_file = out / f"{prefix}_lht_dataset.jsonl"
 
         def _check_cancelled():
             if cancel_event.is_set():
@@ -646,7 +627,7 @@ def _run_pipeline(db_name, uid, rec_id):
             _heartbeat(cr, rec_id, "Step 1 skipped")
 
         result = _run_step(2, "step2_status", "filter_prs", "Filtering PRs",
-                           lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, mode="aurora"), step2_file)
+                           lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True), step2_file)
         if result is None:
             return
         _update_pipeline(cr, rec_id, {"filtered_pr_count": result})

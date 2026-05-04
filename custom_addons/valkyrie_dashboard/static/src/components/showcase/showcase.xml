@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="valkyrie_dashboard.ValkyrieShowcase">
+        <div class="vk-showcase">
+            <header class="vk-showcase-header">
+                <span class="vk-tag">SECURITY VULNERABILITY REMEDIATION</span>
+                <h1 class="vk-title">VALKYRIE</h1>
+                <p class="vk-subtitle">
+                    Autonomous Security Patch Generation &#xB7; CWE-Based Benchmark
+                </p>
+                <p class="vk-byline">
+                    by <strong>Ethara AI Labs</strong> &#x2014;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="vk-section vk-description">
+                <p>
+                    Valkyrie is a reinforcement learning environment for training and evaluating
+                    autonomous software engineering agents on security vulnerability remediation.
+                    Each task instance defines a codebase containing a synthetic bug modeled after
+                    established CWE categories, a natural-language problem statement, and a Docker
+                    container providing a sandboxed execution environment. Two frontier models
+                    (Kimi K2.5, Nova 2 Lite) were evaluated across 20 instances spanning 7 CWE classes.
+                </p>
+            </section>
+
+            <section class="vk-section vk-metrics">
+                <div class="vk-metric-grid">
+                    <div class="vk-metric-card">
+                        <span class="vk-metric-value">20</span>
+                        <span class="vk-metric-label">Task Instances</span>
+                        <span class="vk-metric-detail">FFmpeg: 6, jq: 14</span>
+                    </div>
+                    <div class="vk-metric-card">
+                        <span class="vk-metric-value">2</span>
+                        <span class="vk-metric-label">Frontier Models</span>
+                        <span class="vk-metric-detail">Kimi K2.5 &#x26; Nova 2 Lite</span>
+                    </div>
+                    <div class="vk-metric-card">
+                        <span class="vk-metric-value">16,756</span>
+                        <span class="vk-metric-label">Total Test Cases</span>
+                        <span class="vk-metric-detail">5,270 F2P + 11,486 P2P</span>
+                    </div>
+                    <div class="vk-metric-card">
+                        <span class="vk-metric-value">7</span>
+                        <span class="vk-metric-label">CWE Classes</span>
+                        <span class="vk-metric-detail">across 2 repositories</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vk-section vk-phases">
+                <div class="vk-phases-row">
+                    <div class="vk-phase-card">
+                        <div class="vk-phase-number">1</div>
+                        <h3>Instance Construction</h3>
+                        <p>
+                            Synthesize bugs using SWE-smith methodology.
+                            Apply targeted code mutations reproducing CWE behavioral signatures.
+                        </p>
+                    </div>
+                    <div class="vk-phase-arrow">&#x2192;</div>
+                    <div class="vk-phase-card">
+                        <div class="vk-phase-number">2</div>
+                        <h3>Agent Execution</h3>
+                        <p>
+                            Deploy AI agents in sandboxed Docker containers.
+                            Generate security patches from natural-language problem statements.
+                        </p>
+                    </div>
+                    <div class="vk-phase-arrow">&#x2192;</div>
+                    <div class="vk-phase-card">
+                        <div class="vk-phase-number">3</div>
+                        <h3>Evaluation</h3>
+                        <p>
+                            Execute partitioned test suites. Measure fail-to-pass
+                            (fix validation) and pass-to-pass (regression) results.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vk-section vk-stats">
+                <p class="vk-stats-caption">
+                    Resolve Rate Distribution across both models (40 total runs).
+                    5% overall resolve rate — only Kimi K2.5 resolved 2 instances.
+                </p>
+                <div class="vk-stats-grid">
+                    <div class="vk-stat-card vk-stat-resolved">
+                        <span class="vk-stat-number">2</span>
+                        <span class="vk-stat-label">RESOLVED</span>
+                        <span class="vk-stat-pct">5%</span>
+                    </div>
+                    <div class="vk-stat-card vk-stat-incorrect">
+                        <span class="vk-stat-number">19</span>
+                        <span class="vk-stat-label">INCORRECT PATCH</span>
+                        <span class="vk-stat-pct">47.5%</span>
+                    </div>
+                    <div class="vk-stat-card vk-stat-nopatch">
+                        <span class="vk-stat-number">19</span>
+                        <span class="vk-stat-label">NO PATCH</span>
+                        <span class="vk-stat-pct">47.5%</span>
+                    </div>
+                    <div class="vk-stat-card vk-stat-error">
+                        <span class="vk-stat-number">0</span>
+                        <span class="vk-stat-label">ERROR</span>
+                        <span class="vk-stat-pct">0%</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vk-section vk-links">
+                <a class="vk-btn" t-att-href="state.githubUrl"
+                   target="_blank" rel="noopener">
+                    GitHub Repository
+                </a>
+                <a class="vk-btn vk-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset on HuggingFace
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>

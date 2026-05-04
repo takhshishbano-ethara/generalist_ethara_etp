@@ -43,22 +43,21 @@
                     <button name="action_run_full_evaluation" string="Run Full Evaluation" type="object"
                             class="btn-primary" invisible="stage != 'tested' or test_result != 'success'"
                             confirm="Run full evaluation with all PRs?"/>
-                    <button name="action_notify_admin" string="Notify Admin" type="object"
-                            class="btn-warning" invisible="stage not in ('done', 'tested')"
-                            confirm="Notify admin for deployment?"/>
                     <button name="action_download_file" string="Download File" type="object"
                             class="btn-secondary" invisible="not harness_file"/>
-                    <button name="action_mark_deployed" string="Mark Deployed" type="object"
-                            class="btn-success" invisible="stage != 'notified' or not is_admin"/>
+                    <button name="action_mark_deployed" string="Push Registry to GitHub" type="object"
+                            class="btn-success"
+                            invisible="stage not in ('tested', 'done', 'evaluating') or test_result != 'success' or not is_admin"
+                            confirm="Commit this harness to the GitHub registry repo? Worker pods will pick it up on the next evaluation."/>
                     <button name="action_reject" string="Reject" type="object"
-                            class="btn-danger" invisible="stage != 'notified' or not is_admin"
+                            class="btn-danger" invisible="stage not in ('tested', 'done', 'evaluating') or not is_admin"
                             confirm="Reject this harness?"/>
                     <button name="action_retry" string="Retry" type="object"
                             class="btn-secondary" invisible="stage != 'failed'"/>
                     <button name="action_cancel_staging" string="Cancel" type="object"
-                            class="btn-secondary" invisible="stage in ('deployed', 'notified')"
+                            class="btn-secondary" invisible="stage == 'deployed'"
                             confirm="Cancel and archive this staging record?"/>
-                    <field name="stage" widget="statusbar" statusbar_visible="draft,testing,tested,done,notified,deployed"/>
+                    <field name="stage" widget="statusbar" statusbar_visible="draft,testing,tested,evaluating,done,deployed"/>
                 </header>
 
                 <sheet>
@@ -80,10 +79,13 @@
                             <field name="language"/>
                             <field name="user_id" widget="many2one_avatar_user"/>
                         </group>
-                        <group string="Harness File">
-                            <field name="harness_file" filename="harness_filename"/>
+                        <group string="Registry File">
+                            <field name="harness_file" filename="harness_filename" string="Registry File"/>
                             <field name="harness_filename" invisible="1"/>
                             <field name="staging_path" invisible="not is_admin"/>
+                            <div class="text-muted small" colspan="2">
+                                Upload a single <code>.py</code> file, or a <code>.zip</code> containing multiple range files (e.g. <code>repo_500_to_200.py</code>, <code>repo_1000_to_501.py</code>).
+                            </div>
                         </group>
                     </group>
 
@@ -189,7 +191,7 @@
                 <filter string="My Staging" name="my_staging" domain="[('user_id', '=', uid)]"/>
                 <separator/>
                 <filter string="Testing" name="testing" domain="[('stage', 'in', ['testing', 'tested'])]"/>
-                <filter string="Ready for Deploy" name="ready_deploy" domain="[('stage', '=', 'notified')]"/>
+                <filter string="Ready for Deploy" name="ready_deploy" domain="[('stage', 'in', ['tested', 'done']), ('test_result', '=', 'success')]"/>
                 <filter string="Deployed" name="deployed" domain="[('stage', '=', 'deployed')]"/>
                 <filter string="Failed" name="failed" domain="[('stage', '=', 'failed')]"/>
                 <group>

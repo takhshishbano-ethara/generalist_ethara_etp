@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="aurora_dashboard.AuroraShowcase">
+        <div class="au-showcase">
+            <header class="au-showcase-header">
+                <span class="au-tag">RL ENVIRONMENT</span>
+                <h1 class="au-title">AURORA</h1>
+                <p class="au-subtitle">
+                    Multi-Language Long-Horizon Software Evalution &#xB7; Milo-Bench Framework
+                </p>
+                <p class="au-byline">
+                    by <strong>Ethara AI Labs</strong> &#x2014;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="au-section au-description">
+                <p>
+                    Aurora leverages the Milo-Bench methodology to evaluate agents on
+                    long-horizon software evalution &#x2014; sequences of 1 to 100+
+                    consecutive production pull requests across eight programming languages.
+                    Unlike single-issue benchmarks, Aurora tests whether agents can sustain
+                    coherent development over extended timelines on real open-source
+                    repositories. Each instance reconstructs a milestone (sequence of
+                    production PRs) authored after model training cutoffs, with hermetic
+                    Docker environments and private holistic test oracles for
+                    contamination-free evaluation.
+                </p>
+            </section>
+
+            <section class="au-section au-capabilities">
+                <ul class="au-capabilities-list">
+                    <li><span class="au-cap-arrow">&#x2192;</span> Long-horizon evaluation: 2&#x2013;100+ consecutive PR sequences per instance</li>
+                    <li><span class="au-cap-arrow">&#x2192;</span> Multi-language coverage across 8 programming languages</li>
+                    <li><span class="au-cap-arrow">&#x2192;</span> Contamination-audited instances from post-training-cutoff repositories</li>
+                    <li><span class="au-cap-arrow">&#x2192;</span> Hermetic Docker environments with private holistic test oracles</li>
+                    <li><span class="au-cap-arrow">&#x2192;</span> Three-model reference evaluation framework for reproducible scoring</li>
+                </ul>
+            </section>
+
+            <section class="au-section au-metrics">
+                <div class="au-metric-grid">
+                    <div class="au-metric-card">
+                        <span class="au-metric-value">50</span>
+                        <span class="au-metric-label">Evaluation Instances</span>
+                        <span class="au-metric-detail">1&#x2013;100+ consecutive PRs each</span>
+                    </div>
+                    <div class="au-metric-card">
+                        <span class="au-metric-value">3</span>
+                        <span class="au-metric-label">Frontier Models</span>
+                        <span class="au-metric-detail">Claude Opus 4.6, Kimi K2.5, GLM 5</span>
+                    </div>
+                    <div class="au-metric-card">
+                        <span class="au-metric-value">8</span>
+                        <span class="au-metric-label">Programming Languages</span>
+                        <span class="au-metric-detail">Multi-language coverage</span>
+                    </div>
+                    <div class="au-metric-card">
+                        <span class="au-metric-value">3</span>
+                        <span class="au-metric-label">Seeds per Model</span>
+                        <span class="au-metric-detail">Pass@3 reproducible scoring</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="au-section au-phases">
+                <div class="au-phases-row">
+                    <div class="au-phase-card">
+                        <div class="au-phase-number">1</div>
+                        <h3>Data Collection</h3>
+                        <p>
+                            Crawl 300+ repos. Identify post-cutoff PR sequences.
+                            Build JSONL dataset with instance metadata.
+                        </p>
+                    </div>
+                    <div class="au-phase-arrow">&#x2192;</div>
+                    <div class="au-phase-card">
+                        <div class="au-phase-number">2</div>
+                        <h3>Docker Build</h3>
+                        <p>
+                            Build hermetic Docker images per instance
+                            (base image &#x2192; PR image). Generate run results
+                            &#x26; test baselines.
+                        </p>
+                    </div>
+                    <div class="au-phase-arrow">&#x2192;</div>
+                    <div class="au-phase-card">
+                        <div class="au-phase-number">3</div>
+                        <h3>Trajectory Generation</h3>
+                        <p>
+                            Run AI agents in sandboxes. 3 models &#xD7; 3 seeds
+                            &#xD7; 50 instances. Evaluate patches against full
+                            test suite. Produce pass@k summaries.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="au-section au-links">
+                <a class="au-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Trajectories on GitHub
+                </a>
+                <a class="au-btn au-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset on HuggingFace
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>

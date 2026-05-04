@@ -368,6 +368,23 @@ class AuroraPipeline(models.Model):
         if odoo_conf:
             env_vars.append(k8s_client.V1EnvVar(name="ODOO_CONF", value=odoo_conf))
 
+        from .credential_manager import get_encrypted_param
+        ICP = self.env["ir.config_parameter"].sudo()
+
+        webhook_secret = get_encrypted_param(self.env, "aurora.webhook_secret")
+        webhook_url = ICP.get_param("aurora.webhook_url", "")
+        if webhook_url and webhook_secret:
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_URL", value=webhook_url))
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_SECRET", value=webhook_secret))
+
+        harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
+        harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
+        harness_token = get_encrypted_param(self.env, "aurora.github_registry_write_token")
+        env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
+        env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
+        if harness_token:
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_TOKEN", value=harness_token))
+
         volume_mounts = []
         volumes = []
 
@@ -561,7 +578,13 @@ class AuroraPipeline(models.Model):
             )
             os.makedirs(out, exist_ok=True)
 
-        self.write({"output_dir": out, "stage": "fetch_prs", "detected_lang": lang})
+        self.write({
+            "output_dir": out,
+            "stage": "fetch_prs",
+            "detected_lang": lang,
+            "log": False,
+            "progress_text": False,
+        })
 
         k8s_image = self._get_k8s_setting("image") if K8S_AVAILABLE else ""
         if k8s_image:
@@ -584,7 +607,13 @@ class AuroraPipeline(models.Model):
         else:
             self._run_pipeline_local()
 
-        return {"type": "ir.actions.client", "tag": "soft_reload"}
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": self._name,
+            "res_id": self.id,
+            "view_mode": "form",
+            "target": "current",
+        }
 
     def _run_pipeline_local(self):
         from odoo.modules.registry import Registry
@@ -592,6 +621,14 @@ class AuroraPipeline(models.Model):
         rec_id = self.id
         rec_name = self.name
         registry = Registry(db_name)
+
+        with _local_threads_lock:
+            existing = _local_threads.get(rec_id)
+            if existing and existing.is_alive():
+                raise UserError(
+                    f"Pipeline {rec_name} is already running in this Odoo process. "
+                    "Wait for it to finish or cancel it before starting again."
+                )
 
         def _worker():
             import time
@@ -639,28 +676,8 @@ class AuroraPipeline(models.Model):
                     exc_info=True,
                 )
 
-        # Signal cooperative cancellation for local-thread workers (no K8s Job
-        # to delete). Safe no-op when there is no running worker for this id.
-        try:
-            from ..worker import run_pipeline as _aurora_worker
-            _aurora_worker.request_cancel(self.id)
-        except Exception:
-            _logger.exception("Failed to signal cancel to local worker for pipeline %s", self.id)
-        try:
-            from . import pipeline_executor as _aurora_executor
-            _aurora_executor.request_cancel(self.id)
-        except Exception:
-            _logger.exception("Failed to signal cancel to executor for pipeline %s", self.id)
-
-        vals = {"stage": "failed"}
-        for f in ("step1_status", "step2_status", "step3_status", "step4_status",
-                  "step5_status", "step6_status", "phase1_status", "phase2_status",
-                  "phase3_status"):
-            if self[f] == "running":
-                vals[f] = "failed"
-        self.write(vals)
+        self.write({"stage": "failed"})
         self.message_post(body="Pipeline cancelled by user.")
-        return {"type": "ir.actions.client", "tag": "soft_reload"}
 
     def action_reset_to_draft(self):
         self.ensure_one()
@@ -669,36 +686,12 @@ class AuroraPipeline(models.Model):
         self.write({
             "stage": "draft",
             "job_name": False,
-            "output_dir": False,
-            "detected_lang": False,
-            "last_heartbeat": False,
-            "progress_text": False,
-            "dataset_url": False,
-            "dataset_filename": False,
-            "pr_count": 0,
-            "filtered_pr_count": 0,
-            "tag_count": 0,
-            "group_count": 0,
-            "issue_count": 0,
-            "dataset_count": 0,
             "step1_status": "idle",
             "step2_status": "idle",
             "step3_status": "idle",
             "step4_status": "idle",
             "step5_status": "idle",
             "step6_status": "idle",
-            "step1_file": False,
-            "step2_file": False,
-            "step3_file": False,
-            "step4_file": False,
-            "step5_file": False,
-            "step6_file": False,
-            "step1_log": False,
-            "step2_log": False,
-            "step3_log": False,
-            "step4_log": False,
-            "step5_log": False,
-            "step6_log": False,
             "phase1_status": "idle",
             "phase1_file": False,
             "phase2_status": "idle",
@@ -716,6 +709,12 @@ class AuroraPipeline(models.Model):
             "phase3_inference_count": 0,
             "phase3_pass_at_k": 0.0,
             "phase3_log": False,
+            "step1_log": False,
+            "step2_log": False,
+            "step3_log": False,
+            "step4_log": False,
+            "step5_log": False,
+            "step6_log": False,
             "log": False,
         })
         self.phase2_result_ids.unlink()

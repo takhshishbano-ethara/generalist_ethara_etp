@@ -25,7 +25,7 @@ _ALLOWED_COLUMNS = frozenset({
     "stage", "test_result", "test_log",
 })
 
-_MAX_LOG_SIZE = 200_000
+_MAX_LOG_SIZE = 2_000_000
 
 
 def _open_cursor(db_name):
@@ -68,6 +68,7 @@ def _read_staging_config(db_name: str, rec_id: int) -> dict[str, Any]:
             "repo": rec.repo,
             "dataset_file": rec.dataset_file,
             "staging_path": staging_path,
+            "is_zip": rec._is_zip_upload(),
             "user_id": rec.user_id.id,
         }
     finally:
@@ -106,7 +107,7 @@ def _run_staging_test(db_name, uid, rec_id):
     importlib.reload(_ds_mod)
     importlib.reload(_re_mod)
     from ..tools.harness.run_evaluation import EvalConfig
-    from ..tools.harness.staging_loader import load_staging_harness, unload_staging_harness
+    from ..tools.harness.staging_loader import load_staging_harness, load_staging_directory, unload_staging_harness
 
     cr = _open_cursor(db_name)
     originals = None
@@ -117,9 +118,13 @@ def _run_staging_test(db_name, uid, rec_id):
         _append_test_log(cr, rec_id, "Loading staging harness...")
         cr.commit()
 
-        originals = load_staging_harness(
-            cfg["staging_path"], cfg["org"], cfg["repo"],
-        )
+        if cfg["is_zip"]:
+            staging_dir = os.path.dirname(cfg["staging_path"])
+            originals = load_staging_directory(staging_dir, cfg["org"], cfg["repo"])
+        else:
+            originals = load_staging_harness(
+                cfg["staging_path"], cfg["org"], cfg["repo"],
+            )
 
         _append_test_log(cr, rec_id, "Validating dataset...")
         cr.commit()
@@ -192,10 +197,14 @@ def _run_staging_test(db_name, uid, rec_id):
                     continue
                 entry = json.loads(line)
                 if entry.get("org") == org and entry.get("repo") == repo:
+                    from odoo.addons.aurora.models.evaluation import AuroraEvaluation
+                    number = AuroraEvaluation._resolve_entry_number(entry)
+                    if number is None:
+                        continue
                     patch_entry = {
                         "org": entry["org"],
                         "repo": entry["repo"],
-                        "number": entry["number"],
+                        "number": number,
                         "fix_patch": entry.get("fix_patch", ""),
                     }
                     f_out.write(json.dumps(patch_entry, ensure_ascii=False) + "\n")
@@ -331,3 +340,23 @@ def submit_test_async(db_name: str, uid: int, rec_id: int) -> bool:
         return False
     _executor.submit(_run_staging_test, db_name, uid, rec_id)
     return True
+
+
+def is_test_slot_available() -> bool:
+    """Return True if a staging test can start right now, False if busy.
+
+    The executor uses a single-slot semaphore; only one staging test runs at a
+    time to avoid races on the process-global ``Instance._registry``. This
+    helper lets the UI-action layer surface a UserError up front instead of
+    silently dropping the request in ``submit_test_async``.
+
+    Not thread-safe vs. ``submit_test_async`` (TOCTOU race window), but the
+    tail-call to ``submit_test_async`` via ``cr.postcommit`` still returns
+    False and logs a warning if we lose the race. The user at least gets an
+    accurate answer in the common case.
+    """
+    acquired = _semaphore.acquire(blocking=False)
+    if acquired:
+        _semaphore.release()
+        return True
+    return False

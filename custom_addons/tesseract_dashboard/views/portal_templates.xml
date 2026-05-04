@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <!--
+    Tesseract Showcase — public single-page website view.
+
+    Mounted at /tesseract by controllers/main.py (TesseractShowcase).
+    The controller passes `instances_json` (pre-serialized JSON string)
+    which is injected into the application/json script block for the
+    client-side JS to consume.
+
+    The page structure mirrors the standalone static build exactly —
+    same class names, same sections, same IDs — so CSS/JS in
+    static/src/ carry over 1:1 without edits.
+  -->
+
+  <template id="portal_showcase" name="Tesseract Showcase">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Tesseract — Multimodal SWE-Bench · ETHARA AI </title>
+      <meta name="description" content="Tesseract evaluates AI coding agents on real-world GitHub issues that require visual understanding — screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <!-- Sync theme-setter: reads the saved choice BEFORE stylesheet
+           tokens resolve, so there is no flash when revisiting the page.
+           Runs inline (no defer) by design. -->
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('tesseract:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <!-- Tesseract dark editorial stylesheet served as a static asset
+           (bypasses web.assets_frontend so Bootstrap/portal chrome
+           does not override the design). -->
+      <link rel="stylesheet" href="/tesseract_dashboard/static/src/portal/css/tesseract_portal.css"/>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/tesseract_dashboard/static/src/portal/js/tesseract_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+
+      <!-- Scroll progress rail. Thin 2px bar at the top of the viewport
+           that fills left-to-right as the user scrolls. Updated via
+           requestAnimationFrame in tesseract_portal.js. -->
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <!-- Theme toggle. Two icons layered; CSS flips visibility per
+           `data-theme` attribute on :root. JS updates the attribute
+           and persists the choice to localStorage. -->
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">TESSERACT</h1>
+      <span class="badge">MULTIMODAL SWE-BENCH</span>
+    </div>
+    <hr class="rule" />
+    <p class="thesis">Can AI models bridge the gap between <em>code logic</em> and <em>pixel-level visual data</em>?</p>
+  </header>
+
+  <main id="main">
+
+  <!-- ================= §01 THE QUESTION ================= -->
+  <section class="section" id="overview" aria-labelledby="overview-label">
+    <p class="section-label" id="overview-label">§01 — The question</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>Tesseract evaluates AI coding agents on their ability to resolve real-world GitHub issues that include visual multimodal content such as screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings. Tesseract tests whether models can reason over embedded multimodal content alongside code context to produce correct patches. Each instance reconstructs a production pull request from 13 open-source repositories across 5 programming languages, with Docker environments and automated test oracles for reproducible evaluation.</p>
+        <p class="teaser">Keep scrolling. The answer is in <a href="#results">§04</a>.</p>
+      </div>
+
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
+          <div class="glance-row"><dt>Repositories</dt><dd><b>13</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>5</b></dd></div>
+          <div class="glance-row"><dt>Embedded images</dt><dd><b>67</b></dd></div>
+          <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
+        </dl>
+        <!-- <p class="glance-foot mono">Benchmark · v1 · 2026</p> -->
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= §02 SCALE OF THE CRAWL ================= -->
+  <section class="section" id="scale" aria-labelledby="scale-label">
+    <p class="section-label" id="scale-label">§02 — Valid Instances</p>
+    <p class="section-desc">Curated from thousands of real production pull requests, filtered through a 12-stage pipeline.</p>
+    <div class="kpi-row" aria-label="Valid instances composition">
+      <div class="kpi-card">
+        <p class="kpi-label">Repositories</p>
+        <p class="kpi-value"><span class="kpi-big">13</span></p>
+        <p class="kpi-sub mono">open-source projects</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Languages</p>
+        <p class="kpi-value"><span class="kpi-big">5</span></p>
+        <p class="kpi-sub mono">across the stack</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Embedded images</p>
+        <p class="kpi-value"><span class="kpi-big">67</span></p>
+        <p class="kpi-sub mono">screenshots · diagrams · plots</p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Instances</p>
+        <p class="kpi-value"><span class="kpi-big">20</span></p>
+        <p class="kpi-sub mono">production PRs reconstructed</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §03 PIPELINE ================= -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
+    <p class="section-label" id="pipeline-label">§03 — Pipeline</p>
+    <div class="pipeline-frame">
+    <div class="pipeline-intro">
+      <p class="pipeline-eyebrow mono">The method</p>
+      <h2 class="pipeline-title">Six stages turn raw GitHub into a scored metrics.</h2>
+      <p class="pipeline-sub">Three to build the dataset, three to evaluate any model against it run the back half as many times as you like.</p>
+    </div>
+
+    <h3 class="phase-tier-header">
+      <span class="tier-n mono">A</span>
+      <span class="tier-t">Build the dataset</span>
+      <span class="tier-hint mono">runs once</span>
+    </h3>
+    <div class="pipeline pipeline-a">
+      <article class="phase">
+        <p class="phase-label">Phase 01</p>
+        <h4 class="phase-title">Scraping</h4>
+        <ul class="phase-body">
+          <li>Crawl 5K+ closed PRs across 6 repositories</li>
+          <li>12-stage filter: merge check, linked issue, patch split, image verify, leakage detection</li>
+          <li>Yields <b>41</b> multimodal candidates</li>
+        </ul>
+      </article>
+      <article class="phase">
+        <p class="phase-label">Phase 02</p>
+        <h4 class="phase-title">Docker Images</h4>
+        <ul class="phase-body">
+          <li>Build 3-tier Docker images per instance</li>
+          <li><code class="mono">base -&gt; env -&gt; eval</code></li>
+          <li>Language-specific toolchains</li>
+        </ul>
+      </article>
+      <article class="phase">
+        <p class="phase-label">Phase 03</p>
+        <h4 class="phase-title">Dataset</h4>
+        <ul class="phase-body">
+          <li>Curate <b>20 instances</b> from 41 candidates</li>
+          <li>Across 13 repositories, 5 languages</li>
+          <li>67 embedded images · JSONL + HuggingFace</li>
+        </ul>
+      </article>
+    </div>
+
+    <h3 class="phase-tier-header tier-exec">
+      <span class="tier-n mono">B</span>
+      <span class="tier-t">Run the pipeline</span>
+      <span class="tier-hint mono">runs per model</span>
+    </h3>
+    <div class="pipeline pipeline-b">
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 04</p>
+        <h4 class="phase-title">Inference</h4>
+        <ul class="phase-body">
+          <li>Agent receives issue text + embedded screenshots in Docker sandbox</li>
+          <li>Tool-use interaction (2 models)</li>
+          <li>Produces a git diff patch</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 05</p>
+        <h4 class="phase-title">Evaluation</h4>
+        <ul class="phase-body">
+          <li>Apply model's git patch to clean repo checkout</li>
+          <li>Run hermetic container, full project test suite</li>
+          <li>Capture test output</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 06</p>
+        <h4 class="phase-title">Scoring</h4>
+        <ul class="phase-body">
+          <li>Grade <code class="mono">FAIL_TO_PASS</code> (must now pass)</li>
+          <li>Grade <code class="mono">PASS_TO_PASS</code> (must not regress)</li>
+          <li>Produce resolution verdict per instance</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="handoff">So how did the models actually do? <a href="#results">§04 →</a></p>
+    </div><!-- /.pipeline-frame -->
+  </section>
+
+  <!-- ================= §04 RESULTS — THE REVEAL ================= -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label">
+    <p class="section-label" id="results-label">§04 — Results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">4 of 20</b>.
+        <span class="tok-nova">Nova 2 Lite</span> resolves <b class="reveal-big">2 of 20</b>.
+      </p>
+      <p class="reveal-cost mono">
+        One model is <b>~9× more expensive</b> and <b>2× as effective</b>.
+      </p>
+    </div>
+
+    <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Resolution rate by model full size">
+          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Nova 2 Lite at 2/20 (10%)" loading="lazy" />
+          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line_dark.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Nova 2 Lite at 2/20 (10%)" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 — Resolution rate by model</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Success rate vs image count full size">
+          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_image_count.png" alt="Line chart: success rate versus number of images per issue for both models" loading="lazy" />
+          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_image_count_dark.png" alt="Line chart: success rate versus number of images per issue for both models" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 2 — Success rate vs. image count</figcaption>
+      </figure>
+    </div>
+    <p class="caption">Overall resolution rate (Fig. 1) plus per-model degradation as the number of embedded images in an issue grows (Fig. 2). See <a href="#instances">§05</a> for per-instance receipts.</p>
+  </section>
+
+  <!-- ================= §05 INSTANCES ================= -->
+  <section class="section" id="instances" aria-labelledby="instances-label">
+    <p class="section-label" id="instances-label">§05 — Instances</p>
+    <p class="section-desc">Every run, receipt-by-receipt. <span class="mono">PASS</span> means the model's patch fixed the issue and didn't regress existing tests.</p>
+
+    <!-- KPI row: speak-at-a-glance stats for a presenter -->
+    <div class="kpi-row" aria-label="Headline statistics for 20 evaluation runs">
+      <div class="kpi-card">
+        <p class="kpi-label">Kimi K2.5 · Pass@1</p>
+        <p class="kpi-value"><span class="kpi-big tok-kimi">20<small>%</small></span></p>
+        <p class="kpi-sub mono">4 of 20 resolved</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Nova 2 Lite · Pass@1</p>
+        <p class="kpi-value"><span class="kpi-big tok-nova">10<small>%</small></span></p>
+        <p class="kpi-sub mono">2 of 20 resolved</p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Both models passed</p>
+        <p class="kpi-value"><span class="kpi-big">2</span><span class="kpi-suffix">instances</span></p>
+        <p class="kpi-sub mono">p5.js-6222 · p5.js-6251</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Runtime range</p>
+        <p class="kpi-value"><span class="kpi-big">9.8<small>s</small></span><span class="kpi-suffix">→ 12m</span></p>
+        <p class="kpi-sub mono">Pillow-6592 → libvips-4510</p>
+      </div>
+    </div>
+
+    <div class="view-toggle" role="tablist" aria-label="Instance view">
+      <button class="vt-btn is-active" role="tab" aria-selected="true" id="vt-matrix-btn" aria-controls="view-matrix" data-view="matrix">Matrix view</button>
+      <button class="vt-btn" role="tab" aria-selected="false" id="vt-repo-btn" aria-controls="view-repo" data-view="repo">By repository</button>
+    </div>
+
+    <!-- MATRIX -->
+    <div class="view-pane" id="view-matrix" role="tabpanel" aria-labelledby="vt-matrix-btn" tabindex="0">
+      <div class="matrix-wrap">
+        <table class="matrix" id="matrix" aria-describedby="matrix-desc">
+          <caption id="matrix-desc" class="sr-only">Pass/Fail matrix of 20 instances evaluated against two models: Kimi K2.5 and Nova 2 Lite. Filled cell means the model's patch resolved the issue.</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="matrix-th-id">Instance</th>
+              <th scope="col" class="matrix-th-meta">Lang</th>
+              <th scope="col" class="matrix-th-meta">Diff</th>
+              <th scope="col" class="matrix-th-cell"><span class="tok-kimi">Kimi K2.5</span></th>
+              <th scope="col" class="matrix-th-cell"><span class="tok-nova">Nova 2 Lite</span></th>
+              <th scope="col" class="matrix-th-expand" aria-label="Expand row"></th>
+            </tr>
+          </thead>
+          <tbody id="matrix-tbody" aria-live="polite" aria-atomic="false"></tbody>
+          <tfoot>
+            <tr class="matrix-totals">
+              <td colspan="3" class="matrix-totals-label">Totals</td>
+              <td class="matrix-cell"><span class="total-chip total-chip--kimi" id="total-kimi">4 / 20</span></td>
+              <td class="matrix-cell"><span class="total-chip total-chip--nova" id="total-nova">2 / 20</span></td>
+              <td class="matrix-cell"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="matrix-hint mono">Click any row for full run metadata.</p>
+    </div>
+
+    <!-- REPO DRILL-DOWN -->
+    <div class="view-pane" id="view-repo" role="tabpanel" aria-labelledby="vt-repo-btn" tabindex="0" hidden="hidden">
+      <div class="repo-list" id="repo-list"></div>
+    </div>
+
+    <script type="application/json" id="instances-data" t-out="instances_json"/>
+  </section>
+
+  <!-- ================= §06 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="res-label">
+    <p class="section-label" id="res-label">§06 — Resources</p>
+    <div class="resources">
+      <a class="resource" href="https://github.com/Ethara-Ai/tesseract/tree/main/trajectories" target="_blank" rel="noopener">
+        <p class="res-label mono">Trajectories</p>
+        <p class="res-title">Trajectories on GitHub</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">Dataset</p>
+        <p class="res-title">Dataset on HuggingFace</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · tesseract-v1</p>
+    </div>
+  </footer>
+
+</div>
+
+      <!-- Lightbox overlay — hidden until a chart image is clicked.
+           JS sets the <img> src + alt from the trigger, then toggles
+           [data-open]. Close via button, overlay click, or Escape. -->
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

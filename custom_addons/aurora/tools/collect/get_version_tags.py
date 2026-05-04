@@ -41,6 +41,7 @@ Supported schemes:
 
 import argparse
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Optional
@@ -53,6 +54,8 @@ try:
     from .util import get_tokens, TokenRotator
 except ImportError:
     from util import get_tokens, TokenRotator
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -217,26 +220,40 @@ def get_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(tokens: list[str], out_dir: Path, org: str, repo: str, max_tags: int = 200):
-    print("starting get version tags (with smart parsing)")
-    print(f"Output directory: {out_dir}")
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
-    print(f"Max tags: {max_tags}")
+def main(tokens: list[str], out_dir: Path, org: str, repo: str, max_tags: int = 200, progress_callback=None):
+    _logger.info("starting get version tags (with smart parsing)")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
+    _logger.info(f"Max tags: {max_tags}")
 
     rotator = TokenRotator(tokens)
     g = rotator.get_client()
     r = g.get_repo(f"{org}/{repo}")
 
     tag_records: list[dict] = []
+    _RATE_CHECK_INTERVAL = 50
+    _PROGRESS_INTERVAL = 25
 
     for tag in tqdm(r.get_tags(), desc="Fetching tags"):
+        if len(tag_records) >= max_tags:
+            _logger.info(f"Reached max_tags limit ({max_tags}), stopping tag fetch")
+            break
         name = tag.name
         sha = tag.commit.sha
         if not name or not sha:
             continue
 
-        # Resolve the commit date for this tag
+        if len(tag_records) % _RATE_CHECK_INTERVAL == 0 and len(tag_records) > 0:
+            g = rotator.get_client()
+            r = g.get_repo(f"{org}/{repo}")
+
+        if progress_callback and len(tag_records) > 0 and len(tag_records) % _PROGRESS_INTERVAL == 0:
+            try:
+                progress_callback(len(tag_records), max_tags)
+            except Exception:
+                pass
+
         try:
             commit = r.get_commit(sha)
             date = commit.commit.committer.date
@@ -268,24 +285,24 @@ def main(tokens: list[str], out_dir: Path, org: str, repo: str, max_tags: int = 
         if t["is_pre_release"]:
             pre_count += 1
 
-    print(f"Tag schemes: {schemes}")
-    print(f"Pre-release tags: {pre_count}/{len(tag_records)}")
+    _logger.info(f"Tag schemes: {schemes}")
+    _logger.info(f"Pre-release tags: {pre_count}/{len(tag_records)}")
 
     # Report release lines
     lines: dict[str, int] = {}
     for t in tag_records:
         lines[t["release_line"]] = lines.get(t["release_line"], 0) + 1
     if len(lines) <= 20:
-        print(f"Release lines: {dict(sorted(lines.items()))}")
+        _logger.info(f"Release lines: {dict(sorted(lines.items()))}")
     else:
-        print(f"Release lines: {len(lines)} distinct lines")
+        _logger.info(f"Release lines: {len(lines)} distinct lines")
 
     out_file = out_dir / f"{org}__{repo}_tags.jsonl"
     with open(out_file, "w", encoding="utf-8") as f:
         for record in tag_records:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    print(f"Wrote {len(tag_records)} tags to {out_file}")
+    _logger.info(f"Wrote {len(tag_records)} tags to {out_file}")
 
 
 if __name__ == "__main__":

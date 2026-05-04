@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_projects_hub" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ethara_projects_hub</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Projects Hub" string="Projects Hub" name="ethara_projects_hub">
+                    <block title="Project Dashboard URLs">
+                        <setting string="Kaiju URL"
+                                 help="Override the Kaiju dashboard link. Leave empty to use the default.">
+                            <field name="projects_hub_kaiju_url"
+                                   placeholder="https://projects.ethara.ai/kaiju"/>
+                        </setting>
+                        <setting string="Kraken URL"
+                                 help="Override the Kraken dashboard link. Leave empty to use the default.">
+                            <field name="projects_hub_kraken_url"
+                                   placeholder="https://projects.ethara.ai/kraken"/>
+                        </setting>
+                        <setting string="Aurora URL"
+                                 help="Override the Aurora dashboard link. Leave empty to use the default.">
+                            <field name="projects_hub_aurora_url"
+                                   placeholder="https://projects.ethara.ai/aurora"/>
+                        </setting>
+                        <setting string="Valkyrie URL"
+                                 help="Override the Valkyrie dashboard link. Leave empty to use the default.">
+                            <field name="projects_hub_valkyrie_url"
+                                   placeholder="https://projects.ethara.ai/valkyrie"/>
+                        </setting>
+                        <setting string="Tesseract URL"
+                                 help="Override the Tesseract dashboard link. Leave empty to use the default.">
+                            <field name="projects_hub_tesseract_url"
+                                   placeholder="https://projects.ethara.ai/tesseract"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -28,7 +28,7 @@ For each tag group (version range):
      - If an issue body is empty, substitute with the PR description
   4. Write the final record to JSONL
 
-Outputs: {org}__{repo}_dataset.jsonl
+Outputs: {org}__{repo}_lht_dataset.jsonl
 
 NOTE: This module is NOT safe for concurrent execution on the same output
 file.  Resume support (existing_ids check) assumes single-process access.
@@ -36,6 +36,8 @@ file.  Resume support (existing_ids check) assumes single-process access.
 
 import argparse
 import json
+import logging
+import os
 import re
 import subprocess
 import sys
@@ -48,9 +50,11 @@ from tqdm import tqdm
 from unidiff import PatchSet
 
 try:
-    from .util import get_tokens, optional_int, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, optional_int, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 except ImportError:
-    from util import get_tokens, optional_int, AuroraPipelineError, TokenRotator
+    from util import get_tokens, optional_int, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -59,74 +63,19 @@ except ImportError:
 
 
 class RepoCloneCache:
-    """Caches bare blobless git clones for local diff generation.
-
-    When the GitHub compare API refuses to serve a diff (HTTP 406 or other
-    errors for very large diffs), this class clones the repo locally and
-    uses ``git diff`` instead.
-    """
-
-    def __init__(self, cache_dir: str = ".repo_cache"):
-        self._cache_dir = Path(cache_dir)
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-
-    def _repo_path(self, org: str, repo: str) -> Path:
-        return self._cache_dir / f"{org}__{repo}.git"
+    def __init__(self, cache_dir: str = ".repo_cache", auth_token: str = ""):
+        self._cache_dir = cache_dir
+        self._auth_token = auth_token
 
     def ensure_cloned(self, org: str, repo: str) -> Path:
-        """Clone the repo if not already cached. Returns path to bare clone."""
-        repo_path = self._repo_path(org, repo)
-        if repo_path.exists():
-            # Fetch latest to ensure we have the needed commits
-            print(f"  Fetching latest for cached {org}/{repo}")
-            try:
-                subprocess.run(
-                    ["git", "-C", str(repo_path), "fetch", "--quiet"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.SubprocessError,
-                FileNotFoundError,
-            ) as e:
-                print(f"  Warning: fetch failed for {org}/{repo}: {e}")
-            return repo_path
-
-        print(f"  Cloning {org}/{repo} (bare, blobless)...")
-        url = f"https://github.com/{org}/{repo}.git"
-        try:
-            result = subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--bare",
-                    "--filter=blob:none",
-                    url,
-                    str(repo_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                "git is not installed or not on PATH. "
-                "Install git to use clone-based diff fallback."
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"Clone timed out (600s) for {org}/{repo}. "
-                "The repository may be too large."
-            )
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to clone {org}/{repo}: {result.stderr.strip()}")
-        print(f"  Clone complete for {org}/{repo}")
-        return repo_path
+        result = clone_repo_bare(
+            org, repo, self._cache_dir, auth_token=self._auth_token,
+        )
+        if result is None:
+            raise RuntimeError(f"Failed to clone {org}/{repo}")
+        return result
 
     def get_diff(self, org: str, repo: str, base_sha: str, head_sha: str) -> str:
-        """Generate diff locally using git diff on the cached bare clone."""
         if not base_sha or not head_sha:
             raise ValueError("base_sha and head_sha must be non-empty")
         repo_path = self.ensure_cloned(org, repo)
@@ -139,14 +88,12 @@ class RepoCloneCache:
             )
         except FileNotFoundError:
             raise RuntimeError(
-                "git is not installed or not on PATH. "
-                "Install git to use clone-based diff fallback."
+                "git is not installed or not on PATH."
             )
         except subprocess.TimeoutExpired:
             raise RuntimeError(
                 f"git diff timed out (120s) for {org}/{repo} "
-                f"({base_sha[:8]}...{head_sha[:8]}). "
-                "The diff may be too large."
+                f"({base_sha[:8]}...{head_sha[:8]})."
             )
         if result.returncode != 0:
             raise RuntimeError(
@@ -201,17 +148,17 @@ def fetch_unified_diff(
             )
         elif response.status_code in (406, 422, 500, 502, 503):
             # 406 = diff too large, others = server issues — fall back to clone
-            print(
+            _logger.info(
                 f"  GitHub API returned {response.status_code} for "
                 f"{base_sha[:8]}...{head_sha[:8]}, using clone fallback"
             )
         else:
-            print(
+            _logger.info(
                 f"  GitHub API returned {response.status_code} for "
                 f"{base_sha[:8]}...{head_sha[:8]}, trying clone fallback"
             )
     except requests.RequestException as e:
-        print(f"  GitHub API request failed: {e}, using clone fallback")
+        _logger.info(f"  GitHub API request failed: {e}, using clone fallback")
 
     # Fallback: clone-based diff
     return clone_cache.get_diff(org, repo, base_sha, head_sha)
@@ -242,7 +189,7 @@ def split_patches(diff_text: str) -> tuple[str, str]:
     except Exception as e:
         # If unidiff fails to parse (e.g. binary files, malformed diff),
         # return the raw diff as fix_patch so the record isn't silently lost
-        print(f"  Warning: unidiff parse failed, using raw diff as fix_patch: {e}")
+        _logger.warning(f"  Warning: unidiff parse failed, using raw diff as fix_patch: {e}")
         return diff_text, ""
 
     return fix_patch, test_patch
@@ -401,16 +348,19 @@ def main(
     retry_attempts: int = 3,
     cache_dir: str = ".repo_cache",
     lang: str = "python",
+    progress_callback=None,
 ):
     if not tokens:
         raise ValueError("No tokens provided")
 
-    print("starting build dataset")
-    print(f"Output directory: {out_dir}")
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
+    _logger.info("starting build dataset")
+    validate_name(org, "org")
+    validate_name(repo, "repo")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
 
-    clone_cache = RepoCloneCache(cache_dir)
+    clone_cache = RepoCloneCache(cache_dir, auth_token=tokens[0] if tokens else "")
     rotator = TokenRotator(tokens)
 
     # Load tag groups
@@ -419,10 +369,10 @@ def main(
         raise AuroraPipelineError(f"Tag groups file not found: {groups_file}")
     with open(groups_file, "r", encoding="utf-8") as f:
         tag_groups = [json.loads(line) for line in f if line.strip()]
-    print(f"Loaded {len(tag_groups)} tag groups")
+    _logger.info(f"Loaded {len(tag_groups)} tag groups")
 
     # Load PRs (need full PR data for issue aggregation)
-    prs_file = out_dir / f"{org}__{repo}_filtered_prs.jsonl"
+    prs_file = out_dir / f"{org}__{repo}_lht_filtered_prs.jsonl"
     pr_lookup: dict[int, dict] = {}
     if prs_file.exists():
         with open(prs_file, "r", encoding="utf-8") as f:
@@ -435,7 +385,7 @@ def main(
                             pr_lookup[num] = pr
                     except json.JSONDecodeError:
                         continue
-    print(f"Loaded {len(pr_lookup)} PRs")
+    _logger.info(f"Loaded {len(pr_lookup)} PRs")
 
     # Load related issues (if available)
     issues_file = out_dir / f"{org}__{repo}_related_issues.jsonl"
@@ -451,10 +401,10 @@ def main(
                             all_issues[num] = issue
                     except json.JSONDecodeError:
                         continue
-    print(f"Loaded {len(all_issues)} related issues")
+    _logger.info(f"Loaded {len(all_issues)} related issues")
 
     # Load existing dataset for resume support
-    out_file = out_dir / f"{org}__{repo}_dataset.jsonl"
+    out_file = out_dir / f"{org}__{repo}_lht_dataset.jsonl"
     existing_ids: set[str] = set()
     if out_file.exists():
         with open(out_file, "r", encoding="utf-8") as f:
@@ -466,42 +416,41 @@ def main(
                     except json.JSONDecodeError:
                         pass
     if existing_ids:
-        print(f"Resuming: {len(existing_ids)} records already processed")
+        _logger.info(f"Resuming: {len(existing_ids)} records already processed")
 
     # Process each tag group
     records_written = 0
+    _PROGRESS_INTERVAL = 5
+    total_groups = len(tag_groups)
     with open(out_file, "a", encoding="utf-8") as f:
-        for group in tqdm(tag_groups, desc="Building dataset"):
+        for group_idx, group in enumerate(tqdm(tag_groups, desc="Building dataset"), start=1):
+            if progress_callback and group_idx % _PROGRESS_INTERVAL == 0:
+                try:
+                    progress_callback(group_idx, total_groups)
+                except Exception:
+                    pass
             base_sha = group.get("base_sha", "")
             head_sha = group.get("head_sha", "")
             pr_numbers = group.get("pr_numbers", [])
             base_tag = group.get("base_tag", "")
             head_tag = group.get("head_tag", "")
 
-            # instance_id spec: {org}__{repo}-{base_tag}..{head_tag} (Aurora_project_guide.md §3); PR-number fallback only when tags missing.
+            # Build instance_id — sort PR numbers for deterministic ordering
             sorted_pr_numbers = sorted(pr_numbers)
-            if base_tag and head_tag:
-                instance_id = f"{org.lower()}__{repo.lower()}-{base_tag}..{head_tag}"
-            else:
-                pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
-                instance_id = f"{org.lower()}__{repo.lower()}-{pr_numbers_str}"
-                print(
-                    f"  WARNING: missing tag metadata for group "
-                    f"(base_tag={base_tag!r}, head_tag={head_tag!r}); "
-                    f"falling back to PR-number instance_id: {instance_id}"
-                )
+            pr_numbers_str = "-".join(str(n) for n in sorted_pr_numbers)
+            instance_id = f"{org.lower()}__{repo.lower()}-{base_tag}..{head_tag}"
 
             if instance_id in existing_ids:
                 continue
 
             if not base_sha or not head_sha:
-                print(f"  Skipping group (missing SHA): {base_tag}..{head_tag}")
+                _logger.info(f"  Skipping group (missing SHA): {base_tag}..{head_tag}")
                 continue
 
             # Collect the PRs in this group
             group_prs = [pr_lookup[n] for n in pr_numbers if n in pr_lookup]
             if not group_prs:
-                print(f"  Skipping group (no PRs found): {base_tag}..{head_tag}")
+                _logger.info(f"  Skipping group (no PRs found): {base_tag}..{head_tag}")
                 continue
 
             # Fetch unified diff with retry + clone fallback
@@ -532,27 +481,23 @@ def main(
                         ]
                     )
                     if is_permanent:
-                        print(
+                        _logger.info(
                             f"\n  Skipping group {base_tag}..{head_tag}: "
                             f"permanent error — {error_msg}"
                         )
                         break
                     if delay_on_error is None or attempt == retry_attempts - 1:
-                        print(
+                        _logger.info(
                             f"\n  Failed to get diff for "
                             f"{base_tag}..{head_tag}: {error_msg}"
                         )
                         break
-                    print(
+                    _logger.info(
                         f"  Attempt {attempt + 1} failed for "
                         f"{base_tag}..{head_tag}. "
                         f"Retrying in {delay_on_error}s..."
                     )
-                    try:
-                        from ...models.pipeline_executor import cancellable_sleep
-                        cancellable_sleep(delay_on_error)
-                    except ImportError:
-                        time.sleep(delay_on_error)
+                    time.sleep(delay_on_error)
 
             if not diff_text or not diff_text.strip():
                 continue
@@ -568,24 +513,63 @@ def main(
             # Build the tag label
             tag_label = f"{base_tag}..{head_tag}" if base_tag else ""
 
-            # Use the first PR for base ref
             primary_pr = group_prs[0]
-            base_ref = primary_pr.get("base", {}).get("ref", "main")
 
             pr_url = primary_pr.get("html_url", "") or primary_pr.get("url", "")
+
+            attribution_methods_dict = group.get("attribution_methods", {}) or {}
+            if attribution_methods_dict:
+                pr_attribution_method = max(
+                    attribution_methods_dict.items(), key=lambda kv: kv[1],
+                )[0]
+            else:
+                pr_attribution_method = ""
+
+            version_scheme = group.get("version_scheme", "") or ""
+
+            body_sections = [f"## Version Interval: {base_tag}..{head_tag}"]
+            group_prs_sorted = sorted(
+                group_prs, key=lambda p: p.get("number", 0),
+            )
+            body_sections.append(f"### Pull Requests ({len(group_prs_sorted)})")
+            for p in group_prs_sorted:
+                pr_num = p.get("number", 0)
+                pr_title = p.get("title", "") or ""
+                pr_body = (p.get("body", "") or "").strip()
+                body_sections.append(f"#### PR #{pr_num}: {pr_title}")
+                body_sections.append(pr_body if pr_body else "_(no description)_")
+            if resolved_issues:
+                body_sections.append("### Linked Issues")
+                for iss in sorted(resolved_issues, key=lambda i: i.get("number", 0)):
+                    iss_num = iss.get("number", 0)
+                    iss_title = iss.get("title", "") or ""
+                    iss_body = (iss.get("body", "") or "").strip()
+                    body_sections.append(f"#### Issue #{iss_num}: {iss_title}")
+                    body_sections.append(iss_body if iss_body else "_(no description)_")
+            aggregated_body = "\n\n".join(body_sections)
 
             record = {
                 "instance_id": instance_id,
                 "org": org,
                 "repo": repo,
-                "number": sorted_pr_numbers[0],
+                "number": sorted_pr_numbers[0] if sorted_pr_numbers else 0,
+                "lang": lang,
+                "tag_start": base_tag,
+                "tag_end": head_tag,
+                "version_scheme": version_scheme,
+                "pr_numbers": sorted_pr_numbers,
+                "pr_attribution_method": pr_attribution_method,
                 "state": primary_pr.get("state", "closed"),
                 "title": primary_pr.get("title", ""),
-                "body": primary_pr.get("body", "") or "",
+                "body": aggregated_body,
                 "base": {
                     "label": tag_label,
-                    "ref": base_ref,
+                    "ref": base_tag,
                     "sha": base_sha,
+                },
+                "head": {
+                    "ref": head_tag,
+                    "sha": head_sha,
                 },
                 "resolved_issues": resolved_issues,
                 "fix_patch": fix_patch,
@@ -598,19 +582,17 @@ def main(
                 "run_result": {"passed_count": 0, "failed_count": 0, "skipped_count": 0, "passed_tests": [], "failed_tests": [], "skipped_tests": []},
                 "test_patch_result": {"passed_count": 0, "failed_count": 0, "skipped_count": 0, "passed_tests": [], "failed_tests": [], "skipped_tests": []},
                 "fix_patch_result": {"passed_count": 0, "failed_count": 0, "skipped_count": 0, "passed_tests": [], "failed_tests": [], "skipped_tests": []},
-                "prs_in_bundle": sorted_pr_numbers,
                 "release_line": group.get("release_line", ""),
-                "attribution_methods": group.get("attribution_methods", {}),
                 "hints": "",
-                "lang": lang,
                 "pr_url": pr_url,
             }
 
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             f.flush()
+            os.fsync(f.fileno())
             records_written += 1
 
-    print(f"Wrote {records_written} records to {out_file}")
+    _logger.info(f"Wrote {records_written} records to {out_file}")
 
 
 if __name__ == "__main__":

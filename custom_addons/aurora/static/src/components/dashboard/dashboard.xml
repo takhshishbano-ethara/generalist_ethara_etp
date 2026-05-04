@@ -11,9 +11,9 @@
                     <button class="btn aurora-dash-btn-new" t-on-click="openNewPipeline">
                         <i class="fa fa-plus me-1"/> New Pipeline
                     </button>
-                    <!-- <button class="btn aurora-dash-btn-new-alt" t-on-click="openNewEvaluation">
+                    <button class="btn aurora-dash-btn-new-alt" t-on-click="openNewEvaluation">
                         <i class="fa fa-plus me-1"/> New Evaluation
-                    </button> -->
+                    </button>
                 </div>
             </div>
 
@@ -34,7 +34,7 @@
                             <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.phase1.failed"/> failed</span>
                         </div>
                     </div>
-                    <!-- <div class="aurora-dash-stat-card aurora-dash-stat-evaluations" t-on-click="() => this.openEvaluations()">
+                    <div class="aurora-dash-stat-card aurora-dash-stat-evaluations" t-on-click="() => this.openEvaluations()">
                         <div class="aurora-dash-stat-icon"><i class="fa fa-flask"/></div>
                         <div class="aurora-dash-stat-num"><t t-esc="state.phase2.total"/></div>
                         <div class="aurora-dash-stat-label">Phase 2 — Evaluate</div>
@@ -73,7 +73,7 @@
                             <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.harness_staging.testing"/> testing</span>
                             <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.harness_staging.failed"/> failed</span>
                         </div>
-                    </div> -->
+                    </div>
                     <div class="aurora-dash-stat-card aurora-dash-stat-tokens" t-on-click="openTokenPool">
                         <div class="aurora-dash-stat-icon"><i class="fa fa-key"/></div>
                         <div class="aurora-dash-stat-num"><t t-esc="state.tokens.active"/></div>
@@ -105,7 +105,7 @@
                             </t>
                         </div>
                     </div>
-                    <!-- <div class="aurora-dash-panel">
+                    <div class="aurora-dash-panel">
                         <div class="aurora-dash-panel-header">
                             <span><i class="fa fa-flask me-2"/>Recent Evaluations</span>
                             <button class="btn btn-sm aurora-dash-panel-link" t-on-click="() => this.openEvaluations()">View All <i class="fa fa-arrow-right ms-1"/></button>
@@ -124,31 +124,31 @@
                                 </div>
                             </t>
                         </div>
-                    </div> -->
-                </div>
-
-                <div class="aurora-dash-panel aurora-dash-panel-full">
-                    <div class="aurora-dash-panel-header">
-                        <span><i class="fa fa-key me-2"/>Token Pool</span>
-                        <button class="btn btn-sm aurora-dash-panel-link" t-on-click="openTokenPool">Manage <i class="fa fa-arrow-right ms-1"/></button>
                     </div>
-                    <div class="aurora-dash-panel-body">
-                        <t t-if="!state.tokens.list || state.tokens.list.length === 0">
-                            <div class="aurora-dash-empty">No tokens configured.</div>
-                        </t>
-                        <t t-foreach="state.tokens.list || []" t-as="tk" t-key="tk.id">
-                            <div class="aurora-dash-row">
-                                <div class="aurora-dash-row-name">
-                                    <strong><t t-esc="tk.name"/></strong>
-                                    <span class="aurora-dash-row-repo">
-                                        Rate: <t t-esc="tk.rate_remaining"/>/<t t-esc="tk.rate_limit"/>
-                                    </span>
+
+                    <div class="aurora-dash-panel aurora-dash-panel-full">
+                        <div class="aurora-dash-panel-header">
+                            <span><i class="fa fa-key me-2"/>Token Pool</span>
+                            <button class="btn btn-sm aurora-dash-panel-link" t-on-click="openTokenPool">Manage <i class="fa fa-arrow-right ms-1"/></button>
+                        </div>
+                        <div class="aurora-dash-panel-body">
+                            <t t-if="!state.tokens.list || state.tokens.list.length === 0">
+                                <div class="aurora-dash-empty">No tokens configured.</div>
+                            </t>
+                            <t t-foreach="state.tokens.list || []" t-as="tk" t-key="tk.id">
+                                <div class="aurora-dash-row">
+                                    <div class="aurora-dash-row-name">
+                                        <strong><t t-esc="tk.name"/></strong>
+                                        <span class="aurora-dash-row-repo">
+                                            Rate: <t t-esc="tk.rate_remaining"/>/<t t-esc="tk.rate_limit"/>
+                                        </span>
+                                    </div>
+                                    <div t-attf-class="aurora-dash-tag {{tk.state === 'active' ? 'aurora-dash-tag-success' : tk.state === 'exhausted' ? 'aurora-dash-tag-danger' : 'aurora-dash-tag-muted'}}">
+                                        <t t-esc="tk.state"/>
+                                    </div>
                                 </div>
-                                <div t-attf-class="aurora-dash-tag {{tk.state === 'active' ? 'aurora-dash-tag-success' : tk.state === 'exhausted' ? 'aurora-dash-tag-danger' : 'aurora-dash-tag-muted'}}">
-                                    <t t-esc="tk.state"/>
-                                </div>
-                            </div>
-                        </t>
+                            </t>
+                        </div>
                     </div>
                 </div>
             </div>
