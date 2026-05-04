@@ -92,7 +92,7 @@
       <span class="badge">MULTIMODAL SWE-BENCH</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">Can AI coding agents fix bugs they have to <em>see</em>?</p>
+    <p class="thesis">Can AI models bridge the gap between <em>code logic</em> and <em>pixel-level visual data</em>?</p>
   </header>
 
   <main id="main">
@@ -102,7 +102,7 @@
     <p class="section-label" id="overview-label">§01 — The question</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Tesseract evaluates AI coding agents on their ability to resolve real-world GitHub issues that require visual understanding — screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings. Unlike text-only benchmarks, Tesseract tests whether models can reason over embedded images alongside code context to produce correct patches. Each instance reconstructs a production pull request from 13 open-source repositories across 5 programming languages, with hermetic ARM64 Docker environments and automated test oracles for reproducible evaluation.</p>
+        <p>Tesseract evaluates AI coding agents on their ability to resolve real-world GitHub issues that include visual multimodal content such as screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings. Unlike text-only benchmarks, Tesseract tests whether models can reason over embedded multimodal content alongside code context to produce correct patches. Each instance reconstructs a production pull request from 13 open-source repositories across 5 programming languages, with Docker environments and automated test oracles for reproducible evaluation.</p>
         <p class="teaser">Keep scrolling. The answer is in <a href="#results">§04</a>.</p>
       </div>
 
@@ -114,7 +114,6 @@
           <div class="glance-row"><dt>Languages</dt><dd><b>5</b></dd></div>
           <div class="glance-row"><dt>Embedded images</dt><dd><b>67</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
-          <div class="glance-row"><dt>Runtime</dt><dd>ARM64 · hermetic</dd></div>
         </dl>
         <p class="glance-foot mono">Benchmark · v1 · 2026</p>
       </aside>
@@ -123,28 +122,28 @@
 
   <!-- ================= §02 SCALE OF THE CRAWL ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">§02 — Scale of the crawl</p>
-    <p class="section-desc">Six months of crawling. A 12-stage filter. One benchmark.</p>
-    <div class="funnel" aria-label="Funnel from 48,000 pull requests to 20 benchmark instances">
-      <div class="funnel-step">
-        <span class="funnel-num" data-target="48000" data-suffix="+" aria-hidden="true">0</span>
-        <span class="sr-only">48,000 plus</span>
-        <span class="funnel-unit">Closed PRs crawled</span>
-        <span class="funnel-sub">across 6 repositories</span>
+    <p class="section-label" id="scale-label">§02 — The benchmark</p>
+    <p class="section-desc">Curated from thousands of real production pull requests, filtered through a 12-stage pipeline.</p>
+    <div class="kpi-row" aria-label="Benchmark composition">
+      <div class="kpi-card">
+        <p class="kpi-label">Repositories</p>
+        <p class="kpi-value"><span class="kpi-big">13</span></p>
+        <p class="kpi-sub mono">open-source projects</p>
       </div>
-      <span class="funnel-arrow mono" aria-hidden="true">-&gt;</span>
-      <div class="funnel-step">
-        <span class="funnel-num" data-target="337" aria-hidden="true">0</span>
-        <span class="sr-only">337</span>
-        <span class="funnel-unit">Multimodal candidates</span>
-        <span class="funnel-sub">passed 12-stage filter</span>
+      <div class="kpi-card">
+        <p class="kpi-label">Languages</p>
+        <p class="kpi-value"><span class="kpi-big">5</span></p>
+        <p class="kpi-sub mono">across the stack</p>
       </div>
-      <span class="funnel-arrow mono" aria-hidden="true">-&gt;</span>
-      <div class="funnel-step funnel-step--final">
-        <span class="funnel-num" data-target="20" aria-hidden="true">0</span>
-        <span class="sr-only">20</span>
-        <span class="funnel-unit">Benchmark instances</span>
-        <span class="funnel-sub">13 repos · 5 languages · 67 images</span>
+      <div class="kpi-card">
+        <p class="kpi-label">Embedded images</p>
+        <p class="kpi-value"><span class="kpi-big">67</span></p>
+        <p class="kpi-sub mono">screenshots · diagrams · plots</p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Benchmark instances</p>
+        <p class="kpi-value"><span class="kpi-big">20</span></p>
+        <p class="kpi-sub mono">production PRs reconstructed</p>
       </div>
     </div>
   </section>
@@ -180,7 +179,7 @@
         <ul class="phase-body">
           <li>Build 3-tier Docker images per instance</li>
           <li><code class="mono">base -&gt; env -&gt; eval</code></li>
-          <li>ARM64-native with language-specific toolchains</li>
+          <li>Language-specific toolchains</li>
         </ul>
       </article>
       <article class="phase">
@@ -241,10 +240,6 @@
       <p class="reveal-line">
         <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">4 of 20</b>.
         <span class="tok-nova">Nova 2 Lite</span> resolves <b class="reveal-big">2 of 20</b>.
-      </p>
-      <p class="reveal-line reveal-kicker">
-        Only <b>p5.js visual rendering</b> issues pass for both models.
-        Kimi alone catches two more — <code class="mono">vuejs/core-7836</code> and <code class="mono">fyne-io/fyne-6029</code>.
       </p>
       <p class="reveal-cost mono">
         One model is <b>~9× more expensive</b> and <b>2× as effective</b>.
@@ -323,6 +318,7 @@
               <th scope="col" class="matrix-th-meta">Diff</th>
               <th scope="col" class="matrix-th-cell"><span class="tok-kimi">Kimi K2.5</span></th>
               <th scope="col" class="matrix-th-cell"><span class="tok-nova">Nova 2 Lite</span></th>
+              <th scope="col" class="matrix-th-expand" aria-label="Expand row"></th>
             </tr>
           </thead>
           <tbody id="matrix-tbody" aria-live="polite" aria-atomic="false"></tbody>
@@ -331,11 +327,12 @@
               <td colspan="3" class="matrix-totals-label">Totals</td>
               <td class="matrix-cell"><span class="total-chip total-chip--kimi" id="total-kimi">4 / 20</span></td>
               <td class="matrix-cell"><span class="total-chip total-chip--nova" id="total-nova">2 / 20</span></td>
+              <td class="matrix-cell"></td>
             </tr>
           </tfoot>
         </table>
       </div>
-      <p class="matrix-hint mono">Click any cell for full run metadata.</p>
+      <p class="matrix-hint mono">Click any row for full run metadata.</p>
     </div>
 
     <!-- REPO DRILL-DOWN -->
@@ -344,6 +341,23 @@
     </div>
 
     <script type="application/json" id="instances-data" t-out="instances_json"/>
+  </section>
+
+  <!-- ================= §06 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="res-label">
+    <p class="section-label" id="res-label">§06 — Resources</p>
+    <div class="resources">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">Trajectories</p>
+        <p class="res-title">Run trajectories on GitHub</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">Dataset</p>
+        <p class="res-title">Benchmark on HuggingFace</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+    </div>
   </section>
 
   </main>
@@ -369,14 +383,6 @@
         </figure>
       </div>
 
-      <div class="drawer-backdrop" id="drawer-backdrop"></div>
-      <div class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="false" hidden="hidden">
-        <div class="drawer-head">
-          <p class="drawer-label mono">Run detail</p>
-          <button class="drawer-close" id="drawer-close" aria-label="Close detail panel">×</button>
-        </div>
-        <div class="drawer-body" id="drawer-body"></div>
-      </div>
     </body>
     </html>
   </template>

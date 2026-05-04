@@ -97,25 +97,25 @@
   // ============================================================
   // Thesis mask reveal — split the thesis sentence into per-word
   // spans wrapped in overflow-clip containers, so we can stagger
-  // a yPercent 110 → 0 rise on load. Preserves the <em> italic on
-  // "see" by detecting word === 'see' during the split.
+  // a yPercent 110 → 0 rise on load. Walks child nodes so <em>
+  // spans (potentially multi-word) keep their emphasis on every
+  // word they contain.
   //
   // Runs OUTSIDE initAnimations so the DOM is ready even if GSAP
   // isn't (fallback: flat text, no motion — page still reads).
   // ============================================================
   const thesisEl = document.querySelector('.thesis');
   if (thesisEl) {
-    // Preserve the raw text; strip the single <em> wrapper before split
-    // and re-apply as a class during the rebuild. Trailing punctuation
-    // (like the "?" in "see?") stays roman — it's not italic in the
-    // source markup, so we split it off the em word.
-    const raw = thesisEl.textContent.trim();
-    const words = raw.split(/\s+/);
-    thesisEl.innerHTML = words.map((w) => {
+    const tokens = [];
+    thesisEl.childNodes.forEach((node) => {
+      const isEm = node.nodeType === 1 && node.tagName === 'EM';
+      const text = node.textContent || '';
+      text.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ w, isEm }));
+    });
+    thesisEl.innerHTML = tokens.map(({ w, isEm }) => {
       const punctMatch = w.match(/^(.*?)([.,!?;:]+)$/);
       const core  = punctMatch ? punctMatch[1] : w;
       const punct = punctMatch ? punctMatch[2] : '';
-      const isEm  = core.toLowerCase() === 'see';
       const innerMarkup = isEm
         ? `<span class="thesis-em">${core}</span>${punct}`
         : w;
@@ -172,22 +172,7 @@
       });
     });
 
-    // ---------- 3. Funnel final KPI accent glow (one-shot) ---------
-    const css = getComputedStyle(document.documentElement);
-    const accent2 = css.getPropertyValue('--accent-2').trim() || '#4A5515';
-    const accentSurface = css.getPropertyValue('--accent-surface').trim() || '#EDF3B8';
-    gsap.fromTo('.funnel-step--final',
-      { boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent2} 30%, transparent)` },
-      {
-        boxShadow: `inset 0 0 0 1px ${accent2}, 0 0 30px ${accentSurface}`,
-        duration: 0.8,
-        delay: 0.4,
-        ease: EASE_OUT,
-        scrollTrigger: { trigger: '.funnel', start: 'top 75%', once: true },
-      }
-    );
-
-    // Blocks 4 (charts fade) and 5 (KPI fade) REMOVED — both were
+    // Blocks 3 (funnel glow), 4 (charts fade) and 5 (KPI fade) REMOVED — all
     // redundant with block 2 (section fade-rise), which already
     // animates every direct child of every <section>.
 
@@ -274,41 +259,6 @@
   if (elKimi) elKimi.textContent = `${totalKimi} / ${total}`;
   if (elNova) elNova.textContent = `${totalNova} / ${total}`;
 
-  // ---------- FUNNEL counters (IntersectionObserver) ----------------------
-  const funnelNums = document.querySelectorAll('.funnel-num');
-  const animateCount = (el) => {
-    const target = Number(el.dataset.target || '0');
-    const suffix = el.dataset.suffix || '';
-    if (prefersReduced) {
-      el.textContent = target.toLocaleString() + suffix;
-      return;
-    }
-    const duration = 900;
-    const start = performance.now();
-    const step = (now) => {
-      const t = Math.min(1, (now - start) / duration);
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3);
-      const val = Math.round(target * eased);
-      el.textContent = val.toLocaleString() + (t === 1 ? suffix : '');
-      if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  };
-  if ('IntersectionObserver' in window && funnelNums.length) {
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          animateCount(e.target);
-          io.unobserve(e.target);
-        }
-      }
-    }, { threshold: 0.3 });
-    funnelNums.forEach((n) => io.observe(n));
-  } else {
-    funnelNums.forEach(animateCount);
-  }
-
   // ---------- VIEW TOGGLE (matrix / repo) ---------------------------------
   const tabs = document.querySelectorAll('.vt-btn');
   const panes = {
@@ -361,13 +311,70 @@
       </td>
     `;
   };
+  const detailBlock = (inst, modelKey, cls) => {
+    const run = inst.runs[modelKey];
+    if (!run) {
+      return `
+        <div class="matrix-detail-block">
+          <p class="matrix-detail-title tok-${cls}">${esc(modelKey)}</p>
+          <p class="matrix-detail-item"><span class="matrix-detail-key">—</span><span class="matrix-detail-val">no run</span></p>
+        </div>`;
+    }
+    const pass = run.pass_at_1 === 'Pass';
+    const passHTML = pass
+      ? '<span style="color:var(--pass);font-weight:600">PASS</span>'
+      : '<span style="color:var(--fail);font-weight:600">FAIL</span>';
+    return `
+      <div class="matrix-detail-block">
+        <p class="matrix-detail-title tok-${cls}">${esc(modelKey)}</p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Result</span><span class="matrix-detail-val">${passHTML}</span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Tool calls</span><span class="matrix-detail-val">${esc(run.tool_calls)}</span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Files changed</span><span class="matrix-detail-val">${esc(run.files_modified)}</span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Time</span><span class="matrix-detail-val">${fmtTime(run.time_secs)}</span></p>
+      </div>`;
+  };
+
+  const instanceBlock = (inst) => {
+    const hasTests = (inst.f2p_count != null) || (inst.p2p_count != null);
+    const dockerRow = inst.docker_uri
+      ? `<p class="matrix-detail-item matrix-detail-item--stack">
+           <span class="matrix-detail-key">Docker image</span>
+           <span class="matrix-detail-val">
+             <code class="matrix-detail-docker">${esc(inst.docker_uri)}</code>
+             <button type="button" class="matrix-detail-copy" data-copy="${esc(inst.docker_uri)}" aria-label="Copy docker image URI">copy</button>
+           </span>
+         </p>`
+      : '';
+    const testsRow = hasTests
+      ? `<p class="matrix-detail-item"><span class="matrix-detail-key">Tests</span><span class="matrix-detail-val"><span style="color:var(--fail)">F2P ${esc(inst.f2p_count ?? 0)}</span> · <span style="color:var(--pass)">P2P ${esc(inst.p2p_count ?? 0)}</span></span></p>`
+      : '';
+    const trajRow = inst.trajectory_url
+      ? `<p class="matrix-detail-item"><span class="matrix-detail-key">Trajectory</span><span class="matrix-detail-val"><a href="${esc(inst.trajectory_url)}" target="_blank" rel="noopener">view log →</a></span></p>`
+      : '';
+    const prRow = inst.pr_url
+      ? `<p class="matrix-detail-item"><span class="matrix-detail-key">PR</span><span class="matrix-detail-val"><a href="${esc(inst.pr_url)}" target="_blank" rel="noopener">original PR →</a></span></p>`
+      : '';
+    return `
+      <div class="matrix-detail-block">
+        <p class="matrix-detail-title">Instance</p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">ID</span><span class="matrix-detail-val"><a href="${esc(inst.issue_url)}" target="_blank" rel="noopener">${esc(inst.instance_id)}</a></span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Repo</span><span class="matrix-detail-val"><a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a></span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Language</span><span class="matrix-detail-val">${esc(inst.language)}</span></p>
+        <p class="matrix-detail-item"><span class="matrix-detail-key">Difficulty</span><span class="matrix-detail-val">${esc(inst.difficulty)}</span></p>
+        ${testsRow}
+        ${trajRow}
+        ${prRow}
+        ${dockerRow}
+      </div>`;
+  };
+
   const renderMatrix = () => {
     const tb = document.getElementById('matrix-tbody');
     if (!tb) return;
     tb.innerHTML = instances.map((inst, i) => {
       const isP5 = inst.repo === 'processing/p5.js';
       return `
-        <tr class="matrix-row ${isP5 ? 'row-p5' : ''}">
+        <tr class="matrix-row ${isP5 ? 'row-p5' : ''}" data-instance="${esc(inst.instance_id)}" aria-expanded="false">
           <td class="matrix-id">
             <span class="num mono">#${String(i + 1).padStart(2, '0')}</span>
             <a href="${esc(inst.issue_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a>
@@ -376,6 +383,22 @@
           <td class="matrix-meta">${esc(inst.difficulty)}</td>
           ${tileHTML(inst, 'Kimi K2.5')}
           ${tileHTML(inst, 'Nova 2 Lite')}
+          <td class="matrix-expand">
+            <span class="matrix-expand-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+            </span>
+          </td>
+        </tr>
+        <tr class="matrix-detail-row" data-detail-for="${esc(inst.instance_id)}" hidden="hidden">
+          <td colspan="6">
+            <div class="matrix-detail-content">
+              <div class="matrix-detail-grid">
+                ${instanceBlock(inst)}
+                ${detailBlock(inst, 'Kimi K2.5', 'kimi')}
+                ${detailBlock(inst, 'Nova 2 Lite', 'nova')}
+              </div>
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
@@ -470,112 +493,80 @@
   };
   renderRepoList();
 
-  // ---------- DRAWER (slide panel on tile click) --------------------------
-  let lastFocus = null;
+  // ---------- MATRIX ROW EXPAND ------------------------------------------
+  // Click anywhere on a row to expand its detail view (Instance + Kimi +
+  // Nova side-by-side). Click again to collapse. Only one row open at a
+  // time — opening another closes the previously open one.
+  let openInstanceId = null;
 
-  const getDrawer = () => document.getElementById('drawer');
-  const getDrawerBody = () => document.getElementById('drawer-body');
-  const getDrawerClose = () => document.getElementById('drawer-close');
-
-  const ensureBackdrop = () => {
-    let bd = document.getElementById('drawer-backdrop');
-    if (!bd) {
-      bd = document.createElement('div');
-      bd.id = 'drawer-backdrop';
-      bd.className = 'drawer-backdrop';
-      document.body.appendChild(bd);
+  const collapseRow = (id) => {
+    const row = document.querySelector(`.matrix-row[data-instance="${CSS.escape(id)}"]`);
+    const detail = document.querySelector(`.matrix-detail-row[data-detail-for="${CSS.escape(id)}"]`);
+    if (row) {
+      row.classList.remove('is-expanded');
+      row.setAttribute('aria-expanded', 'false');
     }
-    return bd;
+    if (detail) detail.setAttribute('hidden', '');
   };
 
-  const openDrawer = (instanceId, modelKey) => {
-    const drawer = getDrawer();
-    const drawerBody = getDrawerBody();
-    if (!drawer || !drawerBody) return;
+  const expandRow = (id) => {
+    const row = document.querySelector(`.matrix-row[data-instance="${CSS.escape(id)}"]`);
+    const detail = document.querySelector(`.matrix-detail-row[data-detail-for="${CSS.escape(id)}"]`);
+    if (row) {
+      row.classList.add('is-expanded');
+      row.setAttribute('aria-expanded', 'true');
+    }
+    if (detail) detail.removeAttribute('hidden');
+  };
 
-    const inst = byId.get(instanceId);
-    if (!inst) return;
-    const run = inst.runs[modelKey];
-    if (!run) return;
-    const pass = run.pass_at_1 === 'Pass';
-    const hasTests = (inst.f2p_count != null) || (inst.p2p_count != null);
-    const testRow = hasTests
-      ? `<dt>Tests</dt><dd><span style="color:var(--fail)">F2P ${esc(inst.f2p_count ?? 0)}</span> · <span style="color:var(--pass)">P2P ${esc(inst.p2p_count ?? 0)}</span></dd>`
-      : '';
-    const dockerRow = inst.docker_uri
-      ? `<dt>Docker Image</dt><dd><code class="mono drawer-docker">${esc(inst.docker_uri)}</code>
-           <button type="button" class="drawer-copy" data-copy="${esc(inst.docker_uri)}" aria-label="Copy docker image URI">copy</button></dd>`
-      : '';
-    drawerBody.innerHTML = `
-      <dl>
-        <dt>Instance</dt><dd><a href="${esc(inst.issue_url)}" target="_blank" rel="noopener">${esc(inst.instance_id)}</a></dd>
-        <dt>Model</dt><dd class="${modelKey === 'Kimi K2.5' ? 'tok-kimi' : 'tok-nova'}">${esc(modelKey)}</dd>
-        <dt>Result</dt><dd>${pass ? '<b style="color:var(--pass)">PASS</b>' : '<b style="color:var(--fail)">FAIL</b>'}</dd>
-        <dt>Repo</dt><dd><a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a></dd>
-        <dt>Language</dt><dd>${esc(inst.language)}</dd>
-        <dt>Difficulty</dt><dd>${esc(inst.difficulty)}</dd>
-        ${testRow}
-        <dt>Files changed</dt><dd>${esc(run.files_modified)}</dd>
-        <dt>Tool calls</dt><dd>${esc(run.tool_calls)}</dd>
-        <dt>Time</dt><dd>${fmtTime(run.time_secs)}</dd>
-        <dt>Trajectory</dt><dd><a href="${esc(inst.trajectory_url)}" target="_blank" rel="noopener">view log →</a></dd>
-        <dt>PR</dt><dd><a href="${esc(inst.pr_url)}" target="_blank" rel="noopener">original PR →</a></dd>
-        ${dockerRow}
-      </dl>
-    `;
-    drawer.removeAttribute('hidden');
-    drawer.style.display = '';
-    document.body.classList.add('drawer-open');
-    ensureBackdrop().classList.add('is-visible');
-    requestAnimationFrame(() => {
-      drawer.setAttribute('data-open', 'true');
-      drawer.setAttribute('aria-hidden', 'false');
+  const toggleRow = (id) => {
+    if (openInstanceId === id) {
+      collapseRow(id);
+      openInstanceId = null;
+      return;
+    }
+    if (openInstanceId) collapseRow(openInstanceId);
+    expandRow(id);
+    openInstanceId = id;
+  };
+
+  // Matrix click delegate — row click toggles expansion. Links inside the
+  // row (repo name, etc.) are allowed to navigate unless user Cmd/Ctrl-
+  // clicks. Docker copy button gets its own handler inside the detail row.
+  const matrixEl = document.getElementById('matrix');
+  if (matrixEl) {
+    matrixEl.addEventListener('click', (e) => {
+      // Docker copy button lives in the detail row
+      const copyBtn = e.target.closest('.matrix-detail-copy');
+      if (copyBtn) {
+        e.preventDefault();
+        const val = copyBtn.dataset.copy || '';
+        navigator.clipboard?.writeText(val).then(() => {
+          const original = copyBtn.textContent;
+          copyBtn.textContent = 'copied';
+          copyBtn.classList.add('is-copied');
+          setTimeout(() => {
+            copyBtn.textContent = original;
+            copyBtn.classList.remove('is-copied');
+          }, 1400);
+        }).catch(() => {});
+        return;
+      }
+      // Link clicks inside a row: let the browser navigate; don't toggle.
+      if (e.target.closest('a')) return;
+      // Tile buttons still preserve their hover/focus styles for keyboard
+      // users, but a pointer click on one is treated as a row click.
+      const row = e.target.closest('.matrix-row');
+      if (!row || !row.dataset.instance) return;
+      toggleRow(row.dataset.instance);
     });
-    lastFocus = document.activeElement;
-    const closeBtn = getDrawerClose();
-    if (closeBtn) closeBtn.focus();
-  };
-
-  const closeDrawer = () => {
-    const drawer = getDrawer();
-    if (!drawer) return;
-    drawer.setAttribute('data-open', 'false');
-    drawer.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('drawer-open');
-    ensureBackdrop().classList.remove('is-visible');
-    setTimeout(() => { drawer.setAttribute('hidden', ''); }, prefersReduced ? 0 : 240);
-    if (lastFocus && lastFocus.focus) lastFocus.focus();
-  };
-
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('#drawer-close') || e.target.closest('.drawer-backdrop')) {
-      closeDrawer();
-      return;
-    }
-    const copyBtn = e.target.closest('#drawer .drawer-copy');
-    if (copyBtn) {
-      const val = copyBtn.dataset.copy || '';
-      navigator.clipboard?.writeText(val).then(() => {
-        const original = copyBtn.textContent;
-        copyBtn.textContent = 'copied';
-        copyBtn.classList.add('is-copied');
-        setTimeout(() => {
-          copyBtn.textContent = original;
-          copyBtn.classList.remove('is-copied');
-        }, 1400);
-      }).catch(() => {});
-      return;
-    }
-    const tileBtn = e.target.closest('#matrix .tile-btn');
-    if (tileBtn && tileBtn.dataset.instance) {
-      openDrawer(tileBtn.dataset.instance, tileBtn.dataset.model);
-      return;
-    }
-  });
+  }
 
   document.addEventListener('keydown', (e) => {
-    const drawer = getDrawer();
-    if (e.key === 'Escape' && drawer && !drawer.hasAttribute('hidden')) closeDrawer();
+    if (e.key === 'Escape' && openInstanceId) {
+      collapseRow(openInstanceId);
+      openInstanceId = null;
+    }
   });
 
   // ---------- CHART LIGHTBOX --------------------------------------------
