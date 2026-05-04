@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 
@@ -15,30 +16,16 @@ class JaegerController(http.Controller):
         if not repo.exists():
             return request.not_found()
 
-        path_map = {
-            "raw_dataset": repo.raw_dataset_jsonl_path,
-            "prs": repo.prs_jsonl_path,
-            "filtered_prs": repo.filtered_prs_jsonl_path,
+        content = self._download_from_s3_by_type(repo, filetype)
+        if content is None:
+            return request.not_found()
+
+        name_map = {
+            "raw_dataset": f"{repo.org}__{repo.repo_name}_raw_dataset.jsonl",
+            "prs": f"{repo.org}__{repo.repo_name}_prs.jsonl",
+            "filtered_prs": f"{repo.org}__{repo.repo_name}_filtered_prs.jsonl",
         }
-        file_path = path_map.get(filetype)
-        if not file_path:
-            return request.not_found()
-
-        ICP = request.env["ir.config_parameter"].sudo()
-        allowed_base = ICP.get_param("jaeger.output_dir", "/tmp/jaeger_data")
-        real_path = os.path.realpath(file_path)
-        if not real_path.startswith(os.path.realpath(allowed_base)):
-            return request.not_found()
-
-        filename = os.path.basename(file_path)
-
-        if os.path.isfile(file_path):
-            with open(file_path, "rb") as f:
-                content = f.read()
-        else:
-            content = self._download_from_s3(repo, file_path)
-            if content is None:
-                return request.not_found()
+        filename = name_map.get(filetype, f"{filetype}.jsonl")
 
         return request.make_response(
             content,
@@ -49,22 +36,29 @@ class JaegerController(http.Controller):
         )
 
     @staticmethod
-    def _download_from_s3(repo, file_path):
+    def _download_from_s3_by_type(repo, filetype):
+        name_map = {
+            "raw_dataset": f"{repo.org}__{repo.repo_name}_raw_dataset.jsonl",
+            "prs": f"{repo.org}__{repo.repo_name}_prs.jsonl",
+            "filtered_prs": f"{repo.org}__{repo.repo_name}_filtered_prs.jsonl",
+        }
+        filename = name_map.get(filetype)
+        if not filename:
+            return None
         try:
             import boto3
             from botocore.config import Config as BotoConfig
         except ImportError:
             return None
 
-        ICP = request.env["ir.config_parameter"].sudo()
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
         if not s3_bucket:
             return None
 
-        filename = os.path.basename(file_path)
-        s3_key = f"{s3_prefix}/{repo.id}/{filename}"
+        mode = repo.pipeline_mode or "swe"
+        s3_key = f"{s3_prefix}/{mode}/{repo.id}/{filename}"
         try:
             config_kwargs = {"connect_timeout": 10, "read_timeout": 60}
             if os.environ.get("JAEGER_S3_ENDPOINT"):
@@ -81,7 +75,7 @@ class JaegerController(http.Controller):
             resp = client.get_object(Bucket=s3_bucket, Key=s3_key)
             return resp["Body"].read()
         except Exception:
-            _logger.debug("S3 download fallback failed for %s", s3_key, exc_info=True)
+            _logger.debug("S3 download by type failed for %s", s3_key, exc_info=True)
             return None
 
     @http.route("/jaeger/webhook/trajectory", type="json", auth="none", csrf=False)
@@ -113,18 +107,20 @@ class JaegerController(http.Controller):
 
     # ── Pipeline webhook (kaiju pattern) ─────────────────────────────────
 
+    _webhook_auth_warned = False
+
     def _verify_pipeline_token(self):
         secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         if not secret:
-            secret = (
-                request.env["ir.config_parameter"]
-                .sudo()
-                .get_param("jaeger.pipeline_webhook_token", "")
-            )
-        if not secret:
+            if not JaegerController._webhook_auth_warned:
+                _logger.warning(
+                    "JAEGER_WEBHOOK_TOKEN not set — pipeline webhook auth is DISABLED. "
+                    "Set this env var in production to secure the webhook endpoint."
+                )
+                JaegerController._webhook_auth_warned = True
             return True
         token = request.httprequest.headers.get("X-Jaeger-Token", "")
-        return token == secret
+        return hmac.compare_digest(token, secret)
 
     @http.route(
         "/jaeger/webhook/pipeline", type="jsonrpc", auth="none",
@@ -158,14 +154,12 @@ class JaegerController(http.Controller):
                 "last_heartbeat": fields.Datetime.now(),
             }
             step = kwargs.get("step")
+            message = kwargs.get("message", "")
             if step:
-                vals["pr_collection_step"] = "Step %s: %s" % (
-                    step, kwargs.get("message", ""),
-                )
+                vals["pr_collection_step"] = "Step %s: %s" % (step, message)
             progress = kwargs.get("progress")
             if progress is not None:
                 vals["pr_collection_progress"] = float(progress)
-            message = kwargs.get("message", "")
             if message:
                 repo._append_log(message)
             repo.write(vals)
@@ -180,6 +174,7 @@ class JaegerController(http.Controller):
                     "pr_collection_progress": 100,
                     "pr_collection_step": "Creating instances from S3...",
                     "error_message": False,
+                    "terminal_state": "none",
                     "total_prs_fetched": counts.get("total_prs", 0),
                     "filtered_prs_count": counts.get("filtered_prs", 0),
                     "issues_fetched_count": counts.get("issues", 0),
@@ -201,6 +196,11 @@ class JaegerController(http.Controller):
                     "pr_collection_status": "done",
                     "pr_collection_step": "",
                 })
+
+                if repo.pipeline_mode == "lht" and not repo.task_category:
+                    repo.write({"task_category": "long_horizon"})
+                elif repo.pipeline_mode == "rct" and not repo.task_category:
+                    repo.write({"task_category": "real_coder"})
 
                 try:
                     gate_ok, _ = repo._check_current_gate()

@@ -61,18 +61,15 @@ $COMPOSE exec -T odoo ./odoo-bin shell \
     -d "$DB_NAME" \
     --no-http <<'PYEOF'
 ICP = env["ir.config_parameter"].sudo()
-ICP.set_param("jaeger.dispatch_mode", "k8s")
-ICP.set_param("jaeger.output_dir", "/tmp/jaeger_data")
+ICP.set_param("jaeger.sandbox_mode", "1")
+ICP.set_param("jaeger.eks_namespace", "jaeger")
+ICP.set_param("jaeger.scrape_image", "jaeger-scrape:latest")
 ICP.set_param("jaeger.s3_bucket", "jaeger-local")
 ICP.set_param("jaeger.s3_region", "us-east-1")
 ICP.set_param("jaeger.s3_prefix", "jaeger/phase1")
-ICP.set_param("jaeger.sandbox_mode", "1")
 ICP.set_param("jaeger.s3_endpoint", "http://minio:9000")
 ICP.set_param("jaeger.s3_access_key", "minioadmin")
 ICP.set_param("jaeger.s3_secret_key", "minioadmin")
-ICP.set_param("jaeger.eks_namespace", "jaeger")
-ICP.set_param("jaeger.scrape_image", "jaeger-scrape:latest")
-ICP.set_param("web.base.url", "http://odoo:8069")
 env.cr.commit()
 print("Jaeger settings configured.")
 PYEOF
@@ -85,12 +82,12 @@ blue  "  Odoo (nginx):   http://localhost       (via reverse proxy)"
 blue  "  MinIO Console:  http://localhost:9001  (minioadmin / minioadmin)"
 blue  "  K3s API:        https://localhost:6443"
 echo ""
-blue  "  S3 bucket:      jaeger-local (on MinIO)"
-blue  "  S3 endpoint:    http://minio:9000"
+blue  "  S3 bucket:      jaeger-local (on MinIO via JAEGER_S3_BUCKET env)"
+blue  "  S3 endpoint:    http://minio:9000 (via JAEGER_S3_ENDPOINT env)"
 blue  "  K8s namespace:  ${K8S_NAMESPACE}"
 blue  "  Worker image:   ${WORKER_IMAGE} (loaded into K3s)"
-blue  "  Webhook token:  sandbox-webhook-secret"
-blue  "  web.base.url:   http://odoo:8069"
+blue  "  Webhook base:   http://odoo:8069 (via JAEGER_WEBHOOK_BASE_URL env)"
+blue  "  Webhook token:  sandbox-webhook-secret (via JAEGER_WEBHOOK_TOKEN env)"
 echo ""
 blue "  Verify K8s:  docker compose exec k3s kubectl -n jaeger get jobs"
 echo ""

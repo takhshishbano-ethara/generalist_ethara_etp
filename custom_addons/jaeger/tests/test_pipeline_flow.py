@@ -203,9 +203,16 @@ class TestS3UriParsing(TransactionCase):
             "language": "python",
             "pipeline_mode": "swe",
         })
-        ICP = cls.env["ir.config_parameter"].sudo()
-        ICP.set_param("jaeger.s3_bucket", "test-bucket")
-        ICP.set_param("jaeger.s3_region", "us-east-1")
+        cls._s3_env_patcher = patch.dict(os.environ, {
+            "JAEGER_S3_BUCKET": "test-bucket",
+            "JAEGER_S3_REGION": "us-east-1",
+        })
+        cls._s3_env_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._s3_env_patcher.stop()
+        super().tearDownClass()
 
     def test_s3_uri_prefix_stripped(self):
         s3_paths = {"raw_dataset": "s3://test-bucket/jaeger/phase1/1/org__repo_raw_dataset.jsonl"}
@@ -221,26 +228,21 @@ class TestS3UriParsing(TransactionCase):
             self.assertEqual(call_args[0], "test-bucket")
             self.assertEqual(call_args[1], "jaeger/phase1/1/org__repo_raw_dataset.jsonl")
 
-    def test_s3_uri_bucket_overrides_icp(self):
+    def test_s3_uri_bucket_overrides_env(self):
         # Regression guard: if the webhook delivers an s3:// URI whose bucket
-        # differs from ICP jaeger.s3_bucket, the URI's bucket wins. This is
-        # what prevents the production 403 where worker wrote to bucket A
-        # and Odoo tried to download from bucket B.
-        ICP = self.env["ir.config_parameter"].sudo()
-        ICP.set_param("jaeger.s3_bucket", "stale-config-bucket")
+        # differs from JAEGER_S3_BUCKET env, the URI's bucket wins.
         s3_paths = {"raw_dataset": "s3://worker-actual-bucket/jaeger/phase1/1/f.jsonl"}
-        with patch("boto3.client") as mock_boto:
-            mock_client = MagicMock()
-            mock_boto.return_value = mock_client
-            mock_client.download_file.side_effect = Exception("test-abort")
+        with patch.dict(os.environ, {"JAEGER_S3_BUCKET": "stale-config-bucket"}):
+            with patch("boto3.client") as mock_boto:
+                mock_client = MagicMock()
+                mock_boto.return_value = mock_client
+                mock_client.download_file.side_effect = Exception("test-abort")
 
-            with self.assertRaises(Exception):
-                self.repo._create_instances_from_s3(s3_paths)
+                with self.assertRaises(Exception):
+                    self.repo._create_instances_from_s3(s3_paths)
 
-            call_args = mock_client.download_file.call_args[0]
-            self.assertEqual(call_args[0], "worker-actual-bucket")
-        # Restore for later tests in the class
-        ICP.set_param("jaeger.s3_bucket", "test-bucket")
+                call_args = mock_client.download_file.call_args[0]
+                self.assertEqual(call_args[0], "worker-actual-bucket")
 
     def test_s3_uri_with_dots_and_hyphens_in_bucket(self):
         s3_paths = {"raw_dataset": "s3://my.prod-bucket.eu/jaeger/phase1/1/f.jsonl"}
@@ -600,3 +602,161 @@ class TestStage5Orchestration(TransactionCase):
         finally:
             self.inst.write({"is_valid": True})
             self.repo.write({"terminal_state": "none", "dataset_status": "pending"})
+
+
+class TestCollectPrsAllModes(TransactionCase):
+    """Test action_collect_prs dispatches K8s for all pipeline modes."""
+
+    def _create_repo(self, mode):
+        count = self.env["jaeger.repository"].search_count([])
+        return self.env["jaeger.repository"].create({
+            "repo_url": f"https://github.com/modeorg/moderepo-{mode}-{count}",
+            "language": "python",
+            "pipeline_mode": mode,
+            "current_stage": "stage2",
+            "crawl_status": "done",
+        })
+
+    def _mock_collect(self, repo):
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("jaeger.github_tokens", "ghp_fake_token_123")
+        with patch.object(self.env.cr, "postcommit", MagicMock()):
+            repo.action_collect_prs()
+
+    def test_swe_mode_dispatches(self):
+        repo = self._create_repo("swe")
+        self._mock_collect(repo)
+        self.assertEqual(repo.pr_collection_status, "queued")
+
+    def test_rct_mode_dispatches(self):
+        repo = self._create_repo("rct")
+        self._mock_collect(repo)
+        self.assertEqual(repo.pr_collection_status, "queued")
+
+    def test_lht_mode_dispatches(self):
+        repo = self._create_repo("lht")
+        self._mock_collect(repo)
+        self.assertEqual(repo.pr_collection_status, "queued")
+
+
+class TestWebhookTaskCategory(TransactionCase):
+    """Test that task_category is set on webhook done for RCT/LHT modes."""
+
+    def _create_repo(self, mode):
+        count = self.env["jaeger.repository"].search_count([])
+        repo = self.env["jaeger.repository"].create({
+            "repo_url": f"https://github.com/catorg/catrepo-{mode}-{count}",
+            "language": "python",
+            "pipeline_mode": mode,
+            "current_stage": "stage2",
+            "pr_collection_status": "running",
+        })
+        return repo
+
+    def test_lht_sets_long_horizon(self):
+        repo = self._create_repo("lht")
+        dataset = [
+            {"org": "catorg", "repo": f"catrepo-lht-{repo.id}", "number": 1,
+             "state": "closed", "title": "Fix", "body": "",
+             "base": {"label": "main", "ref": "main", "sha": "aaa"},
+             "fix_patch": "--- a/x.py\n+++ b/x.py\n-a\n+b\n",
+             "test_patch": "--- a/t.py\n+++ b/t.py\n-a\n+b\n",
+             "resolved_issues": []},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            for entry in dataset:
+                f.write(json.dumps(entry) + "\n")
+            tmp_path = f.name
+        try:
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                repo._create_instances_from_dataset(tmp_path)
+            repo.write({"pr_collection_status": "done", "pr_collection_step": ""})
+            if repo.pipeline_mode == "lht" and not repo.task_category:
+                repo.write({"task_category": "long_horizon"})
+            self.assertEqual(repo.task_category, "long_horizon")
+        finally:
+            os.unlink(tmp_path)
+
+    def test_rct_sets_real_coder(self):
+        repo = self._create_repo("rct")
+        dataset = [
+            {"org": "catorg", "repo": f"catrepo-rct-{repo.id}", "number": 1,
+             "state": "closed", "title": "Fix", "body": "",
+             "base": {"label": "main", "ref": "main", "sha": "bbb"},
+             "fix_patch": "--- a/x.py\n+++ b/x.py\n-a\n+b\n",
+             "test_patch": "--- a/t.py\n+++ b/t.py\n-a\n+b\n",
+             "resolved_issues": []},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            for entry in dataset:
+                f.write(json.dumps(entry) + "\n")
+            tmp_path = f.name
+        try:
+            with patch.object(self.env.cr, "commit"), \
+                    patch.object(self.env.cr, "rollback"):
+                repo._create_instances_from_dataset(tmp_path)
+            repo.write({"pr_collection_status": "done", "pr_collection_step": ""})
+            if repo.pipeline_mode == "rct" and not repo.task_category:
+                repo.write({"task_category": "real_coder"})
+            self.assertEqual(repo.task_category, "real_coder")
+        finally:
+            os.unlink(tmp_path)
+
+    def test_swe_no_task_category(self):
+        repo = self._create_repo("swe")
+        repo.write({"pr_collection_status": "done"})
+        self.assertFalse(repo.task_category)
+
+
+class TestRecoverInstancesFromS3UsesICP(TransactionCase):
+    """Test _recover_instances_from_s3 reads S3 prefix from ICP, not env."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.repo = cls.env["jaeger.repository"].create({
+            "repo_url": "https://github.com/icporg/icprepo",
+            "language": "python",
+            "pipeline_mode": "rct",
+            "current_stage": "stage2",
+        })
+
+    def test_uses_icp_prefix_not_env(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("jaeger.s3_prefix", "custom/prefix")
+
+        with patch.dict(os.environ, {"JAEGER_S3_PREFIX": "wrong/env/prefix"}):
+            with patch.object(type(self.repo), "_create_instances_from_s3") as mock:
+                self.repo._recover_instances_from_s3()
+                call_args = mock.call_args[0][0]
+                self.assertIn("custom/prefix", call_args["raw_dataset"])
+                self.assertNotIn("wrong/env", call_args["raw_dataset"])
+
+    def test_includes_pipeline_mode_in_key(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("jaeger.s3_prefix", "jaeger/phase1")
+
+        with patch.object(type(self.repo), "_create_instances_from_s3") as mock:
+            self.repo._recover_instances_from_s3()
+            s3_key = mock.call_args[0][0]["raw_dataset"]
+            self.assertIn("/rct/", s3_key)
+
+
+class TestHardSweRemoved(TransactionCase):
+    """Verify hard_swe is no longer a valid pipeline mode."""
+
+    def test_hard_swe_not_in_pipeline_mode_selection(self):
+        from odoo.addons.jaeger.models.jaeger_repository import PIPELINE_MODE_SELECTION
+        modes = [m[0] for m in PIPELINE_MODE_SELECTION]
+        self.assertNotIn("hard_swe", modes)
+
+    def test_hard_swe_not_in_task_category_selection(self):
+        from odoo.addons.jaeger.models.jaeger_repository import TASK_CATEGORY_SELECTION
+        cats = [c[0] for c in TASK_CATEGORY_SELECTION]
+        self.assertNotIn("hard_swe", cats)
+
+    def test_pipeline_modes_are_swe_rct_lht(self):
+        from odoo.addons.jaeger.models.jaeger_repository import PIPELINE_MODE_SELECTION
+        modes = [m[0] for m in PIPELINE_MODE_SELECTION]
+        self.assertEqual(sorted(modes), ["lht", "rct", "swe"])

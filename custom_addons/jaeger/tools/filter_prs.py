@@ -56,6 +56,8 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
 
     if mode == "lht":
         out_filename = f"{org}__{repo}_lht_filtered_prs.jsonl"
+    elif mode == "rct":
+        out_filename = f"{org}__{repo}_rct_filtered_prs.jsonl"
     else:
         out_filename = f"{org}__{repo}_filtered_prs.jsonl"
 
@@ -92,6 +94,16 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
             if mode == "lht" and not pull.get("merged_at"):
                 _logger.info(
                     "PR #%s [%d/%d] SKIP: not merged (LHT requires merge) title=%.80s",
+                    pr_num, i, total_prs, pr_title,
+                )
+                skipped_not_merged += 1
+                if progress_callback and i % 10 == 0:
+                    progress_callback(i, total_prs, count)
+                continue
+
+            if mode == "rct" and not pull.get("merged_at"):
+                _logger.info(
+                    "PR #%s [%d/%d] SKIP: not merged (RCT requires merge) title=%.80s",
                     pr_num, i, total_prs, pr_title,
                 )
                 skipped_not_merged += 1
@@ -145,10 +157,10 @@ def main(pool, out_dir, prs_file, mode="swe", skip_commit_message=False,
 
             resolved_issues = extract_resolved_issues(pull)
 
-            if mode == "swe" and len(resolved_issues) == 0:
+            if mode in ("swe", "rct") and len(resolved_issues) == 0:
                 _logger.info(
-                    "PR #%s [%d/%d] SKIP: no resolved issues (SWE requires fix/close/resolve keyword) title=%.80s",
-                    pr_num, i, total_prs, pr_title,
+                    "PR #%s [%d/%d] SKIP: no resolved issues (%s requires fix/close/resolve keyword) title=%.80s",
+                    pr_num, i, total_prs, mode.upper(), pr_title,
                 )
                 skipped_no_issues += 1
                 if progress_callback and i % 10 == 0:

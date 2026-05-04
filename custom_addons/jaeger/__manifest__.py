@@ -54,4 +54,5 @@ Supports 10,000+ repos with background thread and K8s Job-based processing.
     "installable": True,
     "application": True,
     "license": "LGPL-3",
+    "pre_init_hook": "_migrate_hard_swe",
 }

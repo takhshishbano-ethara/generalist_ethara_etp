@@ -12,7 +12,7 @@ def main(pool, out_dir, filtered_prs_file):
     out_dir = Path(out_dir)
     filtered_prs_file = Path(filtered_prs_file)
 
-    org_repo_re = re.compile(r"(.+)__(.+?)_(?:lht_)?filtered_prs\.jsonl")
+    org_repo_re = re.compile(r"(.+)__(.+?)_(?:lht_|rct_)?filtered_prs\.jsonl")
     m = org_repo_re.match(filtered_prs_file.name)
     if not m:
         raise ValueError(f"Invalid filtered PRs filename: {filtered_prs_file.name}")
@@ -88,6 +88,7 @@ def main(pool, out_dir, filtered_prs_file):
                             "state": issue.state,
                             "title": issue.title,
                             "body": issue.body,
+                            "labels": [label.name for label in issue.labels],
                         },
                         ensure_ascii=False,
                     )

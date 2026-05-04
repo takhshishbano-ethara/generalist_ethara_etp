@@ -60,8 +60,12 @@ def _prefix():
     return os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
 
 
+def _pipeline_mode():
+    return os.environ.get("PIPELINE_MODE", "swe")
+
+
 def s3_key(repo_id, filename):
-    return f"{_prefix()}/{repo_id}/{filename}"
+    return f"{_prefix()}/{_pipeline_mode()}/{repo_id}/{filename}"
 
 
 def upload(local_path, repo_id, filename):
@@ -132,7 +136,7 @@ def exists(repo_id, filename):
 
 
 def delete_prefix(repo_id):
-    prefix = f"{_prefix()}/{repo_id}/"
+    prefix = f"{_prefix()}/{_pipeline_mode()}/{repo_id}/"
     bucket = _bucket()
     client = _get_client()
     paginator = client.get_paginator("list_objects_v2")

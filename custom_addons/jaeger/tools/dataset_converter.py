@@ -110,13 +110,13 @@ class MetaSchemaConverter:
     Usage:
         converter = MetaSchemaConverter(
             ecr_prefix='123456789.dkr.ecr.us-east-1.amazonaws.com',
-            task_category='hard_swe',
+            task_category='swe',
             repo_category='python_swe',
         )
         meta_json = converter.convert(odoo_instance_record)
     """
 
-    def __init__(self, ecr_prefix="", task_category="hard_swe",
+    def __init__(self, ecr_prefix="", task_category="swe",
                  repo_category="", container_mem="4g",
                  container_memswap="4g", container_network_needed=False):
         self.ecr_prefix = ecr_prefix
