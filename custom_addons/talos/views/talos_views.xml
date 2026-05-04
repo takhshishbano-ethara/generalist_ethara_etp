@@ -25,7 +25,7 @@
                  decoration-danger="claude_status == 'error'"
                  decoration-info="claude_status == 'starting'"
                  decoration-muted="claude_status == 'stopped'"/>
-          <field name="glm_status" widget="badge" string="Kimi"
+          <field name="glm_status" widget="badge" string="Qwen 3"
                  decoration-success="glm_status == 'running'"
                  decoration-danger="glm_status == 'error'"
                  decoration-info="glm_status == 'starting'"
@@ -49,6 +49,7 @@
             <group>
               <group string="Task Details">
                 <field name="is_talos_admin" invisible="1"/>
+                <field name="is_ql_or_pl" invisible="1"/>
                 <field name="task_id" readonly="not is_talos_admin"/>
                 <field name="persona_id" readonly="not is_talos_admin" options="{'no_open': True}"/>
                 <field name="task_status"/>
@@ -124,8 +125,8 @@
             <group string="Trajectories" colspan="2">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
-              <separator string="Kimi K2.5 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="Kimi K2.5 Trajectory" colspan="2"/>
+              <separator string="Qwen 3 32B Trajectory" colspan="2"/>
+              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="Qwen 3 32B Trajectory" colspan="2"/>
               <separator string="1PA Trajectory" colspan="2"/>
               <field name="onePA_trajectory" widget="talos_json" nolabel="1" placeholder="1PA Trajectory" colspan="2"/>
               <separator string="1PB Trajectory" colspan="2"/>

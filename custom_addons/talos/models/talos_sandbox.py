@@ -38,7 +38,7 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "Kimi K2.5"),
+    ("glm", "Qwen 3 32B"),
     ("1pa", "1PA"),
     ("1pb", "1PB"),
     ("1pc", "1PC"),
@@ -47,7 +47,7 @@ MODEL_TYPES = [
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
-    "glm": "litellm/kimi-k2.5",
+    "glm": "litellm/qwen-3-32b",
     "1pa": "litellm/quiet_sand",
     "1pb": "litellm/quiet_sand",
     "1pc": "litellm/quiet_sand",
@@ -2104,8 +2104,8 @@ class TalosSandbox(models.Model):
                     "maxTokens": 128000,
                 },
                 {
-                    "id": "kimi-k2.5",
-                    "name": "kimi-k2.5",
+                    "id": "qwen-3-32b",
+                    "name": "qwen-3-32b",
                     "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {
@@ -2114,8 +2114,8 @@ class TalosSandbox(models.Model):
                         "cacheRead": 0,
                         "cacheWrite": 0,
                     },
-                    "contextWindow": 131072,
-                    "maxTokens": 32768,
+                    "contextWindow": 32768,
+                    "maxTokens": 8192,
                 },
                 {
                     "id": "quiet_sand",
@@ -2148,15 +2148,15 @@ class TalosSandbox(models.Model):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            kimi_arn = env.get("KIMI_BEDROCK_MODEL_ARN", "").strip()
-            kimi_region = env.get("KIMI_AWS_REGION", "us-east-1").strip()
+            qwen_arn = env.get("QWEN_BEDROCK_MODEL_ARN", "").strip()
+            qwen_region = env.get("QWEN_AWS_REGION", "us-east-1").strip()
             glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
             glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
-                kimi_bedrock_arn=kimi_arn or "PLACEHOLDER",
-                kimi_aws_region=kimi_region,
+                qwen_bedrock_arn=qwen_arn or "PLACEHOLDER",
+                qwen_aws_region=qwen_region,
                 glm_bedrock_arn=glm_arn or "PLACEHOLDER",
                 glm_aws_region=glm_region,
             )

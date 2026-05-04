@@ -34,6 +34,19 @@
                                         </button>
                                     </t>
                                     <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
+                                        <t t-if="isQlOrPl">
+                                            <button class="talos-json-regen-btn"
+                                                    t-att-disabled="isAnyActionRunning"
+                                                    t-on-click="() => this.onGenerateTaskDesc(entry.index)"
+                                                    title="Regenerate task description from this trajectory (QL/PL only).">
+                                                <t t-if="state.taskDescGenerating === entry.index">
+                                                    <i class="fa fa-spinner fa-spin"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <i class="fa fa-refresh"/>
+                                                </t>
+                                            </button>
+                                        </t>
                                         <button class="talos-json-edit-btn"
                                                 t-att-disabled="isAnyActionRunning"
                                                 t-on-click="() => this.onEditEntry(entry.index)"

@@ -1823,6 +1823,13 @@ export class TalosChatWidget extends Component {
 
     onQcRewrite() {
         const promptText = this.state.qcPromptText;
+        const messages = this.state.messages;
+        const rejectedIdx = messages.findLastIndex(
+            m => m.role === "user" && m.text === promptText
+        );
+        if (rejectedIdx >= 0) {
+            messages.splice(rejectedIdx);
+        }
         this._clearQcState();
         this.state.inputText = promptText;
     }

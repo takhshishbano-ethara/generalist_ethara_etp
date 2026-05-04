@@ -346,6 +346,10 @@ export class TalosJsonField extends Component {
         return !!this.props.record.data.is_talos_admin;
     }
 
+    get isQlOrPl() {
+        return !!this.props.record.data.is_ql_or_pl;
+    }
+
     onDeleteTrajectory() {
         if (!this.isTalosAdmin) return;
         const recordId = this.props.record.resId;
@@ -495,6 +499,7 @@ export class TalosJsonField extends Component {
     }
 
     async onGenerateTaskDesc(index) {
+        if (!this.isQlOrPl) return;
         if (this.state.taskDescGenerating >= 0 || this.state.qcRunning >= 0) return;
 
         const recordId = this.props.record.resId;
