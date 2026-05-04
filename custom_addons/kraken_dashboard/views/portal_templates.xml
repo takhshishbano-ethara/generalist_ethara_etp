@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <template id="portal_showcase" name="Kraken Dashboard Portal">
+        <t t-call="portal.portal_layout">
+            <t t-set="no_breadcrumbs" t-value="True"/>
+            <t t-set="no_header" t-value="True"/>
+            <div class="kr-showcase" id="kr-showcase">
+                <!-- Dark Mode Toggle -->
+                <button class="kr-dark-toggle" aria-label="Toggle dark mode">
+                    <span class="kr-dark-toggle__icon">🌙</span>
+                </button>
+
+                <!-- Hero Section -->
+                <section class="kr-hero">
+                    <div class="kr-hero__content">
+                        <span class="kr-hero__badge" data-animate="">OTS LIBRARY GENERATION</span>
+                        <h1 class="kr-hero__title kr-hero__title--shimmer">
+                            
+                            Kraken
+                        </h1>
+                        <p class="kr-hero__subtitle" data-word-fade="">Repository-Level Performance Optimization Benchmark</p>
+                        <p class="kr-hero__byline">by Ethara AI Labs — <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a></p>
+                        <p class="kr-hero__description">
+                            Evaluating LM agents on runtime performance optimization using the
+                            <strong>SWE-fficiency</strong> methodology. Agents must investigate real-world
+                            Python repositories, localize performance bottlenecks, and produce patches
+                            that exceed expert-level speedup — all while passing the repository's unit tests.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Key Metrics -->
+                <section class="kr-metrics">
+                    <h2 class="kr-section-title" data-animate="">Key Metrics</h2>
+                    <div class="kr-metrics__grid">
+                        <div class="kr-metric-card" data-animate="" data-delay="1">
+                            <span class="kr-metric-card__value kr-countup" data-target="20">0</span>
+                            <span class="kr-metric-card__label">Benchmark Instances</span>
+                        </div>
+                        <div class="kr-metric-card" data-animate="" data-delay="2">
+                            <span class="kr-metric-card__value kr-countup" data-target="2">0</span>
+                            <span class="kr-metric-card__label">Models Evaluated</span>
+                        </div>
+                        <div class="kr-metric-card" data-animate="" data-delay="3">
+                            <span class="kr-metric-card__value">26.9x</span>
+                            <span class="kr-metric-card__label">Max Gold Speedup</span>
+                        </div>
+                        <div class="kr-metric-card" data-animate="" data-delay="4">
+                            <span class="kr-metric-card__value">0.313</span>
+                            <span class="kr-metric-card__label">Best HSR (GLM-5)</span>
+                        </div>
+                        <div class="kr-metric-card" data-animate="" data-delay="5">
+                            <span class="kr-metric-card__value">7</span>
+                            <span class="kr-metric-card__label">Repos Covered</span>
+                        </div>
+                        <div class="kr-metric-card" data-animate="" data-delay="6">
+                            <span class="kr-metric-card__value">4</span>
+                            <span class="kr-metric-card__label">Difficulty Levels</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Evaluation Pipeline -->
+                <section class="kr-pipeline">
+                    <h2 class="kr-section-title" data-animate="">Evaluation Pipeline</h2>
+                    <div class="kr-pipeline__steps">
+                        <div class="kr-pipeline__connector"/>
+                        <div class="kr-pipeline__step" data-animate="" data-delay="1">
+                            <div class="kr-pipeline__step-number">1</div>
+                            <h3>Investigate &amp; Localize</h3>
+                            <p>Agent receives a repository with a known performance bottleneck. It must investigate the codebase, identify the slow code paths, and localize the optimization target.</p>
+                        </div>
+                        <div class="kr-pipeline__step" data-animate="" data-delay="2">
+                            <div class="kr-pipeline__step-number">2</div>
+                            <h3>Optimize &amp; Patch</h3>
+                            <p>Produce a code patch that improves runtime performance. The patch is measured against the expert gold-standard speedup using the Speedup Ratio (SR) metric.</p>
+                        </div>
+                        <div class="kr-pipeline__step" data-animate="" data-delay="3">
+                            <div class="kr-pipeline__step-number">3</div>
+                            <h3>Verify Correctness</h3>
+                            <p>The patched code must pass all covering correctness tests. Incorrect patches receive a penalty score of 1/Gold_Speedup regardless of performance gains.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Charts Section -->
+                <section class="kr-charts">
+                    <h2 class="kr-section-title" data-animate="">Performance Analysis</h2>
+                    <div class="kr-charts__grid">
+                        <div class="kr-chart-card" data-animate="" data-delay="1">
+                            <h3>HSR Harmonic Mean</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean.png"
+                                 alt="HSR Harmonic Mean comparison between models"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                        <div class="kr-chart-card" data-animate="" data-delay="2">
+                            <h3>Outcome Distribution</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution.png"
+                                 alt="Pass/Fail/Correct(Slow) distribution per model"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                        <div class="kr-chart-card" data-animate="" data-delay="3">
+                            <h3>Per-Instance HSR</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr.png"
+                                 alt="HSR scores for each benchmark instance"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                        <div class="kr-chart-card" data-animate="" data-delay="4">
+                            <h3>HSR by Difficulty</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty.png"
+                                 alt="HSR performance grouped by difficulty level"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                        <div class="kr-chart-card" data-animate="" data-delay="5">
+                            <h3>Cost vs HSR</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr.png"
+                                 alt="Relationship between API cost and HSR performance"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                        <div class="kr-chart-card" data-animate="" data-delay="6">
+                            <h3>Summary Metrics</h3>
+                            <img src="/kraken_dashboard/static/src/portal/img/06_summary_metrics.png"
+                                 alt="Overall summary metrics comparison"
+                                 class="kr-chart-card__img" loading="lazy"/>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Dataset Viewer -->
+                <section class="kr-dataset">
+                    <h2 class="kr-section-title" data-animate="">Dataset Viewer</h2>
+                    <div class="kr-dataset__controls" data-animate="">
+                        <input type="text" class="kr-dataset__search" placeholder="Search instances..." aria-label="Search instances"/>
+                        <select class="kr-dataset__filter" aria-label="Filter by difficulty">
+                            <option value="">All Difficulties</option>
+                            <option value="Easy">Easy</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Hard">Hard</option>
+                            <option value="Expert">Expert</option>
+                        </select>
+                        <select class="kr-dataset__model-filter" aria-label="Filter by model">
+                            <option value="">All Models</option>
+                            <option value="glm5">GLM-5</option>
+                            <option value="nova">Nova-2-Lite</option>
+                        </select>
+                    </div>
+                    <div class="kr-dataset__table-wrap" data-animate="" data-delay="1">
+                        <table class="kr-dataset__table">
+                            <thead>
+                                <tr>
+                                    <th data-sort="instance_id">Instance</th>
+                                    <th data-sort="difficulty">Difficulty</th>
+                                    <th data-sort="gold_speedup">Gold Speedup</th>
+                                    <th data-sort="glm5_hsr">GLM-5 HSR</th>
+                                    <th data-sort="nova_hsr">Nova HSR</th>
+                                    <th data-sort="glm5_outcome">GLM-5 Outcome</th>
+                                    <th data-sort="nova_outcome">Nova Outcome</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody class="kr-dataset__body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="kr-dataset__pagination"></div>
+                </section>
+
+                <!-- Model Comparison -->
+                <section class="kr-comparison">
+                    <h2 class="kr-section-title" data-animate="">Model Comparison</h2>
+                    <div class="kr-comparison__grid">
+                        <div class="kr-comparison__card" data-animate="" data-delay="1">
+                            <h3>GLM-5</h3>
+                            <div class="kr-comparison__stats">
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">0.313</span>
+                                    <span class="kr-comparison__stat-label">HSR Harmonic Mean</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">65%</span>
+                                    <span class="kr-comparison__stat-label">Correctness Rate</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">7</span>
+                                    <span class="kr-comparison__stat-label">Pass@1</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">6 / 7 / 7</span>
+                                    <span class="kr-comparison__stat-label">Fail / Slow / Pass</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="kr-comparison__card" data-animate="" data-delay="2">
+                            <h3>Nova-2-Lite</h3>
+                            <div class="kr-comparison__stats">
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">0.268</span>
+                                    <span class="kr-comparison__stat-label">HSR Harmonic Mean</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">55%</span>
+                                    <span class="kr-comparison__stat-label">Correctness Rate</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">2</span>
+                                    <span class="kr-comparison__stat-label">Pass@1</span>
+                                </div>
+                                <div class="kr-comparison__stat">
+                                    <span class="kr-comparison__stat-value">8 / 10 / 2</span>
+                                    <span class="kr-comparison__stat-label">Fail / Slow / Pass</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Methodology -->
+                <section class="kr-methodology">
+                    <h2 class="kr-section-title" data-animate="">Methodology</h2>
+                    <div class="kr-methodology__content">
+                        <div class="kr-methodology__item" data-animate="" data-delay="1">
+                            <h3>Speedup Ratio (SR)</h3>
+                            <p>SR = Speedup_LM / Speedup_Gold. A score of 1.0 means the agent matched the expert. Values above 1.0 indicate the agent exceeded expert performance.</p>
+                        </div>
+                        <div class="kr-methodology__item" data-animate="" data-delay="2">
+                            <h3>Harmonic Mean Aggregation</h3>
+                            <p>Individual SR values are aggregated using the harmonic mean, which penalizes inconsistency and prevents a single outlier from inflating the overall score.</p>
+                        </div>
+                        <div class="kr-methodology__item" data-animate="" data-delay="3">
+                            <h3>Correctness Gating</h3>
+                            <p>Patches must pass Covering Test Suite (CTS) verification. Failed patches receive a penalty: SR = 1/Gold_Speedup, ensuring correctness is never sacrificed for speed.</p>
+                        </div>
+                        <div class="kr-methodology__item" data-animate="" data-delay="4">
+                            <h3>Pass@1 Protocol</h3>
+                            <p>Each model gets exactly one attempt per instance, mirroring the real-world scenario where a developer submits a single optimized patch for review.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Links -->
+                <section class="kr-links">
+                    <h2 class="kr-section-title" data-animate="">Resources</h2>
+                    <div class="kr-links__grid">
+                        <a t-att-href="trajectories_url" target="_blank" rel="noopener" class="kr-link-card" data-animate="" data-delay="1">
+                            <span class="kr-link-card__icon">📂</span>
+                            <span class="kr-link-card__title">GitHub Repository</span>
+                            <span class="kr-link-card__desc">Source code, trajectories, and evaluation scripts</span>
+                        </a>
+                        <a t-att-href="dataset_url" target="_blank" rel="noopener" class="kr-link-card" data-animate="" data-delay="2">
+                            <span class="kr-link-card__icon">🤗</span>
+                            <span class="kr-link-card__title">HuggingFace Dataset</span>
+                            <span class="kr-link-card__desc">Download the full Kraken benchmark dataset</span>
+                        </a>
+                        <a href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" class="kr-link-card" data-animate="" data-delay="3">
+                            <span class="kr-link-card__icon">📄</span>
+                            <span class="kr-link-card__title">Research Paper</span>
+                            <span class="kr-link-card__desc">SWE-fficiency: Evaluating LM Agents on Performance Optimization</span>
+                        </a>
+                    </div>
+                </section>
+
+                <!-- Footer -->
+                <footer class="kr-footer">
+                    <p>Kraken Benchmark · Built by <strong>Ethara</strong> · SWE-fficiency Methodology</p>
+                </footer>
+
+                <!-- Lightbox -->
+                <div class="kr-lightbox" aria-hidden="true">
+                    <button class="kr-lightbox__close" aria-label="Close lightbox">✕</button>
+                    <img class="kr-lightbox__img" src="" alt="Enlarged chart"/>
+                </div>
+            </div>
+        </t>
+    </template>
+</odoo>
