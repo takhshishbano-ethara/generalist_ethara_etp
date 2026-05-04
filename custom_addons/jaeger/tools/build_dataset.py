@@ -116,7 +116,7 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
     out_dir = Path(out_dir)
     filtered_prs_with_issues_file = Path(filtered_prs_with_issues_file)
 
-    org_repo_re = re.compile(r"(.+)__(.+)_filtered_prs_with_issues\.jsonl")
+    org_repo_re = re.compile(r"(.+)__(.+?)_(?:filtered_prs_with_issues|rct_dataset_candidates)\.jsonl")
     m = org_repo_re.match(filtered_prs_with_issues_file.name)
     if not m:
         raise ValueError(
@@ -149,7 +149,6 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
     skipped_no_commits = 0
     skipped_permanent_error = 0
     skipped_all_retries_failed = 0
-    skipped_too_small = 0
     built_ok = 0
     with open(out_path, "a", encoding="utf-8") as f:
         for pr in prs:
@@ -222,22 +221,6 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
                         skipped_empty_patch += 1
                         break
 
-                    if mode == "hard_swe":
-                        try:
-                            total_files = len(PatchSet(fix_patch)) + len(PatchSet(test_patch))
-                        except Exception:
-                            total_files = 0
-                        total_lines = fix_lines + test_lines
-                        if total_files < 5 or total_lines < 100:
-                            _logger.info(
-                                "PR #%s [%d/%d] SKIP: too small for hard_swe "
-                                "(files=%d < 5 or lines=%d < 100) title=%.80s",
-                                pr_num, processed, total_prs,
-                                total_files, total_lines, pr_title,
-                            )
-                            skipped_too_small += 1
-                            break
-
                     f.write(json.dumps(pr, ensure_ascii=False) + "\n")
                     count += 1
                     built_ok += 1
@@ -278,9 +261,9 @@ def main(pool, out_dir, filtered_prs_with_issues_file,
 
     _logger.info(
         "Dataset summary for %s/%s: %d entries built | %d total processed | "
-        "skipped: %d existing, %d empty-patch, %d too-small, %d no-commits, %d permanent-error, %d retries-exhausted -> %s",
+        "skipped: %d existing, %d empty-patch, %d no-commits, %d permanent-error, %d retries-exhausted -> %s",
         org, repo, built_ok, processed,
-        skipped_existing, skipped_empty_patch, skipped_too_small, skipped_no_commits,
+        skipped_existing, skipped_empty_patch, skipped_no_commits,
         skipped_permanent_error, skipped_all_retries_failed, out_path,
     )
     return out_path

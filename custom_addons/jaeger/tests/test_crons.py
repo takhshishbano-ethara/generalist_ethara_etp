@@ -77,9 +77,6 @@ class TestReconcileScrapeJobs(TransactionCase):
         super().setUpClass()
         ICP = cls.env["ir.config_parameter"].sudo()
         ICP.set_param("jaeger.eks_namespace", "jaeger")
-        ICP.set_param("jaeger.s3_bucket", "test-bucket")
-        ICP.set_param("jaeger.s3_region", "us-east-1")
-        ICP.set_param("jaeger.s3_prefix", "jaeger/phase1")
 
     def _create_repo(self, status="running", queued_minutes_ago=0):
         count = self.env["jaeger.repository"].search_count([])

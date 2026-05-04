@@ -2,7 +2,6 @@ import logging
 import os
 import time as _time
 from datetime import datetime
-from pathlib import Path
 
 from odoo import SUPERUSER_ID, api, fields, models
 from odoo.exceptions import UserError
@@ -33,6 +32,19 @@ class JaegerRepositoryStage2(models.Model):
             if gate_ok:
                 next_stage = self._next_stage()
                 if next_stage:
+                    # Acquire row lock before advancing stage to prevent
+                    # concurrent race conditions (mirrors action_advance_stage).
+                    from psycopg2 import OperationalError as Psycopg2OpError
+                    try:
+                        self.env.cr.execute(
+                            "SELECT id FROM jaeger_repository"
+                            " WHERE id = %s FOR UPDATE NOWAIT",
+                            [self.id],
+                        )
+                    except Psycopg2OpError:
+                        self.env.cr.rollback()
+                        # Another process is advancing — let it handle stage write
+                        return
                     self.write({"current_stage": next_stage})
         except Exception as e:
             error_msg = str(e)[:2000]
@@ -188,15 +200,8 @@ class JaegerRepositoryStage2(models.Model):
 
         tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
         webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
-        if not webhook_secret:
-            webhook_secret = ICP.get_param("jaeger.pipeline_webhook_token", "")
-        # Webhook URL resolution order:
-        # 1. JAEGER_WEBHOOK_BASE_URL env var on Odoo pod (set by devops in Deployment)
-        # 2. jaeger.webhook_base_url config param (UI settings override)
-        # 3. web.base.url fallback (often wrong for in-cluster use)
         base_url = (
             os.environ.get("JAEGER_WEBHOOK_BASE_URL")
-            or ICP.get_param("jaeger.webhook_base_url")
             or ICP.get_param("web.base.url", "http://localhost:8069")
         )
         webhook_url = "%s/jaeger/webhook/pipeline" % base_url.rstrip("/")
@@ -244,6 +249,7 @@ class JaegerRepositoryStage2(models.Model):
             client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
             _secret_ref("WEBHOOK_SECRET"),
             client.V1EnvVar(name="PIPELINE_MODE", value=self.pipeline_mode or "swe"),
+            client.V1EnvVar(name="REPO_LANGUAGE", value=self.language or "python"),
         ]
 
         if sandbox:
@@ -275,11 +281,11 @@ class JaegerRepositoryStage2(models.Model):
                         requests={
                             "cpu": "500m",
                             "memory": "1Gi",
-                            "ephemeral-storage": "5Gi",
+                            "ephemeral-storage": "10Gi" if self.pipeline_mode == "lht" else "5Gi",
                         },
                         limits={
                             "memory": "2Gi",
-                            "ephemeral-storage": "10Gi",
+                            "ephemeral-storage": "20Gi" if self.pipeline_mode == "lht" else "10Gi",
                         },
                     ),
                 ),
@@ -457,173 +463,6 @@ class JaegerRepositoryStage2(models.Model):
             "Reset to Docker Build stage (operator requested rebuild after config change)",
         )
 
-    def run_scrape_pipeline(self):
-        """Full Phase 1 scraping pipeline. Called by consumer.py via XML-RPC."""
-        self.ensure_one()
-        self.write({"pr_collection_status": "running", "error_message": False})
-        self.env.cr.commit()
-
-        ICP = self.env["ir.config_parameter"].sudo()
-        tokens = [
-            t.strip()
-            for t in get_encrypted_param(self.env, "jaeger.github_tokens").split(",")
-            if t.strip()
-        ]
-        from pathlib import Path
-
-        output_dir = Path(ICP.get_param("jaeger.output_dir", "/tmp/jaeger_data"))
-        out_dir = output_dir / f"{self.org}__{self.repo_name}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            if self.pipeline_mode == "swe":
-                raise UserError(
-                    "SWE pipeline runs via standalone dispatch (action_collect_prs). "
-                    "Use the Collect PRs button or the standalone function directly."
-                )
-            else:
-                self._run_lht_pipeline(tokens, out_dir)
-
-            vals = {"pr_collection_status": "done", "terminal_state": "none", "error_message": False}
-            gate_ok, _ = self._check_current_gate()
-            if gate_ok:
-                next_stage = self._next_stage()
-                if next_stage:
-                    vals["current_stage"] = next_stage
-            self.write(vals)
-            self.env.cr.commit()
-        except Exception as e:
-            self.env.cr.rollback()
-            self.write(
-                {
-                    "pr_collection_status": "failed",
-                    "error_message": str(e)[:2000],
-                },
-            )
-            self._append_log("FAILED: %s" % e)
-            self.env.cr.commit()
-            raise
-
-    def _run_lht_pipeline(self, tokens, out_dir):
-        from ..tools.github_token_pool import GitHubTokenPool
-        pool = GitHubTokenPool(tokens)
-
-        self._append_log("Step 1/6: Fetching all pull requests...")
-        self.write({"pr_collection_step": "Step 1/6: Fetching PRs...", "pr_collection_progress": 0})
-        self.env.cr.commit()
-        from ..tools.get_all_prs import main as get_all_prs
-
-        get_all_prs(pool, out_dir, self.org, self.repo_name)
-        prs_file = out_dir / f"{self.org}__{self.repo_name}_prs.jsonl"
-        total_prs = self._count_jsonl_lines(prs_file)
-        self.write({
-            "prs_jsonl_path": str(prs_file),
-            "total_prs_fetched": total_prs,
-            "pr_collection_progress": 16,
-            "pr_collection_step": f"Step 1/6 done: {total_prs} PRs fetched",
-        })
-        self.env.cr.commit()
-
-        self._append_log("Step 2/6: Filtering PRs (LHT mode)...")
-        self.write({"pr_collection_step": f"Step 2/6: Filtering {total_prs} PRs (LHT)...", "pr_collection_progress": 20})
-        self.env.cr.commit()
-        from ..tools.filter_prs import main as filter_prs
-
-        def _lht_filter_progress(processed, total, passed):
-            self.env.cr.execute(
-                "SELECT cancel_requested FROM jaeger_repository WHERE id = %s",
-                [self.id],
-            )
-            if self.env.cr.fetchone()[0]:
-                raise UserError("Pipeline cancelled by user.")
-            pct = 20 + (processed / total) * 13 if total else 20
-            step_text = f"Step 2/6: Filtering PRs (LHT) — {processed}/{total} processed, {passed} passed"
-            self.write({
-                "pr_collection_step": step_text,
-                "pr_collection_progress": round(pct, 1),
-                "filtered_prs_count": passed,
-            })
-            self.env.cr.commit()
-
-        filter_prs(
-            pool,
-            out_dir,
-            prs_file,
-            mode="lht",
-            skip_commit_message=True,
-            progress_callback=_lht_filter_progress,
-        )
-        lht_filtered = out_dir / f"{self.org}__{self.repo_name}_lht_filtered_prs.jsonl"
-        filtered_fallback = out_dir / f"{self.org}__{self.repo_name}_filtered_prs.jsonl"
-        filtered_file = lht_filtered if lht_filtered.exists() else filtered_fallback
-        filtered_count = self._count_jsonl_lines(filtered_file)
-        self.write({
-            "filtered_prs_jsonl_path": str(filtered_file),
-            "filtered_prs_count": filtered_count,
-            "pr_collection_progress": 33,
-            "pr_collection_step": f"Step 2/6 done: {filtered_count}/{total_prs} PRs passed filter",
-        })
-        self.env.cr.commit()
-
-        self._append_log("Step 3/6: Fetching version tags...")
-        self.write({"pr_collection_step": "Step 3/6: Fetching version tags...", "pr_collection_progress": 38})
-        self.env.cr.commit()
-        from ..tools.get_version_tags import main as get_version_tags
-
-        get_version_tags(
-            tokens, out_dir, self.org, self.repo_name,
-            max_tags=self.max_tags or 200,
-        )
-        self.write({"pr_collection_progress": 50, "pr_collection_step": "Step 3/6 done: Tags fetched"})
-        self.env.cr.commit()
-
-        self._append_log("Step 4/6: Grouping PRs by version ranges...")
-        self.write({"pr_collection_step": "Step 4/6: Grouping PRs by tags...", "pr_collection_progress": 55})
-        self.env.cr.commit()
-        from ..tools.group_prs_by_tags import main as group_prs_by_tags
-
-        group_prs_by_tags(
-            out_dir, self.org, self.repo_name,
-            window_days=self.window_days or 30,
-            tokens=tokens,
-        )
-        self.write({"pr_collection_progress": 66, "pr_collection_step": "Step 4/6 done: PRs grouped"})
-        self.env.cr.commit()
-
-        self._append_log("Step 5/6: Fetching related issues...")
-        self.write({"pr_collection_step": "Step 5/6: Fetching related issues...", "pr_collection_progress": 70})
-        self.env.cr.commit()
-        from ..tools.get_related_issues import main as get_related_issues
-
-        get_related_issues(pool, out_dir, filtered_file)
-        self.write({"pr_collection_progress": 83, "pr_collection_step": "Step 5/6 done: Issues fetched"})
-        self.env.cr.commit()
-
-        self._append_log("Step 6/6: Building LHT dataset...")
-        self.write({"pr_collection_step": "Step 6/6: Building LHT dataset...", "pr_collection_progress": 85})
-        self.env.cr.commit()
-        from ..tools.build_lht_dataset import main as build_lht_dataset
-
-        build_lht_dataset(
-            tokens, out_dir, self.org, self.repo_name, lang=self.language,
-        )
-
-        raw_dataset_file = (
-            out_dir / f"{self.org}__{self.repo_name}_raw_dataset.jsonl"
-        )
-        raw_count = self._count_jsonl_lines(raw_dataset_file)
-        self.write(
-            {
-                "raw_dataset_jsonl_path": str(raw_dataset_file),
-                "raw_dataset_count": raw_count,
-                "pr_collection_progress": 95,
-                "pr_collection_step": f"Creating {raw_count} instances...",
-            },
-        )
-        self.env.cr.commit()
-        self._create_instances_from_dataset(raw_dataset_file)
-        self.write({"pr_collection_progress": 100, "pr_collection_step": ""})
-
     def _create_instances_from_dataset(self, dataset_path):
         """Parse raw dataset JSONL and create jaeger.instance records (batched)."""
         import json
@@ -717,7 +556,11 @@ class JaegerRepositoryStage2(models.Model):
                     "fix_patch": data.get("fix_patch", ""),
                     "test_patch": data.get("test_patch", ""),
                     "tag": data.get("tag", ""),
-                    "number_interval": data.get("number_interval", ""),
+                    "number_interval": (
+                        "-".join(str(n) for n in data["prs_in_bundle"])
+                        if data.get("prs_in_bundle")
+                        else data.get("number_interval", "")
+                    ),
                     "language": data.get("lang", self.language),
                     "resolved_issues_json": json.dumps(
                         data.get("resolved_issues", []),
@@ -745,14 +588,14 @@ class JaegerRepositoryStage2(models.Model):
             self._append_log(f"Skipped {skipped} instances (oversized patches or lines)")
 
     def _create_instances_from_s3(self, s3_paths):
+        from pathlib import Path
         from urllib.parse import urlparse
 
         raw_dataset_s3 = s3_paths.get("raw_dataset", "")
         if not raw_dataset_s3:
             raise ValueError("No raw_dataset S3 path in webhook payload")
 
-        ICP = self.env["ir.config_parameter"].sudo()
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
 
         # Prefer the bucket that the worker actually wrote to (from the s3://
         # URI in the webhook payload). Only fall back to the configured
@@ -765,7 +608,7 @@ class JaegerRepositoryStage2(models.Model):
             if not s3_bucket or not s3_key:
                 raise ValueError("Malformed S3 URI: %r" % raw_dataset_s3)
         else:
-            s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
+            s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
             s3_key = raw_dataset_s3
             if not s3_bucket:
                 raise ValueError("S3 bucket not configured")
@@ -802,6 +645,7 @@ class JaegerRepositoryStage2(models.Model):
         ICP = self.env["ir.config_parameter"].sudo()
         s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
         filename = f"{self.org}__{self.repo_name}_raw_dataset.jsonl"
-        s3_key = f"{s3_prefix}/{self.id}/{filename}"
+        mode = self.pipeline_mode or "swe"
+        s3_key = f"{s3_prefix}/{mode}/{self.id}/{filename}"
         self._create_instances_from_s3({"raw_dataset": s3_key})
 

@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 
-RUN pip install --no-cache-dir PyGithub requests boto3 unidiff
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir PyGithub requests boto3 unidiff packaging
 
 COPY custom_addons/jaeger/tools/ /app/tools/
 COPY custom_addons/jaeger/worker/entrypoint.py /app/entrypoint.py

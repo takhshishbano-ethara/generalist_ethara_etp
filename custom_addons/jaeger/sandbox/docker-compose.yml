@@ -109,6 +109,7 @@ services:
       JAEGER_S3_REGION: "us-east-1"
       JAEGER_S3_BUCKET: "jaeger-local"
       JAEGER_S3_PREFIX: "jaeger/phase1"
+      JAEGER_WEBHOOK_BASE_URL: "http://odoo:8069"
       JAEGER_WEBHOOK_TOKEN: "sandbox-webhook-secret"
       JAEGER_PATCHES_VOLUME: "sandbox_jaeger-patches"
       AWS_ACCESS_KEY_ID: minioadmin

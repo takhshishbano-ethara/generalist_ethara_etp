@@ -174,7 +174,6 @@ class JaegerRepositoryStage6(models.Model):
                         client.V1EnvVar(name="TIMEOUT", value=str(config.get("conversation_timeout", 3600))),
                         client.V1EnvVar(name="WEBHOOK_URL", value=(
                             os.environ.get("JAEGER_WEBHOOK_BASE_URL")
-                            or ICP.get_param("jaeger.webhook_base_url")
                             or ICP.get_param("web.base.url", "http://localhost:8069")
                         ).rstrip("/") + "/jaeger/webhook/trajectory"),
                         client.V1EnvVar(name="ODOO_RECORD_ID", value=str(inst.id)),

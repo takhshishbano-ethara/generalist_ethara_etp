@@ -227,7 +227,7 @@ class JaegerRepositoryStage5(models.Model):
         ecr_prefix = ICP.get_param("jaeger.ecr_prefix", "")
         converter = MetaSchemaConverter(
             ecr_prefix=ecr_prefix,
-            task_category=self.task_category or "hard_swe",
+            task_category=self.task_category or "swe",
             repo_category=f"{self.language}_{self.pipeline_mode}",
         )
 
