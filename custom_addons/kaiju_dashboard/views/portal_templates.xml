@@ -24,7 +24,7 @@
 
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
       <!-- Kaiju editorial stylesheet served as a static asset (bypasses web.assets_frontend so Bootstrap/portal chrome does not override the design). -->
       <link rel="stylesheet" href="/kaiju_dashboard/static/src/portal/css/kaiju_portal.css"/>

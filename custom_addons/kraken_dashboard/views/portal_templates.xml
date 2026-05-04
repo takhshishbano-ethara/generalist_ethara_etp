@@ -24,7 +24,7 @@
 
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
       <link rel="stylesheet" href="/kraken_dashboard/static/src/portal/css/kraken_portal.css"/>
 
@@ -361,21 +361,24 @@
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">§08 Resources</p>
 
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
-      <a href="https://github.com/Ethara-Ai/Kraken-Dataset" target="_blank" rel="noopener" class="kpi-card" style="text-decoration:none; height:100%;">
-        <p class="kpi-label">GitHub Repository</p>
-        <p class="kpi-value"><span class="kpi-big" style="font-size:clamp(20px,2vw,28px);">📂</span></p>
-        <p class="kpi-sub mono">Source code, trajectories, and evaluation scripts</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" href="https://github.com/Ethara-Ai/Kraken-Dataset" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Code</p>
+        <p class="res-title">GitHub repository</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Kraken-Dataset</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
-      <a href="https://huggingface.co/datasets/ethara/Kraken" target="_blank" rel="noopener" class="kpi-card" style="text-decoration:none; height:100%;">
-        <p class="kpi-label">HuggingFace Dataset</p>
-        <p class="kpi-value"><span class="kpi-big" style="font-size:clamp(20px,2vw,28px);">🤗</span></p>
-        <p class="kpi-sub mono">Download the full Kraken benchmark dataset</p>
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Kraken" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Data</p>
+        <p class="res-title">Dataset on HuggingFace</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Kraken</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
-      <a href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" class="kpi-card" style="text-decoration:none; height:100%;">
-        <p class="kpi-label">Research Paper</p>
-        <p class="kpi-value"><span class="kpi-big" style="font-size:clamp(20px,2vw,28px);">📄</span></p>
-        <p class="kpi-sub mono" style="white-space:normal; overflow-wrap:break-word;">SWE-fficiency: LM Agents on Performance Optimization</p>
+      <a class="resource" href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2511.06090</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
     </div>
   </section>

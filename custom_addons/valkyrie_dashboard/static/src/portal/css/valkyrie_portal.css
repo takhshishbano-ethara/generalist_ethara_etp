@@ -9,10 +9,10 @@
 
 :root {
   /* surfaces */
-  --vk-bg:        #F7F8FA;
+  --vk-bg:        #F5F3F8;
   --vk-bg-2:      #FFFFFF;
-  --vk-bg-3:      #EEF0F4;
-  --vk-surface:   #F1F3F7;
+  --vk-bg-3:      #EDE8F2;
+  --vk-surface:   #F0ECF5;
 
   /* ink — all ≥ 4.5:1 on --vk-bg */
   --vk-ink:       #0B0E14;
@@ -34,11 +34,11 @@
      --vk-accent-bright: bright brand red (decorative only)
      --vk-accent-surface: pale red wash for cards + chips
      --vk-accent-on: dark ink reads clean on bright red */
-  --vk-accent:        #B5171F;   /* AA red for text */
-  --vk-accent-2:      #8A0F15;   /* hover/focus/pressed */
-  --vk-accent-bright: #EF4444;   /* brand red — decorative */
-  --vk-accent-surface:#FDE1E1;   /* red wash surface */
-  --vk-accent-on:     #FFFFFF;   /* text on bright red */
+  --vk-accent:        #CC00CC;   /* AA magenta for text */
+  --vk-accent-2:      #AA00AA;   /* hover/focus/pressed */
+  --vk-accent-bright: #EE00EE;   /* brand magenta — decorative */
+  --vk-accent-surface:rgba(238,0,238,0.10);   /* magenta wash surface */
+  --vk-accent-on:     #FFFFFF;   /* text on bright magenta */
 
   /* model semantic colors */
   --vk-kimi:          #2A5CB8;
@@ -70,9 +70,9 @@
   --vk-dur-slow:  640ms;
 
   /* type */
-  --vk-font-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --vk-font-sans:    'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --vk-font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --vk-font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --vk-font-display: 'Cormorant', Georgia, 'Times New Roman', serif;
 
   /* scale */
   --vk-s-wordmark: clamp(26px, 2.4vw, 34px);
@@ -1379,28 +1379,28 @@ body:has(.vk-portal) .o_footer_copyright {
 :root[data-theme="dark"] {
   color-scheme: dark;
   --vk-bg:        #0B0E14;
-  --vk-bg-2:      #10141C;
-  --vk-bg-3:      #161B27;
-  --vk-surface:   #141925;
+  --vk-bg-2:      #151A28;
+  --vk-bg-3:      #1E2436;
+  --vk-surface:   #192030;
 
   --vk-card-shadow: none;
 
   --vk-ink:       #F3F5F9;
-  --vk-ink-2:     #C8CDD8;
-  --vk-ink-3:     #A1A7B6;
-  --vk-muted:     #828898;
+  --vk-ink-2:     #C5CBE9;
+  --vk-ink-3:     #8B93B0;
+  --vk-muted:     #7A82A0;
   --vk-muted-2:   #828898;
 
-  --vk-border:        #3A4157;
-  --vk-border-2:      #4B5370;
-  --vk-border-3:      #5A6383;
+  --vk-border:        #2A3148;
+  --vk-border-2:      #3A4568;
+  --vk-border-3:      #4A5578;
   --vk-border-light:  #2A2F3E;
 
-  --vk-accent:          #FF8F8F;
-  --vk-accent-2:        #F56D6D;
-  --vk-accent-bright:   #FF8F8F;
-  --vk-accent-surface:  rgba(255,143,143,0.14);
-  --vk-accent-on:       #0A0D10;
+  --vk-accent:          #EE00EE;
+  --vk-accent-2:        #FF44FF;
+  --vk-accent-bright:   #EE00EE;
+  --vk-accent-surface:  rgba(238,0,238,0.12);
+  --vk-accent-on:       #FFFFFF;
 
   --vk-kimi:            #89B5FF;
   --vk-kimi-surface:    rgba(137,181,255,0.14);
@@ -1428,13 +1428,13 @@ body:has(.vk-portal) .o_footer_copyright {
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --vk-bg: #0B0E14;  --vk-bg-2: #10141C;  --vk-bg-3: #161B27;  --vk-surface: #141925;
+    --vk-bg: #0B0E14;  --vk-bg-2: #151A28;  --vk-bg-3: #1E2436;  --vk-surface: #192030;
     --vk-card-shadow: none;
-    --vk-ink: #F3F5F9;  --vk-ink-2: #C8CDD8;  --vk-ink-3: #A1A7B6;
-    --vk-muted: #828898;  --vk-muted-2: #828898;
-    --vk-border: #3A4157;  --vk-border-2: #4B5370;  --vk-border-3: #5A6383;  --vk-border-light: #2A2F3E;
-    --vk-accent: #FF8F8F;  --vk-accent-2: #F56D6D;  --vk-accent-bright: #FF8F8F;
-    --vk-accent-surface: rgba(255,143,143,0.14);  --vk-accent-on: #0A0D10;
+    --vk-ink: #F3F5F9;  --vk-ink-2: #C5CBE9;  --vk-ink-3: #8B93B0;
+    --vk-muted: #7A82A0;  --vk-muted-2: #828898;
+    --vk-border: #2A3148;  --vk-border-2: #3A4568;  --vk-border-3: #4A5578;  --vk-border-light: #2A2F3E;
+    --vk-accent: #EE00EE;  --vk-accent-2: #FF44FF;  --vk-accent-bright: #EE00EE;
+    --vk-accent-surface: rgba(238,0,238,0.12);  --vk-accent-on: #FFFFFF;
     --vk-kimi: #89B5FF;  --vk-kimi-surface: rgba(137,181,255,0.14);
     --vk-nova: #CDB0FF;  --vk-nova-surface: rgba(205,176,255,0.14);
     --vk-pass: #5EE695;  --vk-pass-surface: rgba(94,230,149,0.14);

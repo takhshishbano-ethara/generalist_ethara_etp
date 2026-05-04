@@ -8,10 +8,10 @@
 
 :root {
   /* surfaces */
-  --bg:        #F7F8FA;   /* page canvas — soft off-white */
+  --bg:        #F5F3F8;   /* page canvas — soft off-white */
   --bg-2:      #FFFFFF;   /* cards, panels, drawer, matrix wrap */
-  --bg-3:      #EEF0F4;   /* hover / striped row / chart image bg */
-  --surface:   #F1F3F7;
+  --bg-3:      #EDE8F2;   /* hover / striped row / chart image bg */
+  --surface:   #F0ECF5;
 
   /* ink — all ≥ 4.5:1 on --bg */
   --ink:       #0B0E14;   /* 17.3:1 — headings, wordmark, strong */
@@ -34,11 +34,11 @@
      decorative surface (no contrast requirement for pure decoration).
      Dark ink on bright lime still clears AA at ~13:1 so it doubles as
      a pass-tile fill. */
-  --accent:        #6B7A1F;   /* darker olive · 5.8:1 text */
-  --accent-2:      #4A5515;   /* hover / focus / pressed · 8.9:1 */
-  --accent-bright: #D7E67A;   /* brand lime — decorative only */
-  --accent-surface:#E9F0B6;   /* lime wash for cards + chips */
-  --accent-on:     #0B0E14;   /* ink on bright lime (13:1) */
+  --accent:        #CC00CC;   /* darker olive · 5.8:1 text */
+  --accent-2:      #AA00AA;   /* hover / focus / pressed · 8.9:1 */
+  --accent-bright: #EE00EE;   /* brand lime — decorative only */
+  --accent-surface:rgba(238,0,238,0.10);   /* lime wash for cards + chips */
+  --accent-on:     #FFFFFF;   /* ink on bright lime (13:1) */
 
   /* model semantic colors — split into ink + surface variants */
   --glm5:          #2A5CB8;   /* blue ink · 5.9:1 */
@@ -73,9 +73,9 @@
   --dur-slow:  640ms;
 
   /* type */
-  --font-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans:    'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;   /* editorial serif for wordmark, thesis, big reveal */
+  --font-display: 'Cormorant', Georgia, 'Times New Roman', serif;   /* editorial serif for wordmark, thesis, big reveal */
 
   /* scale — all meta/UI text raised to 14px floor */
   --s-wordmark: clamp(26px, 2.4vw, 34px);
@@ -791,8 +791,8 @@ hr.rule {
   box-shadow: var(--card-shadow);
 }
 .kpi-card:hover {
-  border-color: var(--border-2);
-  box-shadow: 0 4px 12px rgba(15,20,35,0.07), 0 1px 2px rgba(15,20,35,0.05);
+  border-color: var(--accent);
+  box-shadow: 0 6px 16px rgba(15,20,35,0.08), 0 1px 2px rgba(15,20,35,0.04);
   transform: translateY(-1px);
 }
 .kpi-card--accent {
@@ -1253,6 +1253,60 @@ body.drawer-open {
 }
 .drawer-body dd a:hover { border-color: var(--accent); }
 
+/* ---------- resources ----------------------------------- */
+.resources {
+  display: grid;
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .resources { grid-template-columns: 1fr !important; }
+}
+.resource {
+  position: relative;
+  display: block;
+  padding: 24px 26px;
+  border: var(--hairline);
+  background: var(--bg-2);
+  color: var(--ink);
+  box-shadow: var(--card-shadow);
+  transition: border-color var(--dur-fast) var(--ease-ui), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.resource:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15,20,35,0.08), 0 1px 2px rgba(15,20,35,0.04);
+}
+.res-label {
+  font-size: var(--s-ui);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.res-title {
+  font-size: var(--s-h3);
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+.res-url {
+  font-size: 13px;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+.res-arrow {
+  position: absolute;
+  top: 24px;
+  right: 26px;
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-ui), transform var(--dur-fast) var(--ease-ui);
+}
+.resource:hover .res-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
 /* ---------- footer -------------------------------------- */
 .foot {
   margin-top: var(--gap-section);
@@ -1309,30 +1363,30 @@ body.drawer-open {
 :root[data-theme="dark"] {
   /* surfaces */
   --bg:        #0B0E14;
-  --bg-2:      #10141C;
-  --bg-3:      #161B27;
-  --surface:   #141925;
+  --bg-2:      #151A28;
+  --bg-3:      #1E2436;
+  --surface:   #192030;
 
   --card-shadow: none;
 
   /* ink */
   --ink:       #F3F5F9;
-  --ink-2:     #C8CDD8;
-  --ink-3:     #A1A7B6;
-  --muted:     #828898;
+  --ink-2:     #C5CBE9;
+  --ink-3:     #8B93B0;
+  --muted:     #7A82A0;
   --muted-2:   #828898;
 
   /* borders */
-  --border:    #3A4157;
-  --border-2:  #4B5370;
-  --border-3:  #5A6383;
+  --border:    #2A3148;
+  --border-2:  #3A4568;
+  --border-3:  #4A5578;
 
   /* accent — original lime */
-  --accent:          #D7E67A;
-  --accent-2:        #A7BE38;
-  --accent-bright:   #D7E67A;
-  --accent-surface:  rgba(215,230,122,0.12);
-  --accent-on:       #0A0D10;
+  --accent:          #EE00EE;
+  --accent-2:        #FF44FF;
+  --accent-bright:   #EE00EE;
+  --accent-surface:  rgba(238,0,238,0.12);
+  --accent-on:       #FFFFFF;
 
   /* model semantic colors */
   --glm5:            #89B5FF;
@@ -1375,13 +1429,13 @@ body.drawer-open {
 /* OS fallback */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0B0E14;  --bg-2: #10141C;  --bg-3: #161B27;  --surface: #141925;
+    --bg: #0B0E14;  --bg-2: #151A28;  --bg-3: #1E2436;  --surface: #192030;
     --card-shadow: none;
-    --ink: #F3F5F9;  --ink-2: #C8CDD8;  --ink-3: #A1A7B6;
-    --muted: #828898;  --muted-2: #828898;
-    --border: #3A4157;  --border-2: #4B5370;  --border-3: #5A6383;
-    --accent: #D7E67A;  --accent-2: #A7BE38;  --accent-bright: #D7E67A;
-    --accent-surface: rgba(215,230,122,0.12);  --accent-on: #0A0D10;
+    --ink: #F3F5F9;  --ink-2: #C5CBE9;  --ink-3: #8B93B0;
+    --muted: #7A82A0;  --muted-2: #828898;
+    --border: #2A3148;  --border-2: #3A4568;  --border-3: #4A5578;
+    --accent: #EE00EE;  --accent-2: #FF44FF;  --accent-bright: #EE00EE;
+    --accent-surface: rgba(238,0,238,0.12);  --accent-on: #FFFFFF;
     --glm5: #89B5FF;  --glm5-surface: rgba(137,181,255,0.14);
     --nova: #CDB0FF;  --nova-surface: rgba(205,176,255,0.14);
     --pass: #5EE695;  --pass-surface: rgba(94,230,149,0.14);
