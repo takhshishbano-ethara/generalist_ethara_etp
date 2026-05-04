@@ -265,7 +265,7 @@
             <th scope="col" class="matrix-th-cell" data-sort="nova_hsr">Nova HSR</th>
             <th scope="col" class="matrix-th-cell" data-sort="glm5_outcome">GLM-5 Outcome</th>
             <th scope="col" class="matrix-th-cell" data-sort="nova_outcome">Nova Outcome</th>
-            <th scope="col" class="matrix-th-meta">Details</th>
+            <th scope="col" class="matrix-th-meta"></th>
           </tr>
         </thead>
         <tbody id="matrix-tbody" class="kr-dataset__body" aria-live="polite" aria-atomic="false"></tbody>
