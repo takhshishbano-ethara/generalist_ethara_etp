@@ -48,151 +48,131 @@
     prefersDark.addListener(osChangeHandler); // Safari < 14
   }
 
-  // Scroll progress bar
-  const scrollProgress = document.querySelector('.scroll-progress');
-  if (scrollProgress) {
-    const updateProgress = () => {
-      const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
-      scrollProgress.style.width = progress + '%';
-    };
-    window.addEventListener('scroll', updateProgress, { passive: true });
-    updateProgress();
-  }
-
   const dataEl = document.getElementById('instances-data');
   if (!dataEl) return;
   const rows = JSON.parse(dataEl.textContent || '[]');
 
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Mouse-following glow on cards
-  const glowCards = document.querySelectorAll('.kpi-card, .chart, .resource');
-  if (glowCards.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    glowCards.forEach(card => {
-      card.addEventListener('mousemove', (e) => {
-        const rect = card.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * 100;
-        const y = ((e.clientY - rect.top) / rect.height) * 100;
-        card.style.setProperty('--mouse-x', x + '%');
-        card.style.setProperty('--mouse-y', y + '%');
-      });
-    });
-  }
+  // ============================================================
+  // Scroll progress rail — writes `width` into the fixed bar on
+  // every animation frame while the page is scrolled. rAF-throttled
+  // so we never fire more than 60 times/sec, and only while the
+  // user is actively scrolling (idle state means zero work).
+  // Gracefully no-ops if prefers-reduced-motion is on (the rail
+  // still renders at 0→final, just without intra-scroll updates).
+  // ============================================================
+  (() => {
+    const bar = document.querySelector('.scroll-progress');
+    if (!bar) return;
+    let ticking = false;
+    const update = () => {
+      const doc = document.documentElement;
+      const max = (doc.scrollHeight - window.innerHeight) || 1;
+      const progress = Math.max(0, Math.min(1, window.scrollY / max));
+      bar.style.width = (progress * 100).toFixed(2) + '%';
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    update();
+  })();
 
   // ============================================================
   // GSAP + ScrollTrigger — loaded via CDN in <head>. Wait for it.
   // Everything here is progressive: if GSAP fails to load or user
   // opts out of motion, the page still reads correctly.
   // ============================================================
+  // Apple-style easing curves — same strings as CSS --ease-* tokens.
+  // GSAP 3.11+ accepts CSS cubic-bezier() strings directly.
+  const EASE_OUT = 'cubic-bezier(0.28, 0.11, 0.32, 1)';   // storytelling/entrances
+  const EASE_UI  = 'cubic-bezier(0.25, 0.1, 0.25, 1)';    // micro
+  const EASE_IN  = 'cubic-bezier(0.55, 0, 0.75, 0.25)';   // pulse tail
+
+  // ============================================================
+  // Thesis mask reveal — split the thesis sentence into per-word
+  // spans wrapped in overflow-clip containers, so we can stagger
+  // a yPercent 110 → 0 rise on load. Preserves the <em> italic on
+  // "see" by detecting word === 'see' during the split.
+  //
+  // Runs OUTSIDE initAnimations so the DOM is ready even if GSAP
+  // isn't (fallback: flat text, no motion — page still reads).
+  // ============================================================
+  const thesisEl = document.querySelector('.thesis');
+  if (thesisEl) {
+    // Preserve the raw text; strip the single <em> wrapper before split
+    // and re-apply as a class during the rebuild. Trailing punctuation
+    // (like the "?" in "see?") stays roman — it's not italic in the
+    // source markup, so we split it off the em word.
+    const raw = thesisEl.textContent.trim();
+    const words = raw.split(/\s+/);
+    thesisEl.innerHTML = words.map((w) => {
+      const punctMatch = w.match(/^(.*?)([.,!?;:]+)$/);
+      const core  = punctMatch ? punctMatch[1] : w;
+      const punct = punctMatch ? punctMatch[2] : '';
+      const isEm  = core.toLowerCase() === 'see';
+      const innerMarkup = isEm
+        ? `<span class="thesis-em">${core}</span>${punct}`
+        : w;
+      return `<span class="thesis-word"><span class="thesis-word-inner">${innerMarkup}</span></span>`;
+    }).join(' ');
+  }
+
   const initAnimations = () => {
     if (prefersReduced) return;
     if (typeof window.gsap === 'undefined' || typeof window.ScrollTrigger === 'undefined') return;
 
     const { gsap, ScrollTrigger } = window;
     gsap.registerPlugin(ScrollTrigger);
-    gsap.defaults({ ease: 'power3.out', duration: 1.0 });
+    // Lock ticker to 60fps — conference projectors run 60Hz HDMI and
+    // over-sampling causes visible jitter on scroll-triggered beats.
+    gsap.ticker.fps(60);
+    gsap.defaults({ ease: EASE_OUT, duration: 0.64 });
 
-    // ---------- 1. Cinematic masthead reveal -------------------------
-    const mastTl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-    mastTl
-      .from('.wordmark', { y: 30, opacity: 0, scale: 1.05, filter: 'blur(8px)', duration: 1.1 })
-      .from('.badge', { y: 20, opacity: 0, scale: 0.9, duration: 0.7, ease: 'back.out(1.7)' }, '-=0.6')
-      .from('hr.rule', { scaleX: 0, opacity: 0, duration: 0.8, transformOrigin: 'left center' }, '-=0.4')
-      .from('.thesis', { y: 40, opacity: 0, filter: 'blur(4px)', duration: 1.0 }, '-=0.5')
-      .from('.byline', { y: 16, opacity: 0, duration: 0.7 }, '-=0.4');
-
-    // ---------- 2. Differentiated section animations ----------------
-    const sections = document.querySelectorAll('main > .section');
-    sections.forEach((section) => {
-      const id = section.id;
-
-      if (id === 'scale') {
-        gsap.from(section.querySelectorAll('.funnel-step'), {
-          x: -40, opacity: 0, stagger: 0.15, duration: 0.8,
-          ease: 'power2.out',
-          scrollTrigger: { trigger: section, start: 'top 80%' }
-        });
-      } else if (id === 'pipeline') {
-        gsap.from(section.querySelectorAll('.phase'), {
-          y: 30, opacity: 0, scale: 0.96, stagger: 0.12, duration: 0.7,
-          ease: 'back.out(1.2)',
-          scrollTrigger: { trigger: section, start: 'top 78%' }
-        });
-      } else if (id === 'results') {
-        gsap.from('.reveal', {
-          x: -20, opacity: 0, duration: 0.9, ease: 'power3.out',
-          scrollTrigger: { trigger: '.reveal', start: 'top 80%' }
-        });
-      } else if (id === 'instances') {
-        gsap.from(section.querySelectorAll('.kpi-card'), {
-          y: 30, opacity: 0, scale: 0.95, stagger: 0.08, duration: 0.6,
-          ease: 'back.out(1.4)',
-          scrollTrigger: { trigger: '.kpi-row', start: 'top 82%' }
-        });
-      } else {
-        gsap.from(section.querySelectorAll(':scope > *'), {
-          y: 28, opacity: 0, stagger: 0.08, duration: 0.7,
-          scrollTrigger: { trigger: section, start: 'top 82%' }
-        });
-      }
+    // ---------- 1. Masthead on load ---------------------------------
+    gsap.from('.wordmark', { y: 24, opacity: 0, duration: 0.9,  delay: 0.05, ease: EASE_OUT });
+    gsap.from('.badge',    { y: 16, opacity: 0, duration: 0.7,  delay: 0.18, ease: EASE_OUT });
+    // Thesis uses the line-by-line mask reveal below, not a single fade.
+    // The static .thesis container still animates so the underline/rule
+    // settles with the copy.
+    gsap.from('.thesis-word-inner', {
+      yPercent: 110,
+      opacity:  0,
+      duration: 0.9,
+      stagger:  0.04,
+      ease:     EASE_OUT,
+      delay:    0.35,
     });
 
-    // Smooth parallax on section labels
-    document.querySelectorAll('.section-label').forEach((label) => {
-      gsap.from(label, {
-        x: -20, opacity: 0, duration: 0.8,
-        scrollTrigger: { trigger: label, start: 'top 88%' }
+    // ---------- 2. Fade-rise on enter for every major section ------
+    document.querySelectorAll('main > .section').forEach((section) => {
+      const children = section.querySelectorAll(':scope > *');
+      gsap.from(children, {
+        y: 28,
+        opacity: 0,
+        stagger: 0.08,
+        duration: 0.64,
+        ease: EASE_OUT,
+        scrollTrigger: {
+          trigger: section,
+          start: 'top 85%',
+          toggleActions: 'play none none none',
+        },
+        onStart() {
+          children.forEach((el) => { el.style.willChange = 'transform, opacity'; });
+        },
+        onComplete() {
+          children.forEach((el) => { el.style.willChange = ''; });
+        },
       });
-    });
-
-    // Pipeline frame reveal
-    const pipelineFrame = document.querySelector('.pipeline-frame');
-    if (pipelineFrame) {
-      gsap.from(pipelineFrame, {
-        y: 40, opacity: 0, scale: 0.98, duration: 1.0,
-        scrollTrigger: { trigger: pipelineFrame, start: 'top 80%' }
-      });
-    }
-
-    // Glance sidebar stagger
-    gsap.from('.glance-row', {
-      x: 20, opacity: 0, stagger: 0.06, duration: 0.5,
-      scrollTrigger: { trigger: '.glance', start: 'top 80%' }
-    });
-
-    // View toggle + matrix reveal
-    gsap.from('.view-toggle', {
-      y: 20, opacity: 0, duration: 0.6,
-      scrollTrigger: { trigger: '.view-toggle', start: 'top 88%' }
-    });
-    gsap.from('.matrix-wrap', {
-      y: 30, opacity: 0, duration: 0.8,
-      scrollTrigger: { trigger: '.matrix-wrap', start: 'top 85%' }
-    });
-
-    // Reveal lines stagger
-    gsap.from('.reveal-line', {
-      y: 20, opacity: 0, stagger: 0.15, duration: 0.8,
-      ease: 'power3.out',
-      scrollTrigger: { trigger: '.reveal', start: 'top 78%' }
-    });
-
-    // Footer fade
-    gsap.from('.foot-inner', {
-      y: 20, opacity: 0, duration: 0.8,
-      scrollTrigger: { trigger: '.foot', start: 'top 92%' }
-    });
-
-    // Repo groups stagger
-    gsap.from('.repo-group', {
-      y: 20, opacity: 0, stagger: 0.08, duration: 0.6,
-      scrollTrigger: { trigger: '.repo-list', start: 'top 85%' }
     });
 
     // ---------- 3. Funnel final KPI accent glow (one-shot) ---------
-    // Colors pull from CSS variables so they adapt to light/dark palettes.
     const css = getComputedStyle(document.documentElement);
     const accent2 = css.getPropertyValue('--accent-2').trim() || '#4A5515';
     const accentSurface = css.getPropertyValue('--accent-surface').trim() || '#EDF3B8';
@@ -200,34 +180,32 @@
       { boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent2} 30%, transparent)` },
       {
         boxShadow: `inset 0 0 0 1px ${accent2}, 0 0 30px ${accentSurface}`,
-        duration: 1.0,
+        duration: 0.8,
         delay: 0.4,
+        ease: EASE_OUT,
         scrollTrigger: { trigger: '.funnel', start: 'top 75%', once: true },
       }
     );
 
-    // ---------- 4. Charts fade-in under reveal ---------------------
-    gsap.from('.charts .chart', {
-      y: 40, opacity: 0, scale: 0.96, stagger: 0.12, duration: 0.9,
-      ease: 'power2.out',
-      scrollTrigger: { trigger: '.charts', start: 'top 85%' },
-    });
-
-    // ---------- 5. (KPI cards handled in differentiated section animations above)
+    // Blocks 4 (charts fade) and 5 (KPI fade) REMOVED — both were
+    // redundant with block 2 (section fade-rise), which already
+    // animates every direct child of every <section>.
 
     // ---------- 6. Matrix pass-tile pulse on enter -----------------
+    // Capped to first 8 tiles; at full 40-tile length the cascading
+    // shadow repaints overwhelm a 60Hz projector.
     ScrollTrigger.create({
       trigger: '#view-matrix',
       start: 'top 75%',
       once: true,
       onEnter: () => {
-        const tiles = document.querySelectorAll('.tile-btn--pass');
+        const tiles = Array.from(document.querySelectorAll('.tile-btn--pass')).slice(0, 8);
         tiles.forEach((el, i) => {
-          const tl = gsap.timeline({ delay: 0.25 + i * 0.1 });
+          const tl = gsap.timeline({ delay: 0.25 + i * 0.05 });
           const pulseOn = `0 0 0 6px color-mix(in oklab, ${accent2} 40%, transparent)`;
           const pulseOff = `0 0 0 0 color-mix(in oklab, ${accent2} 0%, transparent)`;
-          tl.to(el, { boxShadow: pulseOn, duration: 0.25, ease: 'power2.out' })
-            .to(el, { boxShadow: pulseOff, duration: 0.45, ease: 'power2.in' });
+          tl.to(el, { boxShadow: pulseOn,  duration: 0.25, ease: EASE_OUT })
+            .to(el, { boxShadow: pulseOff, duration: 0.45, ease: EASE_IN  });
         });
       },
     });
@@ -305,16 +283,14 @@
       el.textContent = target.toLocaleString() + suffix;
       return;
     }
-    const duration = 1100;
+    const duration = 900;
     const start = performance.now();
     const step = (now) => {
       const t = Math.min(1, (now - start) / duration);
-      // Spring overshoot: goes to 105% then settles
-      const eased = t < 0.7
-        ? 1.05 * (1 - Math.pow(1 - t / 0.7, 3))
-        : 1.05 - 0.05 * ((t - 0.7) / 0.3);
-      const val = Math.round(target * Math.min(eased, 1.05));
-      el.textContent = (t === 1 ? target : Math.min(val, Math.round(target * 1.05))).toLocaleString() + (t === 1 ? suffix : '');
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Math.round(target * eased);
+      el.textContent = val.toLocaleString() + (t === 1 ? suffix : '');
       if (t < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
