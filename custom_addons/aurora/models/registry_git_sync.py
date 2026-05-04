@@ -146,6 +146,7 @@ def ensure_init_files_on_github(
     lang: str,
     org: str,
     repo: str,
+    extra_stems: list[str] | None = None,
     author_name: str = "Aurora Pipeline",
     author_email: str = "aurora@ethara.ai",
 ) -> list[dict]:
@@ -154,6 +155,10 @@ def ensure_init_files_on_github(
     Called after ``push_registry_to_github`` so pods cloning the repo directly
     (or any external consumer of the GitHub tree) can import the harness via
     ``multi_swe_bench.harness.repos.{lang}.{org}.{repo}``.
+
+    If ``extra_stems`` is provided (e.g. from a ZIP upload with range files),
+    each stem gets its own ``from .{stem} import *`` line in the org __init__.py.
+    Otherwise only the base repo_safe name is added.
 
     Behavior per init file:
       - If the file does not exist, create it with the correct import line.
@@ -171,6 +176,8 @@ def ensure_init_files_on_github(
     repo_slug = ICP.get_param("aurora.harness_git_repo", _DEFAULT_REPO_SLUG)
     branch = ICP.get_param("aurora.harness_git_branch", _DEFAULT_BRANCH)
     repo_safe = repo.replace("-", "_").lower()
+
+    stems_to_import = extra_stems if extra_stems else [repo_safe]
 
     try:
         from github import Auth, Github, GithubException, UnknownObjectException
@@ -225,20 +232,27 @@ def ensure_init_files_on_github(
     pushed: list[dict] = []
 
     org_init_path = f"{_DEFAULT_PATH_PREFIX}/{lang}/{org}/__init__.py"
-    org_import_line = f"from .{repo_safe} import *"
     org_content, org_sha = _read_remote(org_init_path)
-    if org_content is None:
-        new = f"{org_import_line}\n"
-        pushed.append(_commit(
-            org_init_path, new, None,
-            f"Create {lang}/{org}/__init__.py for {org}/{repo} via Aurora Harness Staging",
-        ))
-    elif org_import_line not in org_content:
-        new = org_content.rstrip("\n") + f"\n{org_import_line}\n"
-        pushed.append(_commit(
-            org_init_path, new, org_sha,
-            f"Add {repo_safe} import to {lang}/{org}/__init__.py via Aurora Harness Staging",
-        ))
+
+    missing_imports: list[str] = []
+    for stem in stems_to_import:
+        import_line = f"from .{stem} import *"
+        if org_content is None or import_line not in org_content:
+            missing_imports.append(import_line)
+
+    if missing_imports:
+        if org_content is None:
+            new = "\n".join(missing_imports) + "\n"
+            pushed.append(_commit(
+                org_init_path, new, None,
+                f"Create {lang}/{org}/__init__.py for {org}/{repo} via Aurora Harness Staging",
+            ))
+        else:
+            new = org_content.rstrip("\n") + "\n" + "\n".join(missing_imports) + "\n"
+            pushed.append(_commit(
+                org_init_path, new, org_sha,
+                f"Add imports to {lang}/{org}/__init__.py via Aurora Harness Staging",
+            ))
 
     lang_init_path = f"{_DEFAULT_PATH_PREFIX}/{lang}/__init__.py"
     lang_import_line = f"from .{org} import *"

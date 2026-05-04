@@ -35,7 +35,7 @@ _ALLOWED_COLUMNS = frozenset({
     "s3_run_number",
 })
 
-_MAX_LOG_SIZE = 500_000
+_MAX_LOG_SIZE = 2_000_000
 
 _ALLOWED_INSTANCE_COLUMNS = frozenset({
     "status", "resolved", "error_message",
@@ -748,7 +748,7 @@ def _safe_worker(fn):
 
 
 def _load_staging_for_eval(db_name: str, user_id: int) -> dict:
-    from ..tools.harness.staging_loader import load_staging_harness
+    from ..tools.harness.staging_loader import load_staging_harness, load_staging_directory
     staging_cr = _open_cursor(db_name)
     all_originals: dict = {}
     try:
@@ -775,7 +775,11 @@ def _load_staging_for_eval(db_name: str, user_id: int) -> dict:
         for rec in staging_records:
             try:
                 staging_path = rec._ensure_staging_file()
-                originals = load_staging_harness(staging_path, rec.org, rec.repo)
+                if rec._is_zip_upload():
+                    staging_dir = os.path.dirname(staging_path)
+                    originals = load_staging_directory(staging_dir, rec.org, rec.repo)
+                else:
+                    originals = load_staging_harness(staging_path, rec.org, rec.repo)
                 all_originals.update(originals)
             except Exception:
                 _logger.warning(
