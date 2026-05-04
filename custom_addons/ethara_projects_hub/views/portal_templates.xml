@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Projects — Ethara AI Labs</title>
+      <title>Projects - Ethara AI</title>
       <meta name="description" content="Central hub for all Ethara AI project dashboards: Kaiju, Kraken, Aurora, Valkyrie, and Tesseract."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -62,7 +62,7 @@
     </div>
     <hr class="rule" />
     <p class="thesis">All Ethara Dashboards in <em>One Place</em></p>
-    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
@@ -88,7 +88,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono">&#xA9; 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> &#xB7; Projects Hub</p>
+      <p class="mono">&#xA9; 2026 <a href="https://www.ethara.ai">Ethara AI</a> &#xB7; Projects Hub</p>
     </div>
   </footer>
 
