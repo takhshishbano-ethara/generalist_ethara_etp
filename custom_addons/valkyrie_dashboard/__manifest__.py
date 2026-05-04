@@ -25,10 +25,10 @@ both a backend client action and a public portal page at /valkyrie.
             "valkyrie_dashboard/static/src/components/showcase/showcase.js",
             "valkyrie_dashboard/static/src/components/showcase/showcase.xml",
         ],
-        "web.assets_frontend": [
-            "valkyrie_dashboard/static/src/portal/css/valkyrie_portal.css",
-            "valkyrie_dashboard/static/src/portal/js/valkyrie_portal.js",
-        ],
+        # Public /valkyrie page assets are NOT bundled into
+        # web.assets_frontend on purpose — the portal template serves
+        # them as bare <link>/<script> tags so Bootstrap + Odoo's
+        # website footer/portal chrome do not override the design.
     },
     "installable": True,
     "application": True,
