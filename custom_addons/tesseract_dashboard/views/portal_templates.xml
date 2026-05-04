@@ -168,9 +168,9 @@
         <p class="phase-label">Phase 01</p>
         <h4 class="phase-title">Scraping</h4>
         <ul class="phase-body">
-          <li>Crawl 5K+ closed PRs across 6 repositories</li>
+          <li>Crawl 10000+ closed PRs across 1100 repositories</li>
           <li>12-stage filter: merge check, linked issue, patch split, image verify, leakage detection</li>
-          <li>Yields <b>41</b> multimodal candidates</li>
+          <li>Yields <b>610</b> multimodal candidates</li>
         </ul>
       </article>
       <article class="phase">
@@ -186,8 +186,8 @@
         <p class="phase-label">Phase 03</p>
         <h4 class="phase-title">Dataset</h4>
         <ul class="phase-body">
-          <li>Curate <b>20 instances</b> from 41 candidates</li>
-          <li>Across 13 repositories, 5 languages</li>
+          <li>Curate <b>10000 instances</b> from 610 candidates</li>
+          <li>Across 1100 repositories, 8 languages</li>
           <li>67 embedded images · JSONL + HuggingFace</li>
         </ul>
       </article>
