@@ -15,7 +15,8 @@ Environment variables (all required unless noted):
     S3_PREFIX        - S3 key prefix (default: jaeger/phase1)
     WEBHOOK_URL      - Odoo webhook endpoint URL
     WEBHOOK_SECRET   - shared secret for X-Jaeger-Token header
-    PIPELINE_MODE    - "swe" or "hard_swe" (default: swe)
+    PIPELINE_MODE    - "swe", "rct", or "lht" (default: swe)
+    REPO_LANGUAGE    - repository language, e.g. "python" (default: python)
 """
 import json
 import logging
@@ -48,6 +49,7 @@ S3_PREFIX = os.environ.get("S3_PREFIX", "jaeger/phase1")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 PIPELINE_MODE = os.environ.get("PIPELINE_MODE", "swe")
+REPO_LANGUAGE = os.environ.get("REPO_LANGUAGE", "python")
 
 # ── SIGTERM handling ─────────────────────────────────────────────────────
 
@@ -141,8 +143,9 @@ def send_failed(error):
 # ── S3 upload ────────────────────────────────────────────────────────────
 
 def _upload_to_s3(local_path, s3_key):
-    """Upload a single file to S3 with retry."""
+    """Upload a single file to S3 with retry and multipart tuning."""
     import boto3
+    from boto3.s3.transfer import TransferConfig
     from botocore.config import Config
 
     config_kwargs = {
@@ -161,13 +164,20 @@ def _upload_to_s3(local_path, s3_key):
         config=Config(**config_kwargs),
     )
 
+    transfer_config = TransferConfig(
+        multipart_threshold=50 * 1024 * 1024,
+        multipart_chunksize=25 * 1024 * 1024,
+        max_concurrency=4,
+        use_threads=True,
+    )
+
     file_size = os.path.getsize(str(local_path))
     size_mb = file_size / (1024 * 1024)
 
     for attempt in range(3):
         try:
             t0 = time.monotonic()
-            client.upload_file(str(local_path), S3_BUCKET, s3_key)
+            client.upload_file(str(local_path), S3_BUCKET, s3_key, Config=transfer_config)
             elapsed = time.monotonic() - t0
             speed = (size_mb / elapsed) if elapsed > 0 else 0
             _logger.info(
@@ -198,7 +208,11 @@ def upload_outputs(out_dir, org, repo_name, repo_id):
         "filtered": f"{org}__{repo_name}_filtered_prs.jsonl",
         "issues": f"{org}__{repo_name}_related_issues.jsonl",
         "merged": f"{org}__{repo_name}_filtered_prs_with_issues.jsonl",
+        "rct_candidates": f"{org}__{repo_name}_rct_dataset_candidates.jsonl",
         "raw_dataset": f"{org}__{repo_name}_raw_dataset.jsonl",
+        "lht_filtered": f"{org}__{repo_name}_lht_filtered_prs.jsonl",
+        "tags": f"{org}__{repo_name}_tags.jsonl",
+        "tag_groups": f"{org}__{repo_name}_tag_groups.jsonl",
     }
 
     s3_paths = {}
@@ -206,10 +220,14 @@ def upload_outputs(out_dir, org, repo_name, repo_id):
         local_path = out_dir / filename
         if not local_path.exists() or local_path.stat().st_size == 0:
             continue
-        s3_key = f"{S3_PREFIX}/{repo_id}/{filename}"
+        s3_key = f"{S3_PREFIX}/{PIPELINE_MODE}/{repo_id}/{filename}"
         try:
             s3_paths[key] = _upload_to_s3(local_path, s3_key)
         except Exception as exc:
+            if key == "raw_dataset":
+                raise RuntimeError(
+                    "Failed to upload raw_dataset to S3: %s" % exc
+                ) from exc
             _logger.error("S3 upload failed for %s: %s", filename, exc)
 
     return s3_paths
@@ -350,6 +368,269 @@ def run_swe_pipeline(tokens, out_dir, org, repo_name, repo_id, pipeline_mode):
     }
 
 
+def run_rct_pipeline(tokens, out_dir, org, repo_name, repo_id, pipeline_mode):
+    """Run the 6-step RCT pipeline. Reports progress via webhooks."""
+    from tools.github_token_pool import GitHubTokenPool
+    from tools.get_all_prs import main as get_all_prs
+    from tools.filter_prs import main as filter_prs
+    from tools.get_related_issues import main as get_related_issues
+    from tools.merge_prs_with_issues import main as merge_prs_with_issues
+    from tools.filter_rct import main as filter_rct
+    from tools.build_dataset import main as build_dataset
+
+    pool = GitHubTokenPool(tokens)
+
+    # ── Step 1: Fetch PRs ────────────────────────────────────────────
+    _check_cancelled()
+    send_progress("1/6", 0, "Fetching all pull requests...")
+    send_heartbeat()
+
+    get_all_prs(pool, out_dir, org, repo_name)
+    prs_file = out_dir / f"{org}__{repo_name}_prs.jsonl"
+    _validate_step_output(prs_file, 1)
+    total_prs = _count_lines(prs_file)
+
+    send_progress("1/6", 15, f"Fetched {total_prs} PRs")
+
+    # ── Step 2: Filter PRs (RCT: merged + has resolved issues) ──────
+    _check_cancelled()
+    send_progress("2/6", 18, f"Filtering {total_prs} PRs (RCT: merged + issue-linked)...")
+    send_heartbeat()
+
+    def _filter_progress(processed, total, passed):
+        _check_cancelled()
+        pct = 18 + (processed / total) * 12 if total else 18
+        send_progress("2/6", pct, f"Filtering {processed}/{total} PRs, {passed} passed")
+
+    filter_prs(
+        pool, out_dir, prs_file,
+        mode="rct",
+        skip_commit_message=False,
+        progress_callback=_filter_progress,
+    )
+    filtered_file = out_dir / f"{org}__{repo_name}_rct_filtered_prs.jsonl"
+    if not filtered_file.exists():
+        filtered_file = out_dir / f"{org}__{repo_name}_filtered_prs.jsonl"
+    filtered_count = _count_lines(filtered_file)
+
+    send_progress("2/6", 30, f"{filtered_count}/{total_prs} PRs passed initial filter")
+
+    if filtered_count == 0:
+        raise ValueError(f"No merged PRs with resolved issues for {org}/{repo_name}")
+
+    # ── Step 3: Fetch Related Issues (WITH labels) ──────────────────
+    _check_cancelled()
+    send_progress("3/6", 33, f"Fetching issues + labels for {filtered_count} PRs...")
+    send_heartbeat()
+
+    get_related_issues(pool, out_dir, filtered_file)
+    issues_file = out_dir / f"{org}__{repo_name}_related_issues.jsonl"
+    if issues_file.exists():
+        _validate_step_output(issues_file, 3)
+    issues_count = _count_lines(issues_file)
+
+    send_progress("3/6", 50, f"Fetched {issues_count} issues with labels")
+
+    # ── Step 4: Merge PRs with Issues ───────────────────────────────
+    _check_cancelled()
+    send_progress("4/6", 53, "Merging PRs with issues...")
+    send_heartbeat()
+
+    # merge_prs_with_issues reads {org}__{repo}_filtered_prs.jsonl by convention.
+    # RCT filter output has the _rct_ prefix, so copy it to the standard name.
+    standard_filtered = out_dir / f"{org}__{repo_name}_filtered_prs.jsonl"
+    if not standard_filtered.exists() and filtered_file != standard_filtered:
+        import shutil
+        shutil.copy2(filtered_file, standard_filtered)
+
+    merge_prs_with_issues(out_dir, org, repo_name)
+    merged_file = out_dir / f"{org}__{repo_name}_filtered_prs_with_issues.jsonl"
+    _validate_step_output(merged_file, 4)
+
+    send_progress("4/6", 60, "PRs merged with issues (labels attached)")
+
+    # ── Step 5: RCT Bounty Filter ───────────────────────────────────
+    _check_cancelled()
+    send_progress("5/6", 63, "Filtering for bounty-related PRs...")
+    send_heartbeat()
+
+    rct_candidates = filter_rct(out_dir, org, repo_name)
+    rct_count = _count_lines(rct_candidates)
+
+    send_progress("5/6", 75, f"{rct_count} bounty PRs identified")
+
+    if rct_count == 0:
+        raise ValueError(
+            f"No bounty-related PRs found for {org}/{repo_name}. "
+            f"Checked {filtered_count} merged PRs, none had bounty labels/signals."
+        )
+
+    # ── Step 6: Build Dataset (diff fetching) ───────────────────────
+    _check_cancelled()
+    send_progress("6/6", 78, f"Building dataset from {rct_count} bounty PRs...")
+    send_heartbeat()
+
+    def _build_progress(processed, total, built):
+        _check_cancelled()
+        pct = 78 + (processed / total) * 17 if total else 78
+        send_progress("6/6", pct, f"Building dataset: {processed}/{total} PRs, {built} built")
+        send_heartbeat()
+
+    build_dataset(pool, out_dir, rct_candidates, mode="swe",
+                  progress_callback=_build_progress)
+    raw_dataset_file = out_dir / f"{org}__{repo_name}_raw_dataset.jsonl"
+    _validate_step_output(raw_dataset_file, 6)
+    raw_count = _count_lines(raw_dataset_file)
+
+    send_progress("6/6", 95, f"Dataset built: {raw_count} RCT entries")
+
+    if raw_count == 0:
+        raise ValueError(f"Raw dataset is empty for {org}/{repo_name} (RCT mode)")
+
+    # ── Upload to S3 ────────────────────────────────────────────────
+    _check_cancelled()
+    send_progress("upload", 96, "Uploading outputs to S3...")
+
+    s3_paths = upload_outputs(out_dir, org, repo_name, repo_id)
+    _logger.info("S3 upload complete: %d files", len(s3_paths))
+
+    return s3_paths, {
+        "total_prs": total_prs,
+        "filtered_prs": filtered_count,
+        "issues": issues_count,
+        "rct_candidates": rct_count,
+        "raw_dataset": raw_count,
+    }
+
+
+def run_lht_pipeline(tokens, out_dir, org, repo_name, repo_id, pipeline_mode):
+    """Run the 6-step LHT pipeline. Reports progress via webhooks."""
+    from tools.github_token_pool import GitHubTokenPool
+    from tools.get_all_prs import main as get_all_prs
+    from tools.filter_prs import main as filter_prs
+    from tools.get_version_tags import main as get_version_tags
+    from tools.group_prs_by_tags import main as group_prs_by_tags
+    from tools.get_related_issues import main as get_related_issues
+    from tools.build_lht_dataset import main as build_lht_dataset
+
+    pool = GitHubTokenPool(tokens)
+
+    # ── Step 1: Fetch PRs ────────────────────────────────────────────
+    _check_cancelled()
+    send_progress("1/6", 0, "Fetching all pull requests...")
+    send_heartbeat()
+
+    get_all_prs(pool, out_dir, org, repo_name)
+    prs_file = out_dir / f"{org}__{repo_name}_prs.jsonl"
+    _validate_step_output(prs_file, 1)
+    total_prs = _count_lines(prs_file)
+
+    send_progress("1/6", 16, f"Fetched {total_prs} PRs")
+
+    # ── Step 2: Filter PRs (LHT: merged only, no issue requirement) ─
+    _check_cancelled()
+    send_progress("2/6", 20, f"Filtering {total_prs} PRs (LHT: merged only)...")
+    send_heartbeat()
+
+    def _filter_progress(processed, total, passed):
+        _check_cancelled()
+        pct = 20 + (processed / total) * 13 if total else 20
+        send_progress("2/6", pct, f"Filtering {processed}/{total} PRs, {passed} passed")
+
+    filter_prs(
+        pool, out_dir, prs_file,
+        mode="lht",
+        skip_commit_message=True,
+        progress_callback=_filter_progress,
+    )
+    lht_filtered = out_dir / f"{org}__{repo_name}_lht_filtered_prs.jsonl"
+    filtered_file = lht_filtered if lht_filtered.exists() else out_dir / f"{org}__{repo_name}_filtered_prs.jsonl"
+    filtered_count = _count_lines(filtered_file)
+
+    send_progress("2/6", 33, f"{filtered_count}/{total_prs} merged PRs passed filter")
+
+    if filtered_count == 0:
+        raise ValueError(f"No merged PRs found for {org}/{repo_name}")
+
+    # ── Step 3: Fetch Version Tags ──────────────────────────────────
+    _check_cancelled()
+    send_progress("3/6", 38, "Fetching version tags...")
+    send_heartbeat()
+
+    get_version_tags(tokens, out_dir, org, repo_name, max_tags=200)
+    tags_file = out_dir / f"{org}__{repo_name}_tags.jsonl"
+    tags_count = _count_lines(tags_file) if tags_file.exists() else 0
+
+    send_progress("3/6", 50, f"Fetched {tags_count} version tags")
+
+    # ── Step 4: Group PRs by Version Tags ───────────────────────────
+    _check_cancelled()
+    send_progress("4/6", 55, "Grouping PRs by version ranges...")
+    send_heartbeat()
+
+    # group_prs_by_tags needs git clone for ancestry checks.
+    # In K8s pod, use ephemeral storage under out_dir as cache dir.
+    cache_dir = str(out_dir / ".repo_cache")
+    group_prs_by_tags(out_dir, org, repo_name, window_days=30,
+                      cache_dir=cache_dir, tokens=tokens)
+    groups_file = out_dir / f"{org}__{repo_name}_tag_groups.jsonl"
+    groups_count = _count_lines(groups_file) if groups_file.exists() else 0
+
+    send_progress("4/6", 66, f"Created {groups_count} version-range groups")
+
+    if groups_count == 0:
+        raise ValueError(
+            f"No valid tag groups for {org}/{repo_name}. "
+            f"Repo may not have enough version tags or merged PRs per version."
+        )
+
+    # ── Step 5: Fetch Related Issues ────────────────────────────────
+    _check_cancelled()
+    send_progress("5/6", 70, "Fetching related issues...")
+    send_heartbeat()
+
+    get_related_issues(pool, out_dir, filtered_file)
+    issues_file = out_dir / f"{org}__{repo_name}_related_issues.jsonl"
+    issues_count = _count_lines(issues_file) if issues_file.exists() else 0
+
+    send_progress("5/6", 83, f"Fetched {issues_count} issues")
+
+    # ── Step 6: Build LHT Dataset ───────────────────────────────────
+    _check_cancelled()
+    send_progress("6/6", 85, f"Building LHT dataset from {groups_count} groups...")
+    send_heartbeat()
+
+    build_lht_dataset(
+        tokens, out_dir, org, repo_name,
+        lang=REPO_LANGUAGE,
+        cache_dir=cache_dir,
+    )
+    raw_dataset_file = out_dir / f"{org}__{repo_name}_raw_dataset.jsonl"
+    _validate_step_output(raw_dataset_file, 6)
+    raw_count = _count_lines(raw_dataset_file)
+
+    send_progress("6/6", 95, f"Dataset built: {raw_count} LHT entries")
+
+    if raw_count == 0:
+        raise ValueError(f"Raw dataset is empty for {org}/{repo_name} (LHT mode)")
+
+    # ── Upload to S3 ────────────────────────────────────────────────
+    _check_cancelled()
+    send_progress("upload", 96, "Uploading outputs to S3...")
+
+    s3_paths = upload_outputs(out_dir, org, repo_name, repo_id)
+    _logger.info("S3 upload complete: %d files", len(s3_paths))
+
+    return s3_paths, {
+        "total_prs": total_prs,
+        "filtered_prs": filtered_count,
+        "tags": tags_count,
+        "groups": groups_count,
+        "issues": issues_count,
+        "raw_dataset": raw_count,
+    }
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -382,9 +663,23 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        s3_paths, counts = run_swe_pipeline(
-            tokens, out_dir, REPO_ORG, REPO_NAME, repo_id, PIPELINE_MODE,
-        )
+        if PIPELINE_MODE == "rct":
+            s3_paths, counts = run_rct_pipeline(
+                tokens, out_dir, REPO_ORG, REPO_NAME, repo_id, PIPELINE_MODE,
+            )
+        elif PIPELINE_MODE == "lht":
+            s3_paths, counts = run_lht_pipeline(
+                tokens, out_dir, REPO_ORG, REPO_NAME, repo_id, PIPELINE_MODE,
+            )
+        else:
+            if PIPELINE_MODE != "swe":
+                _logger.warning(
+                    "Unknown PIPELINE_MODE=%r, falling back to SWE pipeline",
+                    PIPELINE_MODE,
+                )
+            s3_paths, counts = run_swe_pipeline(
+                tokens, out_dir, REPO_ORG, REPO_NAME, repo_id, PIPELINE_MODE,
+            )
         send_done(s3_paths, counts)
         _logger.info("Pipeline complete: %s", counts)
     except PipelineCancelled:

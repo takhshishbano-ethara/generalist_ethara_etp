@@ -136,7 +136,6 @@
                             <group>
                                 <group>
                                     <field name="delivery_status" widget="badge"/>
-                                    <field name="task_category"/>
                                     <field name="difficulty"/>
                                 </group>
                                 <group>

@@ -416,7 +416,7 @@ class JaegerInstance(models.Model):
     )
     task_category = fields.Selection(
         [
-            ("hard_swe", "Hard SWE"),
+            ("swe", "SWE"),
             ("long_horizon", "Long Horizon"),
             ("real_coder", "Real Coder"),
         ],

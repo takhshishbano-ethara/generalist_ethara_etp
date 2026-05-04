@@ -52,7 +52,7 @@ class TestDatasetConverter(TransactionCase):
 
         converter = MetaSchemaConverter(
             ecr_prefix="123456789.dkr.ecr.us-east-1.amazonaws.com",
-            task_category="hard_swe",
+            task_category="swe",
             repo_category="python_swe",
         )
         inst = self._make_mock_instance()

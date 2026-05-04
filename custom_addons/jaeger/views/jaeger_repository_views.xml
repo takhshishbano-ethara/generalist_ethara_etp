@@ -17,7 +17,6 @@
                        decoration-warning="current_stage in ('stage4','stage5','stage6')"
                        decoration-success="current_stage in ('stage7','done')"
                        decoration-danger="current_stage == 'failed'"/>
-                <field name="user_id" widget="many2one_avatar"/>
                 <field name="stars"/>
                 <field name="raw_dataset_count"/>
                 <field name="images_built_count" column_invisible="1"/>
@@ -113,11 +112,6 @@
                             <field name="language"/>
                             <field name="pipeline_mode"/>
                         </group>
-                        <group>
-                            <field name="user_id"/>
-                            <field name="terminal_state"/>
-                            <field name="task_category"/>
-                        </group>
                     </group>
 
                     <notebook>
@@ -162,9 +156,12 @@
                                 <group>
                                     <field name="issues_fetched_count"/>
                                     <field name="raw_dataset_count"/>
-                                    <field name="prs_jsonl_path" readonly="1"/>
-                                    <field name="raw_dataset_jsonl_path" readonly="1"/>
+                                    <field name="s3_folder_url" widget="url" readonly="1"/>
                                 </group>
+                            </group>
+                            <group string="Collection Timeline" invisible="not pr_collection_log">
+                                <field name="pr_collection_log" readonly="1" nolabel="1"
+                                       widget="text" class="o_field_text"/>
                             </group>
                             <!-- LHT fields -->
                             <group string="LHT Settings" invisible="pipeline_mode != 'lht'">
@@ -183,7 +180,7 @@
                             <button name="action_download_raw_dataset" type="object"
                                     string="Download Raw Dataset JSONL" icon="fa-download"
                                     class="btn-primary mt-3"
-                                    invisible="not raw_dataset_jsonl_path or pr_collection_status != 'done'"/>
+                                    invisible="raw_dataset_count == 0 or pr_collection_status != 'done'"/>
                         </page>
 
                         <!-- Test Config: human-in-the-loop overrides (before Docker Build) -->
@@ -382,10 +379,6 @@
                 <field name="repo_url"/>
                 <field name="org"/>
                 <field name="repo_name"/>
-                <field name="user_id"/>
-                <filter name="my_repos" string="My Repos"
-                        domain="[('user_id', '=', uid)]"/>
-                <separator/>
                 <filter name="stage1" string="Stage 1" domain="[('current_stage', '=', 'stage1')]"/>
                 <filter name="stage2" string="Stage 2" domain="[('current_stage', '=', 'stage2')]"/>
                 <filter name="stage3" string="Stage 3" domain="[('current_stage', '=', 'stage3')]"/>
@@ -394,12 +387,11 @@
                 <filter name="stage6" string="Stage 6" domain="[('current_stage', '=', 'stage6')]"/>
                 <filter name="stage7" string="Stage 7" domain="[('current_stage', '=', 'stage7')]"/>
                 <filter name="done" string="Done" domain="[('current_stage', '=', 'done')]"/>
-                <filter name="failed" string="Failed" domain="[('terminal_state', '!=', 'none')]"/>
+                <filter name="failed" string="Failed" domain="[('current_stage', '=', 'failed')]"/>
                 <separator/>
                 <group>
                     <filter name="group_stage" string="Stage" context="{'group_by': 'current_stage'}"/>
                     <filter name="group_language" string="Language" context="{'group_by': 'language'}"/>
-                    <filter name="group_user" string="Assigned To" context="{'group_by': 'user_id'}"/>
                 </group>
             </search>
         </field>
@@ -411,6 +403,6 @@
         <field name="res_model">jaeger.repository</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_jaeger_repository_search"/>
-        <field name="context">{'search_default_my_repos': 1}</field>
+        <field name="context">{}</field>
     </record>
 </odoo>

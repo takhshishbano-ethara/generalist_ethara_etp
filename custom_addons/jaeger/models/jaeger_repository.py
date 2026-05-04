@@ -61,7 +61,7 @@ LANGUAGE_SELECTION = [
 
 PIPELINE_MODE_SELECTION = [
     ("swe", "SWE (Single-PR Tasks)"),
-    ("hard_swe", "Hard SWE (≥5 files, ≥100 lines)"),
+    ("rct", "RCT (Real Coder — Bounty PRs)"),
     ("lht", "LHT (Long-Horizon Tasks)"),
 ]
 
@@ -76,7 +76,7 @@ TRAJECTORY_STATUS_SELECTION = [
 ]
 
 TASK_CATEGORY_SELECTION = [
-    ("hard_swe", "Hard SWE"),
+    ("swe", "SWE"),
     ("long_horizon", "Long Horizon"),
     ("real_coder", "Real Coder"),
 ]
@@ -167,12 +167,15 @@ class JaegerRepository(models.Model):
     )
     pr_collection_progress = fields.Float(string="PR Collection Progress")
     pr_collection_step = fields.Char(string="Current Step", readonly=True)
+    pr_collection_log = fields.Text(string="Collection Log", readonly=True)
+    s3_folder_url = fields.Char(
+        string="S3 Folder",
+        compute="_compute_s3_folder_url",
+    )
     total_prs_fetched = fields.Integer(string="Total PRs Fetched")
     filtered_prs_count = fields.Integer(string="Filtered PRs")
     issues_fetched_count = fields.Integer(string="Issues Fetched")
     raw_dataset_count = fields.Integer(string="Raw Dataset Count")
-    prs_jsonl_path = fields.Char(string="PRs JSONL Path")
-    filtered_prs_jsonl_path = fields.Char(string="Filtered PRs JSONL Path")
     raw_dataset_jsonl_path = fields.Char(string="Raw Dataset JSONL Path")
 
     # ── Stage 2 (LHT-specific) ───────────────────────────────────────────
@@ -382,12 +385,31 @@ class JaegerRepository(models.Model):
         for rec in self:
             rec.is_admin = is_admin
 
-    @api.depends("raw_dataset_jsonl_path", "final_dataset_jsonl_path")
+    @api.depends("pipeline_mode")
+    def _compute_s3_folder_url(self):
+        bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
+        for rec in self:
+            if not bucket:
+                rec.s3_folder_url = ""
+                continue
+            mode = rec.pipeline_mode or "swe"
+            folder = f"{prefix}/{mode}/{rec.id}/"
+            rec.s3_folder_url = (
+                f"https://s3.console.aws.amazon.com/s3/buckets/{bucket}"
+                f"?region={region}&prefix={folder}"
+            )
+
+    @api.depends("raw_dataset_count", "final_dataset_jsonl_path")
     def _compute_jsonl_previews(self):
         for rec in self:
-            rec.raw_dataset_preview = rec._read_jsonl_preview(
-                rec.raw_dataset_jsonl_path,
-            )
+            if rec.raw_dataset_count:
+                filename = f"{rec.org}__{rec.repo_name}_raw_dataset.jsonl"
+                raw_lines = rec._fetch_lines_from_s3_by_name(filename)
+                rec.raw_dataset_preview = rec._format_preview_lines(raw_lines) if raw_lines else ""
+            else:
+                rec.raw_dataset_preview = ""
             rec.final_dataset_preview = rec._read_jsonl_preview(
                 rec.final_dataset_jsonl_path,
             )
@@ -445,15 +467,15 @@ class JaegerRepository(models.Model):
         except ImportError:
             return None
 
-        ICP = self.env["ir.config_parameter"].sudo()
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
         if not s3_bucket:
             return None
 
+        mode = self.pipeline_mode or "swe"
         filename = os.path.basename(file_path)
-        s3_key = f"{s3_prefix}/{self.id}/{filename}"
+        s3_key = f"{s3_prefix}/{mode}/{self.id}/{filename}"
         try:
             config_kwargs = {"connect_timeout": 10, "read_timeout": 30}
             if os.environ.get("JAEGER_S3_ENDPOINT"):
@@ -473,6 +495,52 @@ class JaegerRepository(models.Model):
         except Exception:
             _logger.debug("S3 preview fallback failed for %s", s3_key, exc_info=True)
             return None
+
+    def _fetch_lines_from_s3_by_name(self, filename):
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            return None
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
+        if not s3_bucket:
+            return None
+        mode = self.pipeline_mode or "swe"
+        s3_key = f"{s3_prefix}/{mode}/{self.id}/{filename}"
+        try:
+            config_kwargs = {"connect_timeout": 10, "read_timeout": 30}
+            if os.environ.get("JAEGER_S3_ENDPOINT"):
+                config_kwargs["s3"] = {"addressing_style": "path"}
+            client = boto3.client(
+                "s3",
+                region_name=s3_region,
+                endpoint_url=os.environ.get("JAEGER_S3_ENDPOINT", f"https://s3.{s3_region}.amazonaws.com"),
+                config=BotoConfig(**config_kwargs),
+            )
+            resp = client.get_object(Bucket=s3_bucket, Key=s3_key)
+            body = resp["Body"].read().decode("utf-8", errors="replace")
+            return body.splitlines(keepends=True)
+        except Exception:
+            _logger.debug("S3 fetch by name failed for %s", s3_key, exc_info=True)
+            return None
+
+    def _format_preview_lines(self, raw_lines, max_lines=20):
+        import json as json_mod
+        lines = []
+        total_lines = len(raw_lines)
+        for i, line in enumerate(raw_lines):
+            if i >= max_lines:
+                break
+            try:
+                obj = json_mod.loads(line)
+                lines.append(json_mod.dumps(obj, indent=2, ensure_ascii=False))
+            except json_mod.JSONDecodeError:
+                lines.append(line.rstrip())
+        if total_lines > max_lines:
+            lines.append(f"\n... ({total_lines - max_lines} more lines)")
+        return "\n".join(lines)
 
     # ── Sequence ──────────────────────────────────────────────────────────
 
@@ -495,7 +563,12 @@ class JaegerRepository(models.Model):
                         "Auto-reset base image for %s (test_config_json changed)",
                         rec.name,
                     )
-        return super().write(vals)
+        res = super().write(vals)
+        step_text = vals.get("pr_collection_step")
+        if step_text:
+            for rec in self:
+                rec._append_collection_log(step_text)
+        return res
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -510,6 +583,18 @@ class JaegerRepository(models.Model):
             [line, line, self.id],
         )
         self.invalidate_recordset(["log_output"])
+
+    def _append_collection_log(self, msg):
+        line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n"
+        self.env.cr.execute(
+            "UPDATE jaeger_repository SET pr_collection_log = "
+            "CASE WHEN LENGTH(COALESCE(pr_collection_log, '')) > 50000 "
+            "THEN RIGHT(pr_collection_log, 40000) || %s "
+            "ELSE COALESCE(pr_collection_log, '') || %s END "
+            "WHERE id = %s",
+            [line, line, self.id],
+        )
+        self.invalidate_recordset(["pr_collection_log"])
 
     def _count_jsonl_lines(self, path):
         try:
@@ -561,7 +646,7 @@ class JaegerRepository(models.Model):
 
     def action_download_raw_dataset(self):
         self.ensure_one()
-        if not self.raw_dataset_jsonl_path:
+        if not self.raw_dataset_count:
             raise UserError("No raw dataset available for download.")
         return {
             "type": "ir.actions.act_url",

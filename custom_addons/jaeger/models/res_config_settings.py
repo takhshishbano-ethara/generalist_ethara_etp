@@ -17,11 +17,6 @@ class JaegerConfigSettings(models.TransientModel):
         config_parameter="jaeger.github_tokens",
         help="Comma-separated GitHub tokens. Prefer the Token Pool under Configuration for new tokens.",
     )
-    jaeger_output_dir = fields.Char(
-        string="Output Directory",
-        config_parameter="jaeger.output_dir",
-        default="/tmp/jaeger_data",
-    )
     jaeger_retry_attempts = fields.Integer(
         string="Retry Attempts",
         config_parameter="jaeger.retry_attempts",
@@ -38,29 +33,10 @@ class JaegerConfigSettings(models.TransientModel):
         default=3,
     )
 
-    # ── K8s Dispatch ──────────────────────────────────────────────────────
-    jaeger_dispatch_mode = fields.Selection(
-        [("local", "Local (Background Thread)"), ("k8s", "Kubernetes (EKS)")],
-        string="Pipeline Dispatch Mode",
-        config_parameter="jaeger.dispatch_mode",
-        default="k8s",
-    )
-
     # ── S3 Storage ────────────────────────────────────────────────────────
-    jaeger_s3_bucket = fields.Char(
-        string="S3 Bucket",
-        config_parameter="jaeger.s3_bucket",
-    )
-    jaeger_s3_region = fields.Char(
-        string="S3 Region",
-        config_parameter="jaeger.s3_region",
-        default="ap-south-1",
-    )
-    jaeger_s3_prefix = fields.Char(
-        string="S3 Key Prefix",
-        config_parameter="jaeger.s3_prefix",
-        default="jaeger/phase1",
-    )
+    # S3 bucket/region/prefix are now sourced exclusively from environment
+    # variables (JAEGER_S3_BUCKET, JAEGER_S3_REGION, JAEGER_S3_PREFIX).
+    # DevOps sets these in the deployment manifest; end users don't manage them.
 
     # ── Docker / ECR ──────────────────────────────────────────────────────
     jaeger_docker_workdir = fields.Char(
@@ -105,22 +81,13 @@ class JaegerConfigSettings(models.TransientModel):
     )
 
     # ── Webhook ───────────────────────────────────────────────────────────
-    jaeger_webhook_base_url = fields.Char(
-        string="Webhook Base URL",
-        config_parameter="jaeger.webhook_base_url",
-        help="Base URL for webhook callbacks from K8s pods (e.g. http://odoo-service.ethara.svc.cluster.local:8069). "
-             "Must be reachable from K8s pods. Falls back to web.base.url if not set.",
-    )
+    # Webhook base URL and tokens are now sourced exclusively from environment
+    # variables (JAEGER_WEBHOOK_BASE_URL, JAEGER_WEBHOOK_TOKEN).
+    # DevOps sets these in the deployment manifest; end users don't manage them.
     jaeger_webhook_secret = fields.Char(
         string="Webhook Secret",
         config_parameter="jaeger.webhook_secret",
         help="Shared secret for authenticating trajectory webhook callbacks from EKS.",
-    )
-    jaeger_pipeline_webhook_token = fields.Char(
-        string="Pipeline Webhook Token",
-        config_parameter="jaeger.pipeline_webhook_token",
-        help="Shared token for authenticating pipeline webhook callbacks from scrape pods. "
-             "If set, overrides the JAEGER_WEBHOOK_TOKEN environment variable.",
     )
 
     # ── EKS ───────────────────────────────────────────────────────────────
