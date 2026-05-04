@@ -216,27 +216,36 @@
                             </p>
                         </div>
 
-                        <div class="vk-charts vk-charts-2">
+                        <div class="vk-charts vk-charts-3">
                             <figure class="vk-chart vk-chart--hero">
-                                <button type="button" class="vk-chart-trigger" aria-label="Preview performance-by-difficulty chart full size">
+                                <button type="button" class="vk-chart-trigger" aria-label="Preview success rate by difficulty chart full size">
                                     <img src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
-                                         alt="Bar chart: Valkyrie resolution rate by difficulty across Kimi K2.5 and Nova 2 Lite"
+                                         alt="Line chart: success rate by difficulty for Kimi K2.5 and Nova 2 Lite"
                                          loading="lazy"/>
                                     <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
                                 </button>
-                                <figcaption>Fig. 1 — Performance by difficulty</figcaption>
+                                <figcaption>Fig. 1 — Success rate by difficulty</figcaption>
                             </figure>
                             <figure class="vk-chart">
-                                <button type="button" class="vk-chart-trigger" aria-label="Preview failure-mode distribution chart full size">
-                                    <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
-                                         alt="Distribution chart: failure-reason breakdown across the 18 unresolved instances"
+                                <button type="button" class="vk-chart-trigger" aria-label="Preview resolution rate by CWE class chart full size">
+                                    <img src="/valkyrie_dashboard/static/src/portal/img/resolution_by_cwe.png"
+                                         alt="Lollipop chart: resolution rate by CWE vulnerability class"
                                          loading="lazy"/>
                                     <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
                                 </button>
-                                <figcaption>Fig. 2 — Failure-mode distribution</figcaption>
+                                <figcaption>Fig. 2 — Resolution rate by CWE class</figcaption>
+                            </figure>
+                            <figure class="vk-chart">
+                                <button type="button" class="vk-chart-trigger" aria-label="Preview failure reasons distribution chart full size">
+                                    <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
+                                         alt="Dumbbell chart: failure reason breakdown across resolved and unresolved instances"
+                                         loading="lazy"/>
+                                    <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                                </button>
+                                <figcaption>Fig. 3 — Failure-mode distribution</figcaption>
                             </figure>
                         </div>
-                        <p class="vk-caption">Resolution rate by difficulty (Fig. 1) and failure-mode breakdown across the 18 unresolved attempts (Fig. 2). See <a href="#instances">§05</a> for per-instance receipts.</p>
+                        <p class="vk-caption">Success rate by difficulty (Fig. 1), resolution rate per CWE class (Fig. 2), and failure-mode breakdown (Fig. 3). See <a href="#instances">§05</a> for per-instance details.</p>
                     </section>
 
                     <!-- ================= §05 INSTANCES ================= -->

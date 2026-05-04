@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_projects_hub" name="Ethara Projects Hub">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Projects — Ethara AI Labs</title>
+      <meta name="description" content="Central hub for all Ethara AI project dashboards: Kaiju, Kraken, Aurora, Valkyrie, and Tesseract."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('eph:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <link rel="stylesheet" href="/ethara_projects_hub/static/src/portal/css/projects_hub_portal.css"/>
+      <script src="/ethara_projects_hub/static/src/portal/js/projects_hub_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">PROJECTS</h1>
+      <span class="badge">HUB</span>
+    </div>
+    <hr class="rule" />
+    <p class="thesis">All Ethara Dashboards in <em>One Place</em></p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+  </header>
+
+  <main id="main">
+
+  <section class="section" id="projects" aria-labelledby="projects-label">
+    <p class="section-label" id="projects-label">Project Dashboards</p>
+    <p class="section-desc">Click any project card to open its dedicated dashboard.</p>
+
+    <div class="projects-grid">
+      <t t-foreach="projects" t-as="project">
+        <a class="project-card" t-att-href="project['url']" target="_blank" rel="noopener noreferrer">
+          <div class="project-icon">
+            <span class="project-initial" t-esc="project['name'][0]"/>
+          </div>
+          <h3 class="project-name" t-esc="project['name']"/>
+          <span class="project-arrow">&#x2197;</span>
+        </a>
+      </t>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono">&#xA9; 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> &#xB7; Projects Hub</p>
+    </div>
+  </footer>
+
+</div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>
