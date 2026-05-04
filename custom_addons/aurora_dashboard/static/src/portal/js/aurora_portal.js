@@ -569,7 +569,7 @@
 
     var countEl = document.getElementById("au-eval-count");
     if (countEl) {
-      countEl.textContent = evalFilteredData.length + " of " + evalAllData.length + " instances";
+      countEl.textContent = evalFilteredData.length + " of 10,000 instances";
     }
 
     evalRenderPagination();
