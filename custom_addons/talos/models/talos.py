@@ -392,7 +392,7 @@ def _is_degenerate_output(text):
 
 
 def generate_task_description_sync(env, seed_prompt, messages_json):
-    """Call Kimi/Bedrock to generate a single-line task description.
+    """Call Qwen/Bedrock to generate a single-line task description.
 
     Returns:
         Tuple of (description_string, usage_dict).
@@ -636,12 +636,10 @@ model_list:
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
-  - model_name: kimi-k2.5
+  - model_name: qwen-3-32b
     litellm_params:
-      model: bedrock/converse/{kimi_bedrock_arn}
-      aws_region_name: {kimi_aws_region}
-      reasoning_effort: high
-      allowed_openai_params: ["reasoning_effort"]
+      model: bedrock/converse/{qwen_bedrock_arn}
+      aws_region_name: {qwen_aws_region}
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -719,6 +717,15 @@ class Talos(models.Model):
         search="_search_is_talos_admin",
     )
 
+    # True when current user is a Quality Lead or a Project Lead. Gates UI
+    # affordances that should be available to both roles (e.g. Regenerate
+    # Description on trajectory sessions). Kept separate from
+    # `is_talos_admin` (QL-only) so widening access later doesn't silently
+    # broaden that existing flag.
+    is_ql_or_pl = fields.Boolean(
+        compute="_compute_is_ql_or_pl",
+    )
+
     @api.depends_context("uid")
     def _compute_is_talos_admin(self):
         is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
@@ -732,6 +739,16 @@ class Talos(models.Model):
         if (operator == "=" and value) or (operator == "!=" and not value):
             return [] if is_admin else [("id", "=", False)]
         return [("id", "=", False)] if is_admin else []
+
+    @api.depends_context("uid")
+    def _compute_is_ql_or_pl(self):
+        user = self.env.user
+        allowed = (
+            user.has_group("etp_user_roles.group_quality_lead")
+            or user.has_group("etp_user_roles.group_project_lead")
+        )
+        for rec in self:
+            rec.is_ql_or_pl = allowed
 
     task_id = fields.Char(string="Task ID", readonly=True, copy=False)
     parsona = fields.Many2one("talos.domain", string="Parsona")
@@ -918,10 +935,10 @@ class Talos(models.Model):
     # Golden trajectory generation tokens
     golden_input_tokens = fields.Integer(string="Golden Gen Input Tokens", default=0)
     golden_output_tokens = fields.Integer(string="Golden Gen Output Tokens", default=0)
-    # Kimi auto-hint evaluation tokens
-    kimi_eval_input_tokens = fields.Integer(string="Kimi Eval Input Tokens", default=0)
+    # Qwen auto-hint evaluation tokens
+    kimi_eval_input_tokens = fields.Integer(string="Qwen Eval Input Tokens", default=0)
     kimi_eval_output_tokens = fields.Integer(
-        string="Kimi Eval Output Tokens", default=0
+        string="Qwen Eval Output Tokens", default=0
     )
 
     # Auto-process (RabbitMQ batch processing)
@@ -1164,7 +1181,7 @@ class Talos(models.Model):
         self.ensure_one()
         if not self.claude_trajectory and not self.glm_trajectory:
             raise UserError(
-                "At least one of Claude or Kimi trajectory is required. "
+                "At least one of Claude or Qwen trajectory is required. "
                 "Stop the corresponding sandbox first to capture its trajectory."
             )
         if not self.persona_id:

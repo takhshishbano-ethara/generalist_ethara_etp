@@ -207,12 +207,12 @@ class TestAutoHintHelpers(TalosTestCase):
 @tagged("post_install", "-at_install")
 class TestAutoHintAccumulateTokens(TalosTestCase):
 
-    def test_accumulate_kimi_tokens(self):
-        from odoo.addons.talos.controllers.auto_hint import _accumulate_kimi_tokens
+    def test_accumulate_qwen_tokens(self):
+        from odoo.addons.talos.controllers.auto_hint import _accumulate_qwen_tokens
 
         self.task.write({"kimi_eval_input_tokens": 100, "kimi_eval_output_tokens": 50})
 
-        _accumulate_kimi_tokens(
+        _accumulate_qwen_tokens(
             self.env, self.task.id,
             {"input_tokens": 25, "output_tokens": 10},
         )

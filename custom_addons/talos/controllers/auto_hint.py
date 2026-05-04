@@ -123,7 +123,7 @@ def _format_conversation(messages):
     return "\n".join(lines)
 
 
-def _call_kimi_with_retry(
+def _call_qwen_with_retry(
     api_key,
     inference_arn,
     region,
@@ -347,7 +347,7 @@ def _auto_hint_eval_bg(
 
             # Phase 2: call Bedrock (long-running, no cursor held)
             try:
-                eval_response = _call_kimi_with_retry(
+                eval_response = _call_qwen_with_retry(
                     api_key, inference_arn, region, sat_message,
                     "auto_hint eval", sandbox_id, turn_id, iteration,
                     total_usage,
@@ -359,7 +359,7 @@ def _auto_hint_eval_bg(
                 )
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
-                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    _accumulate_qwen_tokens(env, task_id, total_usage)
                     sandbox = env["talos.sandbox"].browse(sandbox_id)
                     _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
@@ -373,7 +373,7 @@ def _auto_hint_eval_bg(
                 )
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
-                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    _accumulate_qwen_tokens(env, task_id, total_usage)
                     sandbox = env["talos.sandbox"].browse(sandbox_id)
                     _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
@@ -392,7 +392,7 @@ def _auto_hint_eval_bg(
             if satisfied:
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
-                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    _accumulate_qwen_tokens(env, task_id, total_usage)
                     turn = env["talos.turn"].browse(turn_id)
                     if turn.exists():
                         turn.write({"feedback": "satisfied"})
@@ -421,7 +421,7 @@ def _auto_hint_eval_bg(
                 _logger.warning("auto_hint bg: no auto_hint_gen.md")
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
-                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    _accumulate_qwen_tokens(env, task_id, total_usage)
                     sandbox = env["talos.sandbox"].browse(sandbox_id)
                     _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
@@ -440,7 +440,7 @@ def _auto_hint_eval_bg(
             )
 
             try:
-                hint_response = _call_kimi_with_retry(
+                hint_response = _call_qwen_with_retry(
                     api_key, inference_arn, region, hint_message,
                     "auto_hint gen", sandbox_id, turn_id, iteration,
                     total_usage,
@@ -452,7 +452,7 @@ def _auto_hint_eval_bg(
                 )
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
-                    _accumulate_kimi_tokens(env, task_id, total_usage)
+                    _accumulate_qwen_tokens(env, task_id, total_usage)
                     sandbox = env["talos.sandbox"].browse(sandbox_id)
                     _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id)
                 return
@@ -471,7 +471,7 @@ def _auto_hint_eval_bg(
 
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
-                _accumulate_kimi_tokens(env, task_id, total_usage)
+                _accumulate_qwen_tokens(env, task_id, total_usage)
                 turn = env["talos.turn"].browse(turn_id)
                 sandbox = env["talos.sandbox"].browse(sandbox_id)
 
@@ -524,7 +524,7 @@ def _auto_hint_eval_bg(
             )
 
 
-def _accumulate_kimi_tokens(env, task_id, usage):
+def _accumulate_qwen_tokens(env, task_id, usage):
     try:
         t_in = usage.get("input_tokens", 0)
         t_out = usage.get("output_tokens", 0)
