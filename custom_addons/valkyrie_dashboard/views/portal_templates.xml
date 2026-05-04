@@ -71,7 +71,7 @@
                             <span class="vk-badge">SECURITY VULNERABILITY REMEDIATION</span>
                         </div>
                         <hr class="vk-rule"/>
-                        <p class="vk-thesis">Can AI coding agents patch the bugs attackers <em>exploit</em>?</p>
+                        <p class="vk-thesis">How well do AI agents fix security vulnerability <em>in real codebases?</em>?</p>
                     </header>
 
                     <main id="main">
@@ -137,14 +137,14 @@
                         <div class="vk-pipeline-frame">
                             <div class="vk-pipeline-intro">
                                 <p class="vk-pipeline-eyebrow vk-mono">The method</p>
-                                <h2 class="vk-pipeline-title">Four stages turn a known CWE into a scored benchmark.</h2>
+                                <h2 class="vk-pipeline-title">Four stages turn a known CWE into a scored RL environment.</h2>
                                 <p class="vk-pipeline-sub">Two to build the dataset, two to evaluate any model against it.</p>
                             </div>
 
                             <h3 class="vk-phase-tier-header">
-                                <span class="vk-tier-n vk-mono">A</span>
-                                <span class="vk-tier-t">Build the benchmark</span>
-                                <span class="vk-tier-hint vk-mono">runs once</span>
+                                <!-- <span class="vk-tier-n vk-mono">A</span>
+                                <span class="vk-tier-t">Build the benchmark</span> -->
+                                <!-- <span class="vk-tier-hint vk-mono">runs once</span> -->
                             </h3>
                             <div class="vk-pipeline vk-pipeline-a">
                                 <article class="vk-phase">
@@ -168,9 +168,9 @@
                             </div>
 
                             <h3 class="vk-phase-tier-header vk-tier-exec">
-                                <span class="vk-tier-n vk-mono">B</span>
+                                <!-- <span class="vk-tier-n vk-mono">B</span>
                                 <span class="vk-tier-t">Run the benchmark</span>
-                                <span class="vk-tier-hint vk-mono">runs per model</span>
+                                <span class="vk-tier-hint vk-mono">runs per model</span> -->
                             </h3>
                             <div class="vk-pipeline vk-pipeline-b">
                                 <article class="vk-phase vk-phase-exec">
@@ -206,12 +206,12 @@
                                 <span class="vk-tok-kimi">Kimi K2.5</span> resolves <b class="vk-reveal-big">2 of 20</b>.
                                 <span class="vk-tok-nova">Nova 2 Lite</span> resolves <b class="vk-reveal-big">0 of 20</b>.
                             </p>
-                            <p class="vk-reveal-line vk-reveal-kicker">
+                            <!-- <p class="vk-reveal-line vk-reveal-kicker">
                                 Only Kimi crosses the line, and neither model closes a <b>Hard</b> instance.
-                            </p>
-                            <p class="vk-reveal-cost vk-mono">
+                            </p> -->
+                            <!-- <p class="vk-reveal-cost vk-mono">
                                 One model is <b>~23× more expensive</b>, and is the only one that scores at all.
-                            </p>
+                            </p> -->
                         </div>
 
                         <div class="vk-charts vk-charts-3">
@@ -258,7 +258,7 @@
                     <!-- ================= §05 INSTANCES ================= -->
                     <section class="vk-section" id="instances" aria-labelledby="vk-instances-label">
                         <p class="vk-section-label" id="vk-instances-label">§05 · Instances</p>
-                        <p class="vk-section-desc">Every run, receipt-by-receipt. Click any row to expand full problem statement, test counts, and per-model timing + cost.</p>
+                        <p class="vk-section-desc">Each run is documented on a receipt-by-receipt basis. You may click on any row to view the complete problem statement, along with test counts and detailed per-model timing and cost information.</p>
 
                         <!-- KPI row -->
                         <div class="vk-kpi-row" aria-label="Headline statistics for 20 evaluation runs">
