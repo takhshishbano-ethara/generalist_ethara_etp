@@ -142,6 +142,36 @@ class EvalConfig:
                     except Exception:
                         pass
 
+    def _load_external_registry(self):
+        import importlib
+        try:
+            from ..harness_bridge.phase2_docker_build import (
+                _HARNESS_REPOS_ROOT,
+                _ensure_harness_importable,
+            )
+        except Exception:
+            return
+        if not _HARNESS_REPOS_ROOT.is_dir():
+            return
+        _ensure_harness_importable()
+        for lang_dir in sorted(_HARNESS_REPOS_ROOT.iterdir()):
+            if not lang_dir.is_dir() or lang_dir.name.startswith("_"):
+                continue
+            for org_dir in sorted(lang_dir.iterdir()):
+                if not org_dir.is_dir() or org_dir.name.startswith("_"):
+                    continue
+                for py_file in sorted(org_dir.glob("*.py")):
+                    if py_file.name.startswith("_"):
+                        continue
+                    mod_name = (
+                        f"multi_swe_bench.harness.repos"
+                        f".{lang_dir.name}.{org_dir.name}.{py_file.stem}"
+                    )
+                    try:
+                        importlib.import_module(mod_name)
+                    except Exception:
+                        pass
+
     @property
     def logger(self) -> logging.Logger:
         if not hasattr(self, "_logger"):
@@ -179,21 +209,21 @@ class EvalConfig:
         if not hasattr(self, "_dataset"):
             self.logger.info("Loading datasets...")
             self._dataset: dict[str, Dataset] = {}
+            self._dataset_parse_failures: list[tuple[str, int, str]] = []
+            self._dataset_total_lines: int = 0
             for file_path in self._dataset_files:
-                import sys
-                print(f"DATASET_DEBUG: opening {file_path}", file=sys.stderr, flush=True)
                 with open(file_path, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                print(f"DATASET_DEBUG: {len(lines)} lines in file", file=sys.stderr, flush=True)
                 for i, line in enumerate(lines):
                     if line.strip() == "":
                         continue
+                    self._dataset_total_lines += 1
                     try:
                         ds = Dataset.from_json(line)
-                        print(f"DATASET_DEBUG: parsed line {i}: {ds.id}", file=sys.stderr, flush=True)
                     except Exception as e:
-                        print(f"DATASET_DEBUG: FAILED line {i}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-                        self.logger.error(f"Dataset.from_json failed: {type(e).__name__}: {e}")
+                        err = f"{type(e).__name__}: {e}"
+                        self.logger.error(f"Dataset.from_json failed: {err}")
+                        self._dataset_parse_failures.append((str(file_path), i + 1, err))
                         continue
                     if not self.check_specific(ds.id):
                         continue
@@ -213,6 +243,10 @@ class EvalConfig:
             except Exception as e:
                 self.logger.warning(f"Bulk repo import failed: {e}")
                 self._load_repos_individually()
+
+        # Also scan the external harness registry root (GitHub-synced repos
+        # that live outside the aurora addon tree, e.g. on EKS pods).
+        self._load_external_registry()
 
         def list_to_dict(env: Optional[list[str]]) -> Optional[dict[str, str]]:
             if env is None or len(env) == 0:

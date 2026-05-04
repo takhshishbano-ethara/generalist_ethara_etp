@@ -127,6 +127,26 @@
                                  help="K8s Secret containing AURORA_ENCRYPTION_KEY. Injected as env var.">
                             <field name="aurora_k8s_secret" placeholder="aurora-secrets"/>
                         </setting>
+                        <setting string="Webhook Secret"
+                                 help="Shared secret for worker progress webhooks. Worker pods send this as X-Aurora-Token header. Encrypted at rest. Also inject into worker pods as AURORA_WEBHOOK_SECRET env var.">
+                            <field name="aurora_webhook_secret" password="True"/>
+                        </setting>
+                        <setting string="Webhook URL"
+                                 help="Public base URL where k8s worker pods POST pipeline progress. Typically the Odoo URL (e.g. https://odoo.your-domain.com). Leave empty to disable webhook notifications from k8s workers.">
+                            <field name="aurora_webhook_url" placeholder="https://odoo.your-domain.com"/>
+                        </setting>
+                        <setting string="Harness Git Repo"
+                                 help="owner/repo slug for the multi-swe-bench harness. UI uploads are committed here; worker pods sync from here.">
+                            <field name="aurora_harness_git_repo" placeholder="EtharaAI/multi-swe-bench"/>
+                        </setting>
+                        <setting string="Harness Git Branch"
+                                 help="Branch of the harness repo to read and write.">
+                            <field name="aurora_harness_git_branch" placeholder="main"/>
+                        </setting>
+                        <setting string="GitHub Registry Write Token"
+                                 help="GitHub Personal Access Token (PAT) with contents:write scope on the harness repo. Used to commit UI-uploaded registry files. Encrypted at rest. Injected into worker pods as AURORA_HARNESS_GIT_TOKEN env var.">
+                            <field name="aurora_github_registry_write_token" password="True"/>
+                        </setting>
                     </block>
 
                 </app>

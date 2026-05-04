@@ -25,6 +25,24 @@ _LOG_KINDS = {
 _MAX_TAIL_BYTES = 5 * 1024 * 1024
 
 
+def _is_path_under_base(candidate: str, allowed_base: str) -> bool:
+    """Resolve *candidate* and ensure it lives inside *allowed_base*.
+
+    Guards against DB-controlled paths like ``/etc/passwd`` being streamed
+    through this endpoint. Symlink escapes are blocked by ``realpath``.
+    """
+    if not candidate or not allowed_base:
+        return False
+    try:
+        real_path = os.path.realpath(candidate)
+        real_base = os.path.realpath(allowed_base)
+    except (OSError, ValueError):
+        return False
+    if not real_base:
+        return False
+    return real_path == real_base or real_path.startswith(real_base + os.sep)
+
+
 class AuroraEvaluationInstanceController(http.Controller):
 
     @http.route(
@@ -50,6 +68,15 @@ class AuroraEvaluationInstanceController(http.Controller):
             offset_int = 0
 
         if local_path and os.path.isfile(local_path):
+            allowed_base = request.env["ir.config_parameter"].sudo().get_param(
+                "aurora.output_dir", "/tmp/aurora_output",
+            )
+            if not _is_path_under_base(local_path, allowed_base):
+                _logger.warning(
+                    "Aurora file_viewer: rejecting out-of-base path %r for instance %s (base=%r)",
+                    local_path, instance_id, allowed_base,
+                )
+                return request.not_found()
             try:
                 size = os.path.getsize(local_path)
                 if offset_int < 0 or offset_int > size:

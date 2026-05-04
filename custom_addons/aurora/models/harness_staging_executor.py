@@ -192,10 +192,14 @@ def _run_staging_test(db_name, uid, rec_id):
                     continue
                 entry = json.loads(line)
                 if entry.get("org") == org and entry.get("repo") == repo:
+                    from odoo.addons.aurora.models.evaluation import AuroraEvaluation
+                    number = AuroraEvaluation._resolve_entry_number(entry)
+                    if number is None:
+                        continue
                     patch_entry = {
                         "org": entry["org"],
                         "repo": entry["repo"],
-                        "number": entry["number"],
+                        "number": number,
                         "fix_patch": entry.get("fix_patch", ""),
                     }
                     f_out.write(json.dumps(patch_entry, ensure_ascii=False) + "\n")
@@ -331,3 +335,23 @@ def submit_test_async(db_name: str, uid: int, rec_id: int) -> bool:
         return False
     _executor.submit(_run_staging_test, db_name, uid, rec_id)
     return True
+
+
+def is_test_slot_available() -> bool:
+    """Return True if a staging test can start right now, False if busy.
+
+    The executor uses a single-slot semaphore; only one staging test runs at a
+    time to avoid races on the process-global ``Instance._registry``. This
+    helper lets the UI-action layer surface a UserError up front instead of
+    silently dropping the request in ``submit_test_async``.
+
+    Not thread-safe vs. ``submit_test_async`` (TOCTOU race window), but the
+    tail-call to ``submit_test_async`` via ``cr.postcommit`` still returns
+    False and logs a warning if we lose the race. The user at least gets an
+    accurate answer in the common case.
+    """
+    acquired = _semaphore.acquire(blocking=False)
+    if acquired:
+        _semaphore.release()
+        return True
+    return False

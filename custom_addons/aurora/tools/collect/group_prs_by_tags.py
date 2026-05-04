@@ -57,6 +57,7 @@ Outputs: {org}__{repo}_tag_groups.jsonl — one record per bundle:
 
 import argparse
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -68,9 +69,11 @@ from github import GithubException
 from tqdm import tqdm
 
 try:
-    from .util import get_tokens, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
 except ImportError:
-    from util import get_tokens, AuroraPipelineError, TokenRotator
+    from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name, clone_repo_bare
+
+_logger = logging.getLogger(__name__)
 
 
 # GitHub compare API hard limit
@@ -228,54 +231,8 @@ def _extract_pr_numbers(message: str) -> list[int]:
     return numbers
 
 
-def _ensure_repo_cloned(org: str, repo: str, cache_dir: str) -> Optional[Path]:
-    """Ensure the repo is cloned as a bare blobless clone. Returns path or None."""
-    cache_path = Path(cache_dir)
-    cache_path.mkdir(parents=True, exist_ok=True)
-    repo_path = cache_path / f"{org}__{repo}.git"
-
-    if repo_path.exists():
-        # Fetch latest + tags
-        print(f"  Fetching latest for cached {org}/{repo}")
-        try:
-            subprocess.run(
-                ["git", "-C", str(repo_path), "fetch", "--tags", "--force", "--quiet"],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            FileNotFoundError,
-        ) as e:
-            print(f"  Warning: fetch failed for {org}/{repo}: {e}")
-        return repo_path
-
-    print(f"  Cloning {org}/{repo} (bare, blobless)...")
-    url = f"https://github.com/{org}/{repo}.git"
-    try:
-        result = subprocess.run(
-            ["git", "clone", "--bare", "--filter=blob:none", url, str(repo_path)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-    except FileNotFoundError:
-        print(
-            "  Error: git not installed. Ancestry checks and git-log attribution disabled."
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        print(f"  Error: clone timed out for {org}/{repo}.")
-        return None
-
-    if result.returncode != 0:
-        print(f"  Error: clone failed for {org}/{repo}: {result.stderr.strip()}")
-        return None
-
-    print(f"  Clone complete for {org}/{repo}")
-    return repo_path
+def _ensure_repo_cloned(org: str, repo: str, cache_dir: str, auth_token: str = "") -> Optional[Path]:
+    return clone_repo_bare(org, repo, cache_dir, auth_token=auth_token)
 
 
 # ---------------------------------------------------------------------------
@@ -333,11 +290,11 @@ def _filter_pre_releases(tags: list[dict]) -> list[dict]:
     """Filter out pre-release tags. Keep all if ONLY pre-releases exist."""
     stable = [t for t in tags if not t.get("is_pre_release", False)]
     if not stable:
-        print("  All tags are pre-releases — keeping them all")
+        _logger.info("  All tags are pre-releases — keeping them all")
         return tags
     filtered_count = len(tags) - len(stable)
     if filtered_count > 0:
-        print(f"  Filtered {filtered_count} pre-release tags, {len(stable)} remaining")
+        _logger.info(f"  Filtered {filtered_count} pre-release tags, {len(stable)} remaining")
     return stable
 
 
@@ -434,7 +391,7 @@ def _collect_prs_for_pair(
     try:
         comparison = r.compare(base_sha, head_sha)
         if comparison.total_commits > _COMPARE_COMMITS_CAP:
-            print(
+            _logger.info(
                 f"  {base_tag['name']}..{head_tag['name']}: "
                 f"{comparison.total_commits} commits (>{_COMPARE_COMMITS_CAP}), "
                 f"compare API capped"
@@ -457,7 +414,7 @@ def _collect_prs_for_pair(
         else:
             use_date_fallback = True
         if use_date_fallback:
-            print(
+            _logger.info(
                 f"  Compare API failed for {base_tag['name']}..{head_tag['name']}: {e}"
             )
 
@@ -492,7 +449,7 @@ def _collect_prs_for_pair(
                 if merged_at and base_date < merged_at <= head_date:
                     _add(pr_num, "date_range")
     elif not found and comparison_shas:
-        print(
+        _logger.info(
             f"  {base_tag['name']}..{head_tag['name']}: "
             f"{len(comparison_shas)} commits but 0 matched any PR, "
             f"skipping (likely sub-project tags)"
@@ -619,10 +576,12 @@ def main(
     window_days: int = 30,
     cache_dir: str = ".repo_cache",
 ):
-    print("starting group PRs by version tags (multi-layered strategy)")
-    print(f"Output directory: {out_dir}")
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
+    _logger.info("starting group PRs by version tags (multi-layered strategy)")
+    validate_name(org, "org")
+    validate_name(repo, "repo")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
 
     # Load tags (now with parsed scheme, release_line, sort_key, etc.)
     tags_file = out_dir / f"{org}__{repo}_tags.jsonl"
@@ -630,20 +589,20 @@ def main(
     if tags_file.exists():
         with open(tags_file, "r", encoding="utf-8") as f:
             tags = [json.loads(line) for line in f if line.strip()]
-    print(f"Loaded {len(tags)} tags")
+    _logger.info(f"Loaded {len(tags)} tags")
 
     # Load all merged PRs
-    prs_file = out_dir / f"{org}__{repo}_filtered_prs.jsonl"
+    prs_file = out_dir / f"{org}__{repo}_lht_filtered_prs.jsonl"
     if not prs_file.exists():
         raise AuroraPipelineError(f"No PR file found at {prs_file}")
 
     prs: list[dict] = []
     with open(prs_file, "r", encoding="utf-8") as f:
         prs = [json.loads(line) for line in f if line.strip()]
-    print(f"Loaded {len(prs)} PRs from {prs_file.name}")
+    _logger.info(f"Loaded {len(prs)} PRs from {prs_file.name}")
 
     if not prs:
-        print("No PRs to group. Exiting.")
+        _logger.info("No PRs to group. Exiting.")
         return
 
     # Build lookups
@@ -658,11 +617,11 @@ def main(
             pr_by_number[num] = pr
 
     # Ensure repo is cloned for git operations (ancestry check, git log)
-    repo_path = _ensure_repo_cloned(org, repo, cache_dir)
+    repo_path = _ensure_repo_cloned(org, repo, cache_dir, auth_token=tokens[0] if tokens else "")
     if repo_path:
-        print(f"  Git repo ready at {repo_path}")
+        _logger.info(f"  Git repo ready at {repo_path}")
     else:
-        print(
+        _logger.warning(
             "  Warning: no git clone available. Ancestry checks disabled, "
             "falling back to compare API only."
         )
@@ -677,7 +636,7 @@ def main(
         if len(filtered_tags) >= 2:
             release_groups = _group_tags_by_release_line(filtered_tags)
 
-            print(f"Release lines: {list(release_groups.keys())}")
+            _logger.info(f"Release lines: {list(release_groups.keys())}")
 
             assigned_pr_numbers: set[int] = set()
             existing_pairs: set[tuple[str, str]] = set()
@@ -702,7 +661,7 @@ def main(
 
                     # Layer 2: Ancestry verification
                     if repo_path and not _is_ancestor(repo_path, base_sha, head_sha):
-                        print(
+                        _logger.info(
                             f"  Skipping {base_tag['name']}..{head_tag['name']}: "
                             f"NOT ancestor (parallel branch or imported tag)"
                         )
@@ -727,13 +686,13 @@ def main(
                     org, repo, groups, existing_pairs,
                 )
 
-            print(f"Version-range grouping produced {len(groups)} groups")
+            _logger.info(f"Version-range grouping produced {len(groups)} groups")
 
     # Fallback to time-window grouping
     if not groups:
-        print("No version-range groups; falling back to time-window grouping")
+        _logger.info("No version-range groups; falling back to time-window grouping")
         groups = _group_by_time_window(prs, window_days)
-        print(f"Time-window grouping produced {len(groups)} groups")
+        _logger.info(f"Time-window grouping produced {len(groups)} groups")
 
     # Write output
     out_file = out_dir / f"{org}__{repo}_tag_groups.jsonl"
@@ -748,8 +707,8 @@ def main(
     for g in groups:
         for method, count in g.get("attribution_methods", {}).items():
             total_methods[method] = total_methods.get(method, 0) + count
-    print(f"Attribution methods: {total_methods}")
-    print(f"Wrote {len(groups)} groups ({total_prs} total PRs) to {out_file}")
+    _logger.info(f"Attribution methods: {total_methods}")
+    _logger.info(f"Wrote {len(groups)} groups ({total_prs} total PRs) to {out_file}")
 
 
 if __name__ == "__main__":

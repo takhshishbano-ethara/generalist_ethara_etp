@@ -10,7 +10,22 @@ from typing import Optional, Union
 
 import docker
 
-docker_client = docker.from_env(timeout=600)
+_docker_client = None
+
+
+def _get_docker_client():
+    global _docker_client
+    if _docker_client is None:
+        _docker_client = docker.from_env(timeout=600)
+    return _docker_client
+
+
+class _LazyClientProxy:
+    def __getattr__(self, name):
+        return getattr(_get_docker_client(), name)
+
+
+docker_client = _LazyClientProxy()
 
 
 def exists(image_name: str) -> bool:

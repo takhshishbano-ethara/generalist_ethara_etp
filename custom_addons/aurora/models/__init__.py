@@ -15,3 +15,4 @@ from . import harness_staging_executor
 from . import harness_staging
 from . import preview_wizard
 from . import registry_wizard
+from . import registry_git_sync

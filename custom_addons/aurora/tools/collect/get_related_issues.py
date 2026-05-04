@@ -17,15 +17,18 @@
 
 import argparse
 import json
+import logging
 import re
 from pathlib import Path
 
 from tqdm import tqdm
 
 try:
-    from .util import get_tokens, AuroraPipelineError, TokenRotator
+    from .util import get_tokens, AuroraPipelineError, TokenRotator, validate_name
 except ImportError:
-    from util import get_tokens, AuroraPipelineError, TokenRotator
+    from util import get_tokens, AuroraPipelineError, TokenRotator, validate_name
+
+_logger = logging.getLogger(__name__)
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -49,26 +52,34 @@ def get_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(tokens, out_dir: Path, filtered_prs_file: Path):
-    print("starting get all related issues")
-    print(f"Output directory: {out_dir}")
-    print(f"Using {len(tokens)} token(s)")
-    print(f"Pull file: {filtered_prs_file}")
+def main(tokens, out_dir: Path, filtered_prs_file: Path, progress_callback=None):
+    _logger.info("starting get all related issues")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"Using {len(tokens)} token(s)")
+    _logger.info(f"Pull file: {filtered_prs_file}")
 
-    org_repo_re = re.compile(r"(.+)__(.+?)_filtered_prs.jsonl")
+    org_repo_re = re.compile(r"(.+)__(.+?)_(?:lht_)?filtered_prs.jsonl")
     m = org_repo_re.match(filtered_prs_file.name)
     if not m:
         raise AuroraPipelineError(f"Invalid pull file name: {filtered_prs_file.name}")
 
     org = m.group(1)
     repo = m.group(2)
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
+    validate_name(org, "org")
+    validate_name(repo, "repo")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
 
+    target_issues: set[int] = set()
     with open(filtered_prs_file, "r", encoding="utf-8") as file:
-        filtered_prs = [json.loads(line) for line in file]
-        target_issues = set()
-        for pr in filtered_prs:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pr = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             for issue in pr.get("resolved_issues", []):
                 if isinstance(issue, int):
                     target_issues.add(issue)
@@ -78,7 +89,7 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
                         target_issues.add(num)
 
     if not target_issues:
-        print("No resolved issues to fetch. Writing empty file.")
+        _logger.info("No resolved issues to fetch. Writing empty file.")
         out_file_path = out_dir / f"{org}__{repo}_related_issues.jsonl"
         out_file_path.write_text("")
         return
@@ -87,11 +98,14 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
     g = rotator.get_client()
     r = g.get_repo(f"{org}/{repo}")
 
-    print(f"Fetching {len(target_issues)} specific issues by number...")
+    total = len(target_issues)
+    _logger.info(f"Fetching {total} specific issues by number...")
+    _PROGRESS_INTERVAL = 25
 
     with open(
         out_dir / f"{org}__{repo}_related_issues.jsonl", "w", encoding="utf-8"
     ) as out_file:
+        processed = 0
         for issue_num in tqdm(sorted(target_issues), desc="Fetching issues"):
             try:
                 issue = r.get_issue(issue_num)
@@ -110,7 +124,13 @@ def main(tokens, out_dir: Path, filtered_prs_file: Path):
                     + "\n",
                 )
             except Exception as e:
-                print(f"  Warning: could not fetch issue #{issue_num}: {e}")
+                _logger.warning(f"  Warning: could not fetch issue #{issue_num}: {e}")
+            processed += 1
+            if progress_callback and processed % _PROGRESS_INTERVAL == 0:
+                try:
+                    progress_callback(processed, total)
+                except Exception:
+                    pass
 
 if __name__ == "__main__":
     parser = get_parser()

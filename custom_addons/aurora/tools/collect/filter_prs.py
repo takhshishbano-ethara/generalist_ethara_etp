@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -26,6 +27,8 @@ try:
     from .util import get_tokens, AuroraPipelineError, TokenRotator
 except ImportError:
     from util import get_tokens, AuroraPipelineError, TokenRotator
+
+_logger = logging.getLogger(__name__)
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -51,13 +54,6 @@ def get_parser() -> argparse.ArgumentParser:
         default=True,
         help="Skip commit message.",
     )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["aurora"],
-        default="aurora",
-        help="Filter mode.",
-    )
 
     return parser
 
@@ -77,11 +73,6 @@ def extract_resolved_issues(pull: dict) -> list[str]:
         "resolved",
     }
 
-    gerrit_bug_pat = re.compile(
-        r"(?:Closes-Bug|Related-Bug|Partial-Bug|Fixes-Bug|Bug)\s*[:#]\s*(\d+)",
-        re.IGNORECASE,
-    )
-
     text = pull["title"] if pull["title"] else ""
     text += "\n" + (pull["body"] if pull["body"] else "")
     text += "\n" + "\n".join([commit["message"] for commit in pull["commits"]])
@@ -92,20 +83,23 @@ def extract_resolved_issues(pull: dict) -> list[str]:
         if word.lower() in keywords:
             resolved_issues.add(int(issue_num))
 
-    for issue_num in gerrit_bug_pat.findall(text):
-        resolved_issues.add(int(issue_num))
-
     resolved_issues.discard(0)
 
     return list(resolved_issues)
 
 
-def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool, mode: str = "aurora"):
-    print("starting filter to obtain required pull requests")
-    print(f"Output directory: {out_dir}")
-    print((f"All Pull Requests: {prs_file}"))
-    print(f"Skip commit message: {skip_commit_message}")
-    print(f"Mode: {mode}")
+def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool = True):
+    _logger.info("starting filter to obtain required pull requests")
+    _logger.info(f"Output directory: {out_dir}")
+    _logger.info(f"All Pull Requests: {prs_file}")
+    _logger.info(f"Skip commit message: {skip_commit_message}")
+
+    if skip_commit_message:
+        _logger.warning(
+            "Commit message analysis is DISABLED (skip_commit_message=True). "
+            "Issue references in commit messages will NOT be detected. "
+            "Only PR title/body will be searched for resolved issues."
+        )
 
     org_repo_re = re.compile(r"(.+)__(.+)_prs.jsonl")
     m = org_repo_re.match(prs_file.name)
@@ -114,16 +108,15 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
 
     org = m.group(1)
     repo = m.group(2)
-    print(f"Org: {org}")
-    print(f"Repo: {repo}")
+    _logger.info(f"Org: {org}")
+    _logger.info(f"Repo: {repo}")
 
     if not skip_commit_message:
         rotator = TokenRotator(tokens)
         g = rotator.get_client()
         r = g.get_repo(f"{org}/{repo}")
 
-    # Determine output filename based on mode
-    out_filename = f"{org}__{repo}_filtered_prs.jsonl"
+    out_filename = f"{org}__{repo}_lht_filtered_prs.jsonl"
 
     with (
         open(
@@ -133,13 +126,16 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
         ) as out_file,
         open(prs_file, "r", encoding="utf-8") as in_file,
     ):
-        prs = [json.loads(line) for line in in_file]
+        for line in tqdm(in_file, desc="Pull Requests"):
+            line = line.strip()
+            if not line:
+                continue
+            pull = json.loads(line)
 
-        for pull in tqdm(prs, desc="Pull Requests"):
             if pull["state"] != "closed":
                 continue
 
-            if mode == "aurora" and not pull.get("merged_at"):
+            if not pull.get("merged_at"):
                 continue
 
             pull["commits"] = []
@@ -169,4 +165,4 @@ if __name__ == "__main__":
 
     tokens = get_tokens(args.tokens)
 
-    main(tokens, Path.cwd() / args.out_dir, args.prs_file, args.skip_commit_message, args.mode)
+    main(tokens, Path.cwd() / args.out_dir, args.prs_file, args.skip_commit_message)

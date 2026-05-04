@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from .util import AuroraPipelineError
+from ..collect.util import AuroraPipelineError
 
 _logger = logging.getLogger(__name__)
 
-MULTI_SWE_BENCH_ROOT = Path(__file__).resolve().parents[4] / "multi-swe-bench"
+MULTI_SWE_BENCH_ROOT = Path(__file__).resolve().parents[5] / "multi-swe-bench"
 
 _HARNESS_REPOS_ROOT = MULTI_SWE_BENCH_ROOT / "multi_swe_bench" / "harness" / "repos"
 
@@ -19,14 +19,15 @@ _INSTANCE_WORKDIR = "instances"
 
 _RANGE_RE = re.compile(r"^(.+)_(\d+)_to_(\d+)$")
 
-_GITHUB_REPO = "EtharaAI/multi-swe-bench"
-_GITHUB_BRANCH = "main"
+_GITHUB_REPO = os.environ.get("AURORA_HARNESS_GIT_REPO", "EtharaAI/multi-swe-bench")
+_GITHUB_BRANCH = os.environ.get("AURORA_HARNESS_GIT_BRANCH", "main")
 _REGISTRY_PATH_PREFIX = "multi_swe_bench/harness/repos"
 
 
 def _get_github_repo(token: str):
     from github import Auth, Github
-    g = Github(auth=Auth.Token(token))
+    effective_token = os.environ.get("AURORA_HARNESS_GIT_TOKEN", "") or token
+    g = Github(auth=Auth.Token(effective_token))
     return g.get_repo(_GITHUB_REPO)
 
 
@@ -157,6 +158,7 @@ def _ensure_harness_importable():
     if "multi_swe_bench" in sys.modules:
         return
 
+    import importlib
     import types
 
     stubs = [
@@ -182,6 +184,26 @@ def _ensure_harness_importable():
             ]
             stub.__package__ = pkg_path
             sys.modules[pkg_path] = stub
+
+    _SHADOW_ALIASES = {
+        "multi_swe_bench.harness.image": "odoo.addons.aurora.tools.harness.image",
+        "multi_swe_bench.harness.instance": "odoo.addons.aurora.tools.harness.instance",
+        "multi_swe_bench.harness.pull_request": "odoo.addons.aurora.tools.harness.pull_request",
+        "multi_swe_bench.harness.test_result": "odoo.addons.aurora.tools.harness.test_result",
+        "multi_swe_bench.harness.constant": "odoo.addons.aurora.tools.harness.constant",
+        "multi_swe_bench.harness.dataset": "odoo.addons.aurora.tools.harness.dataset",
+        "multi_swe_bench.harness.docker_util": "odoo.addons.aurora.tools.harness.docker_util",
+        "multi_swe_bench.harness.git_util": "odoo.addons.aurora.tools.harness.git_util",
+        "multi_swe_bench.harness.report": "odoo.addons.aurora.tools.harness.report",
+        "multi_swe_bench.harness.python_test": "odoo.addons.aurora.tools.harness.python_test",
+    }
+    for alias, shadow in _SHADOW_ALIASES.items():
+        if alias in sys.modules:
+            continue
+        try:
+            sys.modules[alias] = importlib.import_module(shadow)
+        except Exception as exc:
+            _logger.debug("Shadow alias %s -> %s not available: %s", alias, shadow, exc)
 
 
 def _resolve_org_dir(lang_dir: Path, org: str) -> Optional[Path]:
@@ -321,15 +343,25 @@ def _translate_phase1_jsonl(
     lang: str,
     output_path: str,
 ) -> int:
-    """Translate Aurora Phase 1 JSONL into harness-compatible format.
+    """Translate Aurora Phase 1 LHT JSONL into harness-compatible format.
 
-    Phase 1 outputs records where 'number' is a hyphen-separated string
-    of PR numbers (e.g. "2500-2501") for tag-group bundles.  The harness
-    PullRequest dataclass expects 'number' as int and uses
-    'number_interval' for versioned registry lookup.
+    Phase 1 emits LHT records with fields:
+      instance_id, tag_start, tag_end, pr_numbers (list[int]),
+      pr_attribution_method, version_scheme, base:{sha,ref}, head:{sha,ref}.
+
+    The harness ``PullRequest`` dataclass still expects a single integer
+    ``number`` and optional ``number_interval`` for registry range matching.
+    This translator keeps the harness contract intact while registering LHT
+    metadata in-process so the Odoo executor can persist the full identity
+    (instance_id, tag_start, tag_end, pr_numbers, …).
 
     Returns the number of records written.
     """
+    try:
+        from ...models.evaluation_executor import register_lht_metadata
+    except Exception:
+        register_lht_metadata = None
+
     ranges = _build_number_interval_map(org, repo, lang)
     written = 0
 
@@ -343,16 +375,20 @@ def _translate_phase1_jsonl(
             except json.JSONDecodeError:
                 continue
 
-            raw_number = record.get("number", "")
-            if isinstance(raw_number, int):
-                primary_number = raw_number
-            else:
-                parts = str(raw_number).split("-")
-                try:
-                    primary_number = int(parts[0])
-                except (ValueError, IndexError):
-                    _logger.warning("Cannot parse PR number from: %s", raw_number)
-                    continue
+            pr_numbers = record.get("pr_numbers") or []
+            if not isinstance(pr_numbers, list) or not pr_numbers:
+                _logger.warning(
+                    "LHT record missing or empty pr_numbers, skipping: instance_id=%s",
+                    record.get("instance_id", "<unknown>"),
+                )
+                continue
+            try:
+                primary_number = int(pr_numbers[0])
+            except (TypeError, ValueError):
+                _logger.warning(
+                    "LHT pr_numbers[0] is not an integer, skipping: %r", pr_numbers,
+                )
+                continue
 
             record["number"] = primary_number
 
@@ -362,7 +398,7 @@ def _translate_phase1_jsonl(
                     record["number_interval"] = interval
                 else:
                     _logger.warning(
-                        "PR #%d doesn't fall in any registry range, skipping",
+                        "Primary PR #%d doesn't fall in any registry range, skipping",
                         primary_number,
                     )
                     continue
@@ -372,11 +408,34 @@ def _translate_phase1_jsonl(
             record.setdefault("tag", "")
             record.setdefault("lang", lang)
 
+            tag_start = record.get("tag_start") or ""
+            tag_end = record.get("tag_end") or ""
+            instance_id = (
+                record.get("instance_id")
+                or (f"{org}__{repo}-{tag_start}..{tag_end}" if tag_start and tag_end else "")
+            )
+            if not instance_id:
+                _logger.warning(
+                    "LHT record missing instance_id and tag_start/tag_end, skipping: %r",
+                    record,
+                )
+                continue
+
+            if register_lht_metadata is not None:
+                register_lht_metadata(org, repo, primary_number, {
+                    "instance_id": instance_id,
+                    "tag_start": tag_start,
+                    "tag_end": tag_end,
+                    "pr_numbers": ",".join(str(n) for n in pr_numbers),
+                    "pr_attribution_method": record.get("pr_attribution_method") or "",
+                    "version_scheme": record.get("version_scheme") or "",
+                })
+
             fout.write(json.dumps(record, ensure_ascii=False) + "\n")
             written += 1
 
     _logger.info(
-        "Translated %d records from Phase 1 JSONL into harness format", written
+        "Translated %d LHT records from Phase 1 JSONL into harness format", written
     )
     return written
 
@@ -653,9 +712,19 @@ def main(
                 test_r = report_data.get("test_patch_result") or {}
                 fix_r = report_data.get("fix_patch_result") or {}
 
+                try:
+                    from ...models.evaluation_executor import _lookup_lht
+                    lht = _lookup_lht(inst.pr.org, inst.pr.repo, inst.pr.number)
+                except Exception:
+                    lht = {}
+
                 results.append({
-                    "instance_id": inst.pr.id,
-                    "pr_number": inst.pr.number,
+                    "instance_id": lht.get("instance_id") or inst.pr.id,
+                    "tag_start": lht.get("tag_start", ""),
+                    "tag_end": lht.get("tag_end", ""),
+                    "pr_numbers": lht.get("pr_numbers", ""),
+                    "pr_attribution_method": lht.get("pr_attribution_method", ""),
+                    "version_scheme": lht.get("version_scheme", ""),
                     "valid": is_valid,
                     "f2p": list(report_data.get("f2p_tests", {}).keys()),
                     "p2p": list(report_data.get("p2p_tests", {}).keys()),
@@ -675,9 +744,16 @@ def main(
                 })
             except Exception as exc:
                 _logger.warning("Failed to read report for %s: %s", inst.pr.id, exc)
+                try:
+                    from ...models.evaluation_executor import _lookup_lht
+                    lht = _lookup_lht(inst.pr.org, inst.pr.repo, inst.pr.number)
+                except Exception:
+                    lht = {}
                 results.append({
-                    "instance_id": inst.pr.id,
-                    "pr_number": inst.pr.number,
+                    "instance_id": lht.get("instance_id") or inst.pr.id,
+                    "tag_start": lht.get("tag_start", ""),
+                    "tag_end": lht.get("tag_end", ""),
+                    "pr_numbers": lht.get("pr_numbers", ""),
                     "valid": False,
                     "error": str(exc),
                 })
@@ -685,9 +761,16 @@ def main(
             _logger.warning(
                 "No report.json at %s for instance %s", instance_dir, inst.pr.id
             )
+            try:
+                from ...models.evaluation_executor import _lookup_lht
+                lht = _lookup_lht(inst.pr.org, inst.pr.repo, inst.pr.number)
+            except Exception:
+                lht = {}
             results.append({
-                "instance_id": inst.pr.id,
-                "pr_number": inst.pr.number,
+                "instance_id": lht.get("instance_id") or inst.pr.id,
+                "tag_start": lht.get("tag_start", ""),
+                "tag_end": lht.get("tag_end", ""),
+                "pr_numbers": lht.get("pr_numbers", ""),
                 "valid": False,
                 "error": "no report generated",
             })

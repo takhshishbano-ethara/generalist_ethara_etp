@@ -304,7 +304,7 @@
                                 <group string="Repository">
                                     <field name="github_org"/>
                                     <field name="github_repo"/>
-                                    <field name="skip_pr_fetch" invisible="1"/>
+                                    <field name="skip_pr_fetch"/>
                                     <field name="detected_lang" invisible="stage == 'draft'"/>
                                 </group>
                                 <group string="Assignment">

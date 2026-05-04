@@ -4,7 +4,7 @@ import logging
 import os
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from . import harness_staging_executor
 
@@ -386,8 +386,18 @@ class AuroraHarnessStaging(models.Model):
         self.sudo().write({"staging_path": path})
         return path
 
+    @staticmethod
+    def _require_admin(env, action: str):
+        if not env.user.has_group("aurora.group_aurora_admin"):
+            raise AccessError(
+                f"Only Aurora Administrators may {action}. "
+                "Harness uploads execute arbitrary Python on the Odoo worker, "
+                "so this capability is restricted to admins."
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
+        self._require_admin(self.env, "create harness staging records")
         records = super().create(vals_list)
         for rec in records:
             if rec.harness_file:
@@ -398,6 +408,8 @@ class AuroraHarnessStaging(models.Model):
         return records
 
     def write(self, vals):
+        if "harness_file" in vals and vals["harness_file"]:
+            self._require_admin(self.env, "upload harness files")
         res = super().write(vals)
         if "harness_file" in vals and vals["harness_file"]:
             for rec in self:
@@ -409,6 +421,7 @@ class AuroraHarnessStaging(models.Model):
 
     def action_test_harness(self):
         self.ensure_one()
+        self._require_admin(self.env, "execute harness tests")
         if self.stage == "testing":
             raise UserError("Test already in progress.")
         if not self.harness_file:
@@ -421,6 +434,13 @@ class AuroraHarnessStaging(models.Model):
             )
         if not os.path.isfile(self.dataset_file):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
+
+        if not harness_staging_executor.is_test_slot_available():
+            raise UserError(
+                "Another staging test is already running on this Odoo server. "
+                "Only one staging test runs at a time to avoid harness registry "
+                "races. Wait for the current test to finish and retry."
+            )
 
         self._ensure_staging_file()
         self.write({
@@ -450,6 +470,7 @@ class AuroraHarnessStaging(models.Model):
 
     def action_run_full_evaluation(self):
         self.ensure_one()
+        self._require_admin(self.env, "run full harness evaluations")
         if self.stage != "tested" or self.test_result != "success":
             raise UserError("Run a successful test first before full evaluation.")
         if not self.dataset_file:
@@ -481,33 +502,6 @@ class AuroraHarnessStaging(models.Model):
             "view_mode": "form",
             "target": "current",
         }
-
-    def action_notify_admin(self):
-        self.ensure_one()
-        if self.stage not in ("done", "tested"):
-            raise UserError("Complete testing or evaluation before notifying admin.")
-
-        self.write({
-            "stage": "notified",
-            "notified_at": fields.Datetime.now(),
-        })
-
-        admin_group = self.env.ref("aurora.group_aurora_admin", raise_if_not_found=False)
-        if admin_group and admin_group.all_user_ids:
-            self.activity_schedule(
-                "mail.mail_activity_data_todo",
-                user_id=admin_group.all_user_ids[0].id,
-                summary=f"Harness ready for deployment: {self.org}/{self.repo}",
-                note=(
-                    f"Developer {self.user_id.name} has completed testing. "
-                    f"Please review and push to GitHub."
-                ),
-            )
-        self.message_post(
-            body=f"Admin notified for deployment of {self.org}/{self.repo}.",
-            message_type="comment",
-            subtype_xmlid="mail.mt_note",
-        )
 
     def action_download_file(self):
         self.ensure_one()
@@ -569,19 +563,85 @@ class AuroraHarnessStaging(models.Model):
 
     def action_download_readme_harness(self):
         self.ensure_one()
-        repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        aurora_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..")
         )
-        candidate = os.path.join(repo_root, "README-HARNESS.md")
+        candidate = os.path.join(aurora_root, "README-HARNESS.md")
         if not os.path.isfile(candidate):
             raise UserError(
                 f"README-HARNESS.md not found at {candidate!r}. "
-                "Ensure the file exists at the repo root."
+                "Ensure the file exists in the aurora addon directory."
             )
         return self._download_local_file(candidate, "README-HARNESS.md")
 
     def action_mark_deployed(self):
         self.ensure_one()
+        self._require_admin(self.env, "push harness registry to GitHub")
+
+        if self.test_result != "success" or self.stage not in ("tested", "done", "evaluating"):
+            raise UserError(
+                "Push is only allowed after a successful harness test. "
+                "Run 'Test Harness' first and wait for test_result=success."
+            )
+        if not self.staging_path or not os.path.isfile(self.staging_path):
+            raise UserError(
+                "Staging file missing on disk. Re-upload the harness file and retry."
+            )
+
+        with open(self.staging_path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+
+        repo_safe = self.repo.replace("-", "_").lower()
+        filename = f"{repo_safe}.py"
+
+        from . import registry_git_sync
+        commit_msg = (
+            f"Deploy registry for {self.org}/{self.repo} (lang={self.language}) "
+            f"via Aurora Harness Staging by {self.user_id.login or self.user_id.name}"
+        )
+        try:
+            push_info = registry_git_sync.push_registry_to_github(
+                env=self.env,
+                lang=self.language,
+                org=self.org,
+                filename=filename,
+                content=content,
+                commit_msg=commit_msg,
+            )
+        except UserError:
+            raise
+        except Exception as exc:
+            _logger.exception("Unexpected error pushing registry to GitHub")
+            raise UserError(
+                f"GitHub push failed unexpectedly: {exc}. Harness NOT deployed. "
+                f"Check aurora.github_registry_write_token and retry."
+            ) from exc
+
+        if push_info is None:
+            raise UserError(
+                "GitHub push skipped: aurora.github_registry_write_token is not configured. "
+                "Configure the token in Settings \u2192 Aurora Pipeline \u2192 GitHub Registry Write Token, "
+                "then retry. Harness NOT deployed."
+            )
+
+        init_pushes: list[dict] = []
+        try:
+            init_pushes = registry_git_sync.ensure_init_files_on_github(
+                env=self.env,
+                lang=self.language,
+                org=self.org,
+                repo=self.repo,
+            )
+        except UserError:
+            raise
+        except Exception as exc:
+            _logger.exception("Unexpected error pushing __init__.py files to GitHub")
+            raise UserError(
+                f"Harness .py pushed successfully, but __init__.py updates failed: {exc}. "
+                f"K8s pods will still work (they regenerate init files locally on sync), "
+                f"but the GitHub repo tree is incomplete. Investigate and retry."
+            ) from exc
+
         self.write({
             "stage": "deployed",
             "deployed_at": fields.Datetime.now(),
@@ -591,8 +651,25 @@ class AuroraHarnessStaging(models.Model):
                 os.remove(self.staging_path)
             except OSError:
                 pass
+
+        init_summary = ""
+        if init_pushes:
+            init_summary = (
+                f" Also updated {len(init_pushes)} __init__.py file(s): "
+                + ", ".join(f"<code>{p.get('path')}</code>" for p in init_pushes)
+                + "."
+            )
+
+        body = (
+            f"Harness deployed to GitHub: "
+            f"<a href='{push_info.get('html_url', '#')}' target='_blank'>"
+            f"{push_info.get('path')}@{push_info.get('branch')}</a> "
+            f"(commit {(push_info.get('commit_sha') or '')[:8]})."
+            f"{init_summary} "
+            f"K8s worker pods will sync this registry on the next evaluation."
+        )
         self.message_post(
-            body="Harness marked as deployed.",
+            body=body,
             message_type="comment",
             subtype_xmlid="mail.mt_note",
         )

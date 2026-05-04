@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .util import AuroraPipelineError
+from ..collect.util import AuroraPipelineError
 
 
 def main(

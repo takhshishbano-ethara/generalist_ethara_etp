@@ -228,31 +228,34 @@ class AuroraRegistryWizard(models.TransientModel):
 
         org_dir.mkdir(parents=True, exist_ok=True)
 
-        # Only manage __init__.py imports when creating new registries
+        changed_inits: list[tuple[str, str, str]] = []
+
         if not self.edit_mode:
             init_file = org_dir / "__init__.py"
+            import_line_org = f"from .{repo_safe} import *"
             if not init_file.exists():
-                init_file.write_text(
-                    f"from .{repo_safe} import *\n"
-                )
+                new_content = f"{import_line_org}\n"
+                init_file.write_text(new_content)
+                changed_inits.append((f"{self.lang}/{self.org}/__init__.py", new_content, "org"))
             else:
                 existing = init_file.read_text()
-                import_line = f"from .{repo_safe} import *"
-                if import_line not in existing:
-                    with open(init_file, "a") as f:
-                        f.write(f"\n{import_line}\n")
+                if import_line_org not in existing:
+                    new_content = existing.rstrip("\n") + f"\n{import_line_org}\n"
+                    init_file.write_text(new_content)
+                    changed_inits.append((f"{self.lang}/{self.org}/__init__.py", new_content, "org"))
 
             lang_init = lang_dir / "__init__.py"
+            import_line_lang = f"from .{self.org} import *"
             if not lang_init.exists():
-                lang_init.write_text(
-                    f"from .{self.org} import *\n"
-                )
+                new_content = f"{import_line_lang}\n"
+                lang_init.write_text(new_content)
+                changed_inits.append((f"{self.lang}/__init__.py", new_content, "lang"))
             else:
                 existing = lang_init.read_text()
-                import_line = f"from .{self.org} import *"
-                if import_line not in existing:
-                    with open(lang_init, "a") as f:
-                        f.write(f"\n{import_line}\n")
+                if import_line_lang not in existing:
+                    new_content = existing.rstrip("\n") + f"\n{import_line_lang}\n"
+                    lang_init.write_text(new_content)
+                    changed_inits.append((f"{self.lang}/__init__.py", new_content, "lang"))
 
         target_file = org_dir / f"{repo_safe}.py"
         target_file.write_text(self.registry_content)
@@ -262,13 +265,20 @@ class AuroraRegistryWizard(models.TransientModel):
 
         self.pipeline_id.write({"phase2_has_registry": True})
 
+        msg = (
+            f"Saved to {target_file.relative_to(_HARNESS_REPOS_ROOT)}. "
+            f"File is on the local Odoo server only and will NOT be seen by K8s worker pods. "
+            f"To deploy to pods, upload this file via Aurora \u2192 Harness Staging, "
+            f"run Test Harness, and click Push to GitHub & Deploy after tests pass."
+        )
+
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": f"Registry {action_label}",
-                "message": f"Saved to {target_file.relative_to(_HARNESS_REPOS_ROOT)}",
-                "sticky": False,
-                "type": "success",
+                "message": msg,
+                "sticky": True,
+                "type": "warning",
             },
         }

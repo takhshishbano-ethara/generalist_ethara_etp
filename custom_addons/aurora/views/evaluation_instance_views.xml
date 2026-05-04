@@ -5,7 +5,7 @@
         <field name="name">aurora.evaluation.instance.tree</field>
         <field name="model">aurora.evaluation.instance</field>
         <field name="arch" type="xml">
-            <list string="Evaluation Results" default_order="evaluation_id desc, pr_number asc"
+            <list string="Evaluation Results" default_order="evaluation_id desc, instance_id asc"
                   create="false" delete="false"
                   decoration-success="status == 'resolved'"
                   decoration-warning="status == 'unresolved'"
@@ -15,7 +15,10 @@
                 <field name="evaluation_id"/>
                 <field name="org"/>
                 <field name="repo"/>
-                <field name="pr_number"/>
+                <field name="instance_id"/>
+                <field name="tag_start" optional="show"/>
+                <field name="tag_end" optional="show"/>
+                <field name="pr_numbers" optional="hide"/>
                 <field name="image_tag" optional="show"/>
                 <field name="status" widget="badge"
                        decoration-success="status == 'resolved'"
@@ -50,7 +53,12 @@
                             <field name="evaluation_id" readonly="1"/>
                             <field name="org" readonly="1"/>
                             <field name="repo" readonly="1"/>
-                            <field name="pr_number" readonly="1"/>
+                            <field name="instance_id" readonly="1"/>
+                            <field name="tag_start" readonly="1"/>
+                            <field name="tag_end" readonly="1"/>
+                            <field name="pr_numbers" readonly="1"/>
+                            <field name="pr_attribution_method" readonly="1"/>
+                            <field name="version_scheme" readonly="1"/>
                             <field name="image_tag" readonly="1"/>
                             <field name="image_workdir" readonly="1"/>
                         </group>
@@ -157,7 +165,10 @@
             <search string="Evaluation Results">
                 <field name="org"/>
                 <field name="repo"/>
-                <field name="pr_number"/>
+                <field name="instance_id"/>
+                <field name="tag_start"/>
+                <field name="tag_end"/>
+                <field name="pr_numbers"/>
                 <field name="evaluation_id"/>
                 <filter string="Resolved" name="f_resolved" domain="[('status','=','resolved')]"/>
                 <filter string="Unresolved" name="f_unresolved" domain="[('status','=','unresolved')]"/>
