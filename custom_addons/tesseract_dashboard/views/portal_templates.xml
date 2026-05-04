@@ -342,7 +342,7 @@
   <section class="section" id="resources" aria-labelledby="res-label">
     <p class="section-label" id="res-label">§06 — Resources</p>
     <div class="resources">
-      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/Ethara-Ai/tesseract/tree/main/trajectories" target="_blank" rel="noopener">
         <p class="res-label mono">Trajectories</p>
         <p class="res-title">Trajectories on GitHub</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>

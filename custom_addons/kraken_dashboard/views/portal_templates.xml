@@ -287,7 +287,7 @@
         <p class="glance-label mono">GLM-5</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>HSR Harmonic Mean</dt><dd><b>0.313</b></dd></div>
-          <div class="glance-row"><dt>Correctness Rate</dt><dd><b>65%</b></dd></div>
+          <div class="glance-row"><dt>Correctness Rate</dt><dd><b>70%</b></dd></div>
           <div class="glance-row"><dt>Pass@1</dt><dd><b>7 / 20</b></dd></div>
           <div class="glance-row"><dt>Outcome Split</dt><dd>6 fail · 7 slow · 7 pass</dd></div>
           <div class="glance-row"><dt>Avg Cost</dt><dd><b>$2.41</b></dd></div>
@@ -297,7 +297,7 @@
         <p class="glance-label mono">Nova-2-Lite</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>HSR Harmonic Mean</dt><dd><b>0.268</b></dd></div>
-          <div class="glance-row"><dt>Correctness Rate</dt><dd><b>55%</b></dd></div>
+          <div class="glance-row"><dt>Correctness Rate</dt><dd><b>60%</b></dd></div>
           <div class="glance-row"><dt>Pass@1</dt><dd><b>2 / 20</b></dd></div>
           <div class="glance-row"><dt>Outcome Split</dt><dd>8 fail · 10 slow · 2 pass</dd></div>
           <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.27</b></dd></div>
