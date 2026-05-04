@@ -225,7 +225,7 @@
 
   <!-- ================= §05 QUALITY DISTRIBUTION ================= -->
   <section class="section" id="quality" aria-labelledby="quality-label" data-animate="fade-up">
-    <p class="section-label" id="quality-label">§05 — Pass Rate distribution</p>
+    <p class="section-label" id="quality-label">§05 · Pass Rate distribution</p>
     <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5).</p>
 
     <div class="quality-grid">
