@@ -12,6 +12,13 @@ _DATA_PATH = os.path.join(
 
 
 class ValkyrieShowcaseController(http.Controller):
+    """Public-facing routes for the Valkyrie showcase.
+
+    The template is rendered as a bare HTML document — no
+    ``portal.portal_layout`` wrapper, no ``web.assets_frontend``
+    bundle — so Bootstrap + the Odoo website footer/footer-chrome
+    don't fight the module's own design system.
+    """
 
     @http.route("/valkyrie", type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
@@ -24,7 +31,13 @@ class ValkyrieShowcaseController(http.Controller):
                 "valkyrie_dashboard.dataset_url", ""
             ) or "https://huggingface.co/datasets/ethara/Valkyrie",
         }
-        return request.render("valkyrie_dashboard.portal_showcase", values)
+        rendered = request.env["ir.qweb"]._render(
+            "valkyrie_dashboard.portal_showcase", values
+        )
+        return request.make_response(
+            "<!DOCTYPE html>\n" + str(rendered),
+            headers=[("Content-Type", "text/html; charset=utf-8")],
+        )
 
     @http.route("/valkyrie/api/instances", type="http", auth="public", cors="*")
     def api_instances(self, **kw):

@@ -9,148 +9,270 @@
     var currentSortDir = 1;
     var expandedId = null;
 
-    function initScrollAnimations() {
-        var elements = document.querySelectorAll("[data-animate]");
-        if (!elements.length) return;
+    // ========================================================
+    // Theme — data-theme attribute on <html>, persisted to
+    // localStorage (key: vk:theme). Matches the FOUC script in
+    // the template head (which sets the attribute before CSS
+    // resolves so there's no flash on repeat visits).
+    // ========================================================
+    function initTheme() {
+        var root = document.documentElement;
+        var toggle = document.getElementById("vk-theme-toggle");
+        if (!toggle) return;
 
-        var observer = new IntersectionObserver(
-            function (entries) {
-                entries.forEach(function (entry) {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add("vk-visible");
-                        observer.unobserve(entry.target);
-                    }
-                });
-            },
-            { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
-        );
+        var KEY = "vk:theme";
+        var prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 
-        elements.forEach(function (el) {
-            observer.observe(el);
-        });
-    }
+        function currentTheme() {
+            var explicit = root.getAttribute("data-theme");
+            if (explicit === "light" || explicit === "dark") return explicit;
+            return prefersDark.matches ? "dark" : "light";
+        }
 
-    function initLightbox() {
-        var portal = document.getElementById("vk-portal");
-        if (!portal) return;
-
-        portal.addEventListener("click", function (e) {
-            var img = e.target.closest(".vk-chart-card img");
-            if (!img) return;
-
-            var overlay = document.createElement("div");
-            overlay.className = "vk-lightbox";
-
-            var inner = document.createElement("div");
-            inner.className = "vk-lightbox-inner";
-
-            var closeBtn = document.createElement("button");
-            closeBtn.className = "vk-lightbox-close";
-            closeBtn.textContent = "\u00D7";
-
-            var bigImg = document.createElement("img");
-            bigImg.src = img.src;
-            bigImg.alt = img.alt || "";
-
-            inner.appendChild(closeBtn);
-            inner.appendChild(bigImg);
-            overlay.appendChild(inner);
-            document.body.appendChild(overlay);
-
-            function closeLightbox() {
-                overlay.remove();
-            }
-
-            closeBtn.addEventListener("click", closeLightbox);
-            overlay.addEventListener("click", function (ev) {
-                if (ev.target === overlay) closeLightbox();
-            });
-            document.addEventListener(
-                "keydown",
-                function onEsc(ev) {
-                    if (ev.key === "Escape") {
-                        closeLightbox();
-                        document.removeEventListener("keydown", onEsc);
-                    }
-                }
+        function syncLabel() {
+            var theme = currentTheme();
+            toggle.setAttribute("aria-pressed", String(theme === "dark"));
+            toggle.setAttribute(
+                "aria-label",
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
             );
+        }
+
+        syncLabel();
+
+        toggle.addEventListener("click", function () {
+            var next = currentTheme() === "dark" ? "light" : "dark";
+            root.setAttribute("data-theme", next);
+            try { localStorage.setItem(KEY, next); } catch (e) {}
+            syncLabel();
+        });
+
+        // Follow OS changes unless the user overrode.
+        function osChange() {
+            try { if (localStorage.getItem(KEY)) return; } catch (e) {}
+            syncLabel();
+        }
+        if (prefersDark.addEventListener) {
+            prefersDark.addEventListener("change", osChange);
+        } else if (prefersDark.addListener) {
+            prefersDark.addListener(osChange);
+        }
+    }
+
+    // ========================================================
+    // Scroll progress rail — rAF-throttled width update, passive
+    // listeners so we never block scroll.
+    // ========================================================
+    function initScrollProgress() {
+        var bar = document.querySelector(".vk-scroll-progress");
+        if (!bar) return;
+        var ticking = false;
+        function update() {
+            var doc = document.documentElement;
+            var max = (doc.scrollHeight - window.innerHeight) || 1;
+            var progress = Math.max(0, Math.min(1, window.scrollY / max));
+            bar.style.width = (progress * 100).toFixed(2) + "%";
+            ticking = false;
+        }
+        function onScroll() {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(update);
+        }
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll, { passive: true });
+        update();
+    }
+
+    // ========================================================
+    // Thesis mask reveal — split sentence into per-word clipped
+    // spans, yPercent 110 → 0 on load. Degrades to flat text if
+    // reduced-motion is on.
+    // ========================================================
+    function initThesisReveal() {
+        var el = document.querySelector(".vk-thesis");
+        if (!el) return;
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduced) return;
+
+        // Preserve italic on the em word ("shipped") by detecting
+        // it during the split. Trailing punctuation (?) stays roman.
+        var raw = el.textContent.trim();
+        var words = raw.split(/\s+/);
+        el.innerHTML = words.map(function (w) {
+            var m = w.match(/^(.*?)([.,!?;:]+)$/);
+            var core = m ? m[1] : w;
+            var punct = m ? m[2] : "";
+            var isEm = core.toLowerCase() === "exploit";
+            var innerMarkup = isEm
+                ? '<span class="vk-thesis-em">' + core + '</span>' + punct
+                : core + punct;
+            return (
+                '<span class="vk-thesis-word" style="display:inline-block;overflow:hidden;vertical-align:baseline;padding:0.1em 0 0.25em;margin:-0.1em 0 -0.25em">' +
+                    '<span class="vk-thesis-word-inner" style="display:inline-block;will-change:transform,opacity;transform:translateY(110%);opacity:0">' +
+                        innerMarkup +
+                    '</span>' +
+                '</span>'
+            );
+        }).join(" ");
+
+        // Stagger the reveal on the next frame (so layout settles first).
+        var innerEls = el.querySelectorAll(".vk-thesis-word-inner");
+        requestAnimationFrame(function () {
+            for (var i = 0; i < innerEls.length; i++) {
+                (function (inner, i) {
+                    inner.style.transition =
+                        "transform 640ms cubic-bezier(0.28, 0.11, 0.32, 1) " + (i * 40) + "ms, " +
+                        "opacity 640ms cubic-bezier(0.28, 0.11, 0.32, 1) " + (i * 40) + "ms";
+                    inner.style.transform = "translateY(0)";
+                    inner.style.opacity = "1";
+                })(innerEls[i], i);
+            }
         });
     }
 
-    function initCountUp() {
-        var nums = document.querySelectorAll(
-            ".vk-metric-val, .vk-quality-num, .vk-confidence-big"
-        );
-        if (!nums.length) return;
+    // ========================================================
+    // Section fade-up on scroll — IntersectionObserver, one-shot.
+    // ========================================================
+    function initSectionReveal() {
+        var sections = document.querySelectorAll(".vk-section");
+        if (!sections.length || !window.IntersectionObserver) return;
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduced) return;
 
-        var observer = new IntersectionObserver(
-            function (entries) {
-                entries.forEach(function (entry) {
-                    if (!entry.isIntersecting) return;
+        sections.forEach(function (s) {
+            s.style.opacity = "0";
+            s.style.transform = "translateY(16px)";
+            s.style.transition =
+                "opacity 640ms cubic-bezier(0.28, 0.11, 0.32, 1), " +
+                "transform 640ms cubic-bezier(0.28, 0.11, 0.32, 1)";
+        });
 
-                    var el = entry.target;
-                    observer.unobserve(el);
+        var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+                if (!e.isIntersecting) return;
+                e.target.style.opacity = "1";
+                e.target.style.transform = "translateY(0)";
+                obs.unobserve(e.target);
+            });
+        }, { threshold: 0.08, rootMargin: "0px 0px -40px 0px" });
 
-                    var raw = el.textContent.trim();
-                    var hasPercent = raw.indexOf("%") !== -1;
-                    var hasComma = raw.indexOf(",") !== -1;
-                    var cleaned = raw.replace(/[,%]/g, "");
-                    var target = parseFloat(cleaned);
+        sections.forEach(function (s) { obs.observe(s); });
+    }
 
-                    if (isNaN(target) || target === 0) return;
+    // ========================================================
+    // Funnel counters — animate [data-target] from 0 to the
+    // final number when the funnel first scrolls into view.
+    // ========================================================
+    function initFunnelCounters() {
+        var nums = document.querySelectorAll(".vk-funnel-num[data-target]");
+        if (!nums.length || !window.IntersectionObserver) {
+            // Fallback: jump to final values
+            nums.forEach(function (el) {
+                el.textContent = el.getAttribute("data-target") || el.textContent;
+            });
+            return;
+        }
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-                    var isFloat = cleaned.indexOf(".") !== -1;
-                    var duration = 800;
-                    var start = performance.now();
+        var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+                if (!e.isIntersecting) return;
+                var el = e.target;
+                obs.unobserve(el);
+                var target = parseFloat(el.getAttribute("data-target"));
+                if (isNaN(target)) return;
 
-                    function step(now) {
-                        var elapsed = now - start;
-                        var progress = Math.min(elapsed / duration, 1);
-                        var eased = 1 - Math.pow(1 - progress, 3);
-                        var current = target * eased;
+                if (reduced) {
+                    el.textContent = String(target);
+                    return;
+                }
 
-                        var display;
-                        if (isFloat) {
-                            display = current.toFixed(1);
-                        } else {
-                            display = Math.round(current).toString();
-                        }
+                var duration = 900;
+                var start = performance.now();
+                function tick(now) {
+                    var elapsed = now - start;
+                    var progress = Math.min(elapsed / duration, 1);
+                    var eased = 1 - Math.pow(1 - progress, 3);
+                    el.textContent = Math.round(target * eased).toLocaleString("en-US");
+                    if (progress < 1) requestAnimationFrame(tick);
+                    else el.textContent = Number(target).toLocaleString("en-US");
+                }
+                requestAnimationFrame(tick);
+            });
+        }, { threshold: 0.4 });
 
-                        if (hasComma) {
-                            display = Number(display).toLocaleString("en-US");
-                        }
-                        if (hasPercent) {
-                            display += "%";
-                        }
+        nums.forEach(function (el) { obs.observe(el); });
+    }
 
-                        el.textContent = display;
+    // ========================================================
+    // Chart lightbox — uses the static #vk-lightbox overlay
+    // baked into the template. Delegates clicks on
+    // .vk-chart-trigger buttons.
+    // ========================================================
+    function initLightbox() {
+        var overlay = document.getElementById("vk-lightbox");
+        var closeBtn = document.getElementById("vk-lightbox-close");
+        var imgEl = document.getElementById("vk-lightbox-img");
+        var captionEl = document.getElementById("vk-lightbox-caption");
+        if (!overlay || !closeBtn || !imgEl) return;
 
-                        if (progress < 1) {
-                            requestAnimationFrame(step);
-                        }
-                    }
+        function open(src, alt, caption) {
+            imgEl.src = src;
+            imgEl.alt = alt || "";
+            if (captionEl) captionEl.textContent = caption || "";
+            overlay.hidden = false;
+            overlay.setAttribute("aria-hidden", "false");
+            // force reflow then set data-open for opacity transition
+            void overlay.offsetWidth;
+            overlay.setAttribute("data-open", "true");
+            document.body.style.overflow = "hidden";
+        }
+        function close() {
+            overlay.removeAttribute("data-open");
+            overlay.setAttribute("aria-hidden", "true");
+            document.body.style.overflow = "";
+            setTimeout(function () {
+                if (overlay.getAttribute("data-open") !== "true") {
+                    overlay.hidden = true;
+                    imgEl.src = "";
+                }
+            }, 400);
+        }
 
-                    requestAnimationFrame(step);
-                });
-            },
-            { threshold: 0.3 }
-        );
+        document.addEventListener("click", function (e) {
+            var trigger = e.target.closest(".vk-chart-trigger");
+            if (!trigger) return;
+            var img = trigger.querySelector("img");
+            if (!img) return;
+            var fig = trigger.closest("figure");
+            var caption = fig ? (fig.querySelector("figcaption") || {}).textContent : "";
+            open(img.src, img.alt, caption || "");
+        });
 
-        nums.forEach(function (el) {
-            observer.observe(el);
+        closeBtn.addEventListener("click", close);
+        overlay.addEventListener("click", function (e) {
+            if (e.target === overlay) close();
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && overlay.getAttribute("data-open") === "true") close();
         });
     }
 
+    // ========================================================
+    // Dataset viewer — row-expand table with search, filters,
+    // sort, pagination. Data shape matches valkyrie_instances.json.
+    // ========================================================
     function diffClass(d) {
-        if (d === "Easy") return "vk-diff-easy";
+        if (d === "Easy")   return "vk-diff-easy";
         if (d === "Medium") return "vk-diff-medium";
-        if (d === "Hard") return "vk-diff-hard";
+        if (d === "Hard")   return "vk-diff-hard";
         return "";
     }
 
     function esc(str) {
         var d = document.createElement("div");
-        d.textContent = str;
+        d.textContent = str == null ? "" : String(str);
         return d.innerHTML;
     }
 
@@ -169,13 +291,13 @@
     function renderRow(d) {
         var isExpanded = expandedId === d.instance_id;
         return (
-            '<tr class="' + (isExpanded ? "vk-row-expanded" : "") + '" data-id="' + esc(d.instance_id) + '">' +
+            '<tr class="vk-matrix-row ' + (isExpanded ? "vk-row-expanded" : "") + '" data-id="' + esc(d.instance_id) + '">' +
                 '<td class="vk-td-instance">' +
                     '<span class="vk-viewer-instance-name">' + esc(d.instance_id) + '</span>' +
                 '</td>' +
                 '<td class="vk-td-diff"><span class="vk-diff-badge ' + diffClass(d.difficulty) + '">' + esc(d.difficulty) + '</span></td>' +
                 '<td class="vk-td-cwe">' + esc(cweDisplay(d.vulnerability_type)) + '</td>' +
-                '<td class="vk-td-tests">' + d.fail_to_pass_count + '</td>' +
+                '<td class="vk-td-tests">' + esc(d.fail_to_pass_count) + '</td>' +
                 '<td class="vk-td-kimi">' + passBadge(d.kimi_pass_at_1) + '</td>' +
                 '<td class="vk-td-nova">' + passBadge(d.nova_pass_at_1) + '</td>' +
                 '<td class="vk-td-expand"><span class="vk-expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
@@ -184,8 +306,8 @@
     }
 
     function renderDetailRow(d) {
-        var problemSnippet = (d.problem_statement || "").substring(0, 200);
-        if ((d.problem_statement || "").length > 200) problemSnippet += "...";
+        var problem = (d.problem_statement || "").substring(0, 220);
+        if ((d.problem_statement || "").length > 220) problem += "...";
         var repoUrl = d.repo ? "https://github.com/" + d.repo : "";
 
         return (
@@ -194,13 +316,13 @@
                     '<div class="vk-detail-content">' +
                         '<div class="vk-detail-grid">' +
                             '<div class="vk-detail-block">' +
-                                '<div class="vk-detail-block-title">Instance Info</div>' +
+                                '<div class="vk-detail-block-title">Instance</div>' +
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Vulnerability</span><span class="vk-detail-val">' + esc(cweDisplay(d.vulnerability_type)) + '</span></div>' +
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Category</span><span class="vk-detail-val">' + esc(d.category || "") + '</span></div>' +
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Files Affected</span><span class="vk-detail-val">' + esc(d.num_files_affected || "") + '</span></div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">F2P Tests</span><span class="vk-detail-val">' + d.fail_to_pass_count + '</span></div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">P2P Tests</span><span class="vk-detail-val">' + d.pass_to_pass_count + '</span></div>' +
-                                '<div class="vk-detail-row-item" style="flex-direction:column;gap:4px"><span class="vk-detail-key">Problem Statement</span><span class="vk-detail-val" style="font-weight:400;font-size:12px;line-height:1.5">' + esc(problemSnippet) + '</span></div>' +
+                                '<div class="vk-detail-row-item"><span class="vk-detail-key">F2P Tests</span><span class="vk-detail-val">' + esc(d.fail_to_pass_count) + '</span></div>' +
+                                '<div class="vk-detail-row-item"><span class="vk-detail-key">P2P Tests</span><span class="vk-detail-val">' + esc(d.pass_to_pass_count) + '</span></div>' +
+                                '<div class="vk-detail-row-item" style="flex-direction:column;gap:4px"><span class="vk-detail-key">Problem statement</span><span class="vk-detail-val" style="font-weight:400;font-size:12px;line-height:1.5;font-family:var(--vk-font-sans);text-align:left">' + esc(problem) + '</span></div>' +
                             '</div>' +
                             '<div class="vk-detail-block">' +
                                 '<div class="vk-detail-block-title">Kimi K2.5</div>' +
@@ -215,7 +337,7 @@
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Cost ($)</span><span class="vk-detail-val">' + esc(d.nova_cost || "0") + '</span></div>' +
                             '</div>' +
                         '</div>' +
-                        (repoUrl ? '<div class="vk-detail-links" style="margin-top:16px"><a class="vk-detail-link" href="' + esc(repoUrl) + '" target="_blank" rel="noopener">Repository</a></div>' : '') +
+                        (repoUrl ? '<div class="vk-detail-links"><a class="vk-detail-link" href="' + esc(repoUrl) + '" target="_blank" rel="noopener">Repository</a></div>' : '') +
                     '</div>' +
                 '</td>' +
             '</tr>'
@@ -238,7 +360,7 @@
         }
 
         if (pageData.length === 0) {
-            html = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--vk-text-muted)">No instances found.</td></tr>';
+            html = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--vk-ink-3);font-family:var(--vk-font-sans)">No instances found.</td></tr>';
         }
 
         tbody.innerHTML = html;
@@ -303,8 +425,8 @@
         filteredData = allData.filter(function (d) {
             if (diff && d.difficulty !== diff) return false;
             if (search) {
-                var idMatch = d.instance_id.toLowerCase().indexOf(search) !== -1;
-                var cweMatch = (d.vulnerability_type || []).join(" ").toLowerCase().indexOf(search) !== -1;
+                var idMatch   = (d.instance_id || "").toLowerCase().indexOf(search) !== -1;
+                var cweMatch  = (d.vulnerability_type || []).join(" ").toLowerCase().indexOf(search) !== -1;
                 var repoMatch = (d.repo || "").toLowerCase().indexOf(search) !== -1;
                 if (!idMatch && !cweMatch && !repoMatch) return false;
             }
@@ -339,6 +461,13 @@
             if (key === "kimi_pass_at_1" || key === "nova_pass_at_1") {
                 av = av === "Pass" ? 1 : 0;
                 bv = bv === "Pass" ? 1 : 0;
+                return (bv - av) * dir;  // passes first
+            }
+
+            if (key === "difficulty") {
+                var order = { Easy: 1, Medium: 2, Hard: 3 };
+                av = order[av] || 0;
+                bv = order[bv] || 0;
                 return (av - bv) * dir;
             }
 
@@ -357,45 +486,40 @@
         fetch("/valkyrie/api/instances")
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                allData = data;
-                filteredData = data.slice();
+                allData = Array.isArray(data) ? data : [];
+                filteredData = allData.slice();
                 sortData();
                 renderTable();
             })
             .catch(function () {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--vk-text-muted)">Failed to load dataset.</td></tr>';
+                tbody.innerHTML =
+                    '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--vk-ink-3);font-family:var(--vk-font-sans)">Failed to load dataset.</td></tr>';
             });
 
-        document.getElementById("vk-viewer-search").addEventListener(
-            "input",
-            debounce(applyFilters, 250)
-        );
+        var search = document.getElementById("vk-viewer-search");
+        if (search) {
+            search.addEventListener("input", debounce(applyFilters, 250));
+        }
 
-        document.getElementById("vk-viewer-difficulty").addEventListener(
-            "change",
-            applyFilters
-        );
+        var diffSel = document.getElementById("vk-viewer-difficulty");
+        if (diffSel) diffSel.addEventListener("change", applyFilters);
 
-        document.getElementById("vk-viewer-sort").addEventListener(
-            "change",
-            function () {
+        var sortSel = document.getElementById("vk-viewer-sort");
+        if (sortSel) {
+            sortSel.addEventListener("change", function () {
                 currentSort = this.value;
                 currentSortDir = 1;
                 applyFilters();
-            }
-        );
+            });
+        }
 
-        var tableWrap = document.getElementById("vk-viewer-table-wrap");
-        if (tableWrap) {
-            tableWrap.addEventListener("click", function (e) {
+        var wrap = document.getElementById("vk-viewer-table-wrap");
+        if (wrap) {
+            wrap.addEventListener("click", function (e) {
                 var row = e.target.closest("tr[data-id]");
                 if (!row) return;
                 var id = row.getAttribute("data-id");
-                if (expandedId === id) {
-                    expandedId = null;
-                } else {
-                    expandedId = id;
-                }
+                expandedId = (expandedId === id) ? null : id;
                 renderTable();
             });
         }
@@ -411,10 +535,8 @@
                     currentPage = page;
                     expandedId = null;
                     renderTable();
-                    var viewer = document.getElementById("vk-dataset-viewer");
-                    if (viewer) {
-                        viewer.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }
+                    var section = document.getElementById("instances");
+                    if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
                 }
             });
         }
@@ -426,89 +548,17 @@
             var ctx = this;
             var args = arguments;
             clearTimeout(timer);
-            timer = setTimeout(function () {
-                fn.apply(ctx, args);
-            }, delay);
+            timer = setTimeout(function () { fn.apply(ctx, args); }, delay);
         };
     }
 
-    function nukePortalChrome() {
-        var selectors = [
-            "#wrapwrap", ".o_portal", ".o_portal_wrap", "main",
-            ".oe_website_login_container"
-        ];
-        for (var s = 0; s < selectors.length; s++) {
-            var el = document.querySelector(selectors[s]);
-            if (el) {
-                el.style.cssText += "max-width:100%!important;width:100%!important;padding:0!important;margin:0!important;background:transparent!important;";
-            }
-        }
-        var containers = document.querySelectorAll(
-            "#wrapwrap .container, #wrapwrap .container-fluid, " +
-            ".o_portal .container, .o_portal_wrap .container, " +
-            "main > .container, main > .container-fluid"
-        );
-        for (var i = 0; i < containers.length; i++) {
-            containers[i].style.cssText += "max-width:100%!important;width:100%!important;padding:0!important;margin:0!important;background:transparent!important;";
-        }
-        var odooFooters = document.querySelectorAll("footer:not(.vk-footer), .o_footer, #footer, .o_footer_copyright");
-        for (var j = 0; j < odooFooters.length; j++) {
-            odooFooters[j].style.display = "none";
-        }
-        var header = document.querySelector("header");
-        if (header) header.style.display = "none";
-    }
-
-    function initDarkMode() {
-        var portal = document.getElementById("vk-portal");
-        var toggle = document.getElementById("vk-theme-toggle");
-        if (!portal || !toggle) return;
-
-        var STORAGE_KEY = "vk-dark-mode";
-        var DARK_BG = "#0f172a";
-        var LIGHT_BG = "#ffffff";
-
-        function applyTheme(isDark) {
-            if (isDark) {
-                portal.classList.add("vk-dark");
-                document.body.classList.add("vk-dark-body");
-            } else {
-                portal.classList.remove("vk-dark");
-                document.body.classList.remove("vk-dark-body");
-            }
-            document.body.style.backgroundColor = isDark ? DARK_BG : LIGHT_BG;
-            nukePortalChrome();
-        }
-
-        function getPreference() {
-            var stored = localStorage.getItem(STORAGE_KEY);
-            if (stored !== null) return stored === "true";
-            return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-        }
-
-        applyTheme(getPreference());
-
-        toggle.addEventListener("click", function () {
-            var isDark = portal.classList.contains("vk-dark");
-            var newState = !isDark;
-            applyTheme(newState);
-            localStorage.setItem(STORAGE_KEY, String(newState));
-        });
-
-        if (window.matchMedia) {
-            window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function (e) {
-                if (localStorage.getItem(STORAGE_KEY) === null) {
-                    applyTheme(e.matches);
-                }
-            });
-        }
-    }
-
     function init() {
-        initDarkMode();
-        initScrollAnimations();
+        initTheme();
+        initScrollProgress();
+        initThesisReveal();
+        initSectionReveal();
+        initFunnelCounters();
         initLightbox();
-        initCountUp();
         initDatasetViewer();
     }
 

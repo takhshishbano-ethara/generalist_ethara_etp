@@ -2,189 +2,286 @@
 <odoo>
 
     <template id="portal_showcase" name="Valkyrie Showcase">
-        <t t-call="portal.portal_layout">
-            <t t-set="no_breadcrumbs" t-value="True"/>
-            <t t-set="no_header" t-value="True"/>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8"/>
+            <meta name="viewport" content="width=device-width, initial-scale=1"/>
+            <title>Valkyrie — Security Vulnerability Remediation · Ethara AI</title>
+            <meta name="description" content="Valkyrie: autonomous security patch generation benchmark spanning 20 instances across 7 CWE classes."/>
+            <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)"/>
+            <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)"/>
 
+            <!-- Sync theme-setter: reads saved choice BEFORE stylesheet
+                 tokens resolve, so there is no flash when revisiting. -->
+            <script>
+                (function(){
+                  try {
+                    var saved = localStorage.getItem('vk:theme');
+                    if (saved === 'light' || saved === 'dark') {
+                      document.documentElement.setAttribute('data-theme', saved);
+                    }
+                  } catch(e) {}
+                })();
+            </script>
+
+            <link rel="preconnect" href="https://fonts.googleapis.com"/>
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+            <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+            <link rel="stylesheet" href="/valkyrie_dashboard/static/src/portal/css/valkyrie_portal.css"/>
+
+            <script src="/valkyrie_dashboard/static/src/portal/js/valkyrie_portal.js" defer="defer"/>
+        </head>
+        <body>
             <div class="vk-portal" id="vk-portal">
 
-                <!-- ====== DARK MODE TOGGLE ====== -->
-                <button class="vk-theme-toggle" id="vk-theme-toggle"
-                        aria-label="Toggle dark mode" title="Toggle dark mode">
-                    <svg class="vk-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                <!-- Scroll progress rail (rAF-updated in valkyrie_portal.js) -->
+                <div class="vk-scroll-progress" aria-hidden="true"/>
+
+                <a class="vk-skip-link" href="#main">Skip to content</a>
+
+                <!-- ====== THEME TOGGLE ====== -->
+                <button type="button" class="vk-theme-toggle" id="vk-theme-toggle"
+                        aria-label="Toggle light / dark mode"
+                        title="Toggle light / dark mode">
+                    <svg class="vk-icon-moon" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
                     </svg>
-                    <svg class="vk-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="5"/>
-                        <line x1="12" y1="1" x2="12" y2="3"/>
-                        <line x1="12" y1="21" x2="12" y2="23"/>
-                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                        <line x1="1" y1="12" x2="3" y2="12"/>
-                        <line x1="21" y1="12" x2="23" y2="12"/>
-                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    <svg class="vk-icon-sun" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4"/>
+                        <path d="M12 2v2"/><path d="M12 20v2"/>
+                        <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+                        <path d="M2 12h2"/><path d="M20 12h2"/>
+                        <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
                     </svg>
                 </button>
 
-                <!-- ====== HERO ====== -->
-                <section class="vk-hero">
-                    <div class="vk-hero-bg"></div>
-                    <div class="vk-hero-content">
-                        <span class="vk-hero-tag">SECURITY VULNERABILITY REMEDIATION</span>
-                        <h1 class="vk-hero-title">VALKYRIE</h1>
-                        <p class="vk-hero-subtitle">
-                            Autonomous Security Patch Generation
-                        </p>
-                        <p class="vk-hero-byline">
-                            by <strong>Ethara AI Labs</strong> &#x2014;
-                            <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
-                        </p>
-                    </div>
-                </section>
+                <div class="vk-page">
 
-                <!-- ====== DESCRIPTION ====== -->
-                <section class="vk-section vk-desc-section" data-animate="fade-up">
-                    <div class="vk-container">
-                        <p class="vk-desc-text">
-                            Valkyrie is a reinforcement learning environment for training and evaluating
-                            autonomous software engineering agents on security vulnerability remediation.
-                            Each task instance defines a codebase containing a synthetic bug modeled after
-                            established CWE categories, a natural-language problem statement, and a Docker
-                            container providing a sandboxed execution environment. Two frontier models
-                            (Kimi K2.5, Nova 2 Lite) were evaluated across 20 instances spanning 7 CWE classes.
-                        </p>
-                    </div>
-                </section>
+                    <!-- ================= MASTHEAD ================= -->
+                    <header class="vk-masthead">
+                        <div class="vk-mast-top">
+                            <h1 class="vk-wordmark">VALKYRIE</h1>
+                            <span class="vk-badge">SECURITY VULNERABILITY REMEDIATION</span>
+                        </div>
+                        <hr class="vk-rule"/>
+                        <p class="vk-thesis">Can AI coding agents patch the bugs attackers <em>exploit</em>?</p>
+                    </header>
 
-                <!-- ====== KEY METRICS ====== -->
-                <section class="vk-section vk-metrics-section" data-animate="fade-up">
-                    <div class="vk-container">
-                        <h2 class="vk-section-title">Key Metrics</h2>
-                        <div class="vk-metrics-grid">
-                            <div class="vk-metric-card" data-animate="fade-up" data-delay="0">
-                                <div class="vk-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
-                                </div>
-                                <span class="vk-metric-val">20</span>
-                                <span class="vk-metric-lbl">Task Instances</span>
-                                <span class="vk-metric-sub">FFmpeg: 6, jq: 14</span>
+                    <main id="main">
+
+                    <!-- ================= §01 THE QUESTION ================= -->
+                    <section class="vk-section" id="overview" aria-labelledby="vk-overview-label">
+                        <p class="vk-section-label" id="vk-overview-label">§01 — The question</p>
+                        <div class="vk-overview-grid">
+                            <div class="vk-prose">
+                                <p>
+                                    Valkyrie is a reinforcement-learning environment for training and evaluating
+                                    autonomous software-engineering agents on security vulnerability remediation.
+                                    Each task instance defines a codebase containing a synthetic bug modeled after
+                                    an established CWE category, a natural-language problem statement, and a Docker
+                                    container providing a sandboxed execution environment. Two frontier models
+                                    were evaluated across 20 instances spanning 7 CWE classes and 2 C codebases.
+                                </p>
+                                <p class="vk-byline">by Ethara AI Labs · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
+                                <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§04</a>.</p>
                             </div>
-                            <div class="vk-metric-card" data-animate="fade-up" data-delay="1">
-                                <div class="vk-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.75-11.396c.251.023.501.05.75.082M5 14.5l3.5 3.5L12 14.5m7 0l-3.5 3.5L12 14.5"/></svg>
-                                </div>
-                                <span class="vk-metric-val">2</span>
-                                <span class="vk-metric-lbl">Frontier Models</span>
-                                <span class="vk-metric-sub">Kimi K2.5 &amp; Nova 2 Lite</span>
+
+                            <aside class="vk-glance" aria-label="At a glance">
+                                <p class="vk-glance-label vk-mono">At a glance</p>
+                                <dl class="vk-glance-list">
+                                    <div class="vk-glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Repositories</dt><dd><b>2</b></dd></div>
+                                    <div class="vk-glance-row"><dt>CWE classes</dt><dd><b>7</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Test cases</dt><dd><b>16,756</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Runtime</dt><dd>Docker · hermetic</dd></div>
+                                </dl>
+                                <p class="vk-glance-foot vk-mono">Benchmark · v1 · 2026</p>
+                            </aside>
+                        </div>
+                    </section>
+
+                    <!-- ================= §02 SCOPE OF THE SUITE ================= -->
+                    <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
+                        <p class="vk-section-label" id="vk-scope-label">§02 — Scope of the suite</p>
+                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Twenty benchmark instances.</p>
+                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 20 benchmark instances">
+                            <div class="vk-funnel-step">
+                                <span class="vk-funnel-num" data-target="7" aria-hidden="true">0</span>
+                                <span class="sr-only">7</span>
+                                <span class="vk-funnel-unit">CWE classes covered</span>
+                                <span class="vk-funnel-sub">125, 416, 665, 670, 754, 787, 908</span>
                             </div>
-                            <div class="vk-metric-card" data-animate="fade-up" data-delay="2">
-                                <div class="vk-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/></svg>
-                                </div>
-                                <span class="vk-metric-val">16,756</span>
-                                <span class="vk-metric-lbl">Total Test Cases</span>
-                                <span class="vk-metric-sub">5,270 fail-to-pass + 11,486 pass-to-pass</span>
+                            <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
+                            <div class="vk-funnel-step">
+                                <span class="vk-funnel-num" data-target="2" aria-hidden="true">0</span>
+                                <span class="sr-only">2</span>
+                                <span class="vk-funnel-unit">Target codebases</span>
+                                <span class="vk-funnel-sub">FFmpeg · jq (C / compiled)</span>
                             </div>
-                            <div class="vk-metric-card" data-animate="fade-up" data-delay="3">
-                                <div class="vk-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
-                                </div>
-                                <span class="vk-metric-val">7</span>
-                                <span class="vk-metric-lbl">CWE Classes</span>
-                                <span class="vk-metric-sub">across 2 repositories</span>
+                            <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
+                            <div class="vk-funnel-step vk-funnel-step--final">
+                                <span class="vk-funnel-num" data-target="20" aria-hidden="true">0</span>
+                                <span class="sr-only">20</span>
+                                <span class="vk-funnel-unit">Benchmark instances</span>
+                                <span class="vk-funnel-sub">6 FFmpeg · 14 jq · 16,756 tests</span>
                             </div>
                         </div>
-                    </div>
-                </section>
+                    </section>
 
-                <!-- ====== PIPELINE PHASES ====== -->
-                <section class="vk-section vk-phases-section" data-animate="fade-up">
-                    <div class="vk-container">
-                        <h2 class="vk-section-title">Pipeline</h2>
-                        <div class="vk-pipeline">
-                            <div class="vk-pipeline-card">
-                                <div class="vk-pipeline-num">1</div>
-                                <h3>Instance Construction</h3>
-                                <p>
-                                    Synthesize bugs using SWE-smith methodology.
-                                    Apply targeted code mutations reproducing CWE behavioral signatures.
-                                </p>
+                    <!-- ================= §03 PIPELINE ================= -->
+                    <section class="vk-section vk-section-pipeline" id="pipeline" aria-labelledby="vk-pipeline-label">
+                        <p class="vk-section-label" id="vk-pipeline-label">§03 — Pipeline</p>
+                        <div class="vk-pipeline-frame">
+                            <div class="vk-pipeline-intro">
+                                <p class="vk-pipeline-eyebrow vk-mono">The method</p>
+                                <h2 class="vk-pipeline-title">Four stages turn a known CWE into a scored benchmark.</h2>
+                                <p class="vk-pipeline-sub">Two to build the dataset, two to evaluate any model against it.</p>
                             </div>
-                            <div class="vk-pipeline-arrow">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
+
+                            <h3 class="vk-phase-tier-header">
+                                <span class="vk-tier-n vk-mono">A</span>
+                                <span class="vk-tier-t">Build the benchmark</span>
+                                <span class="vk-tier-hint vk-mono">runs once</span>
+                            </h3>
+                            <div class="vk-pipeline vk-pipeline-a">
+                                <article class="vk-phase">
+                                    <p class="vk-phase-label">Phase 01</p>
+                                    <h4 class="vk-phase-title">Bug Synthesis</h4>
+                                    <ul class="vk-phase-body">
+                                        <li>Select CWE category and target function</li>
+                                        <li>Apply SWE-smith mutation reproducing the behavioral signature</li>
+                                        <li>Validate the mutation actually reproduces the vulnerability</li>
+                                    </ul>
+                                </article>
+                                <article class="vk-phase">
+                                    <p class="vk-phase-label">Phase 02</p>
+                                    <h4 class="vk-phase-title">Instance Assembly</h4>
+                                    <ul class="vk-phase-body">
+                                        <li>Write natural-language problem statement</li>
+                                        <li>Partition suite: <code class="vk-mono">5,270</code> F2P · <code class="vk-mono">11,486</code> P2P</li>
+                                        <li>Package into hermetic Docker image</li>
+                                    </ul>
+                                </article>
                             </div>
-                            <div class="vk-pipeline-card">
-                                <div class="vk-pipeline-num">2</div>
-                                <h3>Agent Execution</h3>
-                                <p>
-                                    Deploy AI agents in sandboxed Docker containers.
-                                    Generate security patches from natural-language problem statements.
-                                </p>
+
+                            <h3 class="vk-phase-tier-header vk-tier-exec">
+                                <span class="vk-tier-n vk-mono">B</span>
+                                <span class="vk-tier-t">Run the benchmark</span>
+                                <span class="vk-tier-hint vk-mono">runs per model</span>
+                            </h3>
+                            <div class="vk-pipeline vk-pipeline-b">
+                                <article class="vk-phase vk-phase-exec">
+                                    <p class="vk-phase-label">Phase 03</p>
+                                    <h4 class="vk-phase-title">Inference</h4>
+                                    <ul class="vk-phase-body">
+                                        <li>Agent receives problem statement in Docker sandbox</li>
+                                        <li>Tool-use interaction across 2 frontier models</li>
+                                        <li>Produces a git diff patch</li>
+                                    </ul>
+                                </article>
+                                <article class="vk-phase vk-phase-exec">
+                                    <p class="vk-phase-label">Phase 04</p>
+                                    <h4 class="vk-phase-title">Evaluation</h4>
+                                    <ul class="vk-phase-body">
+                                        <li>Apply patch, run F2P + P2P test partitions</li>
+                                        <li>Grade <code class="vk-mono">FAIL_TO_PASS</code> + <code class="vk-mono">PASS_TO_PASS</code></li>
+                                        <li>Emit resolution verdict per instance</li>
+                                    </ul>
+                                </article>
                             </div>
-                            <div class="vk-pipeline-arrow">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
+
+                            <p class="vk-handoff">So how did the models actually do? <a href="#results">§04 →</a></p>
+                        </div>
+                    </section>
+
+                    <!-- ================= §04 RESULTS ================= -->
+                    <section class="vk-section vk-section-reveal" id="results" aria-labelledby="vk-results-label">
+                        <p class="vk-section-label" id="vk-results-label">§04 — Results</p>
+
+                        <div class="vk-reveal">
+                            <p class="vk-reveal-line">
+                                <span class="vk-tok-kimi">Kimi K2.5</span> resolves <b class="vk-reveal-big">2 of 20</b>.
+                                <span class="vk-tok-nova">Nova 2 Lite</span> resolves <b class="vk-reveal-big">0 of 20</b>.
+                            </p>
+                            <p class="vk-reveal-line vk-reveal-kicker">
+                                Only Kimi crosses the line — and neither model closes a <b>Hard</b> instance.
+                            </p>
+                            <p class="vk-reveal-cost vk-mono">
+                                One model is <b>~23× more expensive</b> — and is the only one that scores at all.
+                            </p>
+                        </div>
+
+                        <div class="vk-charts vk-charts-2">
+                            <figure class="vk-chart vk-chart--hero">
+                                <button type="button" class="vk-chart-trigger" aria-label="Preview performance-by-difficulty chart full size">
+                                    <img src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
+                                         alt="Bar chart: Valkyrie resolution rate by difficulty across Kimi K2.5 and Nova 2 Lite"
+                                         loading="lazy"/>
+                                    <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                                </button>
+                                <figcaption>Fig. 1 — Performance by difficulty</figcaption>
+                            </figure>
+                            <figure class="vk-chart">
+                                <button type="button" class="vk-chart-trigger" aria-label="Preview failure-mode distribution chart full size">
+                                    <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
+                                         alt="Distribution chart: failure-reason breakdown across the 18 unresolved instances"
+                                         loading="lazy"/>
+                                    <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                                </button>
+                                <figcaption>Fig. 2 — Failure-mode distribution</figcaption>
+                            </figure>
+                        </div>
+                        <p class="vk-caption">Resolution rate by difficulty (Fig. 1) and failure-mode breakdown across the 18 unresolved attempts (Fig. 2). See <a href="#instances">§05</a> for per-instance receipts.</p>
+                    </section>
+
+                    <!-- ================= §05 INSTANCES ================= -->
+                    <section class="vk-section" id="instances" aria-labelledby="vk-instances-label">
+                        <p class="vk-section-label" id="vk-instances-label">§05 — Instances</p>
+                        <p class="vk-section-desc">Every run, receipt-by-receipt. Click any row to expand full problem statement, test counts, and per-model timing + cost.</p>
+
+                        <!-- KPI row -->
+                        <div class="vk-kpi-row" aria-label="Headline statistics for 20 evaluation runs">
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">Kimi K2.5 · Pass@1</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big vk-tok-kimi">10<small>%</small></span></p>
+                                <p class="vk-kpi-sub vk-mono">2 of 20 resolved</p>
                             </div>
-                            <div class="vk-pipeline-card">
-                                <div class="vk-pipeline-num">3</div>
-                                <h3>Evaluation</h3>
-                                <p>
-                                    Execute partitioned test suites. Measure fail-to-pass
-                                    (fix validation) and pass-to-pass (regression) results.
-                                </p>
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">Nova 2 Lite · Pass@1</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big vk-tok-nova">0<small>%</small></span></p>
+                                <p class="vk-kpi-sub vk-mono">0 of 20 resolved</p>
+                            </div>
+                            <div class="vk-kpi-card vk-kpi-card--accent">
+                                <p class="vk-kpi-label">Only Kimi passed</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big">2</span><span class="vk-kpi-suffix">instances</span></p>
+                                <p class="vk-kpi-sub vk-mono">FFmpeg · jq</p>
+                            </div>
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">Cost spread</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big">$0.02</span><span class="vk-kpi-suffix">→ $12.59</span></p>
+                                <p class="vk-kpi-sub vk-mono">per-run, Nova low → Kimi high</p>
                             </div>
                         </div>
-                    </div>
-                </section>
 
-                <!-- ====== CHARTS ====== -->
-                <section class="vk-section vk-charts-section" data-animate="fade-up">
-                    <div class="vk-container">
-                        <h2 class="vk-section-title">Benchmark Results</h2>
-                        <p class="vk-charts-subtitle">
-                            Kimi K2.5: 10% resolve rate (2/20) &#xA0;|&#xA0; Nova 2 Lite: 0% (0/20)
-                        </p>
-                        <p class="vk-charts-caption">
-                            Evaluation results across difficulty levels for Kimi K2.5 and Nova 2 Lite
-                            on 20 security vulnerability instances.
-                        </p>
-                        <div class="vk-charts-grid">
-                            <div class="vk-chart-card" data-animate="fade-up">
-                                <img src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
-                                     alt="Performance by Difficulty"
-                                     loading="lazy"/>
-                                <div class="vk-chart-label">Performance by Difficulty</div>
-                            </div>
-                            <div class="vk-chart-card" data-animate="fade-up" data-delay="1">
-                                <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
-                                     alt="Failure Reasons Distribution"
-                                     loading="lazy"/>
-                                <div class="vk-chart-label">Failure Reasons Distribution</div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- ====== DATASET VIEWER ====== -->
-                <section class="vk-section vk-viewer-section" id="vk-dataset-viewer">
-                    <div class="vk-container">
-                        <h2 class="vk-section-title">Dataset Viewer</h2>
-                        <p class="vk-viewer-caption">
-                            Browse all 20 instances in the Valkyrie dataset. Click any row to expand full details.
-                        </p>
+                        <!-- Search + filter controls -->
                         <div class="vk-viewer-controls">
                             <div class="vk-viewer-search">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 <input type="text" id="vk-viewer-search" placeholder="Search instances..." autocomplete="off"/>
                             </div>
                             <div class="vk-viewer-filters">
-                                <select id="vk-viewer-difficulty">
-                                    <option value="">All Difficulties</option>
+                                <select id="vk-viewer-difficulty" aria-label="Filter by difficulty">
+                                    <option value="">All difficulties</option>
                                     <option value="Easy">Easy</option>
                                     <option value="Medium">Medium</option>
                                     <option value="Hard">Hard</option>
                                 </select>
-                                <select id="vk-viewer-sort">
+                                <select id="vk-viewer-sort" aria-label="Sort order">
                                     <option value="instance_id">Name (A-Z)</option>
                                     <option value="difficulty">Difficulty</option>
                                     <option value="fail_to_pass_count">Tests (F2P)</option>
@@ -193,59 +290,75 @@
                                 </select>
                             </div>
                             <div class="vk-viewer-meta">
-                                <span id="vk-viewer-count">Loading...</span>
+                                <span id="vk-viewer-count" class="vk-mono">Loading...</span>
                             </div>
                         </div>
-                        <div class="vk-viewer-table-wrap" id="vk-viewer-table-wrap">
-                            <table class="vk-viewer-table" id="vk-viewer-table">
+
+                        <!-- Dataset table with row-expand -->
+                        <div class="vk-matrix-wrap" id="vk-viewer-table-wrap">
+                            <table class="vk-matrix vk-viewer-table" id="vk-viewer-table">
                                 <thead>
                                     <tr>
                                         <th class="vk-th-instance">Instance</th>
-                                        <th class="vk-th-diff">Difficulty</th>
+                                        <th class="vk-th-diff">Diff</th>
                                         <th class="vk-th-cwe">CWE</th>
-                                        <th class="vk-th-tests">Tests (F2P)</th>
-                                        <th class="vk-th-kimi">Kimi K2.5</th>
-                                        <th class="vk-th-nova">Nova 2 Lite</th>
-                                        <th class="vk-th-expand"></th>
+                                        <th class="vk-th-tests">F2P</th>
+                                        <th class="vk-th-kimi"><span class="vk-tok-kimi">Kimi K2.5</span></th>
+                                        <th class="vk-th-nova"><span class="vk-tok-nova">Nova 2 Lite</span></th>
+                                        <th class="vk-th-expand" aria-label="Expand details"></th>
                                     </tr>
                                 </thead>
-                                <tbody id="vk-viewer-tbody">
-                                </tbody>
+                                <tbody id="vk-viewer-tbody" aria-live="polite"></tbody>
                             </table>
                         </div>
-                        <div class="vk-viewer-pagination" id="vk-viewer-pagination">
-                        </div>
-                    </div>
-                </section>
+                        <p class="vk-matrix-hint vk-mono">Click any row for full run metadata.</p>
 
-                <!-- ====== LINKS ====== -->
-                <section class="vk-section vk-links-section" data-animate="fade-up">
-                    <div class="vk-container">
-                        <div class="vk-links-row">
-                            <a class="vk-link-btn" t-att-href="github_url"
-                               target="_blank" rel="noopener">
-                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-                                GitHub Repository
+                        <div class="vk-viewer-pagination" id="vk-viewer-pagination"></div>
+                    </section>
+
+                    <!-- ================= §06 RESOURCES (compact) ================= -->
+                    <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
+                        <p class="vk-section-label" id="vk-resources-label">§06 — Resources</p>
+                        <div class="vk-resources">
+                            <a class="vk-resource" t-att-href="github_url" target="_blank" rel="noopener">
+                                <p class="vk-res-label">Code</p>
+                                <p class="vk-res-title">GitHub repository</p>
+                                <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
+                                <span class="vk-res-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             </a>
-                            <a class="vk-link-btn" t-att-href="dataset_url"
-                               target="_blank" rel="noopener">
-                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-                                Dataset on HuggingFace
+                            <a class="vk-resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+                                <p class="vk-res-label">Data</p>
+                                <p class="vk-res-title">Dataset on HuggingFace</p>
+                                <p class="vk-res-url vk-mono">huggingface.co/datasets/ethara/Valkyrie</p>
+                                <span class="vk-res-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             </a>
                         </div>
-                    </div>
-                </section>
+                    </section>
 
-                <!-- ====== FOOTER ====== -->
-                <footer class="vk-footer">
-                    <div class="vk-container">
-                        <p>&#xA9; 2026 Ethara AI Labs. Project Valkyrie.</p>
-                    </div>
-                </footer>
+                    </main>
+
+                    <footer class="vk-foot">
+                        <div class="vk-foot-inner">
+                            <p class="vk-mono"><a href="https://www.ethara.ai">ethara.ai</a> · valkyrie-v1</p>
+                        </div>
+                    </footer>
+
+                </div>
+
+                <!-- Lightbox overlay for chart preview -->
+                <div class="vk-lightbox" id="vk-lightbox" role="dialog" aria-modal="true"
+                     aria-labelledby="vk-lightbox-caption" aria-hidden="true" hidden="hidden">
+                    <button type="button" class="vk-lightbox-close" id="vk-lightbox-close"
+                            aria-label="Close preview">×</button>
+                    <figure class="vk-lightbox-figure">
+                        <img id="vk-lightbox-img" src="" alt=""/>
+                        <figcaption id="vk-lightbox-caption" class="vk-lightbox-caption vk-mono"></figcaption>
+                    </figure>
+                </div>
 
             </div>
-
-        </t>
+        </body>
+        </html>
     </template>
 
 </odoo>
