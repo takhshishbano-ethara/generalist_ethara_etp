@@ -99,7 +99,7 @@
 
   <!-- ================= §01 THE QUESTION ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">§01 — The question</p>
+    <p class="section-label" id="overview-label">§01 · The question</p>
     <div class="overview-grid">
       <div class="prose">
         <p>Tesseract evaluates AI coding agents on their ability to resolve real-world GitHub issues that include visual multimodal content such as screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings. Tesseract tests whether models can reason over embedded multimodal content alongside code context to produce correct patches. Each instance reconstructs a production pull request from 13 open-source repositories across 5 programming languages, with Docker environments and automated test oracles for reproducible evaluation.</p>
@@ -122,7 +122,7 @@
 
   <!-- ================= §02 SCALE OF THE CRAWL ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">§02 — Valid Instances</p>
+    <p class="section-label" id="scale-label">§02 · Valid Instances</p>
     <p class="section-desc">Curated from thousands of real production pull requests, filtered through a 12-stage pipeline.</p>
     <div class="kpi-row" aria-label="Valid instances composition">
       <div class="kpi-card">
@@ -150,7 +150,7 @@
 
   <!-- ================= §03 PIPELINE ================= -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
-    <p class="section-label" id="pipeline-label">§03 — Pipeline</p>
+    <p class="section-label" id="pipeline-label">§03 · Pipeline</p>
     <div class="pipeline-frame">
     <div class="pipeline-intro">
       <p class="pipeline-eyebrow mono">The method</p>
@@ -234,7 +234,7 @@
 
   <!-- ================= §04 RESULTS — THE REVEAL ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 — Results</p>
+    <p class="section-label" id="results-label">§04 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -269,7 +269,7 @@
 
   <!-- ================= §05 INSTANCES ================= -->
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">§05 — Instances</p>
+    <p class="section-label" id="instances-label">§05 · Instances</p>
     <p class="section-desc">Every run, receipt-by-receipt. <span class="mono">PASS</span> means the model's patch fixed the issue and didn't regress existing tests.</p>
 
     <!-- KPI row: speak-at-a-glance stats for a presenter -->
@@ -340,7 +340,7 @@
 
   <!-- ================= §06 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="res-label">
-    <p class="section-label" id="res-label">§06 — Resources</p>
+    <p class="section-label" id="res-label">§06 · Resources</p>
     <div class="resources">
       <a class="resource" href="https://github.com/Ethara-Ai/tesseract/tree/main/trajectories" target="_blank" rel="noopener">
         <p class="res-label mono">Trajectories</p>
