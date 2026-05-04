@@ -16,7 +16,7 @@ class AuroraShowcaseController(http.Controller):
             ) or "https://github.com/Ethara-Ai/milo-bench-paper/tree/main/trajectories",
             "dataset_url": ICP.get_param(
                 "aurora_dashboard.dataset_url", ""
-            ) or "https://huggingface.co/datasets/ethara/Aurora",
+            ) or "https://huggingface.co/datasets/ethara/MILO-Bench",
         }
         return request.render("aurora_dashboard.portal_showcase", values)
 
