@@ -48,11 +48,38 @@
     prefersDark.addListener(osChangeHandler); // Safari < 14
   }
 
+  // Scroll progress bar
+  const scrollProgress = document.querySelector('.scroll-progress');
+  if (scrollProgress) {
+    const updateProgress = () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+      scrollProgress.style.width = progress + '%';
+    };
+    window.addEventListener('scroll', updateProgress, { passive: true });
+    updateProgress();
+  }
+
   const dataEl = document.getElementById('instances-data');
   if (!dataEl) return;
   const rows = JSON.parse(dataEl.textContent || '[]');
 
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Mouse-following glow on cards
+  const glowCards = document.querySelectorAll('.kpi-card, .chart, .resource');
+  if (glowCards.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    glowCards.forEach(card => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        card.style.setProperty('--mouse-x', x + '%');
+        card.style.setProperty('--mouse-y', y + '%');
+      });
+    });
+  }
 
   // ============================================================
   // GSAP + ScrollTrigger — loaded via CDN in <head>. Wait for it.
@@ -65,27 +92,103 @@
 
     const { gsap, ScrollTrigger } = window;
     gsap.registerPlugin(ScrollTrigger);
-    gsap.defaults({ ease: 'power2.out', duration: 0.8 });
+    gsap.defaults({ ease: 'power3.out', duration: 1.0 });
 
-    // ---------- 1. Masthead on load ---------------------------------
-    gsap.from('.wordmark', { y: 20, opacity: 0, duration: 0.9, delay: 0.05 });
-    gsap.from('.badge',    { y: 20, opacity: 0, duration: 0.9, delay: 0.18 });
-    gsap.from('.thesis',   { y: 24, opacity: 0, duration: 1.0, delay: 0.28 });
-    gsap.from('.byline',   { y: 12, opacity: 0, duration: 0.8, delay: 0.50 });
+    // ---------- 1. Cinematic masthead reveal -------------------------
+    const mastTl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+    mastTl
+      .from('.wordmark', { y: 30, opacity: 0, scale: 1.05, filter: 'blur(8px)', duration: 1.1 })
+      .from('.badge', { y: 20, opacity: 0, scale: 0.9, duration: 0.7, ease: 'back.out(1.7)' }, '-=0.6')
+      .from('hr.rule', { scaleX: 0, opacity: 0, duration: 0.8, transformOrigin: 'left center' }, '-=0.4')
+      .from('.thesis', { y: 40, opacity: 0, filter: 'blur(4px)', duration: 1.0 }, '-=0.5')
+      .from('.byline', { y: 16, opacity: 0, duration: 0.7 }, '-=0.4');
 
-    // ---------- 2. Fade-rise on enter for every major section ------
-    document.querySelectorAll('main > .section').forEach((section) => {
-      gsap.from(section.querySelectorAll(':scope > *'), {
-        y: 28,
-        opacity: 0,
-        stagger: 0.08,
-        duration: 0.7,
-        scrollTrigger: {
-          trigger: section,
-          start: 'top 82%',
-          toggleActions: 'play none none none',
-        },
+    // ---------- 2. Differentiated section animations ----------------
+    const sections = document.querySelectorAll('main > .section');
+    sections.forEach((section) => {
+      const id = section.id;
+
+      if (id === 'scale') {
+        gsap.from(section.querySelectorAll('.funnel-step'), {
+          x: -40, opacity: 0, stagger: 0.15, duration: 0.8,
+          ease: 'power2.out',
+          scrollTrigger: { trigger: section, start: 'top 80%' }
+        });
+      } else if (id === 'pipeline') {
+        gsap.from(section.querySelectorAll('.phase'), {
+          y: 30, opacity: 0, scale: 0.96, stagger: 0.12, duration: 0.7,
+          ease: 'back.out(1.2)',
+          scrollTrigger: { trigger: section, start: 'top 78%' }
+        });
+      } else if (id === 'results') {
+        gsap.from('.reveal', {
+          x: -20, opacity: 0, duration: 0.9, ease: 'power3.out',
+          scrollTrigger: { trigger: '.reveal', start: 'top 80%' }
+        });
+      } else if (id === 'instances') {
+        gsap.from(section.querySelectorAll('.kpi-card'), {
+          y: 30, opacity: 0, scale: 0.95, stagger: 0.08, duration: 0.6,
+          ease: 'back.out(1.4)',
+          scrollTrigger: { trigger: '.kpi-row', start: 'top 82%' }
+        });
+      } else {
+        gsap.from(section.querySelectorAll(':scope > *'), {
+          y: 28, opacity: 0, stagger: 0.08, duration: 0.7,
+          scrollTrigger: { trigger: section, start: 'top 82%' }
+        });
+      }
+    });
+
+    // Smooth parallax on section labels
+    document.querySelectorAll('.section-label').forEach((label) => {
+      gsap.from(label, {
+        x: -20, opacity: 0, duration: 0.8,
+        scrollTrigger: { trigger: label, start: 'top 88%' }
       });
+    });
+
+    // Pipeline frame reveal
+    const pipelineFrame = document.querySelector('.pipeline-frame');
+    if (pipelineFrame) {
+      gsap.from(pipelineFrame, {
+        y: 40, opacity: 0, scale: 0.98, duration: 1.0,
+        scrollTrigger: { trigger: pipelineFrame, start: 'top 80%' }
+      });
+    }
+
+    // Glance sidebar stagger
+    gsap.from('.glance-row', {
+      x: 20, opacity: 0, stagger: 0.06, duration: 0.5,
+      scrollTrigger: { trigger: '.glance', start: 'top 80%' }
+    });
+
+    // View toggle + matrix reveal
+    gsap.from('.view-toggle', {
+      y: 20, opacity: 0, duration: 0.6,
+      scrollTrigger: { trigger: '.view-toggle', start: 'top 88%' }
+    });
+    gsap.from('.matrix-wrap', {
+      y: 30, opacity: 0, duration: 0.8,
+      scrollTrigger: { trigger: '.matrix-wrap', start: 'top 85%' }
+    });
+
+    // Reveal lines stagger
+    gsap.from('.reveal-line', {
+      y: 20, opacity: 0, stagger: 0.15, duration: 0.8,
+      ease: 'power3.out',
+      scrollTrigger: { trigger: '.reveal', start: 'top 78%' }
+    });
+
+    // Footer fade
+    gsap.from('.foot-inner', {
+      y: 20, opacity: 0, duration: 0.8,
+      scrollTrigger: { trigger: '.foot', start: 'top 92%' }
+    });
+
+    // Repo groups stagger
+    gsap.from('.repo-group', {
+      y: 20, opacity: 0, stagger: 0.08, duration: 0.6,
+      scrollTrigger: { trigger: '.repo-list', start: 'top 85%' }
     });
 
     // ---------- 3. Funnel final KPI accent glow (one-shot) ---------
@@ -105,21 +208,12 @@
 
     // ---------- 4. Charts fade-in under reveal ---------------------
     gsap.from('.charts .chart', {
-      y: 28,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.6,
+      y: 40, opacity: 0, scale: 0.96, stagger: 0.12, duration: 0.9,
+      ease: 'power2.out',
       scrollTrigger: { trigger: '.charts', start: 'top 85%' },
     });
 
-    // ---------- 5. KPI cards stagger entrance ----------------------
-    gsap.from('.kpi-card', {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.6,
-      scrollTrigger: { trigger: '.kpi-row', start: 'top 82%' },
-    });
+    // ---------- 5. (KPI cards handled in differentiated section animations above)
 
     // ---------- 6. Matrix pass-tile pulse on enter -----------------
     ScrollTrigger.create({
@@ -211,14 +305,16 @@
       el.textContent = target.toLocaleString() + suffix;
       return;
     }
-    const duration = 900;
+    const duration = 1100;
     const start = performance.now();
     const step = (now) => {
       const t = Math.min(1, (now - start) / duration);
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3);
-      const val = Math.round(target * eased);
-      el.textContent = val.toLocaleString() + (t === 1 ? suffix : '');
+      // Spring overshoot: goes to 105% then settles
+      const eased = t < 0.7
+        ? 1.05 * (1 - Math.pow(1 - t / 0.7, 3))
+        : 1.05 - 0.05 * ((t - 0.7) / 0.3);
+      const val = Math.round(target * Math.min(eased, 1.05));
+      el.textContent = (t === 1 ? target : Math.min(val, Math.round(target * 1.05))).toLocaleString() + (t === 1 ? suffix : '');
       if (t < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
