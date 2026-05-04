@@ -75,7 +75,7 @@
     <p class="section-label" id="overview-label">§01 The question</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Kraken evaluates AI coding agents on their ability to optimize real-world Python code for runtime performance. Using the SWE-fficiency methodology, agents must investigate repository-level codebases, localize performance bottlenecks, and produce patches that match or exceed expert-level speedup all while maintaining correctness through the project's test suite. Each instance reconstructs a production pull request from 7 open-source Python repositories, with automated timing harnesses and gold-standard speedup baselines for reproducible evaluation.</p>
+        <p>Kraken evaluates AI coding agents on their ability to optimize real-world Python code for runtime performance. Using the SWE-fficiency methodology, agents must investigate repository-level codebases, localize performance bottlenecks, and produce patches that match or exceed expert-level speedup all while maintaining correctness through the project's test suite. Each instance reconstructs a production pull request from 6 open-source Python repositories, with automated timing harnesses and gold-standard speedup baselines for reproducible evaluation.</p>
         <p class="teaser">Keep scrolling. The answer is in <a href="#results">§04</a>.</p>
       </div>
 
@@ -83,7 +83,7 @@
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
-          <div class="glance-row"><dt>Repositories</dt><dd><b>7</b></dd></div>
+          <div class="glance-row"><dt>Repositories</dt><dd><b>6</b></dd></div>
           <div class="glance-row"><dt>Language</dt><dd><b>Python</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Methodology</dt><dd>SWE-fficiency</dd></div>
