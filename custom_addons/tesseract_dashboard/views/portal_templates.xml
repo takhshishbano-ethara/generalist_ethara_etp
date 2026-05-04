@@ -275,7 +275,7 @@
   <!-- ================= §05 INSTANCES ================= -->
   <section class="section" id="instances" aria-labelledby="instances-label">
     <p class="section-label" id="instances-label">§05 — Instances</p>
-    <p class="section-desc">Every run, receipt-by-receipt. <span class="mono">[##]</span> means the model's patch fixed the issue and didn't regress existing tests.</p>
+    <p class="section-desc">Every run, receipt-by-receipt. <span class="mono">PASS</span> means the model's patch fixed the issue and didn't regress existing tests.</p>
 
     <!-- KPI row: speak-at-a-glance stats for a presenter -->
     <div class="kpi-row" aria-label="Headline statistics for 20 evaluation runs">
@@ -338,100 +338,7 @@
       <div class="repo-list" id="repo-list"></div>
     </div>
 
-    <!-- DETAIL DRAWER -->
-    <div class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="false" aria-labelledby="drawer-title" hidden="hidden">
-      <div class="drawer-head">
-        <p class="drawer-label mono">Run detail</p>
-        <button class="drawer-close" id="drawer-close" aria-label="Close detail panel">×</button>
-      </div>
-      <div class="drawer-body" id="drawer-body"></div>
-    </div>
-
     <script type="application/json" id="instances-data" t-out="instances_json"/>
-  </section>
-
-  <!-- ================= §06 METHODOLOGY (scraper, demoted) ================= -->
-  <section class="section" id="scraper" aria-labelledby="scraper-label">
-    <p class="section-label" id="scraper-label">§06 — Methodology</p>
-    <details class="appendix">
-      <summary class="appendix-summary">
-        <span class="sum-left">
-          <span class="sum-count">How the 337 candidates were filtered</span>
-          <span class="sum-meta">· 12-stage pipeline · click to expand</span>
-        </span>
-        <span class="sum-chevron" aria-hidden="true">+</span>
-      </summary>
-      <div class="appendix-body">
-        <p class="section-desc">The scraper (<code class="mono">swe_multimodal_scraper.py</code>, 976 lines) applies a 12-stage filter to every closed PR.</p>
-
-        <div class="scraper">
-          <div class="scraper-head mono">
-            <span class="scraper-count">48,000+</span>
-            <span class="scraper-unit">closed PRs</span>
-            <span class="scraper-arrow" aria-hidden="true">↓</span>
-          </div>
-
-          <ol class="scraper-stages">
-            <li><span class="stage-n">01</span><span class="stage-t">Merged check</span><span class="stage-d">only merged PRs</span></li>
-            <li><span class="stage-n">02</span><span class="stage-t">AI-authored filter</span><span class="stage-d">exclude bot / AI PRs</span></li>
-            <li><span class="stage-n">03</span><span class="stage-t">Linked issue lookup</span><span class="stage-d">regex + GraphQL union</span></li>
-            <li><span class="stage-n">04</span><span class="stage-t">Patch extraction</span><span class="stage-d">source_patch + test_patch via unidiff</span></li>
-            <li><span class="stage-n">05</span><span class="stage-t">Problem statement</span><span class="stage-d">from linked issue body</span></li>
-            <li><span class="stage-n">06</span><span class="stage-t">Leakage detection</span><span class="stage-d">pattern + verbatim code matching</span></li>
-            <li><span class="stage-n">07</span><span class="stage-t">Multimodal gate</span><span class="stage-d">&gt;= 1 verified image URL</span></li>
-            <li><span class="stage-n">08</span><span class="stage-t">Hints extraction</span><span class="stage-d">pre-commit issue comments</span></li>
-            <li><span class="stage-n">09</span><span class="stage-t">Base commit SHA</span><span class="stage-d">validate 40-char hex</span></li>
-            <li><span class="stage-n">10</span><span class="stage-t">Image assets build</span><span class="stage-d">categorize URLs by source</span></li>
-            <li><span class="stage-n">11</span><span class="stage-t">Record assembly</span><span class="stage-d">12-field JSONL schema</span></li>
-            <li><span class="stage-n">12</span><span class="stage-t">Schema validation</span><span class="stage-d">final integrity check</span></li>
-          </ol>
-
-          <div class="scraper-tail mono">
-            <span class="scraper-arrow" aria-hidden="true">↓</span>
-            <span class="scraper-count">337</span>
-            <span class="scraper-unit">candidates</span>
-            <span class="scraper-arrow inline-arrow" aria-hidden="true">-&gt;</span>
-            <span class="scraper-unit">manual curation</span>
-            <span class="scraper-arrow inline-arrow" aria-hidden="true">-&gt;</span>
-            <span class="scraper-count">20</span>
-            <span class="scraper-unit">benchmark instances</span>
-          </div>
-
-          <p class="scraper-note">First run: 6 repos · 48K PRs paginated · 337 candidates in ~6.5 hours. Repos: <code class="mono">three.js · preact · p5.js · vuejs/core · react-pdf · ant-design</code>.</p>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- ================= §07 REPRODUCIBILITY ================= -->
-  <section class="section" id="reproducibility" aria-labelledby="repro-label">
-    <p class="section-label" id="repro-label">§07 — Reproducibility</p>
-    <ul class="feature-list feature-list--single">
-      <li><span class="f-dot" aria-hidden="true">+</span><span>Hermetic <b>ARM64 Docker</b> environments with per-instance isolated test suites</span></li>
-      <li><span class="f-dot" aria-hidden="true">+</span><span>3-tier Docker images per instance: <code class="mono">base -&gt; env -&gt; eval</code></span></li>
-      <li><span class="f-dot" aria-hidden="true">+</span><span>Two-stage test oracle prevents regression gaming — patches must fix <em>and</em> preserve</span></li>
-      <li><span class="f-dot" aria-hidden="true">+</span><span>Automated <code class="mono">FAIL_TO_PASS</code> + <code class="mono">PASS_TO_PASS</code> scoring, no manual grading</span></li>
-      <li><span class="f-dot" aria-hidden="true">+</span><span>Every run pinned to an immutable image SHA — re-runnable indefinitely</span></li>
-    </ul>
-  </section>
-
-  <!-- ================= §08 RESOURCES ================= -->
-  <section class="section" id="resources" aria-labelledby="res-label">
-    <p class="section-label" id="res-label">§08 — Resources</p>
-    <div class="resources">
-      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
-        <p class="res-label">Trajectories</p>
-        <p class="res-title">Trajectories on GitHub</p>
-        <p class="res-url mono">github.com/Ethara-Ai/tesseract</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
-      </a>
-      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
-        <p class="res-label">Dataset</p>
-        <p class="res-title">Dataset on HuggingFace</p>
-        <p class="res-url mono">huggingface.co/datasets/ethara/tesseract</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
-      </a>
-    </div>
   </section>
 
   </main>
@@ -455,6 +362,15 @@
           <img id="lightbox-img" src="" alt=""/>
           <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
         </figure>
+      </div>
+
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <div class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="false" hidden="hidden">
+        <div class="drawer-head">
+          <p class="drawer-label mono">Run detail</p>
+          <button class="drawer-close" id="drawer-close" aria-label="Close detail panel">×</button>
+        </div>
+        <div class="drawer-body" id="drawer-body"></div>
       </div>
     </body>
     </html>

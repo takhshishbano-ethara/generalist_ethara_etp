@@ -281,10 +281,10 @@
     const label = `${modelKey} on ${inst.instance_id}: ${pass ? 'resolved' : 'failed'} · ${run.tool_calls} tool calls · ${fmtTime(run.time_secs)}`;
     return `
       <td class="matrix-cell">
-        <button class="tile-btn ${pass ? 'tile-btn--pass' : ''}"
+        <button class="tile-btn ${pass ? 'tile-btn--pass' : 'tile-btn--fail'}"
                 data-instance="${esc(inst.instance_id)}" data-model="${esc(modelKey)}"
                 aria-label="${esc(label)}">
-          ${pass ? '[##]' : '[  ]'}
+          ${pass ? 'PASS' : 'FAIL'}
         </button>
       </td>
     `;
@@ -398,13 +398,29 @@
   };
   renderRepoList();
 
-  // ---------- DRAWER -----------------------------------------------------
-  const drawer = document.getElementById('drawer');
-  const drawerBody = document.getElementById('drawer-body');
-  const drawerClose = document.getElementById('drawer-close');
+  // ---------- DRAWER (slide panel on tile click) --------------------------
   let lastFocus = null;
 
+  const getDrawer = () => document.getElementById('drawer');
+  const getDrawerBody = () => document.getElementById('drawer-body');
+  const getDrawerClose = () => document.getElementById('drawer-close');
+
+  const ensureBackdrop = () => {
+    let bd = document.getElementById('drawer-backdrop');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'drawer-backdrop';
+      bd.className = 'drawer-backdrop';
+      document.body.appendChild(bd);
+    }
+    return bd;
+  };
+
   const openDrawer = (instanceId, modelKey) => {
+    const drawer = getDrawer();
+    const drawerBody = getDrawerBody();
+    if (!drawer || !drawerBody) return;
+
     const inst = byId.get(instanceId);
     if (!inst) return;
     const run = inst.runs[modelKey];
@@ -412,17 +428,17 @@
     const pass = run.pass_at_1 === 'Pass';
     const hasTests = (inst.f2p_count != null) || (inst.p2p_count != null);
     const testRow = hasTests
-      ? `<dt>Tests</dt><dd><span class="tok-fail" style="color:var(--fail)">F2P ${esc(inst.f2p_count ?? 0)}</span> · <span style="color:var(--pass)">P2P ${esc(inst.p2p_count ?? 0)}</span></dd>`
+      ? `<dt>Tests</dt><dd><span style="color:var(--fail)">F2P ${esc(inst.f2p_count ?? 0)}</span> · <span style="color:var(--pass)">P2P ${esc(inst.p2p_count ?? 0)}</span></dd>`
       : '';
     const dockerRow = inst.docker_uri
-      ? `<dt>Image</dt><dd><code class="mono drawer-docker">${esc(inst.docker_uri)}</code>
+      ? `<dt>Docker Image</dt><dd><code class="mono drawer-docker">${esc(inst.docker_uri)}</code>
            <button type="button" class="drawer-copy" data-copy="${esc(inst.docker_uri)}" aria-label="Copy docker image URI">copy</button></dd>`
       : '';
     drawerBody.innerHTML = `
       <dl>
         <dt>Instance</dt><dd><a href="${esc(inst.issue_url)}" target="_blank" rel="noopener">${esc(inst.instance_id)}</a></dd>
         <dt>Model</dt><dd class="${modelKey === 'Kimi K2.5' ? 'tok-kimi' : 'tok-nova'}">${esc(modelKey)}</dd>
-        <dt>Result</dt><dd>${pass ? '<b style="color:var(--accent)">PASS</b>' : '<b style="color:var(--fail)">FAIL</b>'}</dd>
+        <dt>Result</dt><dd>${pass ? '<b style="color:var(--pass)">PASS</b>' : '<b style="color:var(--fail)">FAIL</b>'}</dd>
         <dt>Repo</dt><dd><a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a></dd>
         <dt>Language</dt><dd>${esc(inst.language)}</dd>
         <dt>Difficulty</dt><dd>${esc(inst.difficulty)}</dd>
@@ -435,43 +451,59 @@
         ${dockerRow}
       </dl>
     `;
-    drawer.hidden = false;
-    // next frame so the transform transition actually runs
-    requestAnimationFrame(() => drawer.setAttribute('data-open', 'true'));
-    drawer.setAttribute('aria-hidden', 'false');
+    drawer.removeAttribute('hidden');
+    drawer.style.display = '';
+    document.body.classList.add('drawer-open');
+    ensureBackdrop().classList.add('is-visible');
+    requestAnimationFrame(() => {
+      drawer.setAttribute('data-open', 'true');
+      drawer.setAttribute('aria-hidden', 'false');
+    });
     lastFocus = document.activeElement;
-    drawerClose.focus();
+    const closeBtn = getDrawerClose();
+    if (closeBtn) closeBtn.focus();
   };
+
   const closeDrawer = () => {
+    const drawer = getDrawer();
+    if (!drawer) return;
     drawer.setAttribute('data-open', 'false');
     drawer.setAttribute('aria-hidden', 'true');
-    setTimeout(() => { drawer.hidden = true; }, prefersReduced ? 0 : 240);
+    document.body.classList.remove('drawer-open');
+    ensureBackdrop().classList.remove('is-visible');
+    setTimeout(() => { drawer.setAttribute('hidden', ''); }, prefersReduced ? 0 : 240);
     if (lastFocus && lastFocus.focus) lastFocus.focus();
   };
-  drawerClose?.addEventListener('click', closeDrawer);
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#drawer-close') || e.target.closest('.drawer-backdrop')) {
+      closeDrawer();
+      return;
+    }
+    const copyBtn = e.target.closest('#drawer .drawer-copy');
+    if (copyBtn) {
+      const val = copyBtn.dataset.copy || '';
+      navigator.clipboard?.writeText(val).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'copied';
+        copyBtn.classList.add('is-copied');
+        setTimeout(() => {
+          copyBtn.textContent = original;
+          copyBtn.classList.remove('is-copied');
+        }, 1400);
+      }).catch(() => {});
+      return;
+    }
+    const tileBtn = e.target.closest('#matrix .tile-btn');
+    if (tileBtn && tileBtn.dataset.instance) {
+      openDrawer(tileBtn.dataset.instance, tileBtn.dataset.model);
+      return;
+    }
+  });
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !drawer.hidden) closeDrawer();
-  });
-  // copy-to-clipboard for the docker_uri row
-  drawer?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.drawer-copy');
-    if (!btn) return;
-    const val = btn.dataset.copy || '';
-    navigator.clipboard?.writeText(val).then(() => {
-      const original = btn.textContent;
-      btn.textContent = 'copied';
-      btn.classList.add('is-copied');
-      setTimeout(() => {
-        btn.textContent = original;
-        btn.classList.remove('is-copied');
-      }, 1400);
-    }).catch(() => {});
-  });
-  // delegate tile clicks
-  document.getElementById('matrix')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.tile-btn');
-    if (!btn || !btn.dataset.instance) return;
-    openDrawer(btn.dataset.instance, btn.dataset.model);
+    const drawer = getDrawer();
+    if (e.key === 'Escape' && drawer && !drawer.hasAttribute('hidden')) closeDrawer();
   });
 
   // ---------- CHART LIGHTBOX --------------------------------------------

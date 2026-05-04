@@ -841,7 +841,7 @@ hr.rule {
   border-bottom: 1px solid var(--border-2);
 }
 .matrix-th-id { width: auto; }
-.matrix-th-meta { width: 68px; text-align: center !important; }
+.matrix-th-meta { width: 100px; text-align: center !important; }
 .matrix-th-cell { width: 112px; text-align: center !important; }
 
 .matrix-row { cursor: default; }
@@ -864,9 +864,11 @@ hr.rule {
 .matrix-row td.matrix-meta {
   text-align: center;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
+  padding: 12px 12px;
 }
 
 .matrix-row.row-p5 {
@@ -902,6 +904,17 @@ hr.rule {
   background: color-mix(in oklab, var(--accent-bright) 82%, black);
   border-color: color-mix(in oklab, var(--accent-bright) 82%, black);
   color: var(--accent-on);
+}
+.tile-btn--fail {
+  background: var(--fail-surface);
+  color: var(--fail);
+  border-color: color-mix(in oklab, var(--fail) 40%, transparent);
+  font-weight: 600;
+}
+.tile-btn--fail:hover {
+  background: color-mix(in oklab, var(--fail-surface) 82%, var(--fail));
+  border-color: var(--fail);
+  color: var(--fail);
 }
 
 /* totals row */
@@ -1089,6 +1102,24 @@ hr.rule {
 }
 
 /* DRAWER (cell click detail) ---------------------------- */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(15, 20, 35, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 240ms ease;
+  pointer-events: none;
+}
+.drawer-backdrop.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+body.drawer-open {
+  overflow: hidden;
+}
 .drawer {
   position: fixed;
   top: 0; right: 0; bottom: 0;
@@ -1103,7 +1134,8 @@ hr.rule {
   box-shadow: -20px 0 40px rgba(15,20,35,0.12);
 }
 .drawer[data-open="true"] { transform: translateX(0); }
-.drawer[hidden] { display: none; }
+.drawer[hidden] { display: none !important; }
+.drawer:not([hidden]) { display: block; }
 .drawer-head {
   display: flex;
   align-items: center;
