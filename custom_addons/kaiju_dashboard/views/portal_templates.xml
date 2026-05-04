@@ -63,7 +63,7 @@
   <header class="masthead">
     <div class="mast-top">
       <h1 class="wordmark">KAIJU</h1>
-      <span class="badge">OTS LIBRARY GENERATION</span>
+      <span class="badge">GENERATION</span>
     </div>
     <hr class="rule" />
     <p class="thesis">Library Generation from <em>Scratch</em></p>
@@ -77,19 +77,19 @@
     <p class="section-label" id="overview-label">§01 — Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each benchmark instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Nova-2-Lite) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
+        <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Nova-2-Lite) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
       </div>
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
           <div class="glance-row"><dt>Pipeline runs</dt><dd><b>40</b></dd></div>
-          <div class="glance-row"><dt>Module evals</dt><dd><b>15,948</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Stages</dt><dd><b>3</b> (Draft → Lint → Test)</dd></div>
           <div class="glance-row"><dt>Completeness</dt><dd>100% structural</dd></div>
         </dl>
-        <p class="glance-foot mono">Benchmark · v1 · 2026</p>
+        <p class="glance-foot mono">v1 · 2026</p>
       </aside>
     </div>
   </section>
@@ -101,7 +101,7 @@
     <div class="kpi-row">
       <div class="kpi-card">
         <p class="kpi-label">Library Instances</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="20">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="10000">0</span></span></p>
         <p class="kpi-sub mono">100% structural completeness</p>
       </div>
       <div class="kpi-card">
@@ -109,10 +109,10 @@
         <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="2">0</span></span></p>
         <p class="kpi-sub mono">GLM-5 &amp; Nova-2-Lite</p>
       </div>
-      <div class="kpi-card kpi-card--accent">
-        <p class="kpi-label">Module Evaluations</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="15948">0</span></span></p>
-        <p class="kpi-sub mono">40 pipeline runs total</p>
+      <div class="kpi-card">
+        <p class="kpi-label">Languages</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="8">0</span></span></p>
+        <p class="kpi-sub mono">Python, JS, TS, Go, Rust, C, C++, Java</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Refinement Stages</p>
@@ -165,7 +165,7 @@
 
   <!-- §04 — Results -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 — Benchmark Results</p>
+    <p class="section-label" id="results-label">§04 — Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -205,7 +205,7 @@
   <!-- §05 — Dataset Viewer -->
   <section class="section" id="instances" aria-labelledby="instances-label">
     <p class="section-label" id="instances-label">§05 — Dataset Viewer</p>
-    <p class="section-desc">Browse every instance in the Kaiju dataset. Click any row to expand full details.</p>
+    <p class="section-desc">Browse sample instances in the Kaiju dataset. Click any row to expand full details.</p>
 
     <div class="viewer-controls">
       <div class="viewer-search">
@@ -307,7 +307,7 @@
       <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Trajectories</p>
-        <p class="res-url mono">github.com/Ethara-Ai/kaiju</p>
+        <p class="res-url mono">github.com/Ethara-Ai/kaiju_ots</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
@@ -323,7 +323,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono">© 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> · Project Kaiju / Commit0 Dataset</p>
+      <p class="mono">© 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> · Project Kaiju </p>
     </div>
   </footer>
 
