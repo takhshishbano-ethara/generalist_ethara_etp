@@ -7,7 +7,7 @@ from odoo.http import request
 
 class AuroraShowcaseController(http.Controller):
 
-    @http.route("/aurora", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/milobench", type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
         values = {

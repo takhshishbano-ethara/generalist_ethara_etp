@@ -1,345 +1,394 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <template id="portal_showcase" name="Aurora Dashboard">
-        <t t-call="portal.portal_layout">
-            <t t-set="no_breadcrumbs" t-value="True"/>
-            <t t-set="no_header" t-value="True"/>
+  <!--
+    Milo-Bench Showcase — public single-page editorial view.
 
-            <div class="au-portal" id="au-portal">
+    Mounted at /aurora by controllers/main.py (AuroraShowcase).
+    The controller passes evaluation data which the client-side JS
+    consumes to render the dataset viewer table.
 
-                <!-- ====== DARK MODE TOGGLE ====== -->
-                <button class="au-theme-toggle" id="au-theme-toggle"
-                        aria-label="Toggle dark mode" title="Toggle dark mode">
-                    <svg class="au-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
-                    </svg>
-                    <svg class="au-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="5"/>
-                        <line x1="12" y1="1" x2="12" y2="3"/>
-                        <line x1="12" y1="21" x2="12" y2="23"/>
-                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                        <line x1="1" y1="12" x2="3" y2="12"/>
-                        <line x1="21" y1="12" x2="23" y2="12"/>
-                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                    </svg>
-                </button>
+    Layout: standalone HTML (no portal.portal_layout). Mirrors
+    Tesseract's editorial section-numbered design with Milo-Bench's
+    RL benchmark content and all DOM IDs preserved for JS hooks.
+  -->
 
-                <!-- ====== HERO ====== -->
-                <section class="au-hero">
-                    <div class="au-hero-bg"></div>
-                    <div class="au-hero-content">
-                        <span class="au-hero-tag">RL ENVIRONMENT</span>
-                        <h1 class="au-hero-title">AURORA</h1>
-                        <p class="au-hero-subtitle">
-                            Multi-Language Long-Horizon Software Evalution &#xB7; Milo-Bench Framework
-                        </p>
-                        <p class="au-hero-byline">
-                            by <strong>Ethara AI Labs</strong> &#x2014;
-                            <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
-                        </p>
-                    </div>
-                </section>
+  <template id="portal_showcase" name="Milo-Bench Dashboard">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>MILO-BENCH — RL Environment Benchmark · ETHARA AI</title>
+      <meta name="description" content="Milo-Bench trains AI agents to perform long-horizon software evolution. Given real-world codebases and their development history, the system works through sequences of 1 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
-                <!-- ====== DESCRIPTION ====== -->
-                <section class="au-section au-desc-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <p class="au-desc-text">
-                            Aurora leverages the Milo-Bench methodology to evaluate
-                            agents on long-horizon software evalution
-                            sequences of 1 to 100+ consecutive production pull
-                            requests across eight programming languages. Unlike
-                            single-issue benchmarks, Aurora tests whether agents can
-                            sustain coherent development over extended timelines on
-                            real open-source repositories. Each instance reconstructs
-                            a milestone (sequence of production PRs) authored after
-                            model training cutoffs, with hermetic Docker environments
-                            and private holistic test oracles for contamination-free
-                            evaluation.
-                        </p>
-                    </div>
-                </section>
+      <!-- Sync theme-setter: reads the saved choice BEFORE stylesheet
+           tokens resolve, so there is no flash when revisiting the page.
+           Runs inline (no defer) by design. -->
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('aurora:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            }
+          } catch(e) {}
+        })();
+      </script>
 
-                <!-- ====== CAPABILITIES ====== -->
-                <section class="au-section au-capabilities-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <ul class="au-capabilities-list">
-                            <li><span class="au-cap-arrow">&#x2192;</span> Long-horizon evaluation: 2&#x2013;100+ consecutive PR sequences per instance</li>
-                            <li><span class="au-cap-arrow">&#x2192;</span> Multi-language coverage across 8 programming languages</li>
-                            <li><span class="au-cap-arrow">&#x2192;</span> Contamination-audited instances from post-training-cutoff repositories</li>
-                            <li><span class="au-cap-arrow">&#x2192;</span> Hermetic Docker environments with private holistic test oracles</li>
-                            <li><span class="au-cap-arrow">&#x2192;</span> Three-model reference evaluation framework for reproducible scoring</li>
-                        </ul>
-                    </div>
-                </section>
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&amp;family=Inter:wght@300..700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
-                <!-- ====== KEY METRICS ====== -->
-                <section class="au-section au-metrics-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <h2 class="au-section-title">Key Metrics</h2>
-                        <div class="au-metrics-grid">
-                            <div class="au-metric-card" data-animate="fade-up" data-delay="0">
-                                <div class="au-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-                                </div>
-                                <span class="au-metric-val">50</span>
-                                <span class="au-metric-lbl">Evaluation Instances</span>
-                                <span class="au-metric-sub">8 programming languages</span>
-                            </div>
-                            <div class="au-metric-card" data-animate="fade-up" data-delay="1">
-                                <div class="au-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.75-11.396c.251.023.501.05.75.082M5 14.5l3.5 3.5L12 14.5m7 0l-3.5 3.5L12 14.5"/></svg>
-                                </div>
-                                <span class="au-metric-val">3</span>
-                                <span class="au-metric-lbl">Frontier Models</span>
-                                <span class="au-metric-sub">Claude Opus 4.6, Kimi K2.5, GLM 5</span>
-                            </div>
-                            <div class="au-metric-card" data-animate="fade-up" data-delay="2">
-                                <div class="au-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/></svg>
-                                </div>
-                                <span class="au-metric-val">450</span>
-                                <span class="au-metric-lbl">Total Trajectories</span>
-                                <span class="au-metric-sub">3 models &#xD7; 3 seeds &#xD7; 50 instances</span>
-                            </div>
-                            <div class="au-metric-card" data-animate="fade-up" data-delay="3">
-                                <div class="au-metric-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3"/></svg>
-                                </div>
-                                <span class="au-metric-val">3</span>
-                                <span class="au-metric-lbl">Pipeline Phases</span>
-                                <span class="au-metric-sub">Collect &#x2192; Build &#x2192; Generate</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+      <!-- Aurora dark editorial stylesheet served as a static asset
+           (bypasses web.assets_frontend so Bootstrap/portal chrome
+           does not override the design). -->
+      <link rel="stylesheet" href="/aurora_dashboard/static/src/portal/css/aurora_portal.css"/>
 
-                <!-- ====== PIPELINE PHASES ====== -->
-                <section class="au-section au-phases-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <h2 class="au-section-title">Pipeline</h2>
-                        <div class="au-pipeline">
-                            <div class="au-pipeline-card">
-                                <div class="au-pipeline-num">1</div>
-                                <h3>Data Collection</h3>
-                                <p>
-                                    Crawl 300+ repos. Identify post-cutoff PR
-                                    sequences. Build JSONL dataset with instance
-                                    metadata.
-                                </p>
-                            </div>
-                            <div class="au-pipeline-arrow">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
-                            </div>
-                            <div class="au-pipeline-card">
-                                <div class="au-pipeline-num">2</div>
-                                <h3>Docker Build</h3>
-                                <p>
-                                    Build hermetic Docker images per instance
-                                    (base image &#x2192; PR image). Generate run
-                                    results &amp; test baselines.
-                                </p>
-                            </div>
-                            <div class="au-pipeline-arrow">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
-                            </div>
-                            <div class="au-pipeline-card">
-                                <div class="au-pipeline-num">3</div>
-                                <h3>Trajectory Generation</h3>
-                                <p>
-                                    Run AI agents in sandboxes. 3 models &#xD7;
-                                    3 seeds &#xD7; 50 instances. Evaluate patches
-                                    against full test suite. Produce pass@k summaries.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/aurora_dashboard/static/src/portal/js/aurora_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
 
-                <!-- ====== CHARTS ====== -->
-                <section class="au-section au-charts-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <h2 class="au-section-title">Benchmark Results</h2>
-                        <p class="au-charts-caption">
-                            Pass@3 by PR horizon range for three frontier models
-                            (Claude Opus 4.6, Kimi K2.5, GLM 5) evaluated on 50
-                            instances. All models show sharp performance degradation
-                            as horizon increases from ~65% at 1&#x2013;5 PRs to
-                            near 0% beyond 40 PRs.
-                        </p>
-                        <div class="au-charts-grid">
-                            <div class="au-chart-card" data-animate="fade-up" data-delay="0">
-                                <img src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range.png"
-                                     alt="Combined Pass Rate by PR Range"
-                                     loading="lazy"/>
-                                <div class="au-chart-label">Combined &#x2014; All Models</div>
-                            </div>
-                            <div class="au-chart-card" data-animate="fade-up" data-delay="1">
-                                <img src="/aurora_dashboard/static/src/portal/img/claude_opus_passrate_by_pr_range.png"
-                                     alt="Claude Opus 4.6 Pass Rate by PR Range"
-                                     loading="lazy"/>
-                                <div class="au-chart-label">Claude Opus 4.6</div>
-                            </div>
-                            <div class="au-chart-card" data-animate="fade-up" data-delay="2">
-                                <img src="/aurora_dashboard/static/src/portal/img/glm_passrate_by_pr_range.png"
-                                     alt="GLM 5 Pass Rate by PR Range"
-                                     loading="lazy"/>
-                                <div class="au-chart-label">GLM 5</div>
-                            </div>
-                            <div class="au-chart-card" data-animate="fade-up" data-delay="3">
-                                <img src="/aurora_dashboard/static/src/portal/img/kimi_passrate_by_pr_range.png"
-                                     alt="Kimi K2.5 Pass Rate by PR Range"
-                                     loading="lazy"/>
-                                <div class="au-chart-label">Kimi K2.5</div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+      <!-- Scroll progress rail. Thin 2px bar at the top of the viewport
+           that fills left-to-right as the user scrolls. Updated via
+           requestAnimationFrame in aurora_portal.js. -->
+      <div class="scroll-progress" aria-hidden="true"/>
 
-                <!-- ====== PASS RATE DISTRIBUTION ====== -->
-                <section class="au-section au-quality-section" data-animate="fade-up">
+      <!-- Theme toggle. Two icons layered; CSS flips visibility per
+           `data-theme` attribute on :root. JS updates the attribute
+           and persists the choice to localStorage. -->
+      <button type="button" id="au-theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
 
-                <!-- ====== DELIVERY EVALUATION VIEWER ====== -->
-                <section class="au-section au-eval-section" id="au-eval-viewer">
-                    <div class="au-container">
-                        <h2 class="au-section-title">Evaluation Results</h2>
-                        <p class="au-eval-caption">
-                            Browse all 50 evaluation instances. Click any row to expand full model run details.
-                        </p>
-                        <div class="au-eval-controls">
-                            <div class="au-eval-search">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                                <input type="text" id="au-eval-search" placeholder="Search instances..." autocomplete="off"/>
-                            </div>
-                            <div class="au-eval-filters">
-                                <select id="au-eval-language">
-                                    <option value="">All Languages</option>
-                                    <option value="Python">Python</option>
-                                    <option value="JavaScript">JavaScript</option>
-                                    <option value="TypeScript">TypeScript</option>
-                                    <option value="Go">Go</option>
-                                    <option value="Rust">Rust</option>
-                                    <option value="Java">Java</option>
-                                    <option value="C++">C++</option>
-                                    <option value="C">C</option>
-                                </select>
-                                <select id="au-eval-sort">
-                                    <option value="instance_id">Instance (A-Z)</option>
-                                    <option value="pr_range">PR Range</option>
-                                    <option value="language">Language</option>
-                                    <option value="claude_pass" selected="selected">Claude Opus</option>
-                                    <option value="glm_pass">GLM 5</option>
-                                    <option value="kimi_pass">Kimi K2.5</option>
-                                </select>
-                                <button type="button" id="au-eval-sort-dir-btn" class="au-sort-dir-btn" title="Descending – click to reverse">&#x2193;</button>
-                            </div>
-                            <div class="au-eval-meta">
-                                <span id="au-eval-count">Loading...</span>
-                            </div>
-                        </div>
-                        <div class="au-eval-table-wrap" id="au-eval-table-wrap">
-                            <table class="au-eval-table" id="au-eval-table">
-                                <thead>
-                                    <tr>
-                                        <th class="au-eth-instance">Instance</th>
-                                        <th class="au-eth-prrange">PR Range</th>
-                                        <th class="au-eth-lang">Language</th>
-                                        <th class="au-eth-claude">Claude Opus 4.6 (S3)</th>
-                                        <th class="au-eth-glm">GLM 5 (S3)</th>
-                                        <th class="au-eth-kimi">Kimi K2.5 (S3)</th>
-                                        <th class="au-eth-repo">Repo</th>
-                                        <th class="au-eth-expand"></th>
-                                    </tr>
-                                </thead>
-                                <tbody id="au-eval-tbody">
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="au-eval-pagination" id="au-eval-pagination">
-                        </div>
-                    </div>
-                </section>
-                    <div class="au-container">
-                        <h2 class="au-section-title">Pass Rate Distribution</h2>
-                        <p class="au-quality-caption">
-                            Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5)
-                            across all 50 evaluated instances.
-                        </p>
-                        <div class="au-quality-grid">
-                            <div class="au-quality-card au-quality-clean" data-animate="fade-up" data-delay="0">
-                                <span class="au-quality-num">18</span>
-                                <span class="au-quality-label">&#x2265; 50% PASS</span>
-                                <span class="au-quality-pct">36.0%</span>
-                                <div class="au-quality-bar"><div class="au-quality-fill" style="width: 36%"></div></div>
-                            </div>
-                            <div class="au-quality-card au-quality-fixable" data-animate="fade-up" data-delay="1">
-                                <span class="au-quality-num">20</span>
-                                <span class="au-quality-label">10&#x2013;49% PASS</span>
-                                <span class="au-quality-pct">40.0%</span>
-                                <div class="au-quality-bar"><div class="au-quality-fill" style="width: 40%"></div></div>
-                            </div>
-                            <div class="au-quality-card au-quality-degraded" data-animate="fade-up" data-delay="2">
-                                <span class="au-quality-num">8</span>
-                                <span class="au-quality-label">&lt; 10% PASS</span>
-                                <span class="au-quality-pct">16.0%</span>
-                                <div class="au-quality-bar"><div class="au-quality-fill" style="width: 16%"></div></div>
-                            </div>
-                            <div class="au-quality-card au-quality-broken" data-animate="fade-up" data-delay="3">
-                                <span class="au-quality-num">4</span>
-                                <span class="au-quality-label">0% PASS</span>
-                                <span class="au-quality-pct">8.0%</span>
-                                <div class="au-quality-bar"><div class="au-quality-fill" style="width: 8%"></div></div>
-                            </div>
-                        </div>
+      <div class="page" id="au-portal">
 
-                        <div class="au-confidence-strip" data-animate="fade-up">
-                            <div class="au-confidence-left">
-                                <span class="au-confidence-big">34.2%</span>
-                                <span class="au-confidence-lbl">Mean Pass Rate</span>
-                            </div>
-                            <div class="au-confidence-right">
-                                <div class="au-confidence-range">
-                                    <span>Min <strong>0%</strong></span>
-                                    <div class="au-confidence-track">
-                                        <div class="au-confidence-marker" style="left: 34.2%"></div>
-                                    </div>
-                                    <span>Max <strong>89.3%</strong></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">MILO-BENCH</h1>
+      <span class="badge mono">RL ENVIRONMENT BENCHMARK</span>
+    </div>
+    <hr class="rule"/>
+    <p class="thesis">Can frontier models perform long-horizon software evolution with production-grade reliability?</p>
+  </header>
 
-                <!-- ====== LINKS ====== -->
-                <section class="au-section au-links-section" data-animate="fade-up">
-                    <div class="au-container">
-                        <div class="au-links-row">
-                            <a class="au-link-btn" t-att-href="trajectories_url"
-                               target="_blank" rel="noopener">
-                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-                                Trajectories on GitHub
-                            </a>
-                            <a class="au-link-btn" t-att-href="dataset_url"
-                               target="_blank" rel="noopener">
-                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-                                Dataset on HuggingFace
-                            </a>
-                        </div>
-                    </div>
-                </section>
+  <main id="main">
 
-                <!-- ====== FOOTER ====== -->
-                <footer class="au-footer">
-                    <div class="au-container">
-                        <p>&#xA9; 2026 Ethara AI Labs. Project Aurora / Milo-Bench Framework.</p>
-                    </div>
-                </footer>
+  <!-- ================= §01 THE ENVIRONMENT ================= -->
+  <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
+    <p class="section-label" id="overview-label">§01 — The environment</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>Milo-Bench trains AI agents to perform long-horizon software evolution extended from SWE-EVO. Given real-world codebases and their development history, the system works through sequences of 1 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++. Unlike single-issue setups, it requires maintaining coherent, consistent development over extended timelines. Each instance reconstructs a milestone from post-training-cutoff repositories, with hermetic Docker environments.</p>
+        <ul class="capabilities">
+          <li>Long-horizon evaluation: 2–100+ consecutive PR sequences per instance</li>
+          <li>Multi-language coverage across 8 programming languages</li>
+          <li>Contamination-audited instances from post-training-cutoff repositories</li>
+          <li>Hermetic Docker environments with private holistic test oracles</li>
+          <li>Three-model reference evaluation framework for reproducible scoring</li>
+        </ul>
+      </div>
 
-            </div>
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>50</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>3</b></dd></div>
+          <div class="glance-row"><dt>Trajectories</dt><dd><b>450</b></dd></div>
+          <div class="glance-row"><dt>Phases</dt><dd><b>3</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
+          <div class="glance-row"><dt>Runtime</dt><dd>Hermetic · Docker</dd></div>
+        </dl>
+        <p class="glance-foot mono">Milo-Bench · v1 · 2026</p>
+      </aside>
+    </div>
+  </section>
 
-        </t>
-    </template>
+  <!-- ================= §02 THE FUNNEL ================= -->
+  <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
+    <p class="section-label" id="scale-label">§02 — The funnel</p>
+    <p class="section-desc">Fifty curated instances. Three frontier models. Four hundred fifty trajectories.</p>
+    <div class="funnel" aria-label="Funnel from 50 instances to 450 trajectories">
+      <div class="funnel-step">
+        <span class="funnel-num" data-target="50" aria-hidden="true">0</span>
+        <span class="sr-only">50</span>
+        <span class="funnel-unit">Instances curated</span>
+        <span class="funnel-sub">across 8 languages</span>
+      </div>
+      <span class="funnel-arrow mono" aria-hidden="true">→</span>
+      <div class="funnel-step">
+        <span class="funnel-num" data-target="3" aria-hidden="true">0</span>
+        <span class="sr-only">3</span>
+        <span class="funnel-unit">Models evaluated</span>
+        <span class="funnel-sub">Claude Opus 4.6 · GLM 5 · Kimi K2.5</span>
+      </div>
+      <span class="funnel-arrow mono" aria-hidden="true">→</span>
+      <div class="funnel-step funnel-step--final">
+        <span class="funnel-num" data-target="450" aria-hidden="true">0</span>
+        <span class="sr-only">450</span>
+        <span class="funnel-unit">Trajectories generated</span>
+        <span class="funnel-sub">3 models × 3 seeds × 50 instances</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §03 PIPELINE ================= -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
+    <p class="section-label" id="pipeline-label">§03 — The pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">Three phases turn raw repositories into scored benchmarks.</h2>
+      </div>
+
+      <div class="pipeline">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">Environment Setup</h4>
+          <ul class="phase-body">
+            <li>Crawl 300+ repos, identify post-cutoff PR sequences</li>
+            <li>Build JSONL dataset with instance metadata</li>
+            <li>Construct hermetic Docker images per instance (base → PR image)</li>
+            <li>Generate run results and test baselines</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">Agent Interaction</h4>
+          <ul class="phase-body">
+            <li>Run AI agents in sandboxed Docker environments</li>
+            <li>3 models × 3 seeds × 50 instances</li>
+            <li>Agents receive issue context and produce git diff patches</li>
+            <li>Tool-use interaction across long-horizon sequences</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">Evaluation &amp; Scoring</h4>
+          <ul class="phase-body">
+            <li>Apply model patches to clean repo checkouts</li>
+            <li>Evaluate against full test suite in hermetic containers</li>
+            <li>Produce pass@k summaries per instance</li>
+            <li>Grade resolution verdicts across all trajectories</li>
+          </ul>
+        </article>
+      </div>
+    </div><!-- /.pipeline-frame -->
+  </section>
+
+  <!-- ================= §04 RESULTS ================= -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
+    <p class="section-label" id="results-label">§04 — The results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5) evaluated on 50 instances.
+      </p>
+      <p class="reveal-line reveal-kicker">
+        All models show sharp performance degradation as horizon increases — from ~65% at 1–5 PRs to near 0% beyond 40 PRs.
+      </p>
+    </div>
+
+    <div class="charts">
+      <figure class="chart chart--hero">
+        <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
+          <img class="au-chart-card" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================= §05 QUALITY DISTRIBUTION ================= -->
+  <section class="section" id="quality" aria-labelledby="quality-label" data-animate="fade-up">
+    <p class="section-label" id="quality-label">§05 — Pass Rate distribution</p>
+    <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5) across all 50 evaluated instances.</p>
+
+    <div class="quality-grid">
+      <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
+        <span class="au-quality-num" data-target="18">18</span>
+        <span class="quality-label">≥ 50% PASS</span>
+        <span class="quality-pct mono">36.0%</span>
+      </div>
+      <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
+        <span class="au-quality-num" data-target="20">20</span>
+        <span class="quality-label">10–49% PASS</span>
+        <span class="quality-pct mono">40.0%</span>
+      </div>
+      <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
+        <span class="au-quality-num" data-target="8">8</span>
+        <span class="quality-label">&lt; 10% PASS</span>
+        <span class="quality-pct mono">16.0%</span>
+      </div>
+      <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
+        <span class="au-quality-num" data-target="4">4</span>
+        <span class="quality-label">0% PASS</span>
+        <span class="quality-pct mono">8.0%</span>
+      </div>
+    </div>
+
+    <div class="confidence-strip" data-animate="fade-up">
+      <span class="au-confidence-big">34.2%</span>
+      <span class="confidence-lbl mono">Mean Pass Rate</span>
+    </div>
+  </section>
+
+  <!-- ================= §06 DATASET VIEWER ================= -->
+  <section class="section" id="au-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
+    <p class="section-label" id="viewer-label">§06 — Dataset viewer</p>
+
+    <!-- KPI row -->
+    <div class="kpi-row" aria-label="Headline statistics for the evaluation">
+      <div class="kpi-card">
+        <p class="kpi-label">Total Instances</p>
+        <p class="kpi-value"><span class="kpi-big">50</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Models</p>
+        <p class="kpi-value"><span class="kpi-big">3</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Total Runs</p>
+        <p class="kpi-value"><span class="kpi-big">450</span></p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Mean Pass Rate</p>
+        <p class="kpi-value"><span class="kpi-big">34.2<small>%</small></span></p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="eval-controls">
+      <div class="eval-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="au-eval-search" placeholder="Search instances..." autocomplete="off"/>
+      </div>
+      <div class="eval-filters">
+        <select id="au-eval-language">
+          <option value="">All Languages</option>
+          <option value="Python">Python</option>
+          <option value="JavaScript">JavaScript</option>
+          <option value="TypeScript">TypeScript</option>
+          <option value="Go">Go</option>
+          <option value="Rust">Rust</option>
+          <option value="Java">Java</option>
+          <option value="C++">C++</option>
+          <option value="C">C</option>
+        </select>
+        <select id="au-eval-sort">
+          <option value="instance_id">Instance (A-Z)</option>
+          <option value="pr_range">PR Range</option>
+          <option value="language">Language</option>
+          <option value="claude_pass" selected="selected">Claude Opus</option>
+          <option value="glm_pass">GLM 5</option>
+          <option value="kimi_pass">Kimi K2.5</option>
+        </select>
+        <button type="button" id="au-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
+      </div>
+      <div class="eval-meta">
+        <span id="au-eval-count">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="eval-table-wrap" id="au-eval-table-wrap">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th class="eth-instance">Instance</th>
+            <th class="eth-prrange">PR Range</th>
+            <th class="eth-lang">Language</th>
+            <th class="eth-claude">Claude Opus 4.6</th>
+            <th class="eth-glm">GLM 5</th>
+            <th class="eth-kimi">Kimi K2.5</th>
+            <th class="eth-repo">Repo</th>
+            <th class="eth-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="au-eval-tbody"></tbody>
+      </table>
+    </div>
+    <div class="eval-pagination" id="au-eval-pagination"></div>
+  </section>
+
+  <!-- ================= §07 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
+    <p class="section-label" id="resources-label">§07 — Resources</p>
+    <div class="links-row">
+      <a class="link-btn" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        Trajectories on GitHub
+      </a>
+      <a class="link-btn" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        Dataset on HuggingFace
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono">© 2026 Ethara AI Labs. Project Milo-Bench / Milo-Bench Framework.</p>
+    </div>
+  </footer>
+
+</div><!-- /.page -->
+
+      <!-- Drawer backdrop — semi-transparent overlay behind the panel. -->
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+      <!-- Drawer panel — slides in from right when a table row is clicked.
+           JS populates drawer-body with instance detail dl pairs. -->
+      <div class="drawer" id="drawer" aria-hidden="true" role="dialog"
+           aria-modal="false" hidden="hidden">
+        <div class="drawer-head">
+          <p class="drawer-label mono">Run detail</p>
+          <button class="drawer-close" id="drawer-close"
+                  aria-label="Close detail panel">×</button>
+        </div>
+        <div class="drawer-body" id="drawer-body"></div>
+      </div>
+
+      <!-- Lightbox overlay — hidden until a chart image is clicked.
+           JS sets the <img> src + alt from the trigger, then toggles
+           [data-open]. Close via button, overlay click, or Escape. -->
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
 
 </odoo>
