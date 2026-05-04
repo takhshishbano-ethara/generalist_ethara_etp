@@ -1353,6 +1353,15 @@ body.drawer-open {
 .matrix-row { cursor: pointer; }
 .matrix-row:hover { background: var(--bg-3); }
 
+.chart img.chart-dark { display: none; }
+.chart img.chart-light { display: block; }
+:root[data-theme="dark"] .chart img.chart-dark { display: block; }
+:root[data-theme="dark"] .chart img.chart-light { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .chart img.chart-dark { display: block; }
+  :root:not([data-theme]) .chart img.chart-light { display: none; }
+}
+
 /* ============================================================
    REDUCED MOTION — respect user preference.
    ============================================================ */
