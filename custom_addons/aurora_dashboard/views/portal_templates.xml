@@ -207,7 +207,7 @@
         Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5) evaluated on 50 instances.
       </p>
       <p class="reveal-line reveal-kicker">
-        All models show sharp performance degradation as horizon increases — from ~65% at 2–5 PRs to near 0% beyond 40 PRs.
+        All models show sharp performance degradation as horizon increases from ~65% at 2–5 PRs to near 0% beyond 40 PRs.
       </p>
     </div>
 

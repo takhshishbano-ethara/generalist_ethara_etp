@@ -179,54 +179,55 @@
       </p>
     </div>
 
-    <div class="charts charts-3">
-      <figure class="chart chart--hero">
+    <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
+      <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — HSR Harmonic Mean full size">
-          <img src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean.png" alt="Bar chart: HSR harmonic mean per model — GLM-5 at 0.313, Nova-2-Lite at 0.268" loading="lazy" />
+          <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean.png" alt="HSR harmonic mean per model" loading="lazy" />
+          <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean_dark.png" alt="HSR harmonic mean per model" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — HSR Harmonic Mean</figcaption>
       </figure>
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Outcome Distribution full size">
-          <img src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution.png" alt="Stacked bar chart: outcome distribution per model — pass, correct_but_slow, fail" loading="lazy" />
+          <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution.png" alt="Outcome distribution per model" loading="lazy" />
+          <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution_dark.png" alt="Outcome distribution per model" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 2 — Outcome Distribution</figcaption>
       </figure>
+    </div>
+
+    <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — Per-Instance HSR full size">
-          <img src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr.png" alt="Grouped bar chart: HSR scores for each of the 20 instances" loading="lazy" />
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — HSR by Difficulty full size">
+          <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty.png" alt="HSR grouped by difficulty level" loading="lazy" />
+          <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty_dark.png" alt="HSR grouped by difficulty level" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 3 — Per-Instance HSR</figcaption>
+        <figcaption>Fig. 3 — HSR by Difficulty</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 — Cost vs HSR full size">
+          <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr.png" alt="Cost versus HSR performance" loading="lazy" />
+          <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr_dark.png" alt="Cost versus HSR performance" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 4 — Cost vs. HSR</figcaption>
       </figure>
     </div>
 
-    <div class="charts charts-3">
+    <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 — HSR by Difficulty full size">
-          <img src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty.png" alt="Bar chart: HSR grouped by difficulty level (Easy, Medium, Hard, Expert)" loading="lazy" />
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 5 — Per-Instance HSR full size">
+          <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr.png" alt="Per-instance HSR comparison" loading="lazy" />
+          <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr_dark.png" alt="Per-instance HSR comparison" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 4 — HSR by Difficulty</figcaption>
-      </figure>
-      <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 5 — Cost vs HSR full size">
-          <img src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr.png" alt="Scatter plot: API cost versus HSR performance for both models" loading="lazy" />
-          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
-        </button>
-        <figcaption>Fig. 5 — Cost vs. HSR</figcaption>
-      </figure>
-      <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 6 — Summary Metrics full size">
-          <img src="/kraken_dashboard/static/src/portal/img/06_summary_metrics.png" alt="Summary metrics comparison table for both models" loading="lazy" />
-          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
-        </button>
-        <figcaption>Fig. 6 — Summary Metrics</figcaption>
+        <figcaption>Fig. 5 — Per-Instance HSR</figcaption>
       </figure>
     </div>
-    <p class="caption">HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), and per-instance detail (Fig. 3). Difficulty analysis (Fig. 4), cost-efficiency (Fig. 5), and overall summary (Fig. 6). See <a href="#instances">§05</a> for per-instance receipts.</p>
+    <p class="caption">HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), difficulty analysis (Fig. 3), cost-efficiency (Fig. 4), and per-instance detail (Fig. 5). See <a href="#instances">§05</a> for per-instance receipts.</p>
   </section>
 
   <section class="section" id="instances" aria-labelledby="instances-label">
