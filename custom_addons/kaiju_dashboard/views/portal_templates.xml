@@ -87,7 +87,7 @@
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
-          <div class="glance-row"><dt>Pipeline runs</dt><dd><b>40</b></dd></div>
+          <!-- <div class="glance-row"><dt>Pipeline runs</dt><dd><b>40</b></dd></div> -->
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Stages</dt><dd><b>3</b> (Draft → Lint → Test)</dd></div>
           <div class="glance-row"><dt>Completeness</dt><dd>100% structural</dd></div>
