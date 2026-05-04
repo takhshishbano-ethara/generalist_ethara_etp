@@ -214,7 +214,8 @@
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
-          <img class="au-chart-card" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>

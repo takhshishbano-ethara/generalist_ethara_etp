@@ -671,6 +671,16 @@ hr.rule {
   transform: scale(1.015);
 }
 
+/* Theme-aware chart images: show light variant by default, dark when dark theme active */
+img.au-chart-light { display: block; }
+img.au-chart-dark  { display: none; }
+:root[data-theme="dark"] img.au-chart-light { display: none; }
+:root[data-theme="dark"] img.au-chart-dark  { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) img.au-chart-light { display: none; }
+  :root:not([data-theme]) img.au-chart-dark  { display: block; }
+}
+
 .au-chart-label,
 .chart figcaption {
   margin-top: 12px;
