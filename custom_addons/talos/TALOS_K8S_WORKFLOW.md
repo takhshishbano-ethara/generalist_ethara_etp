@@ -279,7 +279,7 @@ data:
           "talos-bedrock": { ... },   // Only if AWS_BEARER_TOKEN_BEDROCK + BEDROCK_MODEL_ARN set
           "litellm": {                // Always present
             "baseUrl": "http://localhost:4000/v1",
-            "models": ["claude-opus-4.7", "qwen-3-32b"]
+            "models": ["claude-opus-4.7", "kimi-k2.5"]
           }
         }
       },

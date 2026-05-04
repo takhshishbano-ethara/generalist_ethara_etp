@@ -25,7 +25,7 @@
                  decoration-danger="claude_status == 'error'"
                  decoration-info="claude_status == 'starting'"
                  decoration-muted="claude_status == 'stopped'"/>
-          <field name="glm_status" widget="badge" string="Qwen 3"
+          <field name="glm_status" widget="badge" string="Kimi"
                  decoration-success="glm_status == 'running'"
                  decoration-danger="glm_status == 'error'"
                  decoration-info="glm_status == 'starting'"
@@ -44,7 +44,7 @@
               <button class="oe_stat_button" name="action_generate_golden_trajectory"
                       type="object" icon="fa-magic"
                       string="Generate Golden"
-                      confirm="This will call GLM to generate golden trajectories. Continue?"/>
+                      confirm="This will call the LLM to generate golden trajectories. Continue?"/>
             </div>
             <group>
               <group string="Task Details">
@@ -125,8 +125,8 @@
             <group string="Trajectories" colspan="2">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="talos_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
-              <separator string="Qwen 3 32B Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="Qwen 3 32B Trajectory" colspan="2"/>
+              <separator string="Kimi K2.5 Trajectory" colspan="2"/>
+              <field name="glm_trajectory" widget="talos_json" nolabel="1" placeholder="Kimi K2.5 Trajectory" colspan="2"/>
               <separator string="1PA Trajectory" colspan="2"/>
               <field name="onePA_trajectory" widget="talos_json" nolabel="1" placeholder="1PA Trajectory" colspan="2"/>
               <separator string="1PB Trajectory" colspan="2"/>

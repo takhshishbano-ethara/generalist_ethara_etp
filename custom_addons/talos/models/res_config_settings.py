@@ -13,13 +13,18 @@ class TalosConfigSettings(models.TransientModel):
     talos_bedrock_inference_arn = fields.Char(
         string="Bedrock Inference ARN",
         config_parameter="talos.bedrock_inference_arn",
-        help="Full ARN of the AWS Bedrock application inference profile for Qwen 3 32B.",
+        help="Full ARN of the AWS Bedrock application inference profile for server-side LLM calls (QC, hints).",
     )
     talos_bedrock_region = fields.Char(
         string="Bedrock Region",
         config_parameter="talos.bedrock_region",
         default="ap-south-1",
         help="AWS region for the Bedrock endpoint (e.g. ap-south-1).",
+    )
+    talos_moonshot_api_key = fields.Char(
+        string="Moonshot API Key",
+        config_parameter="talos.moonshot_api_key",
+        help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation.",
     )
     talos_docker_available = fields.Boolean(
         string="Docker Available",

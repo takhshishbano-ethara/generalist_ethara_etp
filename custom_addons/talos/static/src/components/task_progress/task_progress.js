@@ -29,7 +29,7 @@ const STEPS = [
     },
     {
         key: "glm",
-        label: "Qwen 3 32B",
+        label: "Kimi K2.5",
         field: "glm_session_status",
         iconMap: {
             not_started: "fa-microchip",

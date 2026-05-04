@@ -219,13 +219,13 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 "maxTokens": 128000,
             },
             {
-                "id": "qwen-3-32b",
-                "name": "qwen-3-32b",
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-                "contextWindow": 32768,
-                "maxTokens": 8192,
+                "contextWindow": 131072,
+                "maxTokens": 32768,
             },
             {
                 "id": "quiet_sand",
@@ -286,6 +286,7 @@ class TalosSandboxK8s(models.AbstractModel):
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
         llama_api_key = env.get("LLAMA_API_KEY", "").strip()
+        moonshot_api_key = env.get("MOONSHOT_API_KEY", "").strip()
 
         openclaw_image = self._get_config_param(
             "talos.openclaw_image",
@@ -312,6 +313,7 @@ class TalosSandboxK8s(models.AbstractModel):
             litellm_db_password=litellm_db_password,
             aws_bearer=aws_bearer,
             llama_api_key=llama_api_key,
+            moonshot_api_key=moonshot_api_key,
         )
 
         self._create_persona_configmap(
@@ -340,15 +342,11 @@ class TalosSandboxK8s(models.AbstractModel):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            qwen_arn = env.get("QWEN_BEDROCK_MODEL_ARN", "").strip()
-            qwen_region = env.get("QWEN_AWS_REGION", "us-east-1").strip()
             glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
             glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
-                qwen_bedrock_arn=qwen_arn or "PLACEHOLDER",
-                qwen_aws_region=qwen_region,
                 glm_bedrock_arn=glm_arn or "PLACEHOLDER",
                 glm_aws_region=glm_region,
             )
@@ -393,6 +391,7 @@ class TalosSandboxK8s(models.AbstractModel):
         litellm_db_password,
         aws_bearer,
         llama_api_key="",
+        moonshot_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
@@ -408,6 +407,7 @@ class TalosSandboxK8s(models.AbstractModel):
                 "LITELLM_DB_PASSWORD": litellm_db_password,
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
                 "LLAMA_API_KEY": llama_api_key,
+                "MOONSHOT_API_KEY": moonshot_api_key,
             },
         )
         try:
@@ -977,6 +977,15 @@ class TalosSandboxK8s(models.AbstractModel):
                         secret_key_ref=client.V1SecretKeySelector(
                             name=secret_name,
                             key="LLAMA_API_KEY",
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="MOONSHOT_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="MOONSHOT_API_KEY",
                         ),
                     ),
                 ),

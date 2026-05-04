@@ -636,10 +636,10 @@ model_list:
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
-  - model_name: qwen-3-32b
+  - model_name: kimi-k2.5
     litellm_params:
-      model: bedrock/converse/{qwen_bedrock_arn}
-      aws_region_name: {qwen_aws_region}
+      model: moonshot/kimi-k2.5
+      api_key: os.environ/MOONSHOT_API_KEY
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -1181,7 +1181,7 @@ class Talos(models.Model):
         self.ensure_one()
         if not self.claude_trajectory and not self.glm_trajectory:
             raise UserError(
-                "At least one of Claude or Qwen trajectory is required. "
+                "At least one of Claude or Kimi trajectory is required. "
                 "Stop the corresponding sandbox first to capture its trajectory."
             )
         if not self.persona_id:

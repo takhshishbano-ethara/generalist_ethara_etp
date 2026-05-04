@@ -77,6 +77,7 @@ services:
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       LLAMA_API_KEY: ${LLAMA_API_KEY}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
       STORE_MODEL_IN_DB: "True"
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro

@@ -11,7 +11,7 @@
                     <block title="Bedrock LLM Configuration">
                         <setting
                             string="Inference Profile ARN"
-                            help="Full ARN of the AWS Bedrock application inference profile for GLM 5."
+                            help="Full ARN of the AWS Bedrock application inference profile for server-side LLM calls (QC, hints)."
                         >
                             <field name="talos_bedrock_inference_arn" />
                         </setting>
@@ -20,6 +20,17 @@
                             help="AWS region for the Bedrock endpoint."
                         >
                             <field name="talos_bedrock_region" />
+                        </setting>
+                    </block>
+                    <block title="Moonshot (Kimi K2.5)">
+                        <setting
+                            string="Moonshot API Key"
+                            help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation. Get from platform.moonshot.ai."
+                        >
+                            <field
+                                name="talos_moonshot_api_key"
+                                password="True"
+                            />
                         </setting>
                     </block>
                     <block title="Sandbox Deployment">
