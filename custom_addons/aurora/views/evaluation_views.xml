@@ -89,7 +89,7 @@
                         <field name="missing_registries" readonly="1" nolabel="1" class="d-block mt-1"/>
                         <p class="mt-2 mb-2 text-muted">No harness implementation found for the repo(s) above. Upload one to continue, or add it to <code>tools/harness/repos/</code>.</p>
                         <button name="action_upload_harness_for_missing"
-                                string="Upload Harness"
+                                string="Upload Registry"
                                 type="object"
                                 class="btn btn-primary btn-sm"
                                 icon="fa-upload"/>

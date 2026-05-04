@@ -40,7 +40,7 @@
 
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
       <!-- Tesseract dark editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
@@ -53,6 +53,11 @@
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
+
+      <!-- Scroll progress rail. Thin 2px bar at the top of the viewport
+           that fills left-to-right as the user scrolls. Updated via
+           requestAnimationFrame in tesseract_portal.js. -->
+      <div class="scroll-progress" aria-hidden="true"/>
 
       <!-- Theme toggle. Two icons layered; CSS flips visibility per
            `data-theme` attribute on :root. JS updates the attribute

@@ -55,41 +55,124 @@
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ============================================================
+  // Scroll progress rail — writes `width` into the fixed bar on
+  // every animation frame while the page is scrolled. rAF-throttled
+  // so we never fire more than 60 times/sec, and only while the
+  // user is actively scrolling (idle state means zero work).
+  // Gracefully no-ops if prefers-reduced-motion is on (the rail
+  // still renders at 0→final, just without intra-scroll updates).
+  // ============================================================
+  (() => {
+    const bar = document.querySelector('.scroll-progress');
+    if (!bar) return;
+    let ticking = false;
+    const update = () => {
+      const doc = document.documentElement;
+      const max = (doc.scrollHeight - window.innerHeight) || 1;
+      const progress = Math.max(0, Math.min(1, window.scrollY / max));
+      bar.style.width = (progress * 100).toFixed(2) + '%';
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    update();
+  })();
+
+  // ============================================================
   // GSAP + ScrollTrigger — loaded via CDN in <head>. Wait for it.
   // Everything here is progressive: if GSAP fails to load or user
   // opts out of motion, the page still reads correctly.
   // ============================================================
+  // Apple-style easing curves — same strings as CSS --ease-* tokens.
+  // GSAP 3.11+ accepts CSS cubic-bezier() strings directly.
+  const EASE_OUT = 'cubic-bezier(0.28, 0.11, 0.32, 1)';   // storytelling/entrances
+  const EASE_UI  = 'cubic-bezier(0.25, 0.1, 0.25, 1)';    // micro
+  const EASE_IN  = 'cubic-bezier(0.55, 0, 0.75, 0.25)';   // pulse tail
+
+  // ============================================================
+  // Thesis mask reveal — split the thesis sentence into per-word
+  // spans wrapped in overflow-clip containers, so we can stagger
+  // a yPercent 110 → 0 rise on load. Preserves the <em> italic on
+  // "see" by detecting word === 'see' during the split.
+  //
+  // Runs OUTSIDE initAnimations so the DOM is ready even if GSAP
+  // isn't (fallback: flat text, no motion — page still reads).
+  // ============================================================
+  const thesisEl = document.querySelector('.thesis');
+  if (thesisEl) {
+    // Preserve the raw text; strip the single <em> wrapper before split
+    // and re-apply as a class during the rebuild. Trailing punctuation
+    // (like the "?" in "see?") stays roman — it's not italic in the
+    // source markup, so we split it off the em word.
+    const raw = thesisEl.textContent.trim();
+    const words = raw.split(/\s+/);
+    thesisEl.innerHTML = words.map((w) => {
+      const punctMatch = w.match(/^(.*?)([.,!?;:]+)$/);
+      const core  = punctMatch ? punctMatch[1] : w;
+      const punct = punctMatch ? punctMatch[2] : '';
+      const isEm  = core.toLowerCase() === 'see';
+      const innerMarkup = isEm
+        ? `<span class="thesis-em">${core}</span>${punct}`
+        : w;
+      return `<span class="thesis-word"><span class="thesis-word-inner">${innerMarkup}</span></span>`;
+    }).join(' ');
+  }
+
   const initAnimations = () => {
     if (prefersReduced) return;
     if (typeof window.gsap === 'undefined' || typeof window.ScrollTrigger === 'undefined') return;
 
     const { gsap, ScrollTrigger } = window;
     gsap.registerPlugin(ScrollTrigger);
-    gsap.defaults({ ease: 'power2.out', duration: 0.8 });
+    // Lock ticker to 60fps — conference projectors run 60Hz HDMI and
+    // over-sampling causes visible jitter on scroll-triggered beats.
+    gsap.ticker.fps(60);
+    gsap.defaults({ ease: EASE_OUT, duration: 0.64 });
 
     // ---------- 1. Masthead on load ---------------------------------
-    gsap.from('.wordmark', { y: 20, opacity: 0, duration: 0.9, delay: 0.05 });
-    gsap.from('.badge',    { y: 20, opacity: 0, duration: 0.9, delay: 0.18 });
-    gsap.from('.thesis',   { y: 24, opacity: 0, duration: 1.0, delay: 0.28 });
-    gsap.from('.byline',   { y: 12, opacity: 0, duration: 0.8, delay: 0.50 });
+    gsap.from('.wordmark', { y: 24, opacity: 0, duration: 0.9,  delay: 0.05, ease: EASE_OUT });
+    gsap.from('.badge',    { y: 16, opacity: 0, duration: 0.7,  delay: 0.18, ease: EASE_OUT });
+    // Thesis uses the line-by-line mask reveal below, not a single fade.
+    // The static .thesis container still animates so the underline/rule
+    // settles with the copy.
+    gsap.from('.thesis-word-inner', {
+      yPercent: 110,
+      opacity:  0,
+      duration: 0.9,
+      stagger:  0.04,
+      ease:     EASE_OUT,
+      delay:    0.35,
+    });
 
     // ---------- 2. Fade-rise on enter for every major section ------
     document.querySelectorAll('main > .section').forEach((section) => {
-      gsap.from(section.querySelectorAll(':scope > *'), {
+      const children = section.querySelectorAll(':scope > *');
+      gsap.from(children, {
         y: 28,
         opacity: 0,
         stagger: 0.08,
-        duration: 0.7,
+        duration: 0.64,
+        ease: EASE_OUT,
         scrollTrigger: {
           trigger: section,
-          start: 'top 82%',
+          start: 'top 85%',
           toggleActions: 'play none none none',
+        },
+        onStart() {
+          children.forEach((el) => { el.style.willChange = 'transform, opacity'; });
+        },
+        onComplete() {
+          children.forEach((el) => { el.style.willChange = ''; });
         },
       });
     });
 
     // ---------- 3. Funnel final KPI accent glow (one-shot) ---------
-    // Colors pull from CSS variables so they adapt to light/dark palettes.
     const css = getComputedStyle(document.documentElement);
     const accent2 = css.getPropertyValue('--accent-2').trim() || '#4A5515';
     const accentSurface = css.getPropertyValue('--accent-surface').trim() || '#EDF3B8';
@@ -97,43 +180,32 @@
       { boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent2} 30%, transparent)` },
       {
         boxShadow: `inset 0 0 0 1px ${accent2}, 0 0 30px ${accentSurface}`,
-        duration: 1.0,
+        duration: 0.8,
         delay: 0.4,
+        ease: EASE_OUT,
         scrollTrigger: { trigger: '.funnel', start: 'top 75%', once: true },
       }
     );
 
-    // ---------- 4. Charts fade-in under reveal ---------------------
-    gsap.from('.charts .chart', {
-      y: 28,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.6,
-      scrollTrigger: { trigger: '.charts', start: 'top 85%' },
-    });
-
-    // ---------- 5. KPI cards stagger entrance ----------------------
-    gsap.from('.kpi-card', {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.6,
-      scrollTrigger: { trigger: '.kpi-row', start: 'top 82%' },
-    });
+    // Blocks 4 (charts fade) and 5 (KPI fade) REMOVED — both were
+    // redundant with block 2 (section fade-rise), which already
+    // animates every direct child of every <section>.
 
     // ---------- 6. Matrix pass-tile pulse on enter -----------------
+    // Capped to first 8 tiles; at full 40-tile length the cascading
+    // shadow repaints overwhelm a 60Hz projector.
     ScrollTrigger.create({
       trigger: '#view-matrix',
       start: 'top 75%',
       once: true,
       onEnter: () => {
-        const tiles = document.querySelectorAll('.tile-btn--pass');
+        const tiles = Array.from(document.querySelectorAll('.tile-btn--pass')).slice(0, 8);
         tiles.forEach((el, i) => {
-          const tl = gsap.timeline({ delay: 0.25 + i * 0.1 });
+          const tl = gsap.timeline({ delay: 0.25 + i * 0.05 });
           const pulseOn = `0 0 0 6px color-mix(in oklab, ${accent2} 40%, transparent)`;
           const pulseOff = `0 0 0 0 color-mix(in oklab, ${accent2} 0%, transparent)`;
-          tl.to(el, { boxShadow: pulseOn, duration: 0.25, ease: 'power2.out' })
-            .to(el, { boxShadow: pulseOff, duration: 0.45, ease: 'power2.in' });
+          tl.to(el, { boxShadow: pulseOn,  duration: 0.25, ease: EASE_OUT })
+            .to(el, { boxShadow: pulseOff, duration: 0.45, ease: EASE_IN  });
         });
       },
     });

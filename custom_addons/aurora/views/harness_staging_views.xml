@@ -45,7 +45,7 @@
                             confirm="Run full evaluation with all PRs?"/>
                     <button name="action_download_file" string="Download File" type="object"
                             class="btn-secondary" invisible="not harness_file"/>
-                    <button name="action_mark_deployed" string="Push to GitHub &amp; Deploy" type="object"
+                    <button name="action_mark_deployed" string="Push Registry to GitHub" type="object"
                             class="btn-success"
                             invisible="stage not in ('tested', 'done', 'evaluating') or test_result != 'success' or not is_admin"
                             confirm="Commit this harness to the GitHub registry repo? Worker pods will pick it up on the next evaluation."/>
@@ -79,10 +79,13 @@
                             <field name="language"/>
                             <field name="user_id" widget="many2one_avatar_user"/>
                         </group>
-                        <group string="Harness File">
-                            <field name="harness_file" filename="harness_filename"/>
+                        <group string="Registry File">
+                            <field name="harness_file" filename="harness_filename" string="Registry File"/>
                             <field name="harness_filename" invisible="1"/>
                             <field name="staging_path" invisible="not is_admin"/>
+                            <div class="text-muted small" colspan="2">
+                                Upload a single <code>.py</code> file, or a <code>.zip</code> containing multiple range files (e.g. <code>repo_500_to_200.py</code>, <code>repo_1000_to_501.py</code>).
+                            </div>
                         </group>
                     </group>
 

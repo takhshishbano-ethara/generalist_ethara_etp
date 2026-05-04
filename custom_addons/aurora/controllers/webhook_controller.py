@@ -121,8 +121,8 @@ def _append_log(record, message: str) -> None:
         return
     current = record.log or ""
     lines = (current + "\n" + message).splitlines()
-    if len(lines) > 500:
-        lines = lines[-400:]
+    if len(lines) > 5000:
+        lines = lines[-4000:]
     record.sudo().write({"log": "\n".join(lines)})
 
 
@@ -218,8 +218,8 @@ class AuroraWebhookController(http.Controller):
         if message:
             current = rec.test_log or ""
             lines = (current + "\n" + str(message)).splitlines()
-            if len(lines) > 500:
-                lines = lines[-400:]
+            if len(lines) > 5000:
+                lines = lines[-4000:]
             rec.sudo().write({"test_log": "\n".join(lines)})
 
         return {"ok": True}

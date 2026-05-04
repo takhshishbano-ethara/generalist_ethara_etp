@@ -138,7 +138,7 @@ def _update_pipeline(cr: Any, rec_id: int, vals: dict[str, Any]) -> None:
                 raise
 
 
-_MAX_LOG_SIZE = 500_000
+_MAX_LOG_SIZE = 2_000_000
 
 def _append_log(cr: Any, rec_id: int, msg: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

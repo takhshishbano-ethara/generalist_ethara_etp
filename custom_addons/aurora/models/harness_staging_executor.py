@@ -25,7 +25,7 @@ _ALLOWED_COLUMNS = frozenset({
     "stage", "test_result", "test_log",
 })
 
-_MAX_LOG_SIZE = 200_000
+_MAX_LOG_SIZE = 2_000_000
 
 
 def _open_cursor(db_name):
@@ -68,6 +68,7 @@ def _read_staging_config(db_name: str, rec_id: int) -> dict[str, Any]:
             "repo": rec.repo,
             "dataset_file": rec.dataset_file,
             "staging_path": staging_path,
+            "is_zip": rec._is_zip_upload(),
             "user_id": rec.user_id.id,
         }
     finally:
@@ -106,7 +107,7 @@ def _run_staging_test(db_name, uid, rec_id):
     importlib.reload(_ds_mod)
     importlib.reload(_re_mod)
     from ..tools.harness.run_evaluation import EvalConfig
-    from ..tools.harness.staging_loader import load_staging_harness, unload_staging_harness
+    from ..tools.harness.staging_loader import load_staging_harness, load_staging_directory, unload_staging_harness
 
     cr = _open_cursor(db_name)
     originals = None
@@ -117,9 +118,13 @@ def _run_staging_test(db_name, uid, rec_id):
         _append_test_log(cr, rec_id, "Loading staging harness...")
         cr.commit()
 
-        originals = load_staging_harness(
-            cfg["staging_path"], cfg["org"], cfg["repo"],
-        )
+        if cfg["is_zip"]:
+            staging_dir = os.path.dirname(cfg["staging_path"])
+            originals = load_staging_directory(staging_dir, cfg["org"], cfg["repo"])
+        else:
+            originals = load_staging_harness(
+                cfg["staging_path"], cfg["org"], cfg["repo"],
+            )
 
         _append_test_log(cr, rec_id, "Validating dataset...")
         cr.commit()
