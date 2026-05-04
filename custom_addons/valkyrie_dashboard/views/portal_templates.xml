@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="portal_showcase" name="Valkyrie Showcase">
+        <t t-call="portal.portal_layout">
+            <t t-set="no_breadcrumbs" t-value="True"/>
+            <t t-set="no_header" t-value="True"/>
+
+            <div class="vk-portal" id="vk-portal">
+
+                <!-- ====== DARK MODE TOGGLE ====== -->
+                <button class="vk-theme-toggle" id="vk-theme-toggle"
+                        aria-label="Toggle dark mode" title="Toggle dark mode">
+                    <svg class="vk-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                    </svg>
+                    <svg class="vk-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"/>
+                        <line x1="12" y1="1" x2="12" y2="3"/>
+                        <line x1="12" y1="21" x2="12" y2="23"/>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                        <line x1="1" y1="12" x2="3" y2="12"/>
+                        <line x1="21" y1="12" x2="23" y2="12"/>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                </button>
+
+                <!-- ====== HERO ====== -->
+                <section class="vk-hero">
+                    <div class="vk-hero-bg"></div>
+                    <div class="vk-hero-content">
+                        <span class="vk-hero-tag">SECURITY VULNERABILITY REMEDIATION</span>
+                        <h1 class="vk-hero-title">VALKYRIE</h1>
+                        <p class="vk-hero-subtitle">
+                            Autonomous Security Patch Generation
+                        </p>
+                        <p class="vk-hero-byline">
+                            by <strong>Ethara AI Labs</strong> &#x2014;
+                            <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                        </p>
+                    </div>
+                </section>
+
+                <!-- ====== DESCRIPTION ====== -->
+                <section class="vk-section vk-desc-section" data-animate="fade-up">
+                    <div class="vk-container">
+                        <p class="vk-desc-text">
+                            Valkyrie is a reinforcement learning environment for training and evaluating
+                            autonomous software engineering agents on security vulnerability remediation.
+                            Each task instance defines a codebase containing a synthetic bug modeled after
+                            established CWE categories, a natural-language problem statement, and a Docker
+                            container providing a sandboxed execution environment. Two frontier models
+                            (Kimi K2.5, Nova 2 Lite) were evaluated across 20 instances spanning 7 CWE classes.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- ====== KEY METRICS ====== -->
+                <section class="vk-section vk-metrics-section" data-animate="fade-up">
+                    <div class="vk-container">
+                        <h2 class="vk-section-title">Key Metrics</h2>
+                        <div class="vk-metrics-grid">
+                            <div class="vk-metric-card" data-animate="fade-up" data-delay="0">
+                                <div class="vk-metric-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+                                </div>
+                                <span class="vk-metric-val">20</span>
+                                <span class="vk-metric-lbl">Task Instances</span>
+                                <span class="vk-metric-sub">FFmpeg: 6, jq: 14</span>
+                            </div>
+                            <div class="vk-metric-card" data-animate="fade-up" data-delay="1">
+                                <div class="vk-metric-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.75-11.396c.251.023.501.05.75.082M5 14.5l3.5 3.5L12 14.5m7 0l-3.5 3.5L12 14.5"/></svg>
+                                </div>
+                                <span class="vk-metric-val">2</span>
+                                <span class="vk-metric-lbl">Frontier Models</span>
+                                <span class="vk-metric-sub">Kimi K2.5 &amp; Nova 2 Lite</span>
+                            </div>
+                            <div class="vk-metric-card" data-animate="fade-up" data-delay="2">
+                                <div class="vk-metric-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/></svg>
+                                </div>
+                                <span class="vk-metric-val">16,756</span>
+                                <span class="vk-metric-lbl">Total Test Cases</span>
+                                <span class="vk-metric-sub">5,270 fail-to-pass + 11,486 pass-to-pass</span>
+                            </div>
+                            <div class="vk-metric-card" data-animate="fade-up" data-delay="3">
+                                <div class="vk-metric-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+                                </div>
+                                <span class="vk-metric-val">7</span>
+                                <span class="vk-metric-lbl">CWE Classes</span>
+                                <span class="vk-metric-sub">across 2 repositories</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ====== PIPELINE PHASES ====== -->
+                <section class="vk-section vk-phases-section" data-animate="fade-up">
+                    <div class="vk-container">
+                        <h2 class="vk-section-title">Pipeline</h2>
+                        <div class="vk-pipeline">
+                            <div class="vk-pipeline-card">
+                                <div class="vk-pipeline-num">1</div>
+                                <h3>Instance Construction</h3>
+                                <p>
+                                    Synthesize bugs using SWE-smith methodology.
+                                    Apply targeted code mutations reproducing CWE behavioral signatures.
+                                </p>
+                            </div>
+                            <div class="vk-pipeline-arrow">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
+                            </div>
+                            <div class="vk-pipeline-card">
+                                <div class="vk-pipeline-num">2</div>
+                                <h3>Agent Execution</h3>
+                                <p>
+                                    Deploy AI agents in sandboxed Docker containers.
+                                    Generate security patches from natural-language problem statements.
+                                </p>
+                            </div>
+                            <div class="vk-pipeline-arrow">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 5l7 7-7 7M5 12h14"/></svg>
+                            </div>
+                            <div class="vk-pipeline-card">
+                                <div class="vk-pipeline-num">3</div>
+                                <h3>Evaluation</h3>
+                                <p>
+                                    Execute partitioned test suites. Measure fail-to-pass
+                                    (fix validation) and pass-to-pass (regression) results.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ====== CHARTS ====== -->
+                <section class="vk-section vk-charts-section" data-animate="fade-up">
+                    <div class="vk-container">
+                        <h2 class="vk-section-title">Benchmark Results</h2>
+                        <p class="vk-charts-subtitle">
+                            Kimi K2.5: 10% resolve rate (2/20) &#xA0;|&#xA0; Nova 2 Lite: 0% (0/20)
+                        </p>
+                        <p class="vk-charts-caption">
+                            Evaluation results across difficulty levels for Kimi K2.5 and Nova 2 Lite
+                            on 20 security vulnerability instances.
+                        </p>
+                        <div class="vk-charts-grid">
+                            <div class="vk-chart-card" data-animate="fade-up">
+                                <img src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
+                                     alt="Performance by Difficulty"
+                                     loading="lazy"/>
+                                <div class="vk-chart-label">Performance by Difficulty</div>
+                            </div>
+                            <div class="vk-chart-card" data-animate="fade-up" data-delay="1">
+                                <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
+                                     alt="Failure Reasons Distribution"
+                                     loading="lazy"/>
+                                <div class="vk-chart-label">Failure Reasons Distribution</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ====== DATASET VIEWER ====== -->
+                <section class="vk-section vk-viewer-section" id="vk-dataset-viewer">
+                    <div class="vk-container">
+                        <h2 class="vk-section-title">Dataset Viewer</h2>
+                        <p class="vk-viewer-caption">
+                            Browse all 20 instances in the Valkyrie dataset. Click any row to expand full details.
+                        </p>
+                        <div class="vk-viewer-controls">
+                            <div class="vk-viewer-search">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <input type="text" id="vk-viewer-search" placeholder="Search instances..." autocomplete="off"/>
+                            </div>
+                            <div class="vk-viewer-filters">
+                                <select id="vk-viewer-difficulty">
+                                    <option value="">All Difficulties</option>
+                                    <option value="Easy">Easy</option>
+                                    <option value="Medium">Medium</option>
+                                    <option value="Hard">Hard</option>
+                                </select>
+                                <select id="vk-viewer-sort">
+                                    <option value="instance_id">Name (A-Z)</option>
+                                    <option value="difficulty">Difficulty</option>
+                                    <option value="fail_to_pass_count">Tests (F2P)</option>
+                                    <option value="kimi_pass_at_1">Kimi K2.5</option>
+                                    <option value="nova_pass_at_1">Nova 2 Lite</option>
+                                </select>
+                            </div>
+                            <div class="vk-viewer-meta">
+                                <span id="vk-viewer-count">Loading...</span>
+                            </div>
+                        </div>
+                        <div class="vk-viewer-table-wrap" id="vk-viewer-table-wrap">
+                            <table class="vk-viewer-table" id="vk-viewer-table">
+                                <thead>
+                                    <tr>
+                                        <th class="vk-th-instance">Instance</th>
+                                        <th class="vk-th-diff">Difficulty</th>
+                                        <th class="vk-th-cwe">CWE</th>
+                                        <th class="vk-th-tests">Tests (F2P)</th>
+                                        <th class="vk-th-kimi">Kimi K2.5</th>
+                                        <th class="vk-th-nova">Nova 2 Lite</th>
+                                        <th class="vk-th-expand"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vk-viewer-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="vk-viewer-pagination" id="vk-viewer-pagination">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ====== LINKS ====== -->
+                <section class="vk-section vk-links-section" data-animate="fade-up">
+                    <div class="vk-container">
+                        <div class="vk-links-row">
+                            <a class="vk-link-btn" t-att-href="github_url"
+                               target="_blank" rel="noopener">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                                GitHub Repository
+                            </a>
+                            <a class="vk-link-btn" t-att-href="dataset_url"
+                               target="_blank" rel="noopener">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                                Dataset on HuggingFace
+                            </a>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ====== FOOTER ====== -->
+                <footer class="vk-footer">
+                    <div class="vk-container">
+                        <p>&#xA9; 2026 Ethara AI Labs. Project Valkyrie.</p>
+                    </div>
+                </footer>
+
+            </div>
+
+        </t>
+    </template>
+
+</odoo>
