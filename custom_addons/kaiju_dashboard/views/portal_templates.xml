@@ -89,7 +89,7 @@
           <div class="glance-row"><dt>Stages</dt><dd><b>3</b> (Draft → Lint → Test)</dd></div>
           <div class="glance-row"><dt>Completeness</dt><dd>100% structural</dd></div>
         </dl>
-        <p class="glance-foot mono">v1 · 2026</p>
+        <!-- <p class="glance-foot mono">v1 · 2026</p> -->
       </aside>
     </div>
   </section>

@@ -121,7 +121,7 @@
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Runtime</dt><dd>Hermetic · Docker</dd></div>
         </dl>
-        <p class="glance-foot mono">Milo-Bench · v1 · 2026</p>
+        <!-- <p class="glance-foot mono">Milo-Bench · v1 · 2026</p> -->
       </aside>
     </div>
   </section>

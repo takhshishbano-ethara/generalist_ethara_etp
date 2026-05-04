@@ -100,7 +100,7 @@
                                     <div class="vk-glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
                                     <div class="vk-glance-row"><dt>Runtime</dt><dd>Docker · hermetic</dd></div>
                                 </dl>
-                                <p class="vk-glance-foot vk-mono">Benchmark · v1 · 2026</p>
+                                <!-- <p class="vk-glance-foot vk-mono">Benchmark · v1 · 2026</p> -->
                             </aside>
                         </div>
                     </section>
@@ -108,8 +108,8 @@
                     <!-- ================= §02 SCOPE OF THE SUITE ================= -->
                     <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
                         <p class="vk-section-label" id="vk-scope-label">§02 — Scope of the suite</p>
-                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Twenty benchmark instances.</p>
-                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 20 benchmark instances">
+                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Twenty instances.</p>
+                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 20 instances">
                             <div class="vk-funnel-step">
                                 <span class="vk-funnel-num" data-target="7" aria-hidden="true">0</span>
                                 <span class="sr-only">7</span>
@@ -127,7 +127,7 @@
                             <div class="vk-funnel-step vk-funnel-step--final">
                                 <span class="vk-funnel-num" data-target="20" aria-hidden="true">0</span>
                                 <span class="sr-only">20</span>
-                                <span class="vk-funnel-unit">Benchmark instances</span>
+                                <span class="vk-funnel-unit">Instances</span>
                                 <span class="vk-funnel-sub">6 FFmpeg · 14 jq · 16,756 tests</span>
                             </div>
                         </div>

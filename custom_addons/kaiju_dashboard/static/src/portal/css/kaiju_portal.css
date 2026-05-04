@@ -1171,7 +1171,8 @@ hr.rule {
 .kj-viewer-instance-name {
   display: block;
   color: var(--ink);
-  font-weight: 500;
+  font-weight: 400;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

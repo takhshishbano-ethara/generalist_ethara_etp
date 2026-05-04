@@ -1444,6 +1444,20 @@ hr.rule {
 }
 
 /* ============================================================
+   CHART LIGHT/DARK IMAGE SWAP
+   Light images shown by default; dark variants shown when
+   data-theme="dark" or OS prefers dark.
+   ============================================================ */
+.chart img.chart-dark { display: none; }
+.chart img.chart-light { display: block; }
+:root[data-theme="dark"] .chart img.chart-dark { display: block; }
+:root[data-theme="dark"] .chart img.chart-light { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .chart img.chart-dark { display: block; }
+  :root:not([data-theme]) .chart img.chart-light { display: none; }
+}
+
+/* ============================================================
    THEME TOGGLE BUTTON
    Fixed top-right. Both palettes meet AA contrast.
    ============================================================ */
