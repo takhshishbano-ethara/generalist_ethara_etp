@@ -6,8 +6,8 @@
         <head>
             <meta charset="UTF-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1"/>
-            <title>Valkyrie — Security Vulnerability Remediation · Ethara AI</title>
-            <meta name="description" content="Valkyrie: autonomous security patch generation benchmark spanning 20 instances across 7 CWE classes."/>
+            <title>Valkyrie · Security Vulnerability Remediation · Ethara AI</title>
+            <meta name="description" content="Valkyrie: autonomous security patch generation benchmark. Human-curated vulnerability instances across 7 CWE classes, evaluated with reward signals from partitioned test suites."/>
             <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)"/>
             <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)"/>
 
@@ -19,6 +19,9 @@
                     var saved = localStorage.getItem('vk:theme');
                     if (saved === 'light' || saved === 'dark') {
                       document.documentElement.setAttribute('data-theme', saved);
+                    } else {
+                      var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+                      document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
                     }
                   } catch(e) {}
                 })();
@@ -75,16 +78,18 @@
 
                     <!-- ================= §01 THE QUESTION ================= -->
                     <section class="vk-section" id="overview" aria-labelledby="vk-overview-label">
-                        <p class="vk-section-label" id="vk-overview-label">§01 — The question</p>
+                        <p class="vk-section-label" id="vk-overview-label">§01 · The question</p>
                         <div class="vk-overview-grid">
                             <div class="vk-prose">
                                 <p>
-                                    Valkyrie is a reinforcement-learning environment for training and evaluating
-                                    autonomous software-engineering agents on security vulnerability remediation.
-                                    Each task instance defines a codebase containing a synthetic bug modeled after
-                                    an established CWE category, a natural-language problem statement, and a Docker
-                                    container providing a sandboxed execution environment. Two frontier models
-                                    were evaluated across 20 instances spanning 7 CWE classes and 2 C codebases.
+                                    Valkyrie is a benchmark for training and evaluating autonomous
+                                    software-engineering agents on security vulnerability remediation.
+                                    Each task instance defines a codebase containing a human-curated bug
+                                    modeled after an established CWE category, a natural-language problem
+                                    statement, and a Docker container providing a sandboxed execution
+                                    environment. Reward signals come from partitioned test suites (fail-to-pass
+                                    and pass-to-pass). Two frontier models were evaluated across 20 instances
+                                    spanning 7 CWE classes and 2 C codebases.
                                 </p>
                                 <p class="vk-byline">by Ethara AI Labs · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
                                 <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§04</a>.</p>
@@ -107,7 +112,7 @@
 
                     <!-- ================= §02 SCOPE OF THE SUITE ================= -->
                     <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
-                        <p class="vk-section-label" id="vk-scope-label">§02 — Scope of the suite</p>
+                        <p class="vk-section-label" id="vk-scope-label">§02 · Scope of the suite</p>
                         <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Twenty instances.</p>
                         <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 20 instances">
                             <div class="vk-funnel-step">
@@ -135,7 +140,7 @@
 
                     <!-- ================= §03 PIPELINE ================= -->
                     <section class="vk-section vk-section-pipeline" id="pipeline" aria-labelledby="vk-pipeline-label">
-                        <p class="vk-section-label" id="vk-pipeline-label">§03 — Pipeline</p>
+                        <p class="vk-section-label" id="vk-pipeline-label">§03 · Pipeline</p>
                         <div class="vk-pipeline-frame">
                             <div class="vk-pipeline-intro">
                                 <p class="vk-pipeline-eyebrow vk-mono">The method</p>
@@ -201,7 +206,7 @@
 
                     <!-- ================= §04 RESULTS ================= -->
                     <section class="vk-section vk-section-reveal" id="results" aria-labelledby="vk-results-label">
-                        <p class="vk-section-label" id="vk-results-label">§04 — Results</p>
+                        <p class="vk-section-label" id="vk-results-label">§04 · Results</p>
 
                         <div class="vk-reveal">
                             <p class="vk-reveal-line">
@@ -209,40 +214,49 @@
                                 <span class="vk-tok-nova">Nova 2 Lite</span> resolves <b class="vk-reveal-big">0 of 20</b>.
                             </p>
                             <p class="vk-reveal-line vk-reveal-kicker">
-                                Only Kimi crosses the line — and neither model closes a <b>Hard</b> instance.
+                                Only Kimi crosses the line, and neither model closes a <b>Hard</b> instance.
                             </p>
                             <p class="vk-reveal-cost vk-mono">
-                                One model is <b>~23× more expensive</b> — and is the only one that scores at all.
+                                One model is <b>~23× more expensive</b>, and is the only one that scores at all.
                             </p>
                         </div>
 
                         <div class="vk-charts vk-charts-3">
                             <figure class="vk-chart vk-chart--hero">
                                 <button type="button" class="vk-chart-trigger" aria-label="Preview success rate by difficulty chart full size">
-                                    <img src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
+                                    <img class="vk-chart-light" src="/valkyrie_dashboard/static/src/portal/img/benchmark_chart.png"
+                                         alt="Line chart: success rate by difficulty for Kimi K2.5 and Nova 2 Lite"
+                                         loading="lazy"/>
+                                    <img class="vk-chart-dark" src="/valkyrie_dashboard/static/src/portal/img/dark_benchmark_chart.png"
                                          alt="Line chart: success rate by difficulty for Kimi K2.5 and Nova 2 Lite"
                                          loading="lazy"/>
                                     <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
                                 </button>
-                                <figcaption>Fig. 1 — Success rate by difficulty</figcaption>
+                                <figcaption>Fig. 1 · Success rate by difficulty</figcaption>
                             </figure>
                             <figure class="vk-chart">
                                 <button type="button" class="vk-chart-trigger" aria-label="Preview resolution rate by CWE class chart full size">
-                                    <img src="/valkyrie_dashboard/static/src/portal/img/resolution_by_cwe.png"
+                                    <img class="vk-chart-light" src="/valkyrie_dashboard/static/src/portal/img/resolution_by_cwe.png"
+                                         alt="Lollipop chart: resolution rate by CWE vulnerability class"
+                                         loading="lazy"/>
+                                    <img class="vk-chart-dark" src="/valkyrie_dashboard/static/src/portal/img/dark_resolution_by_cwe.png"
                                          alt="Lollipop chart: resolution rate by CWE vulnerability class"
                                          loading="lazy"/>
                                     <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
                                 </button>
-                                <figcaption>Fig. 2 — Resolution rate by CWE class</figcaption>
+                                <figcaption>Fig. 2 · Resolution rate by CWE class</figcaption>
                             </figure>
                             <figure class="vk-chart">
                                 <button type="button" class="vk-chart-trigger" aria-label="Preview failure reasons distribution chart full size">
-                                    <img src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
+                                    <img class="vk-chart-light" src="/valkyrie_dashboard/static/src/portal/img/failure_reasons.png"
+                                         alt="Dumbbell chart: failure reason breakdown across resolved and unresolved instances"
+                                         loading="lazy"/>
+                                    <img class="vk-chart-dark" src="/valkyrie_dashboard/static/src/portal/img/dark_failure_reasons.png"
                                          alt="Dumbbell chart: failure reason breakdown across resolved and unresolved instances"
                                          loading="lazy"/>
                                     <span class="vk-chart-zoom-hint" aria-hidden="true">Click to expand</span>
                                 </button>
-                                <figcaption>Fig. 3 — Failure-mode distribution</figcaption>
+                                <figcaption>Fig. 3 · Failure-mode distribution</figcaption>
                             </figure>
                         </div>
                         <p class="vk-caption">Success rate by difficulty (Fig. 1), resolution rate per CWE class (Fig. 2), and failure-mode breakdown (Fig. 3). See <a href="#instances">§05</a> for per-instance details.</p>
@@ -250,7 +264,7 @@
 
                     <!-- ================= §05 INSTANCES ================= -->
                     <section class="vk-section" id="instances" aria-labelledby="vk-instances-label">
-                        <p class="vk-section-label" id="vk-instances-label">§05 — Instances</p>
+                        <p class="vk-section-label" id="vk-instances-label">§05 · Instances</p>
                         <p class="vk-section-desc">Every run, receipt-by-receipt. Click any row to expand full problem statement, test counts, and per-model timing + cost.</p>
 
                         <!-- KPI row -->
@@ -327,7 +341,7 @@
 
                     <!-- ================= §06 RESOURCES (compact) ================= -->
                     <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
-                        <p class="vk-section-label" id="vk-resources-label">§06 — Resources</p>
+                        <p class="vk-section-label" id="vk-resources-label">§06 · Resources</p>
                         <div class="vk-resources">
                             <a class="vk-resource" t-att-href="github_url" target="_blank" rel="noopener">
                                 <p class="vk-res-label">Code</p>

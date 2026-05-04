@@ -708,6 +708,11 @@ body:has(.vk-portal) .o_footer_copyright {
   border: 1px solid var(--vk-border);
 }
 .vk-chart--hero img { max-height: none; }
+.vk-chart img.vk-chart-dark { display: none; }
+:root[data-theme="dark"] .vk-chart img.vk-chart-light { display: none; }
+:root[data-theme="dark"] .vk-chart img.vk-chart-dark { display: block; }
+:root[data-theme="light"] .vk-chart img.vk-chart-light { display: block; }
+:root[data-theme="light"] .vk-chart img.vk-chart-dark { display: none; }
 .vk-chart figcaption {
   margin-top: 12px;
   font-family: var(--vk-font-mono);
