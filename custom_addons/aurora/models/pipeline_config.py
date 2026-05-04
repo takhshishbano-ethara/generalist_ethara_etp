@@ -1,9 +1,13 @@
+import logging
+
 from odoo import api, fields, models
 
 from .credential_manager import (
     encrypt_value,
     decrypt_value,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 LANGUAGE_SELECTION = [
@@ -276,7 +280,12 @@ class AuroraSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         for field_name, param_key in self._ENCRYPTED_FIELD_MAP.items():
             stored = ICP.get_param(param_key, "")
-            res[field_name] = decrypt_value(ICP, stored) if stored else ""
+            if not stored:
+                res[field_name] = ""
+            elif stored.startswith("fernet:1:"):
+                res[field_name] = decrypt_value(ICP, stored)
+            else:
+                res[field_name] = stored
         return res
 
     def set_values(self):
@@ -284,4 +293,10 @@ class AuroraSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         for field_name, param_key in self._ENCRYPTED_FIELD_MAP.items():
             plaintext = self[field_name] or ""
-            ICP.set_param(param_key, encrypt_value(ICP, plaintext))
+            try:
+                ICP.set_param(param_key, encrypt_value(ICP, plaintext))
+            except Exception:
+                _logger.warning(
+                    "Aurora: encryption failed for %s, storing plaintext.", param_key
+                )
+                ICP.set_param(param_key, plaintext)
