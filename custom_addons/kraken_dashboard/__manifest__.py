@@ -16,8 +16,7 @@
     'license': 'LGPL-3',
     'depends': [
         'base',
-        'portal',
-        'website',
+        'web',
     ],
     'data': [
         'security/ir.model.access.csv',
@@ -26,15 +25,17 @@
         'views/portal_templates.xml',
     ],
     'assets': {
+        # Backend bundle (OWL component + SCSS) — loaded when an
+        # authenticated user opens the "Kraken" app/menu.
         'web.assets_backend': [
             'kraken_dashboard/static/src/scss/kraken_showcase.scss',
             'kraken_dashboard/static/src/components/showcase/showcase.js',
             'kraken_dashboard/static/src/components/showcase/showcase.xml',
         ],
-        'web.assets_frontend': [
-            'kraken_dashboard/static/src/portal/css/kraken_portal.css',
-            'kraken_dashboard/static/src/portal/js/kraken_portal.js',
-        ],
+        # Public /kraken page assets are NOT bundled into
+        # web.assets_frontend on purpose — the portal template serves
+        # them as bare <link>/<script> tags so Bootstrap and other
+        # portal chrome do not override the editorial design.
     },
     'installable': True,
     'application': True,

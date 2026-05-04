@@ -1,371 +1,543 @@
-(function () {
-    'use strict';
+(() => {
+  const root = document.documentElement;
+  const toggleBtn = document.getElementById('theme-toggle');
+  const themeKey = 'kraken:theme';
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
 
-    /* ─── Dark Mode ──────────────────────────────────────────── */
-    function initDarkMode() {
-        const toggle = document.querySelector('.kr-dark-toggle');
-        const showcase = document.querySelector('.kr-showcase');
-        if (!toggle || !showcase) return;
+  const currentTheme = () => {
+    const explicit = root.getAttribute('data-theme');
+    if (explicit === 'light' || explicit === 'dark') return explicit;
+    return prefersDark.matches ? 'dark' : 'light';
+  };
+  const syncButtonLabel = () => {
+    if (!toggleBtn) return;
+    const theme = currentTheme();
+    toggleBtn.setAttribute('aria-pressed', String(theme === 'dark'));
+    toggleBtn.setAttribute(
+      'aria-label',
+      theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+    );
+  };
+  syncButtonLabel();
 
-        const stored = localStorage.getItem('kr-dark');
-        if (stored === 'true' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            showcase.classList.add('kr-dark');
-            toggle.querySelector('.kr-dark-toggle__icon').textContent = '☀️';
-        }
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const next = currentTheme() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem(themeKey, next); } catch (e) {}
+      syncButtonLabel();
+    });
+  }
+  const osChangeHandler = () => {
+    try {
+      if (localStorage.getItem(themeKey)) return;
+    } catch (e) {}
+    syncButtonLabel();
+  };
+  if (prefersDark.addEventListener) {
+    prefersDark.addEventListener('change', osChangeHandler);
+  } else if (prefersDark.addListener) {
+    prefersDark.addListener(osChangeHandler);
+  }
 
-        toggle.addEventListener('click', function () {
-            showcase.classList.toggle('kr-dark');
-            const isDark = showcase.classList.contains('kr-dark');
-            localStorage.setItem('kr-dark', isDark);
-            toggle.querySelector('.kr-dark-toggle__icon').textContent = isDark ? '☀️' : '🌙';
+  const dataEl = document.getElementById('instances-data');
+  if (!dataEl) return;
+  const rows = JSON.parse(dataEl.textContent || '[]');
+
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  (() => {
+    const bar = document.querySelector('.scroll-progress');
+    if (!bar) return;
+    let ticking = false;
+    const update = () => {
+      const doc = document.documentElement;
+      const max = (doc.scrollHeight - window.innerHeight) || 1;
+      const progress = Math.max(0, Math.min(1, window.scrollY / max));
+      bar.style.width = (progress * 100).toFixed(2) + '%';
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    update();
+  })();
+
+  const EASE_OUT = 'cubic-bezier(0.28, 0.11, 0.32, 1)';
+  const EASE_UI  = 'cubic-bezier(0.25, 0.1, 0.25, 1)';
+  const EASE_IN  = 'cubic-bezier(0.55, 0, 0.75, 0.25)';
+
+  const thesisEl = document.querySelector('.thesis');
+  if (thesisEl) {
+    const raw = thesisEl.textContent.trim();
+    const words = raw.split(/\s+/);
+    thesisEl.innerHTML = words.map((w) => {
+      const punctMatch = w.match(/^(.*?)([.,!?;:]+)$/);
+      const core  = punctMatch ? punctMatch[1] : w;
+      const punct = punctMatch ? punctMatch[2] : '';
+      const isEm  = core.toLowerCase() === 'experts';
+      const innerMarkup = isEm
+        ? `<span class="thesis-em">${core}</span>${punct}`
+        : w;
+      return `<span class="thesis-word"><span class="thesis-word-inner">${innerMarkup}</span></span>`;
+    }).join(' ');
+  }
+
+  const initAnimations = () => {
+    if (prefersReduced) return;
+    if (typeof window.gsap === 'undefined' || typeof window.ScrollTrigger === 'undefined') return;
+
+    const { gsap, ScrollTrigger } = window;
+    gsap.registerPlugin(ScrollTrigger);
+    gsap.ticker.fps(60);
+    gsap.defaults({ ease: EASE_OUT, duration: 0.64 });
+
+    gsap.from('.wordmark', { y: 24, opacity: 0, duration: 0.9,  delay: 0.05, ease: EASE_OUT });
+    gsap.from('.badge',    { y: 16, opacity: 0, duration: 0.7,  delay: 0.18, ease: EASE_OUT });
+    gsap.from('.thesis-word-inner', {
+      yPercent: 110,
+      opacity:  0,
+      duration: 0.9,
+      stagger:  0.04,
+      ease:     EASE_OUT,
+      delay:    0.35,
+    });
+
+    document.querySelectorAll('main > .section').forEach((section) => {
+      const children = section.querySelectorAll(':scope > *');
+      gsap.from(children, {
+        y: 28,
+        opacity: 0,
+        stagger: 0.08,
+        duration: 0.64,
+        ease: EASE_OUT,
+        scrollTrigger: {
+          trigger: section,
+          start: 'top 85%',
+          toggleActions: 'play none none none',
+        },
+        onStart() {
+          children.forEach((el) => { el.style.willChange = 'transform, opacity'; });
+        },
+        onComplete() {
+          children.forEach((el) => { el.style.willChange = ''; });
+        },
+      });
+    });
+
+    const css = getComputedStyle(document.documentElement);
+    const accent2 = css.getPropertyValue('--accent-2').trim() || '#4A5515';
+    const accentSurface = css.getPropertyValue('--accent-surface').trim() || '#EDF3B8';
+    gsap.fromTo('.funnel-step--final',
+      { boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${accent2} 30%, transparent)` },
+      {
+        boxShadow: `inset 0 0 0 1px ${accent2}, 0 0 30px ${accentSurface}`,
+        duration: 0.8,
+        delay: 0.4,
+        ease: EASE_OUT,
+        scrollTrigger: { trigger: '.funnel', start: 'top 75%', once: true },
+      }
+    );
+
+    ScrollTrigger.create({
+      trigger: '#view-matrix',
+      start: 'top 75%',
+      once: true,
+      onEnter: () => {
+        const tiles = Array.from(document.querySelectorAll('.tile-btn--pass')).slice(0, 8);
+        tiles.forEach((el, i) => {
+          const tl = gsap.timeline({ delay: 0.25 + i * 0.05 });
+          const pulseOn = `0 0 0 6px color-mix(in oklab, ${accent2} 40%, transparent)`;
+          const pulseOff = `0 0 0 0 color-mix(in oklab, ${accent2} 0%, transparent)`;
+          tl.to(el, { boxShadow: pulseOn,  duration: 0.25, ease: EASE_OUT })
+            .to(el, { boxShadow: pulseOff, duration: 0.45, ease: EASE_IN  });
         });
+      },
+    });
+
+    window.addEventListener('resize', () => ScrollTrigger.refresh(), { passive: true });
+  };
+
+  if (typeof window.gsap === 'undefined') {
+    window.addEventListener('load', initAnimations, { once: true });
+  } else {
+    initAnimations();
+  }
+
+  const esc = (s) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+
+  const fmtTime = (s) => {
+    const n = Number(s);
+    if (!isFinite(n)) return '—';
+    return n >= 60 ? `${(n / 60).toFixed(1)}m` : `${n.toFixed(1)}s`;
+  };
+
+  const fmtCost = (c) => {
+    const n = Number(c);
+    if (!isFinite(n)) return '—';
+    return `$${n.toFixed(2)}`;
+  };
+
+  const instances = [];
+  const byId = new Map();
+  for (const r of rows) {
+    let inst = byId.get(r.instance_id);
+    if (!inst) {
+      inst = {
+        instance_id: r.instance_id,
+        repo: r.repo,
+        repo_url: r.repo_url,
+        issue_url: r.issue_url,
+        pr_url: r.pr_url,
+        language: r.language,
+        difficulty: r.difficulty,
+        gold_speedup: r.gold_speedup,
+        f2p_count: r.f2p_count,
+        p2p_count: r.p2p_count,
+        runs: {},
+      };
+      byId.set(r.instance_id, inst);
+      instances.push(inst);
+    }
+    inst.runs[r.model] = {
+      outcome: r.outcome,
+      pass_at_1: r.pass_at_1,
+      hsr: r.hsr,
+      speedup_lm: r.speedup_lm,
+      speedup_adjusted: r.speedup_adjusted,
+      tests_passed: r.tests_passed,
+      tests_total: r.tests_total,
+      correctness_pct: r.correctness_pct,
+      files_modified: r.files_modified,
+      tool_calls: r.tool_calls,
+      cost: r.cost,
+      time_secs: r.time_secs,
+    };
+  }
+
+  const totalGlm5 = instances.filter(i => i.runs['GLM-5']?.pass_at_1 === 'Pass').length;
+  const totalNova = instances.filter(i => i.runs['Nova-2-Lite']?.pass_at_1 === 'Pass').length;
+  const total = instances.length;
+  const elGlm5 = document.getElementById('total-glm5');
+  const elNova = document.getElementById('total-nova');
+  if (elGlm5) elGlm5.textContent = `${totalGlm5} / ${total}`;
+  if (elNova) elNova.textContent = `${totalNova} / ${total}`;
+
+  const funnelNums = document.querySelectorAll('.funnel-num');
+  const animateCount = (el) => {
+    const target = Number(el.dataset.target || '0');
+    const suffix = el.dataset.suffix || '';
+    if (prefersReduced) {
+      el.textContent = target.toLocaleString() + suffix;
+      return;
+    }
+    const duration = 900;
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Math.round(target * eased);
+      el.textContent = val.toLocaleString() + (t === 1 ? suffix : '');
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  if ('IntersectionObserver' in window && funnelNums.length) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          animateCount(e.target);
+          io.unobserve(e.target);
+        }
+      }
+    }, { threshold: 0.3 });
+    funnelNums.forEach((n) => io.observe(n));
+  } else {
+    funnelNums.forEach(animateCount);
+  }
+
+  const outcomeLabel = (outcome) => {
+    if (outcome === 'pass') return 'Pass';
+    if (outcome === 'correct_but_slow') return 'Correct (Slow)';
+    return 'Fail';
+  };
+  const outcomeClass = (outcome) => {
+    if (outcome === 'pass') return 'tile-btn--pass';
+    if (outcome === 'correct_but_slow') return 'tile-btn--slow';
+    return 'tile-btn--fail';
+  };
+
+  // Dataset Viewer: search, filter, sort, pagination
+  const searchInput = document.querySelector('.kr-dataset__search');
+  const filterSelect = document.querySelector('.kr-dataset__filter');
+  const paginationEl = document.querySelector('.kr-dataset__pagination');
+  let currentPage = 1;
+  const pageSize = 10;
+  let sortField = 'instance_id';
+  let sortDir = 'asc';
+
+  function getFiltered() {
+    const search = (searchInput?.value || '').toLowerCase();
+    const diff = filterSelect?.value || '';
+
+    return instances.filter((inst) => {
+      if (diff && inst.difficulty !== diff) return false;
+      if (search && inst.instance_id.toLowerCase().indexOf(search) === -1) return false;
+      return true;
+    });
+  }
+
+  function getSorted(data) {
+    const sorted = data.slice();
+    sorted.sort((a, b) => {
+      let va, vb;
+      switch (sortField) {
+        case 'instance_id': va = a.instance_id; vb = b.instance_id; break;
+        case 'difficulty':
+          const order = { 'Easy': 1, 'Medium': 2, 'Hard': 3, 'Expert': 4 };
+          va = order[a.difficulty] || 0; vb = order[b.difficulty] || 0; break;
+        case 'gold_speedup': va = a.gold_speedup; vb = b.gold_speedup; break;
+        case 'glm5_hsr': va = a.runs['GLM-5']?.hsr || 0; vb = b.runs['GLM-5']?.hsr || 0; break;
+        case 'nova_hsr': va = a.runs['Nova-2-Lite']?.hsr || 0; vb = b.runs['Nova-2-Lite']?.hsr || 0; break;
+        case 'glm5_outcome': va = a.runs['GLM-5']?.outcome || ''; vb = b.runs['GLM-5']?.outcome || ''; break;
+        case 'nova_outcome': va = a.runs['Nova-2-Lite']?.outcome || ''; vb = b.runs['Nova-2-Lite']?.outcome || ''; break;
+        default: va = a.instance_id; vb = b.instance_id;
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }
+
+  function renderDataset() {
+    const tb = document.getElementById('matrix-tbody');
+    if (!tb) return;
+    const filtered = getFiltered();
+    const sorted = getSorted(filtered);
+    const totalPages = Math.ceil(sorted.length / pageSize) || 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const page = sorted.slice(start, start + pageSize);
+
+    tb.innerHTML = page.map((inst, i) => {
+      const glm5 = inst.runs['GLM-5'];
+      const nova = inst.runs['Nova-2-Lite'];
+      const glm5Outcome = glm5?.outcome || 'fail';
+      const novaOutcome = nova?.outcome || 'fail';
+      const tagStyle = 'display:inline-flex;align-items:center;justify-content:center;max-width:100%;min-height:34px;text-align:center;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;padding:3px 5px;border:1px solid currentColor;white-space:normal;line-height:1.3;box-sizing:border-box;';
+      const detailStyle = 'display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;font-size:10px;border:1px solid var(--border-2);cursor:pointer;color:var(--ink-3);background:transparent;font-family:var(--font-mono);';
+      const diffColors = { easy:'color:var(--pass);', medium:'color:var(--accent);', hard:'color:var(--fail);', expert:'color:#7c3aed;' };
+      const diffStyle = diffColors[(inst.difficulty || '').toLowerCase()] || 'color:var(--ink-3);';
+      return `
+        <tr class="matrix-row">
+          <td class="matrix-id"><span class="num mono">#${String(start + i + 1).padStart(2, '0')}</span> ${esc(inst.instance_id)}</td>
+          <td class="matrix-meta"><span style="${tagStyle}${diffStyle}">${esc(inst.difficulty)}</span></td>
+          <td class="matrix-meta">${Number(inst.gold_speedup).toFixed(2)}x</td>
+          <td class="matrix-meta">${glm5 ? Number(glm5.hsr).toFixed(4) : '-'}</td>
+          <td class="matrix-meta">${nova ? Number(nova.hsr).toFixed(4) : '-'}</td>
+          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(glm5Outcome)}" style="${tagStyle}" data-instance="${esc(inst.instance_id)}" data-model="GLM-5">${outcomeLabel(glm5Outcome)}</span></td>
+          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(novaOutcome)}" style="${tagStyle}" data-instance="${esc(inst.instance_id)}" data-model="Nova-2-Lite">${outcomeLabel(novaOutcome)}</span></td>
+          <td class="matrix-cell"><button style="${detailStyle}" data-instance="${esc(inst.instance_id)}" data-model="GLM-5">&#9654;</button></td>
+        </tr>
+      `;
+    }).join('');
+
+    if (!page.length) {
+      tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted);">No instances match your filters</td></tr>';
     }
 
-    /* ─── Scroll Animations (per-element data-animate system) ── */
-    function initScrollAnimations() {
-        var elements = document.querySelectorAll('[data-animate]');
-        if (!elements.length) return;
+    renderPagination(totalPages);
+  }
 
-        var observer = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('kr-visible');
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.15 });
-
-        elements.forEach(function (el) { observer.observe(el); });
+  function renderPagination(totalPages) {
+    if (!paginationEl) return;
+    if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
+    let html = '';
+    html += `<button class="vt-btn" data-page="prev" ${currentPage === 1 ? 'disabled' : ''} style="padding:6px 12px;min-height:auto;">←</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+      html += `<button class="vt-btn ${i === currentPage ? 'is-active' : ''}" data-page="${i}" style="padding:6px 12px;min-height:auto;">${i}</button>`;
     }
+    html += `<button class="vt-btn" data-page="next" ${currentPage === totalPages ? 'disabled' : ''} style="padding:6px 12px;min-height:auto;">→</button>`;
+    paginationEl.innerHTML = html;
 
-    /* ─── Word-by-Word Fade (subtitle) ───────────────────────── */
-    function initWordFade() {
-        var el = document.querySelector('[data-word-fade]');
-        if (!el) return;
+    paginationEl.querySelectorAll('[data-page]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const p = btn.dataset.page;
+        if (p === 'prev') currentPage = Math.max(1, currentPage - 1);
+        else if (p === 'next') currentPage = Math.min(totalPages, currentPage + 1);
+        else currentPage = parseInt(p);
+        renderDataset();
+      });
+    });
+  }
 
-        var text = el.textContent.trim();
-        var words = text.split(/\s+/);
-        el.textContent = '';
-        el.setAttribute('aria-label', text);
+  // Sort on header click
+  document.querySelectorAll('[data-sort]').forEach((th) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const field = th.dataset.sort;
+      if (sortField === field) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortField = field;
+        sortDir = 'asc';
+      }
+      currentPage = 1;
+      renderDataset();
+    });
+  });
 
-        words.forEach(function (word, i) {
-            var span = document.createElement('span');
-            span.className = 'kr-word';
-            span.textContent = word;
-            span.style.transitionDelay = (i * 0.08) + 's';
-            el.appendChild(span);
-            if (i < words.length - 1) {
-                el.appendChild(document.createTextNode(' '));
-            }
-        });
+  // Filter/search handlers
+  if (searchInput) searchInput.addEventListener('input', () => { currentPage = 1; renderDataset(); });
+  if (filterSelect) filterSelect.addEventListener('change', () => { currentPage = 1; renderDataset(); });
 
-        requestAnimationFrame(function () {
-            setTimeout(function () {
-                el.querySelectorAll('.kr-word').forEach(function (w) {
-                    w.classList.add('kr-word--visible');
-                });
-            }, 300);
-        });
+  renderDataset();
+
+  let lastFocus = null;
+
+  const getDrawer = () => document.getElementById('drawer');
+  const getDrawerBody = () => document.getElementById('drawer-body');
+  const getDrawerClose = () => document.getElementById('drawer-close');
+
+  const ensureBackdrop = () => {
+    let bd = document.getElementById('drawer-backdrop');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.id = 'drawer-backdrop';
+      bd.className = 'drawer-backdrop';
+      document.body.appendChild(bd);
     }
+    return bd;
+  };
 
-    /* ─── Count Up Animation ─────────────────────────────────── */
-    function initCountUp() {
-        const els = document.querySelectorAll('.kr-countup');
-        if (!els.length) return;
+  const openDrawer = (instanceId, modelKey) => {
+    const drawer = getDrawer();
+    const drawerBody = getDrawerBody();
+    if (!drawer || !drawerBody) return;
 
-        const observer = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-                if (entry.isIntersecting) {
-                    animateCount(entry.target);
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.5 });
+    const inst = byId.get(instanceId);
+    if (!inst) return;
+    const run = inst.runs[modelKey];
+    if (!run) return;
+    const outcome = run.outcome || 'fail';
+    const outcomeColor = outcome === 'pass' ? 'var(--pass)' : (outcome === 'correct_but_slow' ? 'var(--accent)' : 'var(--fail)');
+    drawerBody.innerHTML = `
+      <dl>
+        <dt>Instance</dt><dd><a href="${esc(inst.pr_url || inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.instance_id)}</a></dd>
+        <dt>Model</dt><dd class="${modelKey === 'GLM-5' ? 'tok-glm5' : 'tok-nova'}">${esc(modelKey)}</dd>
+        <dt>Outcome</dt><dd><b style="color:${outcomeColor}">${outcomeLabel(outcome).toUpperCase()}</b></dd>
+        <dt>Repo</dt><dd><a href="${esc(inst.repo_url)}" target="_blank" rel="noopener">${esc(inst.repo)}</a></dd>
+        <dt>Language</dt><dd>${esc(inst.language)}</dd>
+        <dt>Difficulty</dt><dd>${esc(inst.difficulty)}</dd>
+        <dt>Gold Speedup</dt><dd>${Number(inst.gold_speedup).toFixed(2)}×</dd>
+        <dt>HSR</dt><dd>${Number(run.hsr).toFixed(4)}</dd>
+        <dt>Speedup (LM)</dt><dd>${Number(run.speedup_lm).toFixed(4)}×</dd>
+        <dt>Speedup (Adj)</dt><dd>${Number(run.speedup_adjusted).toFixed(4)}×</dd>
+        <dt>Tests</dt><dd>${run.tests_passed} / ${run.tests_total}</dd>
+        <dt>Correctness</dt><dd>${Number(run.correctness_pct).toFixed(1)}%</dd>
+        <dt>Files changed</dt><dd>${esc(run.files_modified)}</dd>
+        <dt>Tool calls</dt><dd>${esc(run.tool_calls)}</dd>
+        <dt>Cost</dt><dd>${fmtCost(run.cost)}</dd>
+        <dt>Time</dt><dd>${fmtTime(run.time_secs)}</dd>
+        <dt>PR</dt><dd><a href="${esc(inst.pr_url)}" target="_blank" rel="noopener">original PR →</a></dd>
+      </dl>
+    `;
+    drawer.removeAttribute('hidden');
+    drawer.style.display = '';
+    document.body.classList.add('drawer-open');
+    ensureBackdrop().classList.add('is-visible');
+    requestAnimationFrame(() => {
+      drawer.setAttribute('data-open', 'true');
+      drawer.setAttribute('aria-hidden', 'false');
+    });
+    lastFocus = document.activeElement;
+    const closeBtn = getDrawerClose();
+    if (closeBtn) closeBtn.focus();
+  };
 
-        els.forEach(function (el) { observer.observe(el); });
+  const closeDrawer = () => {
+    const drawer = getDrawer();
+    if (!drawer) return;
+    drawer.setAttribute('data-open', 'false');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('drawer-open');
+    ensureBackdrop().classList.remove('is-visible');
+    setTimeout(() => { drawer.setAttribute('hidden', ''); }, prefersReduced ? 0 : 240);
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  };
 
-        function animateCount(el) {
-            var target = parseFloat(el.getAttribute('data-target'));
-            var suffix = el.getAttribute('data-suffix') || '';
-            var duration = 1500;
-            var start = performance.now();
-
-            function tick(now) {
-                var progress = Math.min((now - start) / duration, 1);
-                var eased = 1 - Math.pow(1 - progress, 3);
-                var current = target * eased;
-                el.textContent = (target % 1 !== 0 ? current.toFixed(1) : Math.round(current)) + suffix;
-                if (progress < 1) {
-                    requestAnimationFrame(tick);
-                } else {
-                    el.textContent = (target % 1 !== 0 ? target.toFixed(1) : target) + suffix;
-                    el.classList.add('kr-countup--done');
-                }
-            }
-            requestAnimationFrame(tick);
-        }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#drawer-close') || e.target.closest('.drawer-backdrop')) {
+      closeDrawer();
+      return;
     }
-
-    /* ─── Lightbox ───────────────────────────────────────────── */
-    function initLightbox() {
-        var lightbox = document.querySelector('.kr-lightbox');
-        var lightboxImg = document.querySelector('.kr-lightbox__img');
-        var closeBtn = document.querySelector('.kr-lightbox__close');
-        if (!lightbox) return;
-
-        document.querySelectorAll('.kr-chart-card__img').forEach(function (img) {
-            img.style.cursor = 'pointer';
-            img.addEventListener('click', function () {
-                lightboxImg.src = img.src;
-                lightboxImg.alt = img.alt;
-                requestAnimationFrame(function () {
-                    lightbox.classList.add('kr-lightbox--active');
-                    lightbox.setAttribute('aria-hidden', 'false');
-                    document.body.style.overflow = 'hidden';
-                });
-            });
-        });
-
-        function closeLightbox() {
-            lightbox.classList.remove('kr-lightbox--active');
-            lightbox.setAttribute('aria-hidden', 'true');
-            document.body.style.overflow = '';
-            setTimeout(function () { lightboxImg.src = ''; }, 400);
-        }
-
-        closeBtn.addEventListener('click', closeLightbox);
-        lightbox.addEventListener('click', function (e) {
-            if (e.target === lightbox) closeLightbox();
-        });
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') closeLightbox();
-        });
+    const tileBtn = e.target.closest('#matrix [data-instance]');
+    if (tileBtn && tileBtn.dataset.instance) {
+      openDrawer(tileBtn.dataset.instance, tileBtn.dataset.model);
+      return;
     }
+  });
 
-    /* ─── Dataset Viewer ─────────────────────────────────────── */
-    function initDatasetViewer() {
-        var tbody = document.querySelector('.kr-dataset__body');
-        var searchInput = document.querySelector('.kr-dataset__search');
-        var filterSelect = document.querySelector('.kr-dataset__filter');
-        var modelFilter = document.querySelector('.kr-dataset__model-filter');
-        var pagination = document.querySelector('.kr-dataset__pagination');
-        if (!tbody) return;
+  document.addEventListener('keydown', (e) => {
+    const drawer = getDrawer();
+    if (e.key === 'Escape' && drawer && !drawer.hasAttribute('hidden')) closeDrawer();
+  });
 
-        var instances = [];
-        var currentPage = 1;
-        var pageSize = 10;
-        var sortField = 'instance_id';
-        var sortDir = 'asc';
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImg = document.getElementById('lightbox-img');
+  const lightboxCaption = document.getElementById('lightbox-caption');
+  const lightboxClose = document.getElementById('lightbox-close');
+  let lastChartFocus = null;
 
-        fetch('/kraken/api/instances')
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                instances = data;
-                render();
-            })
-            .catch(function (err) {
-                console.error('Failed to load Kraken instances:', err);
-                tbody.innerHTML = '<tr><td colspan="8" class="kr-dataset__empty">Failed to load data</td></tr>';
-            });
+  const openLightbox = (trigger) => {
+    if (!lightbox) return;
+    const img = trigger.querySelector('img');
+    const figcap = trigger.closest('figure')?.querySelector('figcaption');
+    if (!img) return;
+    lightboxImg.src = img.currentSrc || img.src;
+    lightboxImg.alt = img.alt || '';
+    lightboxCaption.textContent = figcap ? figcap.textContent.trim() : '';
+    lightbox.hidden = false;
+    requestAnimationFrame(() => lightbox.setAttribute('data-open', 'true'));
+    lightbox.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    lastChartFocus = document.activeElement;
+    lightboxClose?.focus();
+  };
+  const closeLightbox = () => {
+    if (!lightbox || lightbox.hidden) return;
+    lightbox.setAttribute('data-open', 'false');
+    lightbox.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    setTimeout(() => {
+      lightbox.hidden = true;
+      lightboxImg.src = '';
+    }, prefersReduced ? 0 : 180);
+    if (lastChartFocus && lastChartFocus.focus) lastChartFocus.focus();
+  };
 
-        function getFiltered() {
-            var search = (searchInput.value || '').toLowerCase();
-            var diff = filterSelect.value;
-            var model = modelFilter.value;
+  document.querySelectorAll('.charts').forEach((grid) => {
+    grid.addEventListener('click', (e) => {
+      const trigger = e.target.closest('.chart-trigger');
+      if (!trigger) return;
+      e.preventDefault();
+      openLightbox(trigger);
+    });
+  });
+  lightboxClose?.addEventListener('click', closeLightbox);
+  lightbox?.addEventListener('click', (e) => {
+    if (e.target === lightbox) closeLightbox();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lightbox && !lightbox.hidden) closeLightbox();
+  });
 
-            return instances.filter(function (inst) {
-                if (diff && inst.difficulty !== diff) return false;
-                if (search && inst.instance_id.toLowerCase().indexOf(search) === -1) return false;
-                if (model === 'glm5' && inst.glm5.outcome === '') return false;
-                if (model === 'nova' && inst.nova.outcome === '') return false;
-                return true;
-            });
-        }
-
-        function getSorted(data) {
-            var sorted = data.slice();
-            sorted.sort(function (a, b) {
-                var va, vb;
-                switch (sortField) {
-                    case 'instance_id': va = a.instance_id; vb = b.instance_id; break;
-                    case 'difficulty':
-                        var order = { 'Easy': 1, 'Medium': 2, 'Hard': 3, 'Expert': 4 };
-                        va = order[a.difficulty] || 0; vb = order[b.difficulty] || 0; break;
-                    case 'gold_speedup': va = a.gold_speedup; vb = b.gold_speedup; break;
-                    case 'glm5_hsr': va = a.glm5.hsr; vb = b.glm5.hsr; break;
-                    case 'nova_hsr': va = a.nova.hsr; vb = b.nova.hsr; break;
-                    case 'glm5_outcome': va = a.glm5.outcome; vb = b.glm5.outcome; break;
-                    case 'nova_outcome': va = a.nova.outcome; vb = b.nova.outcome; break;
-                    default: va = a.instance_id; vb = b.instance_id;
-                }
-                if (va < vb) return sortDir === 'asc' ? -1 : 1;
-                if (va > vb) return sortDir === 'asc' ? 1 : -1;
-                return 0;
-            });
-            return sorted;
-        }
-
-        function outcomeClass(outcome) {
-            switch (outcome) {
-                case 'pass': return 'kr-outcome--pass';
-                case 'correct_but_slow': return 'kr-outcome--slow';
-                case 'fail': return 'kr-outcome--fail';
-                default: return '';
-            }
-        }
-
-        function outcomeLabel(outcome) {
-            switch (outcome) {
-                case 'pass': return 'Pass';
-                case 'correct_but_slow': return 'Correct (Slow)';
-                case 'fail': return 'Fail';
-                default: return '-';
-            }
-        }
-
-        function render() {
-            var filtered = getFiltered();
-            var sorted = getSorted(filtered);
-            var totalPages = Math.ceil(sorted.length / pageSize) || 1;
-            if (currentPage > totalPages) currentPage = totalPages;
-            var start = (currentPage - 1) * pageSize;
-            var page = sorted.slice(start, start + pageSize);
-
-            var html = '';
-            page.forEach(function (inst) {
-                html += '<tr class="kr-dataset__row">';
-                html += '<td class="kr-dataset__cell-id">' + escHtml(inst.instance_id) + '</td>';
-                html += '<td><span class="kr-difficulty kr-difficulty--' + inst.difficulty.toLowerCase() + '">' + inst.difficulty + '</span></td>';
-                html += '<td>' + inst.gold_speedup.toFixed(2) + 'x</td>';
-                html += '<td>' + inst.glm5.hsr.toFixed(4) + '</td>';
-                html += '<td>' + inst.nova.hsr.toFixed(4) + '</td>';
-                html += '<td><span class="kr-outcome ' + outcomeClass(inst.glm5.outcome) + '">' + outcomeLabel(inst.glm5.outcome) + '</span></td>';
-                html += '<td><span class="kr-outcome ' + outcomeClass(inst.nova.outcome) + '">' + outcomeLabel(inst.nova.outcome) + '</span></td>';
-                html += '<td><button class="kr-dataset__expand" data-id="' + escHtml(inst.instance_id) + '">▶</button></td>';
-                html += '</tr>';
-                html += '<tr class="kr-dataset__detail" data-detail="' + escHtml(inst.instance_id) + '" style="display:none;">';
-                html += '<td colspan="8">' + renderDetail(inst) + '</td>';
-                html += '</tr>';
-            });
-
-            if (!page.length) {
-                html = '<tr><td colspan="8" class="kr-dataset__empty">No instances match your filters</td></tr>';
-            }
-
-            tbody.innerHTML = html;
-            renderPagination(totalPages);
-            bindExpand();
-        }
-
-        function renderDetail(inst) {
-            var d = '<div class="kr-detail">';
-            d += '<div class="kr-detail__section">';
-            d += '<h4>Instance Info</h4>';
-            d += '<p><strong>Repository:</strong> <a href="' + escHtml(inst.repo_url) + '" target="_blank">' + escHtml(inst.repo_url) + '</a></p>';
-            if (inst.pr_url) d += '<p><strong>PR:</strong> <a href="' + escHtml(inst.pr_url) + '" target="_blank">' + escHtml(inst.pr_url) + '</a></p>';
-            d += '<p><strong>Language:</strong> ' + escHtml(inst.language) + '</p>';
-            d += '<p><strong>Gold Speedup:</strong> ' + inst.gold_speedup.toFixed(2) + 'x</p>';
-            d += '<p><strong>Covering Tests:</strong> ' + inst.covering_tests + '</p>';
-            d += '</div>';
-
-            d += '<div class="kr-detail__models">';
-            d += renderModelDetail('GLM-5', inst.glm5);
-            d += renderModelDetail('Nova-2-Lite', inst.nova);
-            d += '</div>';
-            d += '</div>';
-            return d;
-        }
-
-        function renderModelDetail(name, m) {
-            var d = '<div class="kr-detail__model">';
-            d += '<h4>' + name + '</h4>';
-            d += '<p><strong>Speedup (LM):</strong> ' + m.speedup_lm.toFixed(4) + 'x</p>';
-            d += '<p><strong>Speedup (Adjusted):</strong> ' + m.speedup_adjusted.toFixed(4) + 'x</p>';
-            d += '<p><strong>HSR:</strong> ' + m.hsr.toFixed(4) + '</p>';
-            d += '<p><strong>Tests:</strong> ' + m.tests_passed + ' / ' + m.tests_total + '</p>';
-            d += '<p><strong>Correctness:</strong> ' + m.correctness_pct.toFixed(1) + '%</p>';
-            d += '<p><strong>Files Modified:</strong> ' + m.files_modified + '</p>';
-            d += '<p><strong>Tool Calls:</strong> ' + m.tool_calls + '</p>';
-            d += '<p><strong>Cost:</strong> $' + m.cost.toFixed(2) + '</p>';
-            d += '<p><strong>Outcome:</strong> <span class="kr-outcome ' + outcomeClass(m.outcome) + '">' + outcomeLabel(m.outcome) + '</span></p>';
-            d += '</div>';
-            return d;
-        }
-
-        function renderPagination(totalPages) {
-            if (totalPages <= 1) { pagination.innerHTML = ''; return; }
-            var html = '';
-            html += '<button class="kr-page-btn" data-page="prev" ' + (currentPage === 1 ? 'disabled' : '') + '>←</button>';
-            for (var i = 1; i <= totalPages; i++) {
-                html += '<button class="kr-page-btn' + (i === currentPage ? ' kr-page-btn--active' : '') + '" data-page="' + i + '">' + i + '</button>';
-            }
-            html += '<button class="kr-page-btn" data-page="next" ' + (currentPage === totalPages ? 'disabled' : '') + '>→</button>';
-            pagination.innerHTML = html;
-
-            pagination.querySelectorAll('.kr-page-btn').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    var p = btn.getAttribute('data-page');
-                    if (p === 'prev') currentPage = Math.max(1, currentPage - 1);
-                    else if (p === 'next') currentPage = Math.min(totalPages, currentPage + 1);
-                    else currentPage = parseInt(p);
-                    render();
-                });
-            });
-        }
-
-        function bindExpand() {
-            tbody.querySelectorAll('.kr-dataset__expand').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    var id = btn.getAttribute('data-id');
-                    var row = tbody.querySelector('[data-detail="' + id + '"]');
-                    if (row) {
-                        var visible = row.style.display !== 'none';
-                        row.style.display = visible ? 'none' : 'table-row';
-                        btn.textContent = visible ? '▶' : '▼';
-                    }
-                });
-            });
-        }
-
-        document.querySelectorAll('.kr-dataset__table th[data-sort]').forEach(function (th) {
-            th.style.cursor = 'pointer';
-            th.addEventListener('click', function () {
-                var field = th.getAttribute('data-sort');
-                if (sortField === field) {
-                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-                } else {
-                    sortField = field;
-                    sortDir = 'asc';
-                }
-                currentPage = 1;
-                render();
-            });
-        });
-
-        searchInput.addEventListener('input', function () { currentPage = 1; render(); });
-        filterSelect.addEventListener('change', function () { currentPage = 1; render(); });
-        modelFilter.addEventListener('change', function () { currentPage = 1; render(); });
-    }
-
-    function escHtml(str) {
-        var div = document.createElement('div');
-        div.textContent = str || '';
-        return div.innerHTML;
-    }
-
-    /* ─── Init ───────────────────────────────────────────────── */
-    function init() {
-        initDarkMode();
-        initWordFade();
-        initScrollAnimations();
-        initCountUp();
-        initLightbox();
-        initDatasetViewer();
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
 })();

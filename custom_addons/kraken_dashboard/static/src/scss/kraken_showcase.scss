@@ -1,24 +1,34 @@
+// -------------------------------------------------------------------
+// Backend SCSS for the Kraken showcase (loaded via web.assets_backend).
+// Styled to match the Tesseract editorial design system.
+// -------------------------------------------------------------------
+
 .kr-backend-showcase {
     max-width: 900px;
     margin: 2rem auto;
     padding: 2rem;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
 }
 
 .kr-backend-header {
-    text-align: center;
     margin-bottom: 2.5rem;
 
     h1 {
-        font-size: 2rem;
-        font-weight: 800;
+        font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+        font-size: 1.75rem;
+        font-weight: 600;
         margin: 0 0 0.5rem;
-        color: #1e293b;
+        color: #0B0E14;
+        letter-spacing: -0.02em;
     }
 
     p {
-        font-size: 1rem;
-        color: #64748b;
+        font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.8rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #525A6E;
         margin: 0;
     }
 }
@@ -26,35 +36,43 @@
 .kr-backend-metrics {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
+    gap: 12px;
     margin-bottom: 2.5rem;
 }
 
 .kr-backend-metric {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 1.25rem;
+    background: #FFFFFF;
+    border: 1px solid #D5DAE2;
+    border-radius: 0;
+    padding: 20px;
     text-align: center;
-    transition: box-shadow 0.2s;
+    transition: border-color 200ms cubic-bezier(0.25, 0.1, 0.25, 1),
+                box-shadow 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    box-shadow: 0 1px 2px rgba(15, 20, 35, 0.05), 0 1px 1px rgba(15, 20, 35, 0.03);
 
     &:hover {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-color: #C8CDD8;
+        box-shadow: 0 4px 12px rgba(15, 20, 35, 0.07), 0 1px 2px rgba(15, 20, 35, 0.05);
     }
 }
 
 .kr-backend-metric__value {
     display: block;
+    font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
     font-size: 1.75rem;
-    font-weight: 800;
-    color: #6366f1;
+    font-weight: 500;
+    color: #6B7A1F;
+    font-variant-numeric: tabular-nums lining-nums;
 }
 
 .kr-backend-metric__label {
-    font-size: 0.8rem;
-    color: #64748b;
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #525A6E;
     font-weight: 500;
-    margin-top: 0.25rem;
+    margin-top: 0.5rem;
     display: block;
 }
 
@@ -66,31 +84,44 @@
 }
 
 .kr-backend-model {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    background: #FFFFFF;
+    border: 1px solid #D5DAE2;
+    border-left: 3px solid #D7E67A;
+    border-radius: 0;
     padding: 1.5rem;
+    box-shadow: 0 1px 2px rgba(15, 20, 35, 0.05), 0 1px 1px rgba(15, 20, 35, 0.03);
 
     h3 {
-        font-size: 1.15rem;
-        font-weight: 700;
-        color: #6366f1;
+        font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 0.8rem;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6B7A1F;
         margin: 0 0 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid #D5DAE2;
     }
 }
 
 .kr-backend-model__stat {
-    font-size: 0.9rem;
-    color: #475569;
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.82rem;
+    color: #525A6E;
     padding: 0.5rem 0;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid #EEF0F4;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
 
     &:last-child {
         border-bottom: none;
     }
 
     strong {
-        color: #1e293b;
+        color: #0B0E14;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
     }
 }
 
@@ -99,6 +130,8 @@
     gap: 1rem;
     flex-wrap: wrap;
     justify-content: center;
+    padding-top: 1.5rem;
+    border-top: 1px solid #D5DAE2;
 }
 
 .kr-backend-link {
@@ -106,17 +139,20 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem 1.25rem;
-    background: #6366f1;
-    color: #fff;
-    border-radius: 8px;
+    background: #6B7A1F;
+    color: #FFFFFF;
+    border-radius: 0;
     text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 600;
-    transition: background 0.2s, transform 0.2s;
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    transition: background 200ms cubic-bezier(0.25, 0.1, 0.25, 1),
+                transform 200ms cubic-bezier(0.25, 0.1, 0.25, 1);
 
     &:hover {
-        background: #4f46e5;
-        transform: translateY(-2px);
+        background: #4A5515;
+        transform: translateY(-1px);
         color: #fff;
         text-decoration: none;
     }
