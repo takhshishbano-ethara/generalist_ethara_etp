@@ -18,7 +18,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>MILO-BENCH — RL Environment Benchmark · ETHARA AI</title>
+      <title>MILO-BENCH — RL Environment · ETHARA AI</title>
       <meta name="description" content="Milo-Bench trains AI agents to perform long-horizon software evolution. Given real-world codebases and their development history, the system works through sequences of 1 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -88,7 +88,7 @@
   <header class="masthead">
     <div class="mast-top">
       <h1 class="wordmark">MILO-BENCH</h1>
-      <span class="badge mono">RL ENVIRONMENT BENCHMARK</span>
+      <span class="badge mono">RL ENVIRONMENT</span>
     </div>
     <hr class="rule"/>
     <p class="thesis">Can frontier models perform long-horizon software evolution with production-grade reliability?</p>
@@ -207,14 +207,15 @@
         Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5) evaluated on 50 instances.
       </p>
       <p class="reveal-line reveal-kicker">
-        All models show sharp performance degradation as horizon increases — from ~65% at 1–5 PRs to near 0% beyond 40 PRs.
+        All models show sharp performance degradation as horizon increases — from ~65% at 2–5 PRs to near 0% beyond 40 PRs.
       </p>
     </div>
 
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
-          <img class="au-chart-card" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>
@@ -347,7 +348,7 @@
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Data</p>
         <p class="res-title">Dataset on HuggingFace</p>
-        <p class="res-url mono">huggingface.co/datasets/ethara/Aurora</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/MILO-Bench</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
     </div>

@@ -17,7 +17,7 @@
                         <setting string="Dataset URL"
                                  help="Override the Dataset button link. Leave empty to use the placeholder URL.">
                             <field name="aurora_dataset_url"
-                                   placeholder="https://huggingface.co/datasets/ethara/Aurora"/>
+                                   placeholder="https://huggingface.co/datasets/ethara/MILO-Bench"/>
                         </setting>
                     </block>
                 </app>
