@@ -84,7 +84,7 @@
                                 <p>
                                     Valkyrie is a reinforcement learning environment for training autonomous software engineering agents to fix security vulnerabilities. Each task includes a codebase with a human curated bug based on a known CWE category, a natural language problem description, and a Docker container for a sandboxed environment. Reward signals are generated using partitioned test suites that track fail-to-pass and pass-to-pass outcomes. Two frontier models were tested on 20 instances covering 7 CWE classes across 2 C codebases.
                                 </p>
-                                <p class="vk-byline">by Ethara AI Labs · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
+                                <p class="vk-byline">by Ethara AI · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
                                 <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§04</a>.</p>
                             </div>
 
@@ -355,7 +355,7 @@
 
                     <footer class="vk-foot">
                         <div class="vk-foot-inner">
-                            <p class="vk-mono"><a href="https://www.ethara.ai">ethara.ai</a> · valkyrie-v1</p>
+                            <p class="vk-mono"><a href="https://www.ethara.ai">ethara.ai</a> · project valkyrie</p>
                         </div>
                     </footer>
 

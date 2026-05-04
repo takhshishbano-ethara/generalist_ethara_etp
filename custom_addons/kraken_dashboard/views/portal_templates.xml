@@ -388,8 +388,8 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · kraken-v1 · SWE-fficiency Methodology</p>
-    </div>
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · project kraken </p>
+    </div><!-- /.foot-inner -->
   </footer>
 
 </div>

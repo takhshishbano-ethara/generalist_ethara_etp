@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Kaiju — Library Generation from Scratch · Ethara AI Labs</title>
+      <title>Kaiju — Library Generation from Scratch · Ethara AI</title>
       <meta name="description" content="Kaiju evaluates frontier AI coding models on whole-library generation from specification, measuring module-level pass rates across a multi-stage refinement pipeline."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -70,14 +70,14 @@
     </div>
     <hr class="rule" />
     <p class="thesis">Library Generation from <em>Scratch</em></p>
-    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
   <!-- §01 — Overview -->
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">§01 — Overview</p>
+    <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Nova-2-Lite) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
@@ -99,7 +99,7 @@
 
   <!-- §02 — Scale -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">§02 — Key Metrics</p>
+    <p class="section-label" id="scale-label">§02 · Key Metrics</p>
     <p class="section-desc">Four numbers that define the scope of Kaiju.</p>
     <div class="kpi-row">
       <div class="kpi-card">
@@ -127,7 +127,7 @@
 
   <!-- §03 — Pipeline -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
-    <p class="section-label" id="pipeline-label">§03 — Pipeline</p>
+    <p class="section-label" id="pipeline-label">§03 · Pipeline</p>
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
@@ -168,7 +168,7 @@
 
   <!-- §04 — Results -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 — Results</p>
+    <p class="section-label" id="results-label">§04 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -210,7 +210,7 @@
 
   <!-- §05 — Dataset Viewer -->
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">§05 — Dataset Viewer</p>
+    <p class="section-label" id="instances-label">§05 · Dataset Viewer</p>
     <p class="section-desc">Browse sample instances in the Kaiju dataset. Click any row to expand full details.</p>
 
     <div class="viewer-controls">
@@ -259,7 +259,7 @@
 
   <!-- §06 — Pass Rate Distribution -->
   <section class="section" id="quality" aria-labelledby="quality-label">
-    <p class="section-label" id="quality-label">§06 — Pass Rate Distribution</p>
+    <p class="section-label" id="quality-label">§06 · Pass Rate Distribution</p>
     <p class="section-desc">Distribution of best stage-3 pass rate (highest of GLM-5 and Nova-2-Lite) across all evaluated library instances.</p>
 
     <div class="kpi-row">
@@ -308,7 +308,7 @@
 
   <!-- §07 — Resources -->
   <section class="section" id="resources" aria-labelledby="resources-label">
-    <p class="section-label" id="resources-label">§07 — Resources</p>
+    <p class="section-label" id="resources-label">§07 · Resources</p>
     <div class="resources">
       <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
@@ -329,7 +329,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono">© 2026 <a href="https://www.ethara.ai">Ethara AI Labs</a> · Project Kaiju </p>
+      <p class="mono"><a href="https://www.ethara.ai">Ethara AI</a> · Project Kaiju </p>
     </div>
   </footer>
 

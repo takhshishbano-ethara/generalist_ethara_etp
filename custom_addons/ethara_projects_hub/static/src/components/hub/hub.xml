@@ -3,7 +3,7 @@
     <t t-name="ethara_projects_hub.ProjectsHub">
         <div class="eph-hub">
             <header class="eph-header">
-                <span class="eph-tag">ETHARA AI LABS</span>
+                <span class="eph-tag">ETHARA AI</span>
                 <h1 class="eph-title">Projects</h1>
                 <p class="eph-subtitle">
                     Access all Ethara project dashboards from one place.
@@ -25,7 +25,7 @@
             </section>
 
             <footer class="eph-footer">
-                <p>&#xA9; 2026 <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI Labs</a></p>
+                <p>&#xA9; 2026 <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
             </footer>
         </div>
     </t>
