@@ -25,10 +25,9 @@ public portal page at /kaiju.
             "kaiju_dashboard/static/src/components/showcase/showcase.js",
             "kaiju_dashboard/static/src/components/showcase/showcase.xml",
         ],
-        "web.assets_frontend": [
-            "kaiju_dashboard/static/src/portal/css/kaiju_portal.css",
-            "kaiju_dashboard/static/src/portal/js/kaiju_portal.js",
-        ],
+        # Portal CSS/JS served as bare <link>/<script> in the template
+        # to avoid Bootstrap/portal chrome interference with the
+        # dark editorial design.
     },
     "installable": True,
     "application": True,
