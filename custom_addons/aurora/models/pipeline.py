@@ -544,8 +544,8 @@ class AuroraPipeline(models.Model):
 
         s3_config = {
             "bucket": config.get("s3_bucket", ""),
-            "access_key": config.get("s3_access_key", ""),
-            "secret_key": config.get("s3_secret_key", ""),
+            # "access_key": config.get("s3_access_key", ""),
+            # "secret_key": config.get("s3_secret_key", ""),
             "region": config.get("s3_region", "ap-south-1"),
             "folder": config.get("s3_folder", ""),
         }
