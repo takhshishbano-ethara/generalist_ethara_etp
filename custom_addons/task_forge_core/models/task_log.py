@@ -85,11 +85,31 @@ class TaskForgeLog(models.Model):
         store=True,
     )
 
+    response_ids = fields.One2many(
+        'task.forge.response', 'task_id', string='Responses',
+    )
+    response_completed = fields.Boolean(
+        string='Responses Completed',
+        compute='_compute_response_completed',
+        store=True,
+    )
+
     employee_name = fields.Char(related='employee_id.name', store=True)
     project_name = fields.Char(related='project_id.name', store=True)
     image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
+    chain_of_thought = fields.Text(string='Chain of Thought')
 
-    # Rating Syste
+    # QC Review
+    qc_status = fields.Selection([
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ], string='QC Status', default='pending', tracking=True)
+    reviewed_by_id = fields.Many2one('hr.employee', string='Reviewed By', readonly=True)
+    review_date = fields.Datetime(string='Review Date', readonly=True)
+    rejection_reason = fields.Text(string='Rejection Reason')
+
+    # Rating System
     task_score = fields.Integer(string='Task Score')
     comment = fields.Char(string='Comment')
 
@@ -123,6 +143,24 @@ class TaskForgeLog(models.Model):
                 continue
             rated_dim_ids = set(rec.rubric_rating_ids.mapped('dimension_id.id'))
             rec.rubric_completed = all(d.id in rated_dim_ids for d in required_dims)
+
+    @api.depends(
+        'project_id', 'project_id.is_response_required',
+        'project_id.response_config_ids',
+        'response_ids', 'response_ids.value',
+    )
+    def _compute_response_completed(self):
+        for rec in self:
+            project = rec.project_id
+            if not project or not project.is_response_required:
+                rec.response_completed = True
+                continue
+            config_count = len(project.response_config_ids)
+            if not config_count:
+                rec.response_completed = True
+                continue
+            filled = rec.response_ids.filtered(lambda r: r.value)
+            rec.response_completed = len(filled) >= config_count
 
     @api.model_create_multi
     def create(self, vals_list):

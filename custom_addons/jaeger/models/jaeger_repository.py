@@ -176,6 +176,8 @@ class JaegerRepository(models.Model):
     filtered_prs_count = fields.Integer(string="Filtered PRs")
     issues_fetched_count = fields.Integer(string="Issues Fetched")
     raw_dataset_count = fields.Integer(string="Raw Dataset Count")
+    prs_jsonl_path = fields.Char(string="PRs JSONL Path")
+    filtered_prs_jsonl_path = fields.Char(string="Filtered PRs JSONL Path")
     raw_dataset_jsonl_path = fields.Char(string="Raw Dataset JSONL Path")
 
     # ── Stage 2 (LHT-specific) ───────────────────────────────────────────

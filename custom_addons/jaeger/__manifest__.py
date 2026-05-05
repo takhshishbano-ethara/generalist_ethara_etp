@@ -1,6 +1,6 @@
 {
     "name": "Jaeger - SWE Task Data Collection Pipeline",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.0.2",
     "category": "Tools",
     "summary": "SWE task data collection: GitHub PR scraping → raw dataset (Phase 1)",
     "description": """
@@ -54,5 +54,5 @@ Supports 10,000+ repos with background thread and K8s Job-based processing.
     "installable": True,
     "application": True,
     "license": "LGPL-3",
-    "pre_init_hook": "_migrate_hard_swe",
+    "pre_init_hook": "_pre_init_jaeger",
 }

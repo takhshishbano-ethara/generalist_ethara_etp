@@ -275,7 +275,9 @@ def _create_phase2_results(registry, rec_id: int, results: list[dict]) -> None:
 
 def _read_config(registry, rec_id: int) -> dict[str, Any]:
     from odoo import api, SUPERUSER_ID
-    from odoo.addons.aurora.models.credential_manager import get_encrypted_param_raw
+    from odoo.addons.aurora.models.pipeline import (
+        S3_BUCKET, S3_REGION, S3_AURORA_PREFIX, _get_env,
+    )
     from odoo.addons.aurora.tools.collect.util import AuroraPipelineError
     cr = _open_cursor(registry)
     try:
@@ -296,11 +298,11 @@ def _read_config(registry, rec_id: int) -> dict[str, Any]:
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
             "cache_dir": ICP.get_param("aurora.cache_dir", "/data/repo_cache"),
-            "s3_bucket": ICP.get_param("aurora.s3_bucket", ""),
-            "s3_access_key": get_encrypted_param_raw(cr, "aurora.s3_access_key"),
-            "s3_secret_key": get_encrypted_param_raw(cr, "aurora.s3_secret_key"),
-            "s3_region": ICP.get_param("aurora.s3_region", "ap-south-1"),
-            "s3_folder": ICP.get_param("aurora.s3_folder", ""),
+            "s3_bucket": S3_BUCKET,
+            "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
+            "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),
+            "s3_region": S3_REGION,
+            "s3_folder": S3_AURORA_PREFIX,
             "uid": pipeline.user_id.id or SUPERUSER_ID,
         }
     finally:

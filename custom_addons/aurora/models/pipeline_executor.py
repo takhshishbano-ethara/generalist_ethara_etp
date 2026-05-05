@@ -298,7 +298,7 @@ def _safe_worker(fn):
 
 def _read_config(db_name: str, rec_id: int) -> dict[str, Any]:
     from odoo import api, SUPERUSER_ID
-    from .credential_manager import get_encrypted_param_raw
+    from .pipeline import S3_BUCKET, S3_REGION, S3_AURORA_PREFIX, _get_env
     cr = _open_cursor(db_name)
     try:
         env = api.Environment(cr, SUPERUSER_ID, {})
@@ -318,11 +318,11 @@ def _read_config(db_name: str, rec_id: int) -> dict[str, Any]:
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
             "cache_dir": ICP.get_param("aurora.cache_dir", ".repo_cache"),
-            "s3_bucket": ICP.get_param("aurora.s3_bucket", ""),
-            "s3_access_key": get_encrypted_param_raw(cr, "aurora.s3_access_key"),
-            "s3_secret_key": get_encrypted_param_raw(cr, "aurora.s3_secret_key"),
-            "s3_region": ICP.get_param("aurora.s3_region", "ap-south-1"),
-            "s3_folder": ICP.get_param("aurora.s3_folder", ""),
+            "s3_bucket": S3_BUCKET,
+            "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
+            "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),
+            "s3_region": S3_REGION,
+            "s3_folder": S3_AURORA_PREFIX,
         }
     finally:
         cr.close()

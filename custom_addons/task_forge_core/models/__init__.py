@@ -6,3 +6,4 @@ from . import flag
 from . import file_record
 from . import res_config_settings
 from . import task_forge_rubric_rating
+from . import task_forge_response

@@ -114,9 +114,9 @@
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>50</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>3</b></dd></div>
-          <div class="glance-row"><dt>Trajectories</dt><dd><b>450</b></dd></div>
+          <div class="glance-row"><dt>Trajectories</dt><dd><b>90,000</b></dd></div>
           <div class="glance-row"><dt>Phases</dt><dd><b>3</b></dd></div>
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Runtime</dt><dd>Hermetic · Docker</dd></div>
@@ -130,10 +130,10 @@
   <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
     <p class="section-label" id="scale-label">§02 · The funnel</p>
     <p class="section-desc">Fifty curated instances. Three frontier models. Four hundred fifty trajectories.</p>
-    <div class="funnel" aria-label="Funnel from 50 instances to 450 trajectories">
+    <div class="funnel" aria-label="Funnel from 10,000 instances to 90,000 trajectories">
       <div class="funnel-step">
-        <span class="funnel-num" data-target="50" aria-hidden="true">0</span>
-        <span class="sr-only">50</span>
+        <span class="funnel-num" data-target="10000" aria-hidden="true">0</span>
+        <span class="sr-only">10,000</span>
         <span class="funnel-unit">Instances curated</span>
         <span class="funnel-sub">across 8 languages</span>
       </div>
@@ -146,10 +146,10 @@
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step funnel-step--final">
-        <span class="funnel-num" data-target="450" aria-hidden="true">0</span>
-        <span class="sr-only">450</span>
+        <span class="funnel-num" data-target="90000" aria-hidden="true">0</span>
+        <span class="sr-only">90,000</span>
         <span class="funnel-unit">Trajectories generated</span>
-        <span class="funnel-sub">3 models × 3 seeds × 50 instances</span>
+        <span class="funnel-sub">3 models × 3 seeds × 10,000 instances</span>
       </div>
     </div>
   </section>
@@ -168,7 +168,7 @@
           <p class="phase-label">Phase 01</p>
           <h4 class="phase-title">Environment Setup</h4>
           <ul class="phase-body">
-            <li>Crawl 300+ repos, identify post-cutoff PR sequences</li>
+            <li>Crawl 500+ repos, identify post-cutoff PR sequences</li>
             <li>Build JSONL dataset with instance metadata</li>
             <li>Construct hermetic Docker images per instance (base → PR image)</li>
             <li>Generate run results and test baselines</li>
@@ -179,7 +179,7 @@
           <h4 class="phase-title">Agent Interaction</h4>
           <ul class="phase-body">
             <li>Run AI agents in sandboxed Docker environments</li>
-            <li>3 models × 3 seeds × 50 instances</li>
+            <li>3 models × 3 seeds × 10,000 instances</li>
             <li>Agents receive issue context and produce git diff patches</li>
             <li>Tool-use interaction across long-horizon sequences</li>
           </ul>
@@ -204,7 +204,7 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5) evaluated on 50 instances.
+        Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5).
       </p>
       <p class="reveal-line reveal-kicker">
         All models show sharp performance degradation as horizon increases from ~65% at 2–5 PRs to near 0% beyond 40 PRs.
@@ -226,7 +226,7 @@
   <!-- ================= §05 QUALITY DISTRIBUTION ================= -->
   <section class="section" id="quality" aria-labelledby="quality-label" data-animate="fade-up">
     <p class="section-label" id="quality-label">§05 · Pass Rate distribution</p>
-    <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5) across all 50 evaluated instances.</p>
+    <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5).</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
@@ -265,7 +265,7 @@
     <div class="kpi-row" aria-label="Headline statistics for the evaluation">
       <div class="kpi-card">
         <p class="kpi-label">Total Instances</p>
-        <p class="kpi-value"><span class="kpi-big">50</span></p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models</p>
@@ -273,7 +273,7 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Total Runs</p>
-        <p class="kpi-value"><span class="kpi-big">450</span></p>
+        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Mean Pass Rate</p>

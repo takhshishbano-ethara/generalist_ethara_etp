@@ -288,6 +288,8 @@ class TaskForgeTaskController(http.Controller):
             }
             if kwargs.get('project_id'):
                 vals['project_id'] = int(kwargs.get('project_id'))
+            if kwargs.get('chain_of_thought'):
+                vals['chain_of_thought'] = kwargs.get('chain_of_thought')
 
             # Handle start screenshot
             screenshot_file = request.httprequest.files.get('start_screenshot')
@@ -298,6 +300,11 @@ class TaskForgeTaskController(http.Controller):
                 vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
 
             task = TaskLog.create(vals)
+
+            # Scaffold empty response records from project config
+            if task.project_id and task.project_id.is_response_required:
+                request.env['task.forge.response'].sudo().scaffold_for_task(task)
+
             if task.project_id:
                 if task.project_id.non_stemp_project_status in ['not_started', 'draft']:
                     task.project_id.non_stemp_project_status = 'production'
@@ -346,10 +353,16 @@ class TaskForgeTaskController(http.Controller):
                 task.prompt_text = kwargs.get('prompt')
             if kwargs.get('justification'):
                 task.justification_text = kwargs.get('justification')
+            if kwargs.get('chain_of_thought'):
+                task.chain_of_thought = kwargs.get('chain_of_thought')
 
             rubric_validation_error = self._validate_and_stage_rubric_ratings(task, kwargs)
             if rubric_validation_error:
                 return rubric_validation_error
+
+            response_validation_error = self._validate_responses(task, kwargs)
+            if response_validation_error:
+                return response_validation_error
 
             end_screenshot_url = None
             screenshot_file = request.httprequest.files.get('end_screenshot')
@@ -500,6 +513,117 @@ class TaskForgeTaskController(http.Controller):
         self._pending_rubric_vals = vals_list
         return None
 
+    def _validate_responses(self, task, kwargs):
+        """Save responses if provided, then validate all are filled. Returns Response on error, None on success."""
+        if kwargs.get('blocker_reason'):
+            return None
+
+        project = task.project_id
+        if not project or not project.is_response_required:
+            return None
+
+        raw_responses = kwargs.get('responses')
+        if raw_responses:
+            payload = []
+            if isinstance(raw_responses, str):
+                try:
+                    payload = json.loads(raw_responses)
+                except Exception:
+                    return return_Response(
+                        message="responses must be valid JSON",
+                        status=400,
+                    )
+            elif isinstance(raw_responses, list):
+                payload = raw_responses
+
+            if payload and isinstance(payload, list):
+                Response = request.env['task.forge.response'].sudo()
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    config_id = item.get('config_id')
+                    value = item.get('value', '')
+                    if not config_id:
+                        continue
+                    rec = Response.search([
+                        ('task_id', '=', task.id),
+                        ('config_id', '=', int(config_id)),
+                    ], limit=1)
+                    if rec:
+                        rec.write({'value': value})
+
+                task.invalidate_recordset(['response_ids'])
+
+        unfilled = task.response_ids.filtered(lambda r: not r.value)
+        if unfilled:
+            labels = ', '.join(unfilled.sorted('sequence').mapped('label'))
+            return return_Response(
+                message=f"All response fields must be filled before completing. Missing: {labels}",
+                status=400,
+            )
+        return None
+
+    @http.route('/api/v2/taskforge/tasks/responses', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'task_id': {'type': 'int', 'required': True},
+        'responses': {'type': 'list', 'required': False},
+        'chain_of_thought': {'type': 'string', 'required': False},
+    })
+    def save_responses(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(int(jdata.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+            if task.employee_id.id != employee.id:
+                return return_Response(message="Not your task", status=403)
+            if task.state != 'in_progress':
+                return return_Response(message="Task is not in progress", status=400)
+
+            if jdata.get('chain_of_thought'):
+                task.chain_of_thought = jdata.get('chain_of_thought')
+
+            responses = jdata.get('responses', [])
+            if not isinstance(responses, list):
+                return return_Response(message="responses must be a list", status=400)
+
+            Response = request.env['task.forge.response'].sudo()
+            for item in responses:
+                if not isinstance(item, dict):
+                    return return_Response(message="Each response must be an object", status=400)
+                config_id = item.get('config_id')
+                value = item.get('value', '')
+                if not config_id:
+                    return return_Response(message="config_id is required in each response", status=400)
+
+                rec = Response.search([
+                    ('task_id', '=', task.id),
+                    ('config_id', '=', int(config_id)),
+                ], limit=1)
+                if not rec:
+                    return return_Response(
+                        message=f"Response config {config_id} not found for this task",
+                        status=404,
+                    )
+                rec.value = value or ''
+
+            task.invalidate_recordset(['response_ids', 'response_completed'])
+
+            return return_Response(
+                message="Responses saved",
+                status=200,
+                data={'data': self._format_task(task)}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v2/taskforge/tasks/pause', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({"task_id": {"type": "str", "required": True}})
@@ -606,8 +730,13 @@ class TaskForgeTaskController(http.Controller):
             }
             if jdata.get('project_id'):
                 vals['project_id'] = jdata['project_id']
+            if jdata.get('chain_of_thought'):
+                vals['chain_of_thought'] = jdata['chain_of_thought']
 
             task = TaskLog.create(vals)
+
+            if task.project_id and task.project_id.is_response_required:
+                request.env['task.forge.response'].sudo().scaffold_for_task(task)
 
             try:
                 request.env['kubera.notification'].sudo().create({
@@ -674,7 +803,63 @@ class TaskForgeTaskController(http.Controller):
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',
             'created_at': str(create_date),
-            'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
+            'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url],
+            'responses': [{
+                'id': r.id,
+                'config_id': r.config_id.id if r.config_id else 0,
+                'label': r.label or '',
+                'sequence': r.sequence or 0,
+                'value': r.value or '',
+            } for r in task.response_ids.sorted('sequence')],
+            'response_completed': task.response_completed or False,
+            'is_timer_enabled': task.project_id.is_timer_enabled if task.project_id else False,
+	    'chain_of_thought': task.chain_of_thought or '',
+            'task_score': task.task_score or 0,
+            'comment': task.comment or '',
+            'grammar_checked': task.grammar_checked or False,
+            'grammar_is_perfect': task.grammar_is_perfect or False,
+            'prompt_error_percentage': task.prompt_error_percentage or 0,
+            'justification_error_percentage': task.justification_error_percentage or 0,
+            'prompt_issue_count': task.prompt_issue_count or 0,
+            'justification_issue_count': task.justification_issue_count or 0,
+            'total_grammar_issues': task.total_grammar_issues or 0,
+            'prompt_corrected': task.prompt_corrected or '',
+            'justification_corrected': task.justification_corrected or '',
+            'prompt_grammar_count': task.prompt_grammar_count or 0,
+            'prompt_misspelling_count': task.prompt_misspelling_count or 0,
+            'prompt_punctuation_count': task.prompt_punctuation_count or 0,
+            'prompt_clarity_count': task.prompt_clarity_count or 0,
+            'prompt_typography_count': task.prompt_typography_count or 0,
+            'prompt_capitalization_count': task.prompt_capitalization_count or 0,
+            'prompt_miscellaneous_count': task.prompt_miscellaneous_count or 0,
+            'justification_grammar_count': task.justification_grammar_count or 0,
+            'justification_misspelling_count': task.justification_misspelling_count or 0,
+            'justification_punctuation_count': task.justification_punctuation_count or 0,
+            'justification_clarity_count': task.justification_clarity_count or 0,
+            'justification_typography_count': task.justification_typography_count or 0,
+            'justification_capitalization_count': task.justification_capitalization_count or 0,
+            'justification_miscellaneous_count': task.justification_miscellaneous_count or 0,
+            'rubric_completed': task.rubric_completed or False,
+            'rubric_ratings': [{
+                'id': r.id,
+                'dimension_id': r.dimension_id.id,
+                'dimension_name': r.dimension_name_snapshot or (r.dimension_id.name or ''),
+                'option_id': r.option_id.id,
+                'option_name': r.option_name_snapshot or (r.option_id.name or ''),
+                'option_value': r.option_value_snapshot or r.option_id.value,
+                'category_id': r.category_id.id,
+            } for r in task.rubric_rating_ids],
+            'bug_reports': [{
+                'id': b.id,
+                'name': b.name or '',
+                'state': b.state or '',
+                'description': b.description if hasattr(b, 'description') else '',
+            } for b in task.bug_report_ids],
+            'qc_status': task.qc_status or 'pending',
+            'reviewed_by_id': task.reviewed_by_id.id if task.reviewed_by_id else 0,
+            'reviewed_by_name': task.reviewed_by_id.name if task.reviewed_by_id else '',
+            'review_date': str((task.review_date + IST_OFFSET)) if task.review_date else '',
+            'rejection_reason': task.rejection_reason or '',
         }
 
     @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
@@ -873,12 +1058,128 @@ class TaskForgeTaskController(http.Controller):
                 'task_id': task.id,
                 'project_id': project.id if project else False,
                 'is_rubrics_required': bool(project and project.is_rubrics_required),
+                'is_response_required': bool(project and project.is_response_required),
+                'no_of_responses': project.no_of_responses if project else 0,
+                'is_timer_enabled': bool(project and project.is_timer_enabled),
+                'response_configs': [{
+                    'id': cfg.id,
+                    'label': cfg.label or '',
+                    'sequence': cfg.sequence,
+                } for cfg in project.response_config_ids.sorted('sequence')] if project else [],
+                'responses': [{
+                    'id': r.id,
+                    'config_id': r.config_id.id if r.config_id else 0,
+                    'label': r.label or '',
+                    'sequence': r.sequence or 0,
+                    'value': r.value or '',
+                } for r in task.response_ids.sorted('sequence')],
+                'response_completed': task.response_completed or False,
+                'chain_of_thought': task.chain_of_thought or '',
                 'rubric_completed': task.rubric_completed,
                 'locked': task.state == 'completed',
                 'rubric_categories': rubric_categories,
                 'ratings': ratings,
+                'is_justification_required': project.is_justification_required
             }
             return return_Response(message="Success", status=200, data={'data': data})
         except Exception as e:
             _logger.error('Get rubric ratings failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/tasks/review', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'task_id': {'type': 'int', 'required': True},
+        'action': {'type': 'str', 'required': True},
+    })
+    def review_task(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role()
+            if role not in ('qr', 'ql', 'pl', 'admin'):
+                return return_Response(message="Only QC/PL/Admin can review tasks", status=403)
+
+            task_id = int(jdata.get('task_id'))
+            action = jdata.get('action', '').strip().lower()
+
+            if action not in ('approve', 'reject'):
+                return return_Response(message="action must be 'approve' or 'reject'", status=400)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(task_id)
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            if task.state != 'completed':
+                return return_Response(message="Only completed tasks can be reviewed", status=400)
+
+            if task.qc_status == 'approved':
+                return return_Response(message="Task is already approved", status=400)
+
+            team_ids = employee._get_team_employee_ids()
+            if role not in ('admin',) and task.employee_id.id not in team_ids:
+                return return_Response(message="Access denied: task not in your team", status=403)
+
+            vals = {
+                'reviewed_by_id': employee.id,
+                'review_date': datetime.now(),
+            }
+
+            if action == 'approve':
+                vals['qc_status'] = 'approved'
+                vals['rejection_reason'] = False
+                task.write(vals)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Task Approved',
+                        'message': f'Your task "{task.name}" has been approved by {employee.name}.',
+                        'user_id': task.employee_id.user_id.id,
+                        'priority': '1',
+                        'res_model': 'task.forge.log',
+                        'res_id': task.id,
+                        'project_id': task.project_id.id if task.project_id else False,
+                    })
+                except Exception:
+                    pass
+
+                return return_Response(
+                    message="Task approved",
+                    status=200,
+                    data={'data': self._format_task(task)}
+                )
+            else:
+                rejection_reason = jdata.get('rejection_reason', '').strip()
+                if not rejection_reason:
+                    return return_Response(message="rejection_reason is required when rejecting", status=400)
+
+                vals['qc_status'] = 'rejected'
+                vals['rejection_reason'] = rejection_reason
+                task.write(vals)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Task Rejected',
+                        'message': f'Your task "{task.name}" has been rejected by {employee.name}. Reason: {rejection_reason[:200]}',
+                        'user_id': task.employee_id.user_id.id,
+                        'priority': '2',
+                        'res_model': 'task.forge.log',
+                        'res_id': task.id,
+                        'project_id': task.project_id.id if task.project_id else False,
+                    })
+                except Exception:
+                    pass
+
+                return return_Response(
+                    message="Task rejected",
+                    status=200,
+                    data={'data': self._format_task(task)}
+                )
+        except Exception as e:
+            _logger.error('Review task failed: %s', str(e))
             return return_Response(message=str(e), status=400)
