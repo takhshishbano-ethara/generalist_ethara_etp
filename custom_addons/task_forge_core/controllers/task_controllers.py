@@ -844,6 +844,11 @@ class TaskForgeTaskController(http.Controller):
                 'state': b.state or '',
                 'description': b.description if hasattr(b, 'description') else '',
             } for b in task.bug_report_ids],
+            'qc_status': task.qc_status or 'pending',
+            'reviewed_by_id': task.reviewed_by_id.id if task.reviewed_by_id else 0,
+            'reviewed_by_name': task.reviewed_by_id.name if task.reviewed_by_id else '',
+            'review_date': str((task.review_date + IST_OFFSET)) if task.review_date else '',
+            'rejection_reason': task.rejection_reason or '',
         }
 
     @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
@@ -1067,4 +1072,102 @@ class TaskForgeTaskController(http.Controller):
             return return_Response(message="Success", status=200, data={'data': data})
         except Exception as e:
             _logger.error('Get rubric ratings failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/tasks/review', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'task_id': {'type': 'int', 'required': True},
+        'action': {'type': 'str', 'required': True},
+    })
+    def review_task(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role()
+            if role not in ('qr', 'ql', 'pl', 'admin'):
+                return return_Response(message="Only QC/PL/Admin can review tasks", status=403)
+
+            task_id = int(jdata.get('task_id'))
+            action = jdata.get('action', '').strip().lower()
+
+            if action not in ('approve', 'reject'):
+                return return_Response(message="action must be 'approve' or 'reject'", status=400)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(task_id)
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+
+            if task.state != 'completed':
+                return return_Response(message="Only completed tasks can be reviewed", status=400)
+
+            if task.qc_status == 'approved':
+                return return_Response(message="Task is already approved", status=400)
+
+            team_ids = employee._get_team_employee_ids()
+            if role not in ('admin',) and task.employee_id.id not in team_ids:
+                return return_Response(message="Access denied: task not in your team", status=403)
+
+            vals = {
+                'reviewed_by_id': employee.id,
+                'review_date': datetime.now(),
+            }
+
+            if action == 'approve':
+                vals['qc_status'] = 'approved'
+                vals['rejection_reason'] = False
+                task.write(vals)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Task Approved',
+                        'message': f'Your task "{task.name}" has been approved by {employee.name}.',
+                        'user_id': task.employee_id.user_id.id,
+                        'priority': '1',
+                        'res_model': 'task.forge.log',
+                        'res_id': task.id,
+                        'project_id': task.project_id.id if task.project_id else False,
+                    })
+                except Exception:
+                    pass
+
+                return return_Response(
+                    message="Task approved",
+                    status=200,
+                    data={'data': self._format_task(task)}
+                )
+            else:
+                rejection_reason = jdata.get('rejection_reason', '').strip()
+                if not rejection_reason:
+                    return return_Response(message="rejection_reason is required when rejecting", status=400)
+
+                vals['qc_status'] = 'rejected'
+                vals['rejection_reason'] = rejection_reason
+                task.write(vals)
+
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Task Rejected',
+                        'message': f'Your task "{task.name}" has been rejected by {employee.name}. Reason: {rejection_reason[:200]}',
+                        'user_id': task.employee_id.user_id.id,
+                        'priority': '2',
+                        'res_model': 'task.forge.log',
+                        'res_id': task.id,
+                        'project_id': task.project_id.id if task.project_id else False,
+                    })
+                except Exception:
+                    pass
+
+                return return_Response(
+                    message="Task rejected",
+                    status=200,
+                    data={'data': self._format_task(task)}
+                )
+        except Exception as e:
+            _logger.error('Review task failed: %s', str(e))
             return return_Response(message=str(e), status=400)

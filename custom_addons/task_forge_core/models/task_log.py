@@ -98,7 +98,17 @@ class TaskForgeLog(models.Model):
     project_name = fields.Char(related='project_id.name', store=True)
     image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
 
-    # Rating Syste
+    # QC Review
+    qc_status = fields.Selection([
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ], string='QC Status', default='pending', tracking=True)
+    reviewed_by_id = fields.Many2one('hr.employee', string='Reviewed By', readonly=True)
+    review_date = fields.Datetime(string='Review Date', readonly=True)
+    rejection_reason = fields.Text(string='Rejection Reason')
+
+    # Rating System
     task_score = fields.Integer(string='Task Score')
     comment = fields.Char(string='Comment')
 
