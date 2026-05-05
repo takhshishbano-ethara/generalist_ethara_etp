@@ -747,14 +747,14 @@ class Kensei(models.Model):
 
     @api.depends_context("uid")
     def _compute_is_kensei_admin(self):
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         for rec in self:
             rec.is_kensei_admin = is_admin
 
     def _search_is_kensei_admin(self, operator, value):
         if operator not in ("=", "!="):
             raise ValueError("Unsupported operator")
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         if (operator == "=" and value) or (operator == "!=" and not value):
             return [] if is_admin else [("id", "=", False)]
         return [("id", "=", False)] if is_admin else []
@@ -763,8 +763,8 @@ class Kensei(models.Model):
     def _compute_is_ql_or_pl(self):
         user = self.env.user
         allowed = (
-            user.has_group("etp_user_roles.group_quality_lead")
-            or user.has_group("etp_user_roles.group_project_lead")
+            user.has_group("kensei.group_kensei_ql")
+            or user.has_group("kensei.group_kensei_pl")
         )
         for rec in self:
             rec.is_ql_or_pl = allowed
@@ -1094,8 +1094,8 @@ class Kensei(models.Model):
         self.ensure_one()
 
         if not (
-            self.env.user.has_group("etp_user_roles.group_quality_lead")
-            or self.env.user.has_group("etp_user_roles.group_project_lead")
+            self.env.user.has_group("kensei.group_kensei_ql")
+            or self.env.user.has_group("kensei.group_kensei_pl")
         ):
             raise AccessError(
                 "Only Quality Leads and Project Leads can delete trajectories."
@@ -1169,8 +1169,8 @@ class Kensei(models.Model):
 
         if field_name == "golden_trajectory":
             if not (
-                self.env.user.has_group("etp_user_roles.group_quality_lead")
-                or self.env.user.has_group("etp_user_roles.group_project_lead")
+                self.env.user.has_group("kensei.group_kensei_ql")
+                or self.env.user.has_group("kensei.group_kensei_pl")
             ):
                 raise AccessError(
                     "Only Quality Leads and Project Leads can delete trajectories."

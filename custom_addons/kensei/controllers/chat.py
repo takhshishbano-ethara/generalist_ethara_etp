@@ -673,7 +673,7 @@ class KenseiChatController(http.Controller):
             return request.not_found()
         task = sandbox.kensei_id
         user = request.env.user
-        is_admin = user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = user.has_group("kensei.group_kensei_ql")
         if not is_admin and task.employee_id.user_id.id != user.id:
             return request.not_found()
         if not source or not source.startswith("/home/node/.openclaw/"):

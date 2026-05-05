@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from odoo import http
+from odoo.exceptions import AccessError
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -63,6 +64,8 @@ def _task_row(task):
 class KenseiCostingController(http.Controller):
     @http.route("/kensei/costing/data", type="json", auth="user")
     def costing_data(self, period="week", **kw):
+        if not request.env.user.has_group("kensei.group_kensei_pl"):
+            raise AccessError("Only Project Leads can access costing data.")
         today = datetime.now().date()
 
         if period == "week":

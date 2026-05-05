@@ -44,6 +44,7 @@
               <button class="oe_stat_button" name="action_generate_golden_trajectory"
                       type="object" icon="fa-magic"
                       string="Generate Golden"
+                      invisible="not is_ql_or_pl"
                       confirm="This will call the LLM to generate golden trajectories. Continue?"/>
             </div>
             <group>
@@ -66,11 +67,11 @@
                 <field name="auto_process_error" readonly="1"
                        invisible="auto_process_status != 'failed'"/>
               </group>
-              <group string="Classification">
+              <group string="Classification" invisible="not is_ql_or_pl">
                 <field name="l1_classification" domain="[('parent_id', '=', False)]"/>
                 <field name="l2_classification" domain="[('parent_id', '=', l1_classification)]" readonly="not l1_classification"/>
               </group>
-              <group string="Assignment">
+              <group string="Assignment" invisible="not is_ql_or_pl">
                 <field name="employee_id" readonly="not is_kensei_admin"/>
                 <field name="user_id" readonly="not is_kensei_admin"/>
                 <field name="email" readonly="not is_kensei_admin"/>
@@ -119,7 +120,7 @@
 
             <widget name="kensei_task_dashboard"/>
 
-            <group string="Trajectories" colspan="2">
+            <group string="Trajectories" colspan="2" invisible="not is_ql_or_pl">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="kensei_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
               <separator string="Kimi K2.5 Trajectory" colspan="2"/>
@@ -243,6 +244,7 @@ action = records.action_publish_auto_process()
       <field name="name">Turns</field>
       <field name="res_model">kensei.turn</field>
       <field name="view_mode">list,form</field>
+      <field name="groups_id" eval="[(4, ref('group_kensei_ql'))]"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_turn_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_turn_form')})]"/>
@@ -308,6 +310,7 @@ action = records.action_publish_auto_process()
       <field name="name">Sandboxes</field>
       <field name="res_model">kensei.sandbox</field>
       <field name="view_mode">list,form</field>
+      <field name="groups_id" eval="[(4, ref('group_kensei_ql'))]"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_sandbox_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_sandbox_form')})]"/>

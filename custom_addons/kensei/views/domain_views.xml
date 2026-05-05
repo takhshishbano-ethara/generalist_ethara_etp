@@ -41,6 +41,7 @@
       <field name="name">Domains</field>
       <field name="res_model">kensei.domain</field>
       <field name="view_mode">list,form</field>
+      <field name="groups_id" eval="[(4, ref('group_kensei_ql'))]"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_domain_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_domain_form')})]"/>

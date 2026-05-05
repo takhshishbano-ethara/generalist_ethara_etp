@@ -1,6 +1,6 @@
 {
     "name": "Kensei",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.1.0",
     "category": "Tools",
     "summary": "Kensei — LLM task management with sandbox environments and file attachments",
     "description": """
@@ -10,7 +10,7 @@
         hybrid HTTP upload + WebSocket reference architecture.
     """,
     "author": "Ethara",
-    "depends": ["base", "web", "hr", "bus", "etp_user_roles"],
+    "depends": ["base", "web", "hr", "bus"],
     "data": [
         "security/kensei_security.xml",
         "security/ir.model.access.csv",

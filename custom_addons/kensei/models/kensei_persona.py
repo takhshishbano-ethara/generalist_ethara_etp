@@ -14,14 +14,14 @@ class KenseiPersona(models.Model):
 
     @api.depends_context("uid")
     def _compute_is_kensei_admin(self):
-        is_admin = self.env.user.has_group("kensei.group_kensei_admin")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         for rec in self:
             rec.is_kensei_admin = is_admin
 
     def _search_is_kensei_admin(self, operator, value):
         if operator not in ("=", "!="):
             raise ValueError("Unsupported operator")
-        is_admin = self.env.user.has_group("kensei.group_kensei_admin")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         if (operator == "=" and value) or (operator == "!=" and not value):
             return [] if is_admin else [("id", "=", False)]
         return [("id", "=", False)] if is_admin else []
