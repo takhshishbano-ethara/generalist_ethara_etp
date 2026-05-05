@@ -844,8 +844,16 @@ class EmployeeController(http.Controller):
 
                 this_week_prod, _ = get_prod_stats(emp.id, start_this_week, today)
                 task_record = request.env['task.forge.log'].sudo().search_count([('employee_id', '=', emp.id), ('date', '=', today)])
-                total_task_count = Log.search_count([('employee_id', '=', emp.id)])
-                task_reviewed_count = Log.search_count([('employee_id', '=', emp.id), ('state', 'in', ['qc_approved', 'qc_rejected'])])
+                task_domain = [('employee_id', '=', emp.id)]
+                if kwargs.get('start_date') and kwargs.get('end_date'):
+                    if kwargs['start_date'] == kwargs['end_date']:
+                        task_domain.append(('date', '=', kwargs['start_date']))
+                    else:
+                        task_domain.append(('date', '>=', kwargs['start_date']))
+                        task_domain.append(('date', '<=', kwargs['end_date']))
+
+                total_task_count = Log.search_count(task_domain)
+                task_reviewed_count = Log.search_count(task_domain + [('state', 'in', ['qc_approved', 'qc_rejected'])])
                 active_task = request.env['task.forge.log'].sudo().search([('employee_id', '=', emp.id), ('date', '=', today), ('state', '=', 'in_progress')], order='write_date desc', limit=1)
                 current_status, _ =  self.get_employee_current_status(emp)
                 vals = {
