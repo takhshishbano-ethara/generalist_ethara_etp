@@ -6,7 +6,6 @@ access_kensei_persona_tasker,kensei.persona.tasker,model_kensei_persona,etp_user
 access_kensei_taxonomy_tasker,kensei.taxonomy.tasker,model_kensei_taxonomy,etp_user_roles.group_tasker,1,0,0,0
 access_kensei_domain_tasker,kensei.domain.tasker,model_kensei_domain,etp_user_roles.group_tasker,1,0,0,0
 access_kensei_persona_ql,kensei.persona.ql,model_kensei_persona,etp_user_roles.group_quality_lead,1,1,1,1
-access_kensei_taxonomy_ql,kensei.taxonomy.ql,model_kensei_taxonomy,etp_user_roles.group_quality_lead,1,1,1,1
 access_kensei_domain_ql,kensei.domain.ql,model_kensei_domain,etp_user_roles.group_quality_lead,1,1,1,1
 access_kensei_kensei_admin,kensei.kensei.admin,model_kensei_kensei,group_kensei_admin,1,1,1,1
 access_kensei_turn_admin,kensei.turn.admin,model_kensei_turn,group_kensei_admin,1,1,1,1

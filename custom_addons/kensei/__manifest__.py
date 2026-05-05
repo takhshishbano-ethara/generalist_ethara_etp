@@ -16,6 +16,7 @@
         "security/ir.model.access.csv",
         "data/cron.xml",
         "data/persona_seed.xml",
+        "data/domain_seed.xml",
         "views/res_config_settings_views.xml",
         "views/domain_views.xml",
         "views/persona_views.xml",

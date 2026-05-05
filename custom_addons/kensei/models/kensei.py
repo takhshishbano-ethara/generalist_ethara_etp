@@ -814,6 +814,9 @@ class Kensei(models.Model):
         ],
         string="Safety Critical",
     )
+    l1_classification = fields.Many2one('kensei.domain', string="L1",
+                                        domain="[('parent_id', '=', False)]")
+    l2_classification = fields.Many2one('kensei.domain', string="L2")
     system_prompt = fields.Text(string="System Prompt")
     seed_prompt = fields.Text(string="Seed Prompt")
     initial_prompt = fields.Text(string="Initial Prompt")
