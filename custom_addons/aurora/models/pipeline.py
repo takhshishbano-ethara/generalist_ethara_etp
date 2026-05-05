@@ -48,7 +48,6 @@ S3_REGION = "us-east-1"
 S3_AURORA_PREFIX = "aurora"
 
 KUEUE_QUEUE = "aurora-pipelines"
-EFS_PVC = "aurora-repo-cache"
 
 DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/odoo:latest"
 
@@ -406,6 +405,10 @@ class AuroraPipeline(models.Model):
                 name="repo-cache",
                 mount_path="/data/repo_cache",
             ),
+            k8s_client.V1VolumeMount(
+                name="tmp-work",
+                mount_path="/tmp",
+            ),
         ]
         volumes = [
             k8s_client.V1Volume(
@@ -416,9 +419,11 @@ class AuroraPipeline(models.Model):
             ),
             k8s_client.V1Volume(
                 name="repo-cache",
-                persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=EFS_PVC,
-                ),
+                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+            ),
+            k8s_client.V1Volume(
+                name="tmp-work",
+                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
             ),
         ]
 
