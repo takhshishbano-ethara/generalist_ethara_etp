@@ -88,6 +88,8 @@ class Project(models.Model):
     no_of_responses = fields.Integer(string='Number of Responses', default=0)
     response_config_ids = fields.One2many('project.response.config', 'project_id', string='Response Configurations')
 
+    is_timer_enabled = fields.Boolean(string='Timer Enabled', default=False)
+
     def create_slack_channel(self):
         if not self.slack_channel_name:
             _logger.info('No slack_channel_name set for project %s, skipping', self.name)

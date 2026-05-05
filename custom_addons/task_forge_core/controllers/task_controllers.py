@@ -770,6 +770,7 @@ class TaskForgeTaskController(http.Controller):
                 'value': r.value or '',
             } for r in task.response_ids.sorted('sequence')],
             'response_completed': task.response_completed or False,
+            'is_timer_enabled': task.project_id.is_timer_enabled if task.project_id else False,
         }
 
     @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')
@@ -968,6 +969,22 @@ class TaskForgeTaskController(http.Controller):
                 'task_id': task.id,
                 'project_id': project.id if project else False,
                 'is_rubrics_required': bool(project and project.is_rubrics_required),
+                'is_response_required': bool(project and project.is_response_required),
+                'no_of_responses': project.no_of_responses if project else 0,
+                'is_timer_enabled': bool(project and project.is_timer_enabled),
+                'response_configs': [{
+                    'id': cfg.id,
+                    'label': cfg.label or '',
+                    'sequence': cfg.sequence,
+                } for cfg in project.response_config_ids.sorted('sequence')] if project else [],
+                'responses': [{
+                    'id': r.id,
+                    'config_id': r.config_id.id if r.config_id else 0,
+                    'label': r.label or '',
+                    'sequence': r.sequence or 0,
+                    'value': r.value or '',
+                } for r in task.response_ids.sorted('sequence')],
+                'response_completed': task.response_completed or False,
                 'rubric_completed': task.rubric_completed,
                 'locked': task.state == 'completed',
                 'rubric_categories': rubric_categories,

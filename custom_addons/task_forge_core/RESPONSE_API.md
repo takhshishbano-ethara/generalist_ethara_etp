@@ -418,3 +418,79 @@ Labels follow alphabetical pattern, supporting unlimited fields:
 - **Backward compatible** — existing tasks without responses return `responses: []`, `response_completed: false`
 - **Idempotent scaffolding** — `scaffold_for_task()` skips already-created responses (safe to call twice)
 - **Snapshot labels** — response records store label at creation time, immune to later config edits
+
+---
+
+## Timer Enable/Disable
+
+A project-level boolean that controls whether the timer UI is visible on the task screen.
+
+### Model Field
+
+**File**: `project_extension/models/project.py`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `is_timer_enabled` | Boolean | False | Show/hide timer on task screen |
+
+### Affected Endpoints
+
+#### Project Creation — `POST /api/v1/create_project_record`
+
+Accepts `is_timer_enabled` (truthy: `true`, `1`, `"1"`).
+
+```json
+{
+  "name": "My Project",
+  "is_timer_enabled": true
+}
+```
+
+#### Project Creation — `POST /api/v2/taskforge/projects`
+
+Accepts `is_timer_enabled` (bool).
+
+```json
+{
+  "name": "My Project",
+  "is_timer_enabled": true
+}
+```
+
+#### Project Update — `POST /api/v2/taskforge/projects/update`
+
+Accepts `is_timer_enabled` (bool). Can toggle on/off anytime.
+
+```json
+{
+  "project_id": 42,
+  "is_timer_enabled": false
+}
+```
+
+#### Project Detail — `GET /api/v1/get_project_detail_view`
+
+Returns `is_timer_enabled` in response:
+
+```json
+{
+  "data": {
+    "id": 42,
+    "is_timer_enabled": true
+  }
+}
+```
+
+#### Task Responses (all endpoints using `_format_task()`)
+
+Every task response includes:
+
+```json
+{
+  "id": 100,
+  "task_name": "...",
+  "is_timer_enabled": true
+}
+```
+
+Frontend uses this flag to decide whether to render the timer component.

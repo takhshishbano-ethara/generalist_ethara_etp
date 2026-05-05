@@ -204,6 +204,8 @@ class ProjectController(http.Controller):
                 vals['is_response_required'] = True
                 no_of_responses = int(kwargs.get('no_of_responses', 0))
                 vals['no_of_responses'] = no_of_responses
+            if kwargs.get('is_timer_enabled') in ['1', 1, True, 'true']:
+                vals['is_timer_enabled'] = True
 
             attachment_ids = []
             files = request.httprequest.files.getlist('files')
@@ -796,6 +798,7 @@ class ProjectController(http.Controller):
                     'label': cfg.label or '',
                     'sequence': cfg.sequence,
                 } for cfg in project.response_config_ids.sorted('sequence')],
+                "is_timer_enabled": project.is_timer_enabled or False,
                 "is_rubrics_required": project.is_rubrics_required or False,
                 "is_justification_required": project.is_justification_required or False,
                 "rubric_categories": [{
