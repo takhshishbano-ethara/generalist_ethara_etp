@@ -1120,9 +1120,6 @@ class TaskForgeTaskController(http.Controller):
             if task.state != 'completed':
                 return return_Response(message="Only completed tasks can be reviewed", status=400)
 
-            if task.qc_status == 'approved':
-                return return_Response(message="Task is already approved", status=400)
-
             team_ids = employee._get_team_employee_ids()
             if role not in ('admin',) and task.employee_id.id not in team_ids:
                 return return_Response(message="Access denied: task not in your team", status=403)
