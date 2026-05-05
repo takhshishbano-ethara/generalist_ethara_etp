@@ -109,6 +109,20 @@ class KenseiConfigSettings(models.TransientModel):
         default=False,
         help="Skip automated hint evaluation and generation. Useful for testing and debugging.",
     )
+    kensei_s3_bucket = fields.Char(
+        string="S3 Bucket",
+        config_parameter="kensei.s3_bucket",
+    )
+    kensei_s3_prefix = fields.Char(
+        string="S3 Key Prefix",
+        config_parameter="kensei.s3_prefix",
+        default="kensei",
+    )
+    kensei_s3_region = fields.Char(
+        string="S3 Region",
+        config_parameter="kensei.s3_region",
+        default="ap-south-1",
+    )
 
     @api.depends_context("uid")
     def _compute_kensei_docker_available(self):

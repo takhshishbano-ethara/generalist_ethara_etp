@@ -102,6 +102,38 @@
                                             </t>
                                         </div>
                                     </t>
+                                    <t t-if="msg.mediaItems and msg.mediaItems.length">
+                                        <div class="o_kensei_media_items">
+                                            <t t-foreach="msg.mediaItems" t-as="media" t-key="media_index">
+                                                <div class="o_kensei_media_item">
+                                                    <t t-if="media.type === 'image'">
+                                                        <img t-att-src="media.url" t-att-alt="media.alt"
+                                                             class="o_kensei_media_img"
+                                                             loading="lazy"/>
+                                                    </t>
+                                                    <t t-elif="media.type === 'video'">
+                                                        <video t-att-src="media.url" controls="controls"
+                                                               class="o_kensei_media_video"
+                                                               preload="metadata"/>
+                                                    </t>
+                                                    <t t-elif="media.type === 'audio'">
+                                                        <audio t-att-src="media.url" controls="controls"
+                                                               class="o_kensei_media_audio"
+                                                               preload="metadata"/>
+                                                    </t>
+                                                    <t t-elif="media.type === 'document'">
+                                                        <a t-att-href="media.url" target="_blank"
+                                                           t-att-download="media.alt"
+                                                           class="o_kensei_media_document">
+                                                            <i class="fa fa-file-pdf-o me-2"/>
+                                                            <span t-out="media.alt"/>
+                                                            <i class="fa fa-download ms-2"/>
+                                                        </a>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
                                     <span t-if="msg.pending and msg.text" class="o_kensei_cursor">|</span>
                                     <t t-if="msg.toolCalls and msg.toolCalls.length">
                                         <div class="o_kensei_tools_section">

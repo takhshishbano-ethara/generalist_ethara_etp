@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import logging
+import mimetypes
+import os
+import threading
+import uuid
 
 from odoo import http
 from odoo.http import request
@@ -8,6 +13,29 @@ from odoo.http import request
 from ..models.kensei_sandbox import MODEL_DEFAULTS, TRAJECTORY_FIELD_MAP
 
 _logger = logging.getLogger(__name__)
+
+def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta):
+    """Upload files_meta [{object_key, data (bytes), content_type}] to S3."""
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        s3 = boto3.client(
+            "s3",
+            region_name=region,
+            config=BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        )
+        for fm in files_meta:
+            key = "%s/tasks/%s/attachments/%s" % (prefix, task_id, fm["object_key"])
+            s3.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=fm["data"],
+                ContentType=fm["content_type"],
+            )
+            _logger.info("S3 upload OK: s3://%s/%s (%d bytes)", bucket, key, len(fm["data"]))
+    except Exception:
+        _logger.exception("S3 attachment upload failed for task %s", task_id)
 
 
 class KenseiChatController(http.Controller):
@@ -486,7 +514,6 @@ class KenseiChatController(http.Controller):
         if not sandbox.exists():
             return request.make_json_response({"error": "Sandbox not found"}, status=404)
 
-        import base64
         file_data = file.read()
         attachment = request.env["ir.attachment"].create({
             "name": file.filename,
@@ -503,3 +530,194 @@ class KenseiChatController(http.Controller):
             "mimeType": attachment.mimetype,
             "size": len(file_data),
         })
+
+    @http.route("/kensei/chat/persist_attachments", type="json", auth="user")
+    def persist_attachments(self, sandbox_id=0, attachments=None, **kw):
+        sandbox_id = int(sandbox_id or 0)
+        if not sandbox_id or not attachments:
+            return {"error": "sandbox_id and attachments are required"}
+
+        sandbox = request.env["kensei.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"error": "Sandbox not found"}
+
+        from ..models.kensei_sandbox_k8s import S3_KENSEI_PREFIX
+
+        task = sandbox.kensei_id
+        task_id = task.task_id or str(task.id)
+        persona = task.persona_id
+        persona_name = persona.name if persona else "marcus"
+
+        persisted = []
+        s3_files = []
+
+        for att in attachments:
+            name = att.get("fileName") or att.get("name") or "unnamed"
+            mime_type = att.get("mimeType") or "application/octet-stream"
+            content_b64 = att.get("content") or ""
+            if not content_b64:
+                continue
+
+            try:
+                file_bytes = base64.b64decode(content_b64)
+            except Exception:
+                _logger.warning("Failed to decode base64 for %s", name)
+                continue
+
+            safe_name = "%s_%s" % (uuid.uuid4().hex[:8], name.replace("/", "_").replace("\\", "_"))
+
+            self._write_to_container(sandbox, persona_name, safe_name, file_bytes)
+
+            s3_files.append({
+                "object_key": safe_name,
+                "data": file_bytes,
+                "content_type": mime_type,
+            })
+
+            persisted.append({"name": name, "storedAs": safe_name, "size": len(file_bytes)})
+
+        if s3_files:
+            icp = request.env["ir.config_parameter"].sudo()
+            bucket = icp.get_param("kensei.s3_bucket") or ""
+            region = icp.get_param("kensei.s3_region") or "ap-south-1"
+            prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+            if bucket:
+                t = threading.Thread(
+                    target=_upload_to_s3_background,
+                    args=(bucket, region, prefix, task_id, s3_files),
+                    daemon=True,
+                )
+                t.start()
+            else:
+                _logger.info("S3 bucket not configured in Settings → skipping S3 upload")
+
+        return {"success": True, "persisted": persisted}
+
+    def _write_to_container(self, sandbox, persona_name, filename, file_bytes):
+        mode = sandbox._deployment_mode()
+        if mode == "k8s":
+            self._write_to_k8s_pod(sandbox, filename, file_bytes)
+        else:
+            self._write_to_local_volume(sandbox, persona_name, filename, file_bytes)
+
+    def _write_to_local_volume(self, sandbox, persona_name, filename, file_bytes):
+        workdir = sandbox.docker_workdir
+        if not workdir or not os.path.isdir(workdir):
+            _logger.warning("Sandbox workdir not available: %s", workdir)
+            return
+
+        uploads_dir = os.path.join(workdir, "data", persona_name, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+
+        filepath = os.path.join(uploads_dir, filename)
+        with open(filepath, "wb") as f:
+            f.write(file_bytes)
+        _logger.info("Wrote attachment to container volume: %s (%d bytes)", filepath, len(file_bytes))
+
+    def _write_to_k8s_pod(self, sandbox, filename, file_bytes):
+        import subprocess
+        import tempfile
+
+        from ..models.kensei_sandbox_k8s import NAMESPACE
+
+        pod_name = "kensei-sandbox-%s" % sandbox.kensei_id.id
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix="_" + filename) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            dest = "%s:/home/node/.openclaw/uploads/%s" % (pod_name, filename)
+            subprocess.run(
+                ["kubectl", "cp", tmp_path, dest, "-n", NAMESPACE, "-c", "openclaw"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+            _logger.info("kubectl cp OK: %s → %s", filename, dest)
+        except Exception as e:
+            _logger.warning("kubectl cp failed for %s: %s", filename, e)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    @http.route("/kensei/chat/media", type="http", auth="user", methods=["GET"])
+    def serve_media(self, sandbox_id=0, source="", **kw):
+        sandbox_id = int(sandbox_id)
+        sandbox = request.env["kensei.sandbox"].sudo().browse(sandbox_id)
+        if not sandbox.exists():
+            return request.not_found()
+        task = sandbox.kensei_id
+        user = request.env.user
+        is_admin = user.has_group("etp_user_roles.group_quality_lead")
+        if not is_admin and task.employee_id.user_id.id != user.id:
+            return request.not_found()
+        if not source or not source.startswith("/home/node/.openclaw/"):
+            return request.not_found()
+        relative = source[len("/home/node/.openclaw/"):]
+        if ".." in relative or relative.startswith("/"):
+            return request.not_found()
+        mode = request.env["ir.config_parameter"].sudo().get_param(
+            "kensei.deployment_mode", "local"
+        )
+        if mode == "k8s":
+            data = self._read_from_k8s_pod(sandbox, source)
+        else:
+            workdir = sandbox.docker_workdir
+            if not workdir:
+                return request.not_found()
+            persona = task.persona_id
+            persona_name = persona.name if persona else "marcus"
+            host_path = os.path.join(workdir, "data", persona_name, relative)
+            host_path = os.path.realpath(host_path)
+            allowed_base = os.path.realpath(os.path.join(workdir, "data", persona_name))
+            if not host_path.startswith(allowed_base + os.sep):
+                return request.not_found()
+            if not os.path.isfile(host_path):
+                return request.not_found()
+            with open(host_path, "rb") as f:
+                data = f.read()
+        if not data:
+            return request.not_found()
+        content_type, _ = mimetypes.guess_type(source)
+        if not content_type:
+            content_type = "application/octet-stream"
+        headers = [
+            ("Content-Type", content_type),
+            ("Content-Disposition", "inline; filename=\"%s\"" % os.path.basename(source)),
+            ("Cache-Control", "private, max-age=3600"),
+        ]
+        return request.make_response(data, headers=headers)
+
+    def _read_from_k8s_pod(self, sandbox, container_path):
+        import subprocess
+        import tempfile
+
+        from ..models.kensei_sandbox_k8s import NAMESPACE
+
+        pod_name = "kensei-sandbox-%s" % sandbox.kensei_id.id
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            src = "%s:%s" % (pod_name, container_path)
+            subprocess.run(
+                ["kubectl", "cp", src, tmp_path, "-n", NAMESPACE, "-c", "openclaw"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            _logger.warning("kubectl cp read failed for %s: %s", container_path, e)
+            return None
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
