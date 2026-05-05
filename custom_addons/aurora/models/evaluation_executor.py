@@ -282,28 +282,13 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
 
 
 def _load_s3_config(cr: Any) -> dict:
-    cr.execute(
-        "SELECT key, value FROM ir_config_parameter "
-        "WHERE key IN ('aurora.s3_bucket','aurora.s3_region','aurora.s3_folder',"
-        "'aurora.s3_access_key','aurora.s3_secret_key')"
-    )
-    params = {row[0]: row[1] for row in cr.fetchall()}
-    access_key = params.get("aurora.s3_access_key") or ""
-    secret_key = params.get("aurora.s3_secret_key") or ""
-    try:
-        from . import credential_manager
-        if access_key:
-            access_key = credential_manager.get_encrypted_param_raw(cr, "aurora.s3_access_key") or access_key
-        if secret_key:
-            secret_key = credential_manager.get_encrypted_param_raw(cr, "aurora.s3_secret_key") or secret_key
-    except Exception:
-        _logger.debug("Failed to decrypt S3 credentials; using raw values", exc_info=True)
+    from .pipeline import S3_BUCKET, S3_REGION, S3_AURORA_PREFIX, _get_env
     return {
-        "bucket": params.get("aurora.s3_bucket") or "",
-        "region": params.get("aurora.s3_region") or "ap-south-1",
-        "access_key": access_key,
-        "secret_key": secret_key,
-        "folder": params.get("aurora.s3_folder") or "",
+        "bucket": S3_BUCKET,
+        "region": S3_REGION,
+        "access_key": _get_env("AURORA_S3_ACCESS_KEY"),
+        "secret_key": _get_env("AURORA_S3_SECRET_KEY"),
+        "folder": S3_AURORA_PREFIX,
     }
 
 

@@ -22,21 +22,23 @@ def _get_client(s3_config: dict):
     import boto3
     from botocore.config import Config
 
-    region = s3_config.get("region", "ap-south-1")
-    return boto3.client(
-        "s3",
-        aws_access_key_id=s3_config["access_key"],
-        aws_secret_access_key=s3_config["secret_key"],
-        region_name=region,
-        # Force regional endpoint — avoids DNS redirects on cross-continent uploads
-        endpoint_url=f"https://s3.{region}.amazonaws.com",
-        config=Config(
+    region = s3_config.get("region", "us-east-1")
+    client_kwargs = {
+        "region_name": region,
+        "endpoint_url": f"https://s3.{region}.amazonaws.com",
+        "config": Config(
             retries={"mode": "standard", "max_attempts": 5},
             connect_timeout=30,
             read_timeout=60,
             max_pool_connections=10,
         ),
-    )
+    }
+    access_key = s3_config.get("access_key")
+    secret_key = s3_config.get("secret_key")
+    if access_key and secret_key:
+        client_kwargs["aws_access_key_id"] = access_key
+        client_kwargs["aws_secret_access_key"] = secret_key
+    return boto3.client("s3", **client_kwargs)
 
 
 def _get_transfer_config():
@@ -152,11 +154,7 @@ def build_s3_key(org: str, repo: str, run_number: int, filename: str, folder: st
 
 
 def is_configured(s3_config: dict) -> bool:
-    return bool(
-        s3_config.get("bucket")
-        and s3_config.get("access_key")
-        and s3_config.get("secret_key")
-    )
+    return bool(s3_config.get("bucket"))
 
 
 def generate_presigned_url(

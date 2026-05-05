@@ -4,13 +4,12 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 from datetime import datetime
 
 from odoo import fields, http
 from odoo.http import request
-
-from ..models.credential_manager import get_encrypted_param
 
 _logger = logging.getLogger(__name__)
 
@@ -64,9 +63,9 @@ def _verify_legacy_token(secret: str) -> bool:
 
 
 def _verify_token() -> bool:
-    secret = get_encrypted_param(request.env, "aurora.webhook_secret")
+    secret = os.environ.get("AURORA_WEBHOOK_SECRET", "").strip()
     if not secret:
-        _logger.warning("Aurora webhook: aurora.webhook_secret is not configured; rejecting request.")
+        _logger.warning("Aurora webhook: AURORA_WEBHOOK_SECRET env var is not set; rejecting request.")
         return False
     if _verify_hmac(secret):
         return True
