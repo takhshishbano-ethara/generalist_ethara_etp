@@ -298,6 +298,11 @@ class TaskForgeTaskController(http.Controller):
                 vals['image_url_lines'] = [(0, 0, {'image_url': url, 'image_type': 'start'})]
 
             task = TaskLog.create(vals)
+
+            # Scaffold empty response records from project config
+            if task.project_id and task.project_id.is_response_required:
+                request.env['task.forge.response'].sudo().scaffold_for_task(task)
+
             if task.project_id:
                 if task.project_id.non_stemp_project_status in ['not_started', 'draft']:
                     task.project_id.non_stemp_project_status = 'production'
@@ -350,6 +355,10 @@ class TaskForgeTaskController(http.Controller):
             rubric_validation_error = self._validate_and_stage_rubric_ratings(task, kwargs)
             if rubric_validation_error:
                 return rubric_validation_error
+
+            response_validation_error = self._validate_responses(task, kwargs)
+            if response_validation_error:
+                return response_validation_error
 
             end_screenshot_url = None
             screenshot_file = request.httprequest.files.get('end_screenshot')
@@ -500,6 +509,81 @@ class TaskForgeTaskController(http.Controller):
         self._pending_rubric_vals = vals_list
         return None
 
+    def _validate_responses(self, task, kwargs):
+        """Validate response fields are filled before task completion. Returns Response on error, None on success."""
+        if kwargs.get('blocker_reason'):
+            return None
+
+        project = task.project_id
+        if not project or not project.is_response_required:
+            return None
+
+        unfilled = task.response_ids.filtered(lambda r: not r.value)
+        if unfilled:
+            labels = ', '.join(unfilled.sorted('sequence').mapped('label'))
+            return return_Response(
+                message=f"All response fields must be filled before completing. Missing: {labels}",
+                status=400,
+            )
+        return None
+
+    @http.route('/api/v2/taskforge/tasks/responses', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'task_id': {'type': 'int', 'required': True},
+        'responses': {'type': 'list', 'required': True},
+    })
+    def save_responses(self, **kwargs):
+        try:
+            jdata = kwargs.get('jdata')
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            TaskLog = request.env['task.forge.log'].sudo()
+            task = TaskLog.browse(int(jdata.get('task_id')))
+            if not task.exists():
+                return return_Response(message="Task not found", status=404)
+            if task.employee_id.id != employee.id:
+                return return_Response(message="Not your task", status=403)
+            if task.state != 'in_progress':
+                return return_Response(message="Task is not in progress", status=400)
+
+            responses = jdata.get('responses', [])
+            if not isinstance(responses, list):
+                return return_Response(message="responses must be a list", status=400)
+
+            Response = request.env['task.forge.response'].sudo()
+            for item in responses:
+                if not isinstance(item, dict):
+                    return return_Response(message="Each response must be an object", status=400)
+                config_id = item.get('config_id')
+                value = item.get('value', '')
+                if not config_id:
+                    return return_Response(message="config_id is required in each response", status=400)
+
+                rec = Response.search([
+                    ('task_id', '=', task.id),
+                    ('config_id', '=', int(config_id)),
+                ], limit=1)
+                if not rec:
+                    return return_Response(
+                        message=f"Response config {config_id} not found for this task",
+                        status=404,
+                    )
+                rec.value = value or ''
+
+            task.invalidate_recordset(['response_ids', 'response_completed'])
+
+            return return_Response(
+                message="Responses saved",
+                status=200,
+                data={'data': self._format_task(task)}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
     @http.route('/api/v2/taskforge/tasks/pause', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({"task_id": {"type": "str", "required": True}})
@@ -609,6 +693,9 @@ class TaskForgeTaskController(http.Controller):
 
             task = TaskLog.create(vals)
 
+            if task.project_id and task.project_id.is_response_required:
+                request.env['task.forge.response'].sudo().scaffold_for_task(task)
+
             try:
                 request.env['kubera.notification'].sudo().create({
                     'title': 'Task Created',
@@ -674,7 +761,15 @@ class TaskForgeTaskController(http.Controller):
             'prompt_justification': task.prompt_justification or '',
             'feedback_note': task.feedback_note or '',
             'created_at': str(create_date),
-            'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url]
+            'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url],
+            'responses': [{
+                'id': r.id,
+                'config_id': r.config_id.id if r.config_id else 0,
+                'label': r.label or '',
+                'sequence': r.sequence or 0,
+                'value': r.value or '',
+            } for r in task.response_ids.sorted('sequence')],
+            'response_completed': task.response_completed or False,
         }
 
     @http.route('/api/v2/taskforge/tasks/delete', methods=['DELETE'], type='http', auth='none', csrf=False, cors='*')

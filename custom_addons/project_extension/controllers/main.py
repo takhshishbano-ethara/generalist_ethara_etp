@@ -200,6 +200,10 @@ class ProjectController(http.Controller):
                 vals['is_rubrics_required'] = True
             if kwargs.get('is_justification_required') in ['1', 1, True, 'true']:
                 vals['is_justification_required'] = True
+            if kwargs.get('is_response_required') in ['1', 1, True, 'true']:
+                vals['is_response_required'] = True
+                no_of_responses = int(kwargs.get('no_of_responses', 0))
+                vals['no_of_responses'] = no_of_responses
 
             attachment_ids = []
             files = request.httprequest.files.getlist('files')
@@ -289,6 +293,11 @@ class ProjectController(http.Controller):
                                 'sequence': dim.get('sequence', 10),
                                 'category_id': cat.id,
                             })
+
+            if project.is_response_required and project.no_of_responses > 0:
+                request.env['project.response.config'].sudo().generate_configs_for_project(
+                    project.id, project.no_of_responses
+                )
 
             try:
                 request.env['kubera.notification'].sudo().create({
@@ -780,6 +789,13 @@ class ProjectController(http.Controller):
                 "meeting_bcc_mails": safe_get_value(project, 'meeting_bcc_mails', 'str'),
                 "meeting_subject": safe_get_value(project, 'meeting_subject', 'str'),
                 "meeting_body": safe_get_value(project, 'meeting_body', 'str'),
+                "is_response_required": project.is_response_required or False,
+                "no_of_responses": project.no_of_responses or 0,
+                "response_configs": [{
+                    'id': cfg.id,
+                    'label': cfg.label or '',
+                    'sequence': cfg.sequence,
+                } for cfg in project.response_config_ids.sorted('sequence')],
                 "is_rubrics_required": project.is_rubrics_required or False,
                 "is_justification_required": project.is_justification_required or False,
                 "rubric_categories": [{
