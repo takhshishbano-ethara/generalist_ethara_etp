@@ -1,7 +1,7 @@
 from . import (
     credential_manager as credential_manager,
     github_token as github_token,
-    # jaeger_repository MUST be imported first — all stage files _inherit from it
+    # jaeger_repository MUST be imported before stage files — they _inherit from it
     jaeger_repository as jaeger_repository,
     jaeger_instance as jaeger_instance,
     jaeger_resolved_issue as jaeger_resolved_issue,

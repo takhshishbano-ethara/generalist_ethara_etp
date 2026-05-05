@@ -39,27 +39,6 @@ class JaegerConfigSettings(models.TransientModel):
     # DevOps sets these in the deployment manifest; end users don't manage them.
 
     # ── Docker / ECR ──────────────────────────────────────────────────────
-    jaeger_docker_workdir = fields.Char(
-        string="Docker Workdir",
-        config_parameter="jaeger.docker_workdir",
-        default="/tmp/jaeger_docker",
-    )
-    jaeger_docker_build_mode = fields.Selection(
-        [("local", "Local Docker"), ("kaiju", "Kaiju (K8s)")],
-        string="Docker Build Mode",
-        config_parameter="jaeger.docker_build_mode",
-        default="local",
-    )
-    jaeger_max_build_workers = fields.Integer(
-        string="Max Build Workers",
-        config_parameter="jaeger.max_build_workers",
-        default=8,
-    )
-    jaeger_max_run_workers = fields.Integer(
-        string="Max Run Workers",
-        config_parameter="jaeger.max_run_workers",
-        default=8,
-    )
     jaeger_docker_platform = fields.Char(
         string="Docker Platform",
         config_parameter="jaeger.docker_platform",
@@ -69,10 +48,20 @@ class JaegerConfigSettings(models.TransientModel):
         string="ECR Prefix",
         config_parameter="jaeger.ecr_prefix",
     )
-    jaeger_human_mode = fields.Boolean(
-        string="Human Mode (Sequential Tests)",
-        config_parameter="jaeger.human_mode",
-        default=True,
+    jaeger_container_registry = fields.Char(
+        string="Container Registry",
+        config_parameter="jaeger.container_registry",
+        help="Registry for build/test pod images (e.g. localhost:5000 for sandbox, ECR URL for prod)",
+    )
+    jaeger_build_image = fields.Char(
+        string="Build Worker Image",
+        config_parameter="jaeger.build_image",
+        default="426628337772.dkr.ecr.ap-south-1.amazonaws.com/jaeger-phase2:latest",
+    )
+    jaeger_max_run_workers = fields.Integer(
+        string="Max Run Workers",
+        config_parameter="jaeger.max_run_workers",
+        default=2,
     )
     jaeger_agent_timeout = fields.Integer(
         string="Agent Timeout (s)",

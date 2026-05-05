@@ -88,6 +88,28 @@
             <field name="priority">5</field>
         </record>
 
+        <!-- Reconcile K8s Job status for Stage 3 build Jobs -->
+        <record id="jaeger_cron_reconcile_build_jobs" model="ir.cron">
+            <field name="name">Jaeger: Reconcile Build Jobs (K8s)</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_reconcile_build_jobs()</field>
+            <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <!-- Reconcile K8s Job status for Stage 4 test Jobs -->
+        <record id="jaeger_cron_reconcile_test_jobs" model="ir.cron">
+            <field name="name">Jaeger: Reconcile Test Jobs (K8s)</field>
+            <field name="model_id" ref="model_jaeger_repository"/>
+            <field name="code">model._cron_reconcile_test_jobs()</field>
+            <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
         <record id="jaeger_cron_watchdog_stale_tests" model="ir.cron">
             <field name="name">Jaeger: Watchdog Stale Test Executions</field>
             <field name="model_id" ref="model_jaeger_repository"/>

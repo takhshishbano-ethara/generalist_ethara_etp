@@ -64,7 +64,9 @@ class JaegerRepositoryStage2(models.Model):
                 pass
             if is_terminal or "not found" in error_msg.lower():
                 vals["terminal_state"] = "repo_not_suitable"
+            self.env.cr.rollback()
             self.write(vals)
+            self.env.cr.commit()
             raise UserError(error_msg) from e
 
     def _validate_repo_metadata(self):
@@ -193,9 +195,9 @@ class JaegerRepositoryStage2(models.Model):
         namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
 
         self._ensure_k8s_namespace(core_v1, namespace)
-        s3_bucket = ICP.get_param("jaeger.s3_bucket", "")
-        s3_region = ICP.get_param("jaeger.s3_region", "ap-south-1")
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
         sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
         tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
@@ -351,7 +353,7 @@ class JaegerRepositoryStage2(models.Model):
                 batch_v1.delete_namespaced_job(
                     name=job_name,
                     namespace=namespace,
-                    body=client.V1DeleteOptions(propagation_policy="Background"),
+                    body=client.V1DeleteOptions(propagation_policy="Foreground"),
                 )
                 _time.sleep(2)
                 batch_v1.create_namespaced_job(namespace=namespace, body=job)
@@ -406,6 +408,7 @@ class JaegerRepositoryStage2(models.Model):
             raise UserError("No active pipeline to cancel.")
         self.write({"cancel_requested": True})
         self._append_log("Cancellation requested by user.")
+        self._try_delete_k8s_job()
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -417,8 +420,57 @@ class JaegerRepositoryStage2(models.Model):
             },
         }
 
+    def _try_delete_k8s_job(self):
+        """Best-effort deletion of the active K8s Job to deliver SIGTERM to the pod."""
+        try:
+            from kubernetes import client, config as k8s_config
+        except ImportError:
+            return
+
+        try:
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                config_file = os.environ.get("KUBECONFIG")
+                k8s_config.load_kube_config(
+                    config_file=config_file if config_file else None,
+                )
+            batch_v1 = client.BatchV1Api()
+        except Exception:
+            _logger.debug("K8s config failed during cancel — skipping job deletion")
+            return
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+
+        job_names = []
+        if self.pr_collection_status in ("running", "queued"):
+            job_names.append("jaeger-scrape-%s" % self.id)
+        if self.docker_build_status in ("running", "queued", "building"):
+            job_names.append("jaeger-phase2-%s" % self.id)
+        if self.test_execution_status in ("running", "queued"):
+            job_names.append("jaeger-test-%s" % self.id)
+
+        for job_name in job_names:
+            try:
+                batch_v1.delete_namespaced_job(
+                    name=job_name,
+                    namespace=namespace,
+                    body=client.V1DeleteOptions(propagation_policy="Foreground"),
+                )
+                self._append_log("Deleted K8s Job: %s" % job_name)
+            except client.ApiException as e:
+                if e.status != 404:
+                    _logger.warning("Failed to delete K8s Job %s: %s", job_name, e)
+            except Exception as e:
+                _logger.warning("Failed to delete K8s Job %s: %s", job_name, e)
+
     def action_reset_to_docker_build(self):
-        """Reset repo back to Stage 3 for rebuild after config change."""
+        """Reset repo back to Stage 3 for rebuild after config change.
+
+        Intentionally bypasses _check_current_gate() — this is an operator
+        override that resets pipeline state for a fresh rebuild cycle.
+        """
         self.ensure_one()
         if self.test_execution_status in ("running", "queued"):
             raise UserError("Cannot reset while test execution is running.")
@@ -637,13 +689,12 @@ class JaegerRepositoryStage2(models.Model):
                 local_path.unlink()
 
     def _recover_instances_from_s3(self):
-        """Reconstruct S3 path from ICP params and create instances.
+        """Reconstruct S3 path from env vars and create instances.
 
         Used by the reconciler when the webhook was missed but the K8s job
         succeeded — the S3 artifacts exist but no instances were created.
         """
-        ICP = self.env["ir.config_parameter"].sudo()
-        s3_prefix = ICP.get_param("jaeger.s3_prefix", "jaeger/phase1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
         filename = f"{self.org}__{self.repo_name}_raw_dataset.jsonl"
         mode = self.pipeline_mode or "swe"
         s3_key = f"{s3_prefix}/{mode}/{self.id}/{filename}"

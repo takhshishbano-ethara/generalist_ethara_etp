@@ -14,6 +14,8 @@ _SAFE_GITHUB_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
 _CRON_LOCK_WATCHDOG_SCRAPES = 83927461
 _CRON_LOCK_WATCHDOG_BUILDS = 83927462
 _CRON_LOCK_RECONCILE_SCRAPES = 83927463
+_CRON_LOCK_RECONCILE_BUILDS = 83927464
+_CRON_LOCK_RECONCILE_TESTS = 83927465
 _CRON_LOCK_AUTO_ADVANCE = 83927467
 _CRON_LOCK_POLL_EKS = 83927468
 _CRON_LOCK_WATCHDOG_TESTS = 83927469
@@ -324,6 +326,8 @@ class JaegerRepository(models.Model):
     cancel_requested = fields.Boolean(default=False)
     last_heartbeat = fields.Datetime(string="Last Heartbeat", readonly=True)
     scrape_queued_at = fields.Datetime(string="Scrape Queued At", readonly=True)
+    build_queued_at = fields.Datetime(string="Build Queued At", readonly=True)
+    test_queued_at = fields.Datetime(string="Test Queued At", readonly=True)
 
     # ── Relations ─────────────────────────────────────────────────────────
     instance_ids = fields.One2many(

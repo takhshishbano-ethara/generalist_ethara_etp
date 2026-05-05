@@ -82,8 +82,10 @@ class JaegerController(http.Controller):
     def trajectory_webhook(self, **kwargs):
         from odoo.addons.jaeger.models.credential_manager import get_encrypted_param
         expected = get_encrypted_param(request.env, "jaeger.webhook_secret")
+        if not expected:
+            return {"error": "unauthorized — no webhook secret configured"}
         token = request.httprequest.headers.get("X-Jaeger-Token", "")
-        if not expected or token != expected:
+        if not hmac.compare_digest(token, expected):
             return {"error": "unauthorized"}
 
         job_id = kwargs.get("job_id")
@@ -112,13 +114,28 @@ class JaegerController(http.Controller):
     def _verify_pipeline_token(self):
         secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         if not secret:
+            ICP = request.env["ir.config_parameter"].sudo()
+            secret = ICP.get_param("jaeger.pipeline_webhook_token", "")
+        if not secret:
+            sandbox = request.env["ir.config_parameter"].sudo().get_param(
+                "jaeger.sandbox_mode", "0",
+            ) == "1"
+            if sandbox:
+                if not JaegerController._webhook_auth_warned:
+                    _logger.warning(
+                        "JAEGER_WEBHOOK_TOKEN not set — pipeline webhook auth is DISABLED (sandbox mode). "
+                        "Set this env var in production to secure the webhook endpoint."
+                    )
+                    JaegerController._webhook_auth_warned = True
+                return True
             if not JaegerController._webhook_auth_warned:
-                _logger.warning(
-                    "JAEGER_WEBHOOK_TOKEN not set — pipeline webhook auth is DISABLED. "
-                    "Set this env var in production to secure the webhook endpoint."
+                _logger.error(
+                    "JAEGER_WEBHOOK_TOKEN not set and sandbox_mode is OFF — "
+                    "rejecting pipeline webhook requests. "
+                    "Set JAEGER_WEBHOOK_TOKEN env var or jaeger.pipeline_webhook_token ICP."
                 )
                 JaegerController._webhook_auth_warned = True
-            return True
+            return False
         token = request.httprequest.headers.get("X-Jaeger-Token", "")
         return hmac.compare_digest(token, secret)
 
@@ -223,5 +240,156 @@ class JaegerController(http.Controller):
                     "pr_collection_step": "",
                 })
                 return {"ok": True}
+
+        # ── Stage 3: Docker Build webhooks ───────────────────────────────
+
+        if msg_type == "build_progress":
+            instance_id = kwargs.get("instance_id")
+            build_status = kwargs.get("status", "")
+            image_name = kwargs.get("image_name", "")
+            log_tail = kwargs.get("log_tail", "")
+            if instance_id:
+                inst = request.env["jaeger.instance"].sudo().browse(int(instance_id))
+                if inst.exists():
+                    vals = {"docker_build_status": build_status}
+                    if image_name:
+                        vals["docker_image_name"] = image_name
+                    if log_tail:
+                        vals["docker_build_log"] = log_tail
+                    inst.write(vals)
+            repo.write({"last_heartbeat": fields.Datetime.now()})
+            return {"ok": True}
+
+        if msg_type == "build_base_done":
+            base_name = kwargs.get("base_image_name", "")
+            base_status = kwargs.get("base_image_status", "built")
+            repo.write({
+                "base_image_name": base_name,
+                "base_image_status": base_status,
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            repo._append_log(f"Base image {base_status}: {base_name}")
+            return {"ok": True}
+
+        if msg_type == "build_done":
+            built = kwargs.get("images_built_count", 0)
+            failed = kwargs.get("images_failed_count", 0)
+            vals = {
+                "docker_build_status": "done",
+                "docker_build_progress": 100.0,
+                "images_built_count": built,
+                "images_failed_count": failed,
+                "error_message": False,
+                "terminal_state": "none",
+            }
+            if built == 0 and failed > 0:
+                vals["docker_build_status"] = "failed"
+                vals["terminal_state"] = "build_failed"
+                vals["error_message"] = "All %d image builds failed" % failed
+            else:
+                # Gate-check before advancing stage (consistent with stage2 webhook)
+                repo.write(vals)
+                try:
+                    gate_ok, _ = repo._check_current_gate()
+                    if gate_ok:
+                        repo.write({
+                            "current_stage": "stage4",
+                            "test_execution_status": "running",
+                        })
+                except Exception:
+                    _logger.warning(
+                        "Stage advance after build_done failed for repo %s (cron will catch up)",
+                        repo_id, exc_info=True,
+                    )
+                repo._append_log(f"Docker build complete: {built} built, {failed} failed")
+                return {"ok": True}
+            repo.write(vals)
+            repo._append_log(f"Docker build complete: {built} built, {failed} failed")
+            return {"ok": True}
+
+        if msg_type == "build_failed":
+            error = kwargs.get("error", "Unknown error")
+            repo.write({
+                "docker_build_status": "failed",
+                "error_message": str(error)[:2000],
+            })
+            return {"ok": True}
+
+        # ── Stage 4: Test Execution webhooks ─────────────────────────────
+
+        if msg_type == "test_progress":
+            instance_id = kwargs.get("instance_id")
+            is_valid = kwargs.get("is_valid", False)
+            summary = kwargs.get("summary", "")
+            if instance_id:
+                inst = request.env["jaeger.instance"].sudo().browse(int(instance_id))
+                if inst.exists():
+                    import json as _json
+                    vals = {
+                        "run_log": (kwargs.get("run_log") or "")[-50000:],
+                        "test_patch_run_log": (kwargs.get("test_patch_log") or "")[-50000:],
+                        "fix_patch_run_log": (kwargs.get("fix_patch_log") or "")[-50000:],
+                        "is_valid": is_valid,
+                        "validation_error": "" if is_valid else summary,
+                    }
+                    run_result = kwargs.get("run_result")
+                    if run_result:
+                        vals["run_result_json"] = _json.dumps(run_result)
+                        vals["run_passed_count"] = run_result.get("passed_count", 0)
+                        vals["run_failed_count"] = run_result.get("failed_count", 0)
+                    test_result = kwargs.get("test_result")
+                    if test_result:
+                        vals["test_patch_result_json"] = _json.dumps(test_result)
+                        vals["test_patch_passed_count"] = test_result.get("passed_count", 0)
+                        vals["test_patch_failed_count"] = test_result.get("failed_count", 0)
+                    fix_result = kwargs.get("fix_result")
+                    if fix_result:
+                        vals["fix_patch_result_json"] = _json.dumps(fix_result)
+                        vals["fix_patch_passed_count"] = fix_result.get("passed_count", 0)
+                        vals["fix_patch_failed_count"] = fix_result.get("failed_count", 0)
+                    inst.write(vals)
+            repo.write({"last_heartbeat": fields.Datetime.now()})
+            return {"ok": True}
+
+        if msg_type == "test_done":
+            valid = kwargs.get("valid_count", 0)
+            invalid = kwargs.get("invalid_count", 0)
+            errors = kwargs.get("error_count", 0)
+            vals = {
+                "test_execution_status": "done",
+                "test_execution_progress": 100.0,
+                "instances_valid_count": valid,
+                "instances_invalid_count": invalid,
+                "instances_error_count": errors,
+                "instances_tested_count": valid + invalid + errors,
+                "error_message": False,
+                "terminal_state": "none",
+                "cancel_requested": False,
+            }
+            if valid == 0 and (invalid + errors) > 0:
+                vals["terminal_state"] = "no_valid_instances"
+                vals["error_message"] = "All %d tested instances are invalid" % (invalid + errors)
+            repo.write(vals)
+            if valid > 0:
+                try:
+                    gate_ok, _ = repo._check_current_gate()
+                    if gate_ok:
+                        repo.write({"current_stage": "stage5"})
+                except Exception:
+                    _logger.warning(
+                        "Stage advance after test_done failed for repo %s (cron will catch up)",
+                        repo_id, exc_info=True,
+                    )
+            repo._append_log(f"Test execution complete: {valid} valid, {invalid} invalid, {errors} errors")
+            return {"ok": True}
+
+        if msg_type == "test_failed":
+            error = kwargs.get("error", "Unknown error")
+            repo.write({
+                "test_execution_status": "failed",
+                "error_message": str(error)[:2000],
+                "cancel_requested": False,
+            })
+            return {"ok": True}
 
         return {"error": "unknown message type"}

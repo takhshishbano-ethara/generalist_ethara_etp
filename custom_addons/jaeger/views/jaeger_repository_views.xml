@@ -48,14 +48,14 @@
                     <!-- Stage 3: Docker Build -->
                     <button name="action_build_docker_images" type="object" string="Build Images (Queue)"
                             class="btn-primary" invisible="1"/>
-                    <button name="action_build_docker_direct" type="object" string="Build Images"
+                    <button name="action_build_docker_direct" type="object" string="Build &amp; Test"
                             class="btn-primary" invisible="current_stage != 'stage3' or docker_build_status in ('building', 'queued')"/>
 
                     <!-- Stage 4: Test Execution -->
                     <button name="action_run_tests" type="object" string="Run Tests (Queue)"
                             class="btn-primary" invisible="1"/>
                     <button name="action_run_tests_direct" type="object" string="Run Tests"
-                            class="btn-primary" invisible="current_stage != 'stage4' or test_execution_status in ('running', 'queued')"/>
+                            class="btn-primary" invisible="1"/>
 
                     <!-- Stage 5: Dataset Finalization -->
                     <button name="action_finalize_dataset" type="object" string="Finalize Dataset (Queue)"
@@ -158,10 +158,6 @@
                                     <field name="raw_dataset_count"/>
                                     <field name="s3_folder_url" widget="url" readonly="1"/>
                                 </group>
-                            </group>
-                            <group string="Collection Timeline" invisible="not pr_collection_log">
-                                <field name="pr_collection_log" readonly="1" nolabel="1"
-                                       widget="text" class="o_field_text"/>
                             </group>
                             <!-- LHT fields -->
                             <group string="LHT Settings" invisible="pipeline_mode != 'lht'">

@@ -1,22 +1,18 @@
+import json
 import logging
+import os
+import time as _time
 
-from odoo import models
+from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from odoo.addons.jaeger.worker.pipeline_helpers import (
-    PipelineCancelled,
-    _append_log_standalone,
-    _check_cancelled,
-    _write_with_retry,
-)
+from .credential_manager import get_encrypted_param
 
 _logger = logging.getLogger(__name__)
 
 
 class JaegerRepositoryStage4(models.Model):
     _inherit = "jaeger.repository"
-
-    # ── Stage 4 Actions ──────────────────────────────────────────────────
 
     def action_run_tests(self):
         raise UserError(
@@ -25,125 +21,235 @@ class JaegerRepositoryStage4(models.Model):
         )
 
     def action_run_tests_direct(self):
-        self.ensure_one()
-        if self.current_stage != "stage4":
-            raise UserError("Repository must be in Stage 4.")
-        built = self.instance_ids.filtered(
-            lambda i: i.docker_build_status == "built",
-        )
-        if not built:
-            raise UserError("No built images found.")
-        if self.test_execution_status in ("running", "queued"):
-            raise UserError("Test execution is already in progress.")
-        return self._run_pipeline_async(
-            "_run_all_tests", "test_execution_status", "Test Execution",
+        raise UserError(
+            "Test execution now runs automatically as part of the Build Images step. "
+            "Tests are executed in the same pod immediately after images are built."
         )
 
-    def _run_all_tests(self):
-        """Run test execution for all built instances in parallel."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _create_test_k8s_job(self):
+        try:
+            from kubernetes import client, config as k8s_config
+        except ImportError:
+            raise RuntimeError("kubernetes package not installed.")
 
-        from .jaeger_instance import _run_instance_tests_standalone
-
-        self.ensure_one()
-        self.write({"test_execution_status": "running", "error_message": False})
-        self.env.cr.commit()
-
-        built = self.instance_ids.filtered(
-            lambda i: i.docker_build_status == "built",
-        )
-        instance_ids = built.ids
-        total = len(instance_ids)
-        if not total:
-            self.write({"test_execution_status": "done", "error_message": "No built instances"})
-            self.env.cr.commit()
-            return
-
-        db_name = self.env.cr.dbname
-        repo_id = self.id
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            config_file = os.environ.get("KUBECONFIG")
+            k8s_config.load_kube_config(
+                config_file=config_file if config_file else None,
+            )
+        batch_v1 = client.BatchV1Api()
+        core_v1 = client.CoreV1Api()
 
         ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+        self._ensure_k8s_namespace(core_v1, namespace)
+
+        sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
+        container_registry = ICP.get_param("jaeger.container_registry", "")
+        ecr_prefix = ICP.get_param("jaeger.ecr_prefix", "")
+        registry = container_registry or ecr_prefix
+
+        manifest_key = self._upload_test_manifest()
+
+        webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
+        base_url = (
+            os.environ.get("JAEGER_WEBHOOK_BASE_URL")
+            or ICP.get_param("web.base.url", "http://localhost:8069")
+        )
+        webhook_url = "%s/jaeger/webhook/pipeline" % base_url.rstrip("/")
+
+        job_name = "jaeger-test-%s" % self.id
+        secret_name = "jaeger-test-%s-secrets" % self.id
+
+        secret_data = {"WEBHOOK_SECRET": webhook_secret}
+        if sandbox:
+            aws_key = ICP.get_param("jaeger.s3_access_key", "")
+            aws_secret_val = ICP.get_param("jaeger.s3_secret_key", "")
+            if aws_key:
+                secret_data["AWS_ACCESS_KEY_ID"] = aws_key
+            if aws_secret_val:
+                secret_data["AWS_SECRET_ACCESS_KEY"] = aws_secret_val
+
+        self._upsert_k8s_secret(
+            core_v1, namespace, secret_name, secret_data,
+            {"app.kubernetes.io/name": "jaeger-test", "repo-id": str(self.id)},
+        )
+
+        def _secret_ref(key):
+            return client.V1EnvVar(
+                name=key,
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name=secret_name, key=key,
+                    ),
+                ),
+            )
+
+        config = self._get_effective_config()
         max_workers = int(ICP.get_param("jaeger.max_run_workers", "2"))
         agent_timeout = int(ICP.get_param("jaeger.agent_timeout", "1800"))
 
-        _append_log_standalone(db_name, repo_id,
-            f"Starting parallel test execution: {total} instances, {max_workers} workers")
+        env_vars = [
+            client.V1EnvVar(name="REPO_ID", value=str(self.id)),
+            client.V1EnvVar(name="REPO_ORG", value=self.org),
+            client.V1EnvVar(name="REPO_NAME", value=self.repo_name),
+            client.V1EnvVar(name="REPO_LANGUAGE", value=self.language or "python"),
+            client.V1EnvVar(name="MANIFEST_S3_KEY", value=manifest_key),
+            client.V1EnvVar(name="AGENT_TIMEOUT", value=str(agent_timeout)),
+            client.V1EnvVar(name="MAX_WORKERS", value=str(max_workers)),
+            client.V1EnvVar(name="TEST_CONFIG_JSON", value=json.dumps(config)),
+            client.V1EnvVar(name="CONTAINER_REGISTRY", value=registry),
+            client.V1EnvVar(name="S3_BUCKET", value=s3_bucket),
+            client.V1EnvVar(name="S3_REGION", value=s3_region),
+            client.V1EnvVar(name="S3_PREFIX", value=s3_prefix),
+            client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
+            _secret_ref("WEBHOOK_SECRET"),
+            client.V1EnvVar(name="DOCKER_HOST", value="tcp://localhost:2375"),
+        ]
 
-        completed = valid_count = invalid_count = error_count = 0
+        if sandbox:
+            s3_endpoint = ICP.get_param("jaeger.s3_endpoint", "")
+            if s3_endpoint:
+                env_vars.append(client.V1EnvVar(name="JAEGER_S3_ENDPOINT", value=s3_endpoint))
+            if secret_data.get("AWS_ACCESS_KEY_ID"):
+                env_vars.append(_secret_ref("AWS_ACCESS_KEY_ID"))
+            if secret_data.get("AWS_SECRET_ACCESS_KEY"):
+                env_vars.append(_secret_ref("AWS_SECRET_ACCESS_KEY"))
 
-        cancelled = False
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(_run_instance_tests_standalone, db_name, iid, agent_timeout): iid
-                for iid in instance_ids
+        build_image = ICP.get_param(
+            "jaeger.build_image",
+            "426628337772.dkr.ecr.ap-south-1.amazonaws.com/jaeger-phase2:latest",
+        )
+
+        worker_container = client.V1Container(
+            name="worker",
+            image=build_image,
+            image_pull_policy="Never" if sandbox else "Always",
+            command=["python", "worker/test_entrypoint.py"],
+            env=env_vars,
+            resources=client.V1ResourceRequirements(
+                requests={"cpu": "500m", "memory": "1Gi", "ephemeral-storage": "5Gi"},
+                limits={"memory": "2Gi", "ephemeral-storage": "20Gi"},
+            ),
+        )
+
+        dind_container = client.V1Container(
+            name="dind",
+            image="docker:27-dind",
+            security_context=client.V1SecurityContext(privileged=True),
+            env=[client.V1EnvVar(name="DOCKER_TLS_CERTDIR", value="")],
+            volume_mounts=[
+                client.V1VolumeMount(name="docker-storage", mount_path="/var/lib/docker"),
+            ],
+            resources=client.V1ResourceRequirements(
+                requests={"cpu": "2", "memory": "4Gi", "ephemeral-storage": "20Gi"},
+                limits={"memory": "16Gi", "ephemeral-storage": "50Gi"},
+            ),
+        )
+
+        volumes = [
+            client.V1Volume(name="docker-storage", empty_dir=client.V1EmptyDirVolumeSource()),
+        ]
+
+        pod_spec_kwargs = {
+            "restart_policy": "Never",
+            "containers": [worker_container, dind_container],
+            "volumes": volumes,
+        }
+
+        if sandbox:
+            pod_spec_kwargs["host_network"] = True
+            pod_spec_kwargs["dns_policy"] = "None"
+            pod_spec_kwargs["dns_config"] = client.V1PodDNSConfig(nameservers=["127.0.0.11"])
+        else:
+            pod_spec_kwargs["service_account_name"] = "jaeger-pipeline-runner"
+            pod_spec_kwargs["node_selector"] = {
+                "kubernetes.io/arch": "amd64",
+                "ethara.ai/node-pool": "build",
             }
-            for future in as_completed(futures):
-                iid = futures[future]
-                try:
-                    res = future.result()
-                except Exception as e:
-                    _logger.error("Instance %s raised: %s", iid, e)
-                    res = {"instance_id": iid, "success": False, "is_valid": False,
-                           "error": str(e), "summary": f"exception: {e}"}
 
-                completed += 1
-                if res.get("is_valid"):
-                    valid_count += 1
-                elif res.get("success"):
-                    invalid_count += 1
-                if res.get("error"):
-                    error_count += 1
+        labels = {
+            "app.kubernetes.io/name": "jaeger-test",
+            "app.kubernetes.io/component": "pipeline",
+            "repo-id": str(self.id),
+            "platform": "jaeger",
+        }
+        if not sandbox:
+            labels["kueue.x-k8s.io/queue-name"] = "jaeger-testing"
 
-                summary = res.get("summary") or res.get("error") or "done"
-                _append_log_standalone(db_name, repo_id,
-                    f"  [{completed}/{total}] instance #{iid}: {summary}")
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(name=job_name, namespace=namespace, labels=labels),
+            spec=client.V1JobSpec(
+                ttl_seconds_after_finished=3600,
+                backoff_limit=1,
+                active_deadline_seconds=21600,
+                template=client.V1PodTemplateSpec(
+                    metadata=client.V1ObjectMeta(labels=labels),
+                    spec=client.V1PodSpec(**pod_spec_kwargs),
+                ),
+            ),
+        )
 
-                _write_with_retry(db_name, repo_id, {
-                    "test_execution_progress": (completed / total) * 100,
-                    "instances_tested_count": completed,
-                    "instances_valid_count": valid_count,
-                    "instances_invalid_count": invalid_count,
-                    "instances_error_count": error_count,
-                })
-
-                try:
-                    _check_cancelled(db_name, repo_id)
-                except PipelineCancelled:
-                    _append_log_standalone(db_name, repo_id, "Cancellation requested — stopping remaining instances")
-                    for f in futures:
-                        f.cancel()
-                    cancelled = True
-                    break
-
-        if cancelled:
-            _append_log_standalone(db_name, repo_id,
-                f"Test execution cancelled: {completed}/{total} done, {valid_count} valid, {invalid_count} invalid")
-        else:
-            _append_log_standalone(db_name, repo_id,
-                f"Test execution complete: {valid_count} valid, {invalid_count} invalid, {error_count} errors")
-
-        if cancelled:
-            vals = {"test_execution_status": "failed", "terminal_state": "none",
-                    "error_message": "Cancelled by user after %d/%d instances" % (completed, total),
-                    "cancel_requested": False}
-        else:
-            vals = {"test_execution_status": "done", "terminal_state": "none", "error_message": False,
-                    "cancel_requested": False}
-            if valid_count == 0 and completed > 0:
-                vals["terminal_state"] = "no_valid_instances"
-                vals["error_message"] = (
-                    "All %d tested instances are invalid — no fix signal detected."
-                    % completed
-                )
         try:
-            gate_ok, _ = self._check_current_gate()
-            if gate_ok:
-                next_stage = self._next_stage()
-                if next_stage:
-                    vals["current_stage"] = next_stage
-            self.write(vals)
-            self.env.cr.commit()
-        except Exception:
-            _logger.warning("Final write via ORM failed, using standalone retry")
-            _write_with_retry(db_name, repo_id, vals)
+            batch_v1.create_namespaced_job(namespace=namespace, body=job)
+        except client.ApiException as e:
+            if e.status == 409:
+                _logger.warning("Test Job %s already exists — recreating", job_name)
+                batch_v1.delete_namespaced_job(
+                    name=job_name, namespace=namespace,
+                    body=client.V1DeleteOptions(propagation_policy="Foreground"),
+                )
+                _time.sleep(2)
+                batch_v1.create_namespaced_job(namespace=namespace, body=job)
+            else:
+                raise
 
+        self.write({"test_queued_at": fields.Datetime.now()})
+        self._append_log(f"Created K8s test Job: {job_name}")
+        _logger.info("Created K8s Test Job %s for repo %s", job_name, self.name)
+
+    def _upload_test_manifest(self):
+        import boto3
+        from botocore.config import Config
+
+        built_instances = self.instance_ids.filtered(
+            lambda i: i.docker_build_status == "built" and i.docker_image_name,
+        )
+        manifest = []
+        for inst in built_instances:
+            manifest.append({
+                "id": inst.id,
+                "name": inst.name,
+                "docker_image_name": inst.docker_image_name,
+                "fix_patch": inst.fix_patch or "",
+                "test_patch": inst.test_patch or "",
+                "selected_test_files_json": inst.selected_test_files_json or "",
+            })
+
+        manifest_json = json.dumps(manifest).encode("utf-8")
+        s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+        s3_region = os.environ.get("JAEGER_S3_REGION", "ap-south-1")
+        s3_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
+
+        config_kwargs = {"connect_timeout": 10, "read_timeout": 60}
+        endpoint = os.environ.get("JAEGER_S3_ENDPOINT")
+        if endpoint:
+            config_kwargs["s3"] = {"addressing_style": "path"}
+
+        client = boto3.client(
+            "s3", region_name=s3_region,
+            endpoint_url=endpoint or f"https://s3.{s3_region}.amazonaws.com",
+            config=Config(**config_kwargs),
+        )
+
+        key = f"{s3_prefix}/manifests/{self.id}/test_manifest.json"
+        client.put_object(Bucket=s3_bucket, Key=key, Body=manifest_json, ContentType="application/json")
+        _logger.info("Uploaded test manifest: %d instances to s3://%s/%s", len(manifest), s3_bucket, key)
+        return key
