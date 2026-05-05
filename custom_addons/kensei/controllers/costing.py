@@ -34,7 +34,7 @@ def _task_row(task):
 
     return {
         "task_id": task.id,
-        "task_name": task.name or ("Task #%d" % task.id),
+        "task_name": task.task_id or ("Task #%d" % task.id),
         "bedrock_input": bi,
         "bedrock_output": bo,
         "bedrock_total": bt,

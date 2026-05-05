@@ -895,6 +895,8 @@ class Kensei(models.Model):
     golden_error = fields.Text(string="Golden Error")
     golden_started_at = fields.Datetime(string="Golden Started At")
 
+    rubrics = fields.Text(string="Rubrics (JSON)")
+
     task_description = fields.Text(string="Task Description")
     task_description_status = fields.Selection(
         [
@@ -981,9 +983,10 @@ class Kensei(models.Model):
         return records
 
     def ensure_sandboxes(self):
+        from .kensei_sandbox import MODEL_TYPES
         for rec in self:
             existing = rec.sandbox_ids.mapped("model_type")
-            for mtype in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+            for mtype, _label in MODEL_TYPES:
                 if mtype not in existing:
                     self.env["kensei.sandbox"].create(
                         {"kensei_id": rec.id, "model_type": mtype}

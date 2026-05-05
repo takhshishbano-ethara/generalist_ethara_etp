@@ -127,42 +127,16 @@
               <field name="claude_trajectory" widget="kensei_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
               <separator string="Kimi K2.5 Trajectory" colspan="2"/>
               <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.5 Trajectory" colspan="2"/>
-              <separator string="1PA Trajectory" colspan="2"/>
-              <field name="onePA_trajectory" widget="kensei_json" nolabel="1" placeholder="1PA Trajectory" colspan="2"/>
-              <separator string="1PB Trajectory" colspan="2"/>
-              <field name="onePB_trajectory" widget="kensei_json" nolabel="1" placeholder="1PB Trajectory" colspan="2"/>
-              <separator string="1PC Trajectory" colspan="2"/>
-              <field name="onePC_trajectory" widget="kensei_json" nolabel="1" placeholder="1PC Trajectory" colspan="2"/>
-              <separator string="1PD Trajectory" colspan="2"/>
-              <field name="onePD_trajectory" widget="kensei_json" nolabel="1" placeholder="1PD Trajectory" colspan="2"/>
             </group>
+            <field name="onePA_trajectory" invisible="1"/>
+            <field name="onePB_trajectory" invisible="1"/>
+            <field name="onePC_trajectory" invisible="1"/>
+            <field name="onePD_trajectory" invisible="1"/>
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>
             <field name="golden_started_at" invisible="1"/>
-            <group string="Golden Trajectory">
-              <div colspan="2" invisible="golden_status != 'generating'">
-                <span class="text-info">
-                  <i class="fa fa-spinner fa-spin"/> Generating golden trajectory (up to 20 min)…
-                </span>
-                <span class="text-muted ms-2" invisible="not golden_started_at">
-                  Started: <field name="golden_started_at" widget="datetime" readonly="1" nolabel="1" class="d-inline"/>
-                </span>
-              </div>
-              <div colspan="2" invisible="golden_status != 'error'">
-                <div class="d-flex align-items-start gap-2 mb-2">
-                  <span class="text-danger">
-                    <i class="fa fa-exclamation-triangle"/> Generation failed:
-                  </span>
-                  <button class="btn btn-sm btn-outline-warning"
-                          name="action_generate_golden_trajectory" type="object"
-                          confirm="Retry golden trajectory generation?">
-                    <i class="fa fa-refresh"/> Retry
-                  </button>
-                </div>
-                <field name="golden_error" nolabel="1" readonly="1"/>
-              </div>
-              <field name="golden_trajectory" widget="kensei_json" nolabel="1" placeholder="Golden Trajectory" colspan="2"/>
-            </group>
+            <field name="golden_trajectory" invisible="1"/>
+            <field name="rubrics" invisible="1"/>
           </sheet>
         </form>
       </field>

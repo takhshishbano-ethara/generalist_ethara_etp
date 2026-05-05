@@ -9,21 +9,13 @@ import { clearChatSession } from "../chat_widget/chat_widget";
 import { rpc } from "@web/core/network/rpc";
 
 const MODEL_TABS = [
-    { type: "claude", label: "Claude 4.7", icon: "fa-microchip" },
+    { type: "claude", label: "Claude Opus 4.7", icon: "fa-microchip" },
     { type: "glm", label: "Kimi K2.5", icon: "fa-cube" },
-    { type: "1pa", label: "1PA", icon: "fa-flask" },
-    { type: "1pb", label: "1PB", icon: "fa-flask" },
-    { type: "1pc", label: "1PC", icon: "fa-flask" },
-    { type: "1pd", label: "1PD", icon: "fa-flask" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
     claude: "claude_trajectory",
     glm: "glm_trajectory",
-    "1pa": "onePA_trajectory",
-    "1pb": "onePB_trajectory",
-    "1pc": "onePC_trajectory",
-    "1pd": "onePD_trajectory",
 };
 
 const STATUS_POLL_INTERVAL_MS = 5000;
@@ -45,6 +37,9 @@ export class TaskDashboard extends Component {
             sandboxes: {},
             showGogAuth: false,
             gogAuthDone: false,
+            rubrics: [],
+            newRubricLabel: "",
+            rubricError: "",
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -58,6 +53,7 @@ export class TaskDashboard extends Component {
         onMounted(() => {
             this._loadSandboxes();
             this._checkGogAuthStatus();
+            this._loadRubrics();
         });
         onWillUnmount(() => {
             this._stopPolling();
@@ -107,7 +103,7 @@ export class TaskDashboard extends Component {
 
         await this.orm.call("kensei.kensei", "ensure_sandboxes", [[this.taskId]]);
 
-        if (sandboxes.length === 0 || sandboxes.length < 6) {
+        if (sandboxes.length === 0 || sandboxes.length < MODEL_TABS.length) {
             sandboxes = await this.orm.searchRead(
                 "kensei.sandbox",
                 [["kensei_id", "=", this.taskId]],
@@ -425,6 +421,130 @@ export class TaskDashboard extends Component {
     onGogAuthSuccess() {
         this.state.showGogAuth = false;
         this.state.gogAuthDone = true;
+    }
+
+    get trajectoryEntries() {
+        const fieldName = TRAJECTORY_FIELD_MAP[this.state.activeTab];
+        if (!fieldName) return [];
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    get trajectoryCount() {
+        return this.trajectoryEntries.length;
+    }
+
+    get maxTrajectories() {
+        return 12;
+    }
+
+    _loadRubrics() {
+        const raw = this.props.record.data.rubrics;
+        if (!raw || !raw.trim()) {
+            this.state.rubrics = [];
+            return;
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                // Legacy format: plain array — add justification to each if missing
+                this.state.rubrics = parsed.map(r => ({
+                    ...r,
+                    justification: r.justification || { claude: "", glm: "" },
+                }));
+            } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
+                // Wrapped format migration — move global justification into each rubric
+                const globalJ = parsed.justification || { claude: "", glm: "" };
+                this.state.rubrics = parsed.rubrics.map(r => ({
+                    ...r,
+                    justification: r.justification || { ...globalJ },
+                }));
+            } else {
+                this.state.rubrics = [];
+            }
+        } catch (_e) {
+            this.state.rubrics = [];
+        }
+    }
+
+    async _saveRubrics() {
+        const value = JSON.stringify(this.state.rubrics);
+        await this.orm.write("kensei.kensei", [this.taskId], { rubrics: value });
+        await this.props.record.load();
+    }
+
+    onRubricLabelInput(ev) {
+        this.state.newRubricLabel = ev.target.value;
+    }
+
+    async onAddRubric() {
+        const label = this.state.newRubricLabel.trim();
+        if (!label) return;
+        const hasEmpty = this.state.rubrics.some(r =>
+            r.claude.some(v => v === null) || r.glm.some(v => v === null)
+        );
+        if (hasEmpty) {
+            this.state.rubricError = "Complete all Pass/Fail ratings on existing rubrics before adding a new one.";
+            return;
+        }
+        this.state.rubricError = "";
+        this.state.rubrics.push({
+            label,
+            claude: Array(12).fill(null),
+            glm: Array(12).fill(null),
+            justification: { claude: "", glm: "" },
+        });
+        this.state.newRubricLabel = "";
+        await this._saveRubrics();
+    }
+
+    onRubricKeydown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.onAddRubric();
+        }
+    }
+
+    async onRemoveRubric(index) {
+        this.state.rubrics.splice(index, 1);
+        await this._saveRubrics();
+    }
+
+    async onToggleRubricResult(rubricIndex, model, slotIndex) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const current = rubric[model][slotIndex];
+        if (current === null || current === "fail") {
+            rubric[model][slotIndex] = "pass";
+        } else {
+            rubric[model][slotIndex] = "fail";
+        }
+        await this._saveRubrics();
+    }
+
+    rubricNeedsJustification(rubricIndex, model) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return false;
+        const modelKey = model === "claude" ? "claude" : "glm";
+        const pass8 = rubric[modelKey].slice(0, 8);
+        return pass8.every(v => v === "fail");
+    }
+
+    onJustificationInput(rubricIndex, model, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        if (!rubric.justification) rubric.justification = { claude: "", glm: "" };
+        rubric.justification[model] = ev.target.value;
+    }
+
+    async onSaveJustification() {
+        await this._saveRubrics();
     }
 
     _setSandboxStatus(sandboxId, status) {

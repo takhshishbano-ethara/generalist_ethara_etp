@@ -39,19 +39,11 @@ _SANDBOX_LOCK = threading.Lock()
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
     ("glm", "Kimi K2.5"),
-    ("1pa", "1PA"),
-    ("1pb", "1PB"),
-    ("1pc", "1PC"),
-    ("1pd", "1PD"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
     "glm": "litellm/kimi-k2.5",
-    "1pa": "litellm/quiet_sand",
-    "1pb": "litellm/quiet_sand",
-    "1pc": "litellm/quiet_sand",
-    "1pd": "litellm/quiet_sand",
 }
 
 GATEWAY_PORT_BASE = 21000
@@ -1401,7 +1393,16 @@ class KenseiSandbox(models.Model):
                     "window_end": window_end.isoformat(),
                 }
 
-                entries = [session_entry]
+                # APPEND to existing trajectory entries (multi-session, cap at 12)
+                MAX_TRAJECTORIES_PER_MODEL = 12
+                existing_raw = self.kensei_id[field_name] or ""
+                entries = json.loads(existing_raw) if existing_raw.strip() else []
+                if not isinstance(entries, list):
+                    entries = []
+                entries.append(session_entry)
+                # Cap at 12 — keep most recent
+                if len(entries) > MAX_TRAJECTORIES_PER_MODEL:
+                    entries = entries[-MAX_TRAJECTORIES_PER_MODEL:]
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.kensei_id.write({field_name: new_value})
