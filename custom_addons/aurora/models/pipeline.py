@@ -544,21 +544,12 @@ class AuroraPipeline(models.Model):
 
         s3_config = {
             "bucket": config.get("s3_bucket", ""),
-            # "access_key": config.get("s3_access_key", ""),
-            # "secret_key": config.get("s3_secret_key", ""),
             "region": config.get("s3_region", "ap-south-1"),
             "folder": config.get("s3_folder", ""),
         }
         use_s3 = s3_storage.is_configured(s3_config)
 
         if use_s3:
-            try:
-                s3_storage.validate_credentials(s3_config)
-            except Exception as exc:
-                raise UserError(
-                    f"S3 credential validation failed: {exc}\n"
-                    "Check your S3 bucket, access key, secret key, and region in Settings."
-                ) from exc
             s3_folder = s3_config.get("folder", "").strip("/")
             if s3_folder:
                 out = f"s3://{s3_config['bucket']}/{s3_folder}/aurora_phase1/{self.github_org}__{self.github_repo}"
