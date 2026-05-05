@@ -34,7 +34,7 @@ function renderMarkdown(text) {
 const LOG_PREFIX = "[talos-chat]";
 const STREAM_WORD_THRESHOLD = 5;
 const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
-const CHAT_TIMEOUT_MS = 5 * 60 * 1000;
+const CHAT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const LOGIN_URL_PATTERNS = [
     /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
