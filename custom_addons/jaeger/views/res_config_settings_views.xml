@@ -31,33 +31,25 @@
                         <setting string="Build Configuration">
                             <div class="content-group">
                                 <div class="row mt8">
-                                    <label for="jaeger_docker_build_mode" class="col-lg-3"/>
-                                    <field name="jaeger_docker_build_mode"/>
-                                </div>
-                                <div class="row mt8">
-                                    <label for="jaeger_docker_workdir" class="col-lg-3"/>
-                                    <field name="jaeger_docker_workdir"/>
-                                </div>
-                                <div class="row mt8">
                                     <label for="jaeger_docker_platform" class="col-lg-3"/>
                                     <field name="jaeger_docker_platform"/>
-                                </div>
-                                <div class="row mt8">
-                                    <label for="jaeger_max_build_workers" class="col-lg-3"/>
-                                    <field name="jaeger_max_build_workers"/>
                                 </div>
                                 <div class="row mt8">
                                     <label for="jaeger_ecr_prefix" class="col-lg-3"/>
                                     <field name="jaeger_ecr_prefix"/>
                                 </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_build_image" class="col-lg-3"/>
+                                    <field name="jaeger_build_image"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="jaeger_container_registry" class="col-lg-3"/>
+                                    <field name="jaeger_container_registry"/>
+                                </div>
                             </div>
                         </setting>
                         <setting string="Test Execution">
                             <div class="content-group">
-                                <div class="row mt8">
-                                    <label for="jaeger_human_mode" class="col-lg-3"/>
-                                    <field name="jaeger_human_mode"/>
-                                </div>
                                 <div class="row mt8">
                                     <label for="jaeger_agent_timeout" class="col-lg-3"/>
                                     <field name="jaeger_agent_timeout"/>
