@@ -23,6 +23,8 @@ class TaskForgeLog(models.Model):
     state = fields.Selection([
         ('in_progress', 'In Progress'),
         ('completed', 'Completed'),
+        ('qc_approved', 'QC Approved'),
+        ('qc_rejected', 'QC Rejected'),
         ('blocker', 'Blocker'),
         ('returned', 'Returned'),
         ('ack', 'Acknowledged'),
@@ -97,8 +99,14 @@ class TaskForgeLog(models.Model):
     employee_name = fields.Char(related='employee_id.name', store=True)
     project_name = fields.Char(related='project_id.name', store=True)
     image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
+    chain_of_thought = fields.Text(string='Chain of Thought')
 
-    # Rating Syste
+    # QC Review
+    reviewed_by_id = fields.Many2one('hr.employee', string='Reviewed By', readonly=True)
+    review_date = fields.Datetime(string='Review Date', readonly=True)
+    rejection_reason = fields.Text(string='Rejection Reason')
+
+    # Rating System
     task_score = fields.Integer(string='Task Score')
     comment = fields.Char(string='Comment')
 

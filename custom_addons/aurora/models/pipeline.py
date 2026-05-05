@@ -10,7 +10,6 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from .pipeline_config import GITHUB_LANG_MAP, LANGUAGE_SELECTION
-from .credential_manager import get_encrypted_param
 
 _logger = logging.getLogger(__name__)
 
@@ -30,6 +29,44 @@ _local_threads_lock = threading.Lock()
 
 # Maximum file size (bytes) allowed for in-memory download via ir.attachment.
 _MAX_DOWNLOAD_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
+
+# ---------------------------------------------------------------------------
+# DevOps-managed infrastructure constants (Talos pattern).
+# These values are managed by the DevOps team at the cluster level.
+# Do NOT expose them as UI-configurable settings.
+# ---------------------------------------------------------------------------
+NAMESPACE = "aurora"
+
+NODE_SELECTOR = {
+    "ethara.ai/node-pool": "general-purpose",
+}
+
+SERVICE_ACCOUNT = "aurora-worker"
+
+S3_BUCKET = "production-grtlabs-tag"
+S3_REGION = "us-east-1"
+S3_AURORA_PREFIX = "aurora"
+
+KUEUE_QUEUE = "aurora-pipelines"
+
+DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/odoo:latest"
+
+CPU_REQUEST = "1"
+MEMORY_REQUEST = "2Gi"
+MEMORY_LIMIT = "4Gi"
+
+DEADLINE_SECONDS = 14400  # 4 hours
+
+WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py"
+ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
+
+CONFIGMAP_NAME = "aurora-worker-config"
+SECRET_NAME = "aurora-odoo-config"
+WORKER_SECRET_NAME = "aurora-odoo-config"
+
+
+def _get_env(key: str, default: str = "") -> str:
+    return os.environ.get(key, default).strip()
 
 
 def _load_k8s_config():
@@ -256,11 +293,11 @@ class AuroraPipeline(models.Model):
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
             "lang": ICP.get_param("aurora.lang", "python"),
-            "s3_bucket": ICP.get_param("aurora.s3_bucket", ""),
-            "s3_access_key": get_encrypted_param(self.env, "aurora.s3_access_key"),
-            "s3_secret_key": get_encrypted_param(self.env, "aurora.s3_secret_key"),
-            "s3_region": ICP.get_param("aurora.s3_region", "ap-south-1"),
-            "s3_folder": ICP.get_param("aurora.s3_folder", ""),
+            "s3_bucket": S3_BUCKET,
+            "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
+            "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),
+            "s3_region": S3_REGION,
+            "s3_folder": S3_AURORA_PREFIX,
         }
 
     def _detect_language_from_github(self):
@@ -317,35 +354,13 @@ class AuroraPipeline(models.Model):
             return self._detect_language_from_github()
         return ICP.get_param("aurora.lang", "python")
 
-    def _get_k8s_setting(self, key, default=""):
-        return self.env["ir.config_parameter"].sudo().get_param(
-            f"aurora.k8s_{key}", default,
-        )
-
     def _create_pipeline_job(self):
-        """Create a K8s Job to run this pipeline in an isolated pod."""
         if not K8S_AVAILABLE:
             raise UserError("kubernetes Python package is not installed on this server.")
 
-        namespace = self._get_k8s_setting("namespace", "aurora")
-        image = self._get_k8s_setting("image")
-        service_account = self._get_k8s_setting("service_account", "aurora-worker")
-        node_pool = self._get_k8s_setting("node_pool", "")
-        kueue_queue = self._get_k8s_setting("kueue_queue", "aurora-pipelines")
         db_name = self.env.cr.dbname
         job_uid = uuid.uuid4().hex[:12]
         job_name = f"aurora-pipeline-{self.id}-{job_uid}"
-
-        if not image:
-            raise UserError(
-                "K8s worker image not configured. "
-                "Set it in Settings → Aurora Pipeline → K8s Docker Image."
-            )
-
-        worker_script = self._get_k8s_setting(
-            "worker_script",
-            "/opt/ethara/app/custom_addons/aurora/worker/run_pipeline.py",
-        )
 
         _load_k8s_config()
         batch_v1 = k8s_client.BatchV1Api()
@@ -353,69 +368,71 @@ class AuroraPipeline(models.Model):
         env_vars = [
             k8s_client.V1EnvVar(name="PIPELINE_ID", value=str(self.id)),
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
-            # The Job runs `python <worker_script>` directly, so only the
-            # script's directory lands on sys.path — `odoo` and
-            # `odoo.addons.aurora` are unreachable without PYTHONPATH.
-            # The etp pod avoids this because odoo-bin bootstraps sys.path
-            # itself. Mirror jaeger's worker layout here.
             k8s_client.V1EnvVar(
                 name="PYTHONPATH",
                 value="/opt/ethara/app/src:/opt/ethara/app:/opt/ethara/app/custom_addons",
             ),
+            k8s_client.V1EnvVar(name="ODOO_CONF", value=ODOO_CONF_PATH),
         ]
 
-        odoo_conf = self._get_k8s_setting("odoo_conf", "/etc/odoo/odoo.conf")
-        if odoo_conf:
-            env_vars.append(k8s_client.V1EnvVar(name="ODOO_CONF", value=odoo_conf))
-
-        from .credential_manager import get_encrypted_param
         ICP = self.env["ir.config_parameter"].sudo()
 
-        webhook_secret = get_encrypted_param(self.env, "aurora.webhook_secret")
-        webhook_url = ICP.get_param("aurora.webhook_url", "")
+        webhook_secret = _get_env("AURORA_WEBHOOK_SECRET")
+        webhook_url = (
+            _get_env("AURORA_WEBHOOK_URL")
+            or ICP.get_param("aurora.webhook_url")
+            or ICP.get_param("web.base.url", "http://localhost:8069")
+        )
         if webhook_url and webhook_secret:
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_URL", value=webhook_url))
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_SECRET", value=webhook_secret))
 
         harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
         harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
-        harness_token = get_encrypted_param(self.env, "aurora.github_registry_write_token")
+        harness_token = ICP.get_param("aurora.github_registry_write_token", "")
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
         if harness_token:
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_TOKEN", value=harness_token))
 
-        volume_mounts = []
-        volumes = []
-
-        # Mount the K8s Secret containing odoo.conf as a volume.
-        # The Secret is expected to have a key "odoo.conf" whose value is
-        # the full Odoo configuration file (DB credentials, addons path, etc.).
-        secret_name = self._get_k8s_setting("secret", "aurora-odoo-config")
-        if secret_name:
-            volumes.append(
-                k8s_client.V1Volume(
-                    name="odoo-config",
-                    secret=k8s_client.V1SecretVolumeSource(
-                        secret_name=secret_name,
-                    ),
+        volume_mounts = [
+            k8s_client.V1VolumeMount(
+                name="odoo-config",
+                mount_path="/etc/odoo",
+                read_only=True,
+            ),
+            k8s_client.V1VolumeMount(
+                name="repo-cache",
+                mount_path="/data/repo_cache",
+            ),
+            k8s_client.V1VolumeMount(
+                name="tmp-work",
+                mount_path="/tmp",
+            ),
+        ]
+        volumes = [
+            k8s_client.V1Volume(
+                name="odoo-config",
+                secret=k8s_client.V1SecretVolumeSource(
+                    secret_name=SECRET_NAME,
                 ),
-            )
-            volume_mounts.append(
-                k8s_client.V1VolumeMount(
-                    name="odoo-config",
-                    mount_path="/etc/odoo",
-                    read_only=True,
-                ),
-            )
+            ),
+            k8s_client.V1Volume(
+                name="repo-cache",
+                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+            ),
+            k8s_client.V1Volume(
+                name="tmp-work",
+                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+            ),
+        ]
 
-        configmap_name = self._get_k8s_setting("configmap", "")
-        if configmap_name:
+        if CONFIGMAP_NAME:
             volumes.append(
                 k8s_client.V1Volume(
                     name="odoo-config-extra",
                     config_map=k8s_client.V1ConfigMapVolumeSource(
-                        name=configmap_name,
+                        name=CONFIGMAP_NAME,
                     ),
                 ),
             )
@@ -427,78 +444,59 @@ class AuroraPipeline(models.Model):
                 ),
             )
 
-        efs_pvc = self._get_k8s_setting("efs_pvc", "")
-        if efs_pvc:
-            volumes.append(
-                k8s_client.V1Volume(
-                    name="repo-cache",
-                    persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
-                        claim_name=efs_pvc,
-                    ),
-                ),
-            )
-            volume_mounts.append(
-                k8s_client.V1VolumeMount(
-                    name="repo-cache",
-                    mount_path="/data/repo_cache",
-                ),
-            )
-
         labels = {
             "app.kubernetes.io/name": "aurora-pipeline",
             "app.kubernetes.io/component": "pipeline-worker",
+            "app.kubernetes.io/managed-by": "aurora-odoo",
             "platform": "aurora",
             "pipeline-id": str(self.id),
-            "kueue.x-k8s.io/queue-name": kueue_queue,
+            "kueue.x-k8s.io/queue-name": KUEUE_QUEUE,
         }
-
-        pull_policy = "IfNotPresent" if ":" in image and image.rsplit(":", 1)[-1] == "local" else "Always"
 
         container = k8s_client.V1Container(
             name="pipeline",
-            image=image,
-            image_pull_policy=pull_policy,
-            command=["python", worker_script],
+            image=DOCKER_IMAGE,
+            image_pull_policy="Always",
+            command=["python", WORKER_SCRIPT],
             env=env_vars,
-            volume_mounts=volume_mounts or None,
+            volume_mounts=volume_mounts,
             resources=k8s_client.V1ResourceRequirements(
                 requests={
-                    "cpu": self._get_k8s_setting("cpu_request", "1"),
-                    "memory": self._get_k8s_setting("memory_request", "2Gi"),
+                    "cpu": CPU_REQUEST,
+                    "memory": MEMORY_REQUEST,
                 },
                 limits={
-                    "memory": self._get_k8s_setting("memory_limit", "4Gi"),
+                    "memory": MEMORY_LIMIT,
                 },
             ),
         )
 
-        # activeDeadlineSeconds: hard kill after 4 hours to prevent runaway pods
         job = k8s_client.V1Job(
             api_version="batch/v1",
             kind="Job",
             metadata=k8s_client.V1ObjectMeta(
                 name=job_name,
-                namespace=namespace,
+                namespace=NAMESPACE,
                 labels=labels,
             ),
             spec=k8s_client.V1JobSpec(
                 ttl_seconds_after_finished=600,
-                active_deadline_seconds=int(self._get_k8s_setting("deadline_seconds", "14400")),
+                active_deadline_seconds=DEADLINE_SECONDS,
                 backoff_limit=0,
                 template=k8s_client.V1PodTemplateSpec(
                     metadata=k8s_client.V1ObjectMeta(labels=labels),
                     spec=k8s_client.V1PodSpec(
-                        service_account_name=service_account,
+                        service_account_name=SERVICE_ACCOUNT,
                         restart_policy="Never",
-                        node_selector={"ethara.ai/node-pool": node_pool} if node_pool else None,
+                        node_selector=NODE_SELECTOR,
                         containers=[container],
-                        volumes=volumes or None,
+                        volumes=volumes,
                     ),
                 ),
             ),
         )
 
-        batch_v1.create_namespaced_job(namespace=namespace, body=job)
+        batch_v1.create_namespaced_job(namespace=NAMESPACE, body=job)
         return job_name
 
     def action_run_pipeline(self):
@@ -551,21 +549,12 @@ class AuroraPipeline(models.Model):
 
         s3_config = {
             "bucket": config.get("s3_bucket", ""),
-            "access_key": config.get("s3_access_key", ""),
-            "secret_key": config.get("s3_secret_key", ""),
             "region": config.get("s3_region", "ap-south-1"),
             "folder": config.get("s3_folder", ""),
         }
         use_s3 = s3_storage.is_configured(s3_config)
 
         if use_s3:
-            try:
-                s3_storage.validate_credentials(s3_config)
-            except Exception as exc:
-                raise UserError(
-                    f"S3 credential validation failed: {exc}\n"
-                    "Check your S3 bucket, access key, secret key, and region in Settings."
-                ) from exc
             s3_folder = s3_config.get("folder", "").strip("/")
             if s3_folder:
                 out = f"s3://{s3_config['bucket']}/{s3_folder}/aurora_phase1/{self.github_org}__{self.github_repo}"
@@ -586,7 +575,7 @@ class AuroraPipeline(models.Model):
             "progress_text": False,
         })
 
-        k8s_image = self._get_k8s_setting("image") if K8S_AVAILABLE else ""
+        k8s_image = DOCKER_IMAGE if K8S_AVAILABLE else ""
         if k8s_image:
             try:
                 job_name = self._create_pipeline_job()
@@ -658,12 +647,11 @@ class AuroraPipeline(models.Model):
 
         if self.job_name and K8S_AVAILABLE:
             try:
-                namespace = self._get_k8s_setting("namespace", "aurora")
                 _load_k8s_config()
                 batch_v1 = k8s_client.BatchV1Api()
                 batch_v1.delete_namespaced_job(
                     name=self.job_name,
-                    namespace=namespace,
+                    namespace=NAMESPACE,
                     body=k8s_client.V1DeleteOptions(
                         propagation_policy="Foreground",
                     ),
@@ -985,15 +973,11 @@ class AuroraPipeline(models.Model):
             _logger.warning("kubernetes package not available, skipping reconciliation")
             return
 
-        namespace = self.env["ir.config_parameter"].sudo().get_param(
-            "aurora.k8s_namespace", "aurora",
-        )
-
         try:
             _load_k8s_config()
             batch_v1 = k8s_client.BatchV1Api()
             jobs = batch_v1.list_namespaced_job(
-                namespace=namespace,
+                namespace=NAMESPACE,
                 label_selector="platform=aurora",
             )
         except Exception:
@@ -1038,14 +1022,11 @@ class AuroraPipeline(models.Model):
                     conditions = job.status.conditions or []
                     for cond in conditions:
                         if cond.type == "Failed" and cond.reason == "DeadlineExceeded":
-                            deadline = int(self.env["ir.config_parameter"].sudo().get_param(
-                                "aurora.k8s_deadline_seconds", "14400",
-                            ))
-                            hours = deadline / 3600
+                            hours = DEADLINE_SECONDS / 3600
                             reason = (
                                 f"Pipeline timed out after {hours:.0f} hours "
-                                f"(K8s activeDeadlineSeconds={deadline}). "
-                                "Increase the deadline in Settings or optimize the pipeline."
+                                f"(K8s activeDeadlineSeconds={DEADLINE_SECONDS}). "
+                                "Increase the deadline or optimize the pipeline."
                             )
                             break
                         if cond.type == "Failed" and cond.reason == "BackoffLimitExceeded":
@@ -1088,14 +1069,11 @@ class AuroraPipeline(models.Model):
             )
             if rec.job_name and K8S_AVAILABLE:
                 try:
-                    namespace = self.env["ir.config_parameter"].sudo().get_param(
-                        "aurora.k8s_namespace", "aurora",
-                    )
                     _load_k8s_config()
                     batch_v1 = k8s_client.BatchV1Api()
                     batch_v1.delete_namespaced_job(
                         name=rec.job_name,
-                        namespace=namespace,
+                        namespace=NAMESPACE,
                         body=k8s_client.V1DeleteOptions(
                             propagation_policy="Foreground",
                         ),
