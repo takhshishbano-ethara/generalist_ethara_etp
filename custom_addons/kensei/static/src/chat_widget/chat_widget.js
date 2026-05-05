@@ -76,6 +76,84 @@ function _extractUrlsFromText(text) {
     return text.match(re) || [];
 }
 
+// ─── MEDIA: token protocol (OpenClaw) ───
+const MEDIA_TOKEN_RE = /\bMEDIA:\s*`?([^\s`\n]+)`?/gi;
+const BARE_PATH_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)\/[^\s`\n"')]+\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf))(?:\s|`|$|[.,;!?)])/gi;
+const BARE_DIR_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)(?:\/[^\s`\n"')]*)?\/)\s*(?:\n|$)/gim;
+const MEDIA_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf)$/i;
+const RELATIVE_FILE_RE = /(?:^|\n)\s*([a-zA-Z0-9][a-zA-Z0-9_\-.]*\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf))\b/g;
+
+function _splitMediaFromText(text) {
+    if (!text) return { cleanText: "", mediaUrls: [] };
+    const mediaUrls = [];
+    let match;
+    MEDIA_TOKEN_RE.lastIndex = 0;
+    while ((match = MEDIA_TOKEN_RE.exec(text)) !== null) {
+        mediaUrls.push(match[1].trim());
+    }
+    BARE_PATH_RE.lastIndex = 0;
+    while ((match = BARE_PATH_RE.exec(text)) !== null) {
+        const path = match[1].trim();
+        if (!mediaUrls.includes(path)) {
+            mediaUrls.push(path);
+        }
+    }
+    // Reconstruct full paths from directory + relative filenames
+    BARE_DIR_RE.lastIndex = 0;
+    const dirs = [];
+    while ((match = BARE_DIR_RE.exec(text)) !== null) {
+        dirs.push(match[1].trim());
+    }
+    const relativeNames = [];
+    if (dirs.length > 0) {
+        const baseDir = dirs[dirs.length - 1];
+        RELATIVE_FILE_RE.lastIndex = 0;
+        while ((match = RELATIVE_FILE_RE.exec(text)) !== null) {
+            const fileName = match[1];
+            const fullPath = baseDir + fileName;
+            if (!mediaUrls.includes(fullPath)) {
+                mediaUrls.push(fullPath);
+                relativeNames.push(fileName);
+            }
+        }
+    }
+    let cleanText = text.replace(MEDIA_TOKEN_RE, "");
+    if (mediaUrls.length > 0) {
+        for (const mediaPath of mediaUrls) {
+            const escaped = mediaPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            cleanText = cleanText.replace(new RegExp(escaped, "g"), "");
+        }
+    }
+    for (const name of relativeNames) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        cleanText = cleanText.replace(new RegExp(escaped, "g"), "");
+    }
+    for (const dir of dirs) {
+        const escaped = dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        cleanText = cleanText.replace(new RegExp(escaped, "g"), "");
+    }
+    cleanText = cleanText.replace(/\n{3,}/g, "\n\n").trim();
+    return { cleanText, mediaUrls };
+}
+
+function _inferMediaType(url) {
+    const lower = (url || "").toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(lower)) return "image";
+    if (/\.(mp4|webm|mov|mkv|avi)(\?|$)/i.test(lower)) return "video";
+    if (/\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i.test(lower)) return "audio";
+    if (/\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json|html?)(\?|$)/i.test(lower)) return "document";
+    return "image";
+}
+
+function _buildAssistantMediaUrl(sandboxId, source) {
+    if (!source) return null;
+    if (/^https?:\/\//i.test(source)) return source;
+    if (/^data:/i.test(source)) return source;
+    if (!sandboxId) return null;
+    const params = new URLSearchParams({ sandbox_id: sandboxId, source });
+    return `/kensei/chat/media?${params.toString()}`;
+}
+
 let _msgId = 0;
 function nextId() {
     return `odoo-${++_msgId}-${Date.now().toString(36)}`;
@@ -883,9 +961,22 @@ export class KenseiChatWidget extends Component {
             console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
-                if (session._streamBuf && session._streamBuf.length > (msg.text || "").length) {
-                    msg.text = session._streamBuf;
-                    msg.html = markup(renderMarkdown(session._streamBuf));
+                const textSource = session._streamBuf || msg.text || "";
+                if (textSource) {
+                    const { cleanText, mediaUrls } = _splitMediaFromText(textSource);
+                    msg.text = cleanText;
+                    msg.html = markup(renderMarkdown(cleanText));
+                    if (mediaUrls.length > 0) {
+                        const sandboxId = widget?.props?.sandboxId;
+                        const mediaItems = msg.mediaItems || [];
+                        for (const url of mediaUrls) {
+                            const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url);
+                            if (resolvedUrl) {
+                                mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                            }
+                        }
+                        if (mediaItems.length > 0) msg.mediaItems = mediaItems;
+                    }
                 }
                 if (session._thinkingBuf) {
             msg.thinkingText = session._thinkingBuf;
@@ -970,9 +1061,11 @@ export class KenseiChatWidget extends Component {
             }
         } else if (state === "final") {
             const finalText = this._extractText(payload.message);
+            const imageBlocks = this._extractImageBlocks(payload.message);
             const embeddedTools = this._extractToolCallsFromMessage(payload.message);
             console.group(`${LOG_PREFIX} ✅ FINAL`);
             console.log("text length:", finalText?.length);
+            console.log("image blocks:", imageBlocks.length);
             console.log("embedded tools from message:", embeddedTools.length, embeddedTools.map(t => t.name));
             console.log("stream _toolCalls:", session._toolCalls.length, session._toolCalls.map(t => t.name));
             console.log("raw events:", session._rawEvents.length);
@@ -981,12 +1074,34 @@ export class KenseiChatWidget extends Component {
             console.groupEnd();
             const msg = messages.findLast(m => m.pending);
             if (msg) {
-                if (finalText) {
-                    msg.text = finalText;
-                    session._streamBuf = finalText;
+                let displayText = finalText || msg.text || "";
+                const { cleanText, mediaUrls } = _splitMediaFromText(displayText);
+                if (cleanText !== displayText) {
+                    displayText = cleanText;
                 }
-                msg.html = markup(renderMarkdown(msg.text));
+                msg.text = displayText;
+                session._streamBuf = displayText;
+                msg.html = markup(renderMarkdown(displayText));
                 msg.pending = false;
+
+                const sandboxId = widget?.props?.sandboxId;
+                const mediaItems = [];
+                for (const url of mediaUrls) {
+                    const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url);
+                    if (resolvedUrl) {
+                        mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                    }
+                }
+                for (const block of imageBlocks) {
+                    const src = block.url || (block.source?.data ? `data:${block.source.media_type || block.mimeType || "image/png"};base64,${block.source.data}` : null);
+                    const resolvedUrl = src ? _buildAssistantMediaUrl(sandboxId, src) : null;
+                    if (resolvedUrl) {
+                        mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "", width: block.width, height: block.height });
+                    }
+                }
+                if (mediaItems.length > 0) {
+                    msg.mediaItems = mediaItems;
+                }
             }
             let toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : [];
             if (embeddedTools.length > 0) {
@@ -1086,7 +1201,7 @@ export class KenseiChatWidget extends Component {
         if (typeof message.text === "string") return message.text;
         if (Array.isArray(message.content)) {
             return message.content
-                .filter(b => b && typeof b === "object" && b.text)
+                .filter(b => b && typeof b === "object" && b.type === "text" && b.text)
                 .map(b => b.text)
                 .join("");
         }
@@ -1095,6 +1210,26 @@ export class KenseiChatWidget extends Component {
             return this._extractText(message.content);
         }
         return JSON.stringify(message);
+    }
+
+    _extractImageBlocks(message) {
+        if (!message || !Array.isArray(message.content)) return [];
+        const images = [];
+        for (const block of message.content) {
+            if (!block || typeof block !== "object") continue;
+            if (block.type === "image" && (block.url || block.source)) {
+                images.push({
+                    type: "image",
+                    url: block.url || null,
+                    source: block.source || null,
+                    alt: block.alt || "",
+                    mimeType: block.mimeType || "",
+                    width: block.width || null,
+                    height: block.height || null,
+                });
+            }
+        }
+        return images;
     }
 
     _extractToolCallsFromMessage(message) {
@@ -1178,15 +1313,22 @@ export class KenseiChatWidget extends Component {
 
                     if (t.response) {
                         const isPartial = t.status === "Streaming";
+                        const { cleanText, mediaUrls } = _splitMediaFromText(t.response);
+                        const mediaItems = [];
+                        for (const url of mediaUrls) {
+                            const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url);
+                            if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                        }
                         const msg = {
                             role: "assistant",
-                            text: t.response,
-                            html: markup(renderMarkdown(t.response + (isPartial ? "\n\n*(partial — response was interrupted)*" : ""))),
+                            text: cleanText,
+                            html: markup(renderMarkdown(cleanText + (isPartial ? "\n\n*(partial — response was interrupted)*" : ""))),
                             pending: false,
                             isModelResponse: true,
                             turnId: t.id,
                             feedback: t.feedback || null,
                         };
+                        if (mediaItems.length > 0) msg.mediaItems = mediaItems;
                         if (t.tool_calls) {
                             try {
                                 const calls = JSON.parse(t.tool_calls);
@@ -1237,12 +1379,14 @@ export class KenseiChatWidget extends Component {
             if (messages.length === 0) return;
 
             let lastAssistantText = "";
+            let lastAssistantImageBlocks = [];
             const toolCalls = {};
             for (const msg of messages) {
                 const inner = msg?.message || msg;
                 const role = inner?.role || "";
                 const content = inner?.content;
                 if (role === "assistant") {
+                    lastAssistantImageBlocks = [];
                     if (typeof content === "string") {
                         lastAssistantText = content;
                     } else if (Array.isArray(content)) {
@@ -1250,6 +1394,9 @@ export class KenseiChatWidget extends Component {
                         for (const block of content) {
                             if (!block || typeof block !== "object") continue;
                             if (block.type === "text") text += block.text || "";
+                            if (block.type === "image" && (block.url || block.source)) {
+                                lastAssistantImageBlocks.push(block);
+                            }
                             if (block.type === "tool_use" || block.type === "toolCall") {
                                 const tcId = block.id || block.toolCallId || "";
                                 toolCalls[tcId] = {
@@ -1283,23 +1430,37 @@ export class KenseiChatWidget extends Component {
             const existingText = existingAssistant?.text || "";
             if (lastAssistantText && lastAssistantText.length > existingText.length) {
                 console.log(LOG_PREFIX, `🔄 Gateway has newer text (${lastAssistantText.length} > ${existingText.length}), updating`);
+                const { cleanText, mediaUrls } = _splitMediaFromText(lastAssistantText);
+                const mediaItems = [];
+                for (const url of mediaUrls) {
+                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url);
+                    if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                }
+                for (const block of lastAssistantImageBlocks) {
+                    const src = block.url || (block.source?.data ? `data:${block.source.media_type || block.mimeType || "image/png"};base64,${block.source.data}` : null);
+                    const resolvedUrl = src ? _buildAssistantMediaUrl(this.props.sandboxId, src) : null;
+                    if (resolvedUrl) mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "" });
+                }
+
                 if (existingAssistant) {
-                    existingAssistant.text = lastAssistantText;
-                    existingAssistant.html = markup(renderMarkdown(lastAssistantText));
+                    existingAssistant.text = cleanText;
+                    existingAssistant.html = markup(renderMarkdown(cleanText));
                     existingAssistant.pending = false;
                     const tcArr = Object.values(toolCalls);
                     if (tcArr.length > 0) existingAssistant.toolCalls = tcArr;
+                    if (mediaItems.length > 0) existingAssistant.mediaItems = mediaItems;
                 } else {
                     const newMsg = {
                         role: "assistant",
-                        text: lastAssistantText,
-                        html: markup(renderMarkdown(lastAssistantText)),
+                        text: cleanText,
+                        html: markup(renderMarkdown(cleanText)),
                         pending: false,
                         isModelResponse: true,
                         turnId: this._session.currentTurnId,
                     };
                     const tcArr = Object.values(toolCalls);
                     if (tcArr.length > 0) newMsg.toolCalls = tcArr;
+                    if (mediaItems.length > 0) newMsg.mediaItems = mediaItems;
                     this._session.messages.push(newMsg);
                 }
                 this._scrollToBottom();
@@ -1889,6 +2050,13 @@ export class KenseiChatWidget extends Component {
             console.error(LOG_PREFIX, "Create turn failed:", e);
         }
         this._session.currentTurnId = turnId;
+
+        if (attachmentsPayload.length > 0) {
+            rpc("/kensei/chat/persist_attachments", {
+                sandbox_id: this.props.sandboxId,
+                attachments: attachmentsPayload,
+            }).catch(e => console.warn(LOG_PREFIX, "persist_attachments failed:", e));
+        }
 
         let qcResult = null;
         try {

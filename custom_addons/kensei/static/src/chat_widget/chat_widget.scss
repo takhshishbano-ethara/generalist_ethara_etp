@@ -906,3 +906,70 @@
     font-size: 12px;
     color: #dc3545;
 }
+
+.o_kensei_media_items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.o_kensei_media_item {
+    max-width: 100%;
+}
+
+.o_kensei_media_img {
+    max-width: 100%;
+    max-height: 500px;
+    border-radius: 6px;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    cursor: pointer;
+    transition: opacity 0.15s;
+    &:hover {
+        opacity: 0.9;
+    }
+}
+
+.o_kensei_media_video {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 6px;
+    border: 1px solid var(--o-border-color, #dee2e6);
+}
+
+.o_kensei_media_audio {
+    width: 100%;
+    max-width: 400px;
+}
+
+.o_kensei_media_document {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 16px;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 8px;
+    background: #f8f9fa;
+    color: #212529;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s;
+
+    &:hover {
+        background: #e9ecef;
+        border-color: #0d6efd;
+        color: #0d6efd;
+        text-decoration: none;
+    }
+
+    .fa-file-pdf-o {
+        font-size: 18px;
+        color: #dc3545;
+    }
+
+    .fa-download {
+        font-size: 12px;
+        opacity: 0.6;
+    }
+}

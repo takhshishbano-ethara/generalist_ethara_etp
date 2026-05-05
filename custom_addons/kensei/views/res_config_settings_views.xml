@@ -175,6 +175,26 @@
                             />
                         </setting>
                     </block>
+                    <block title="S3 Storage (Attachments)">
+                        <setting
+                            string="S3 Bucket"
+                            help="AWS S3 bucket name for storing chat attachments and session backups."
+                        >
+                            <field name="kensei_s3_bucket" />
+                        </setting>
+                        <setting
+                            string="S3 Key Prefix"
+                            help="Prefix for S3 object keys (e.g. 'kensei'). Attachments stored at: {prefix}/tasks/{task_id}/attachments/"
+                        >
+                            <field name="kensei_s3_prefix" />
+                        </setting>
+                        <setting
+                            string="S3 Region"
+                            help="AWS region for the S3 bucket."
+                        >
+                            <field name="kensei_s3_region" />
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>
