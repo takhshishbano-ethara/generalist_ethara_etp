@@ -49,7 +49,7 @@ S3_AURORA_PREFIX = "aurora"
 
 KUEUE_QUEUE = "aurora-pipelines"
 
-DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/odoo:latest"
+DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/aurora-worker:latest"
 
 CPU_REQUEST = "1"
 MEMORY_REQUEST = "2Gi"
