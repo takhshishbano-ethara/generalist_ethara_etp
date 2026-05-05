@@ -62,7 +62,7 @@ class AuroraSettings(models.TransientModel):
     aurora_cache_dir = fields.Char(
         string="Clone Cache Directory",
         config_parameter="aurora.cache_dir",
-        default="/data/repo_cache",
+        default="/tmp/repo_cache",
         help="Bare-clone cache for git operations.",
     )
 

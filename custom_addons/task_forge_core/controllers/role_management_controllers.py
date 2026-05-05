@@ -102,10 +102,15 @@ class TaskForgeRoleManagementController(http.Controller):
             employees = Employee.search(domain, order='name asc', limit=limit, offset=offset)
 
             data = []
+            TaskLog = request.env['task.forge.log'].sudo()
             for emp in employees:
                 role_name = ''
                 if emp.user_id and emp.user_id.user_role:
                     role_name = emp.user_id.user_role.name or ''
+                reviewed_count = TaskLog.search_count([
+                    ('employee_id', '=', emp.id),
+                    ('state', 'in', ['qc_approved', 'qc_rejected']),
+                ])
                 data.append({
                     'id': emp.id or 0,
                     'name': emp.name or '',
@@ -113,7 +118,8 @@ class TaskForgeRoleManagementController(http.Controller):
                     'role': role_name or '',
                     'date_of_joining': emp.create_date.strftime('%Y-%m-%d') if emp.create_date else '',
                     'designation_id': emp.designation_id.id if emp.designation_id.id else 0,
-                    'job_title': emp.designation_id.name if emp.designation_id and emp.designation_id.name else ''
+                    'job_title': emp.designation_id.name if emp.designation_id and emp.designation_id.name else '',
+                    'task_reviewed_count': reviewed_count,
                 })
 
             return return_Response(

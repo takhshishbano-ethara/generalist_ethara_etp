@@ -765,6 +765,8 @@ class TaskForgeTaskController(http.Controller):
         state = {
             'in_progress': 'In Progress',
             'completed': 'Completed',
+            'qc_approved': 'QC Approved',
+            'qc_rejected': 'QC Rejected',
             'blocker': 'Blocker',
             'returned': 'Returned',
             'ack': 'Acknowledged',
@@ -855,7 +857,7 @@ class TaskForgeTaskController(http.Controller):
                 'state': b.state or '',
                 'description': b.description if hasattr(b, 'description') else '',
             } for b in task.bug_report_ids],
-            'qc_status': task.qc_status or 'pending',
+            'qc_status': task.state if task.state in ('qc_approved', 'qc_rejected') else 'pending',
             'reviewed_by_id': task.reviewed_by_id.id if task.reviewed_by_id else 0,
             'reviewed_by_name': task.reviewed_by_id.name if task.reviewed_by_id else '',
             'review_date': str((task.review_date + IST_OFFSET)) if task.review_date else '',
@@ -1118,9 +1120,6 @@ class TaskForgeTaskController(http.Controller):
             if task.state != 'completed':
                 return return_Response(message="Only completed tasks can be reviewed", status=400)
 
-            if task.qc_status == 'approved':
-                return return_Response(message="Task is already approved", status=400)
-
             team_ids = employee._get_team_employee_ids()
             if role not in ('admin',) and task.employee_id.id not in team_ids:
                 return return_Response(message="Access denied: task not in your team", status=403)
@@ -1131,7 +1130,7 @@ class TaskForgeTaskController(http.Controller):
             }
 
             if action == 'approve':
-                vals['qc_status'] = 'approved'
+                vals['state'] = 'qc_approved'
                 vals['rejection_reason'] = False
                 task.write(vals)
 
@@ -1158,7 +1157,7 @@ class TaskForgeTaskController(http.Controller):
                 if not rejection_reason:
                     return return_Response(message="rejection_reason is required when rejecting", status=400)
 
-                vals['qc_status'] = 'rejected'
+                vals['state'] = 'qc_rejected'
                 vals['rejection_reason'] = rejection_reason
                 task.write(vals)
 

@@ -6,7 +6,9 @@ from odoo import api, fields, models
 from .jaeger_repository import (
     _CRON_LOCK_AUTO_ADVANCE,
     _CRON_LOCK_POLL_EKS,
+    _CRON_LOCK_RECONCILE_BUILDS,
     _CRON_LOCK_RECONCILE_SCRAPES,
+    _CRON_LOCK_RECONCILE_TESTS,
     _CRON_LOCK_WATCHDOG_BUILDS,
     _CRON_LOCK_WATCHDOG_DATASET,
     _CRON_LOCK_WATCHDOG_SCRAPES,
@@ -140,6 +142,8 @@ class JaegerRepositoryCrons(models.Model):
             self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_AUTO_ADVANCE,))
 
     def _run_auto_advance_stages(self):
+        from psycopg2 import OperationalError as Psycopg2OpError
+
         for stage in [
             "stage1",
             "stage2",
@@ -158,6 +162,15 @@ class JaegerRepositoryCrons(models.Model):
                 if gate_ok:
                     next_stage = repo._next_stage()
                     if next_stage:
+                        try:
+                            self.env.cr.execute(
+                                "SELECT id FROM jaeger_repository"
+                                " WHERE id = %s FOR UPDATE NOWAIT",
+                                [repo.id],
+                            )
+                        except Psycopg2OpError:
+                            self.env.cr.rollback()
+                            continue
                         repo.write({"current_stage": next_stage})
                         _logger.info(
                             "Auto-advanced %s from %s to %s",
@@ -348,11 +361,29 @@ class JaegerRepositoryCrons(models.Model):
                         try:
                             repo._recover_instances_from_s3()
                         except Exception as e:
-                            _logger.warning(
-                                "Reconcile: %s instance recovery failed, "
-                                "will retry next run: %s",
-                                repo.name, e,
+                            queued_at = repo.scrape_queued_at or repo.write_date
+                            age_minutes = (
+                                (fields.Datetime.now() - queued_at).total_seconds() / 60
+                                if queued_at else 999
                             )
+                            if age_minutes > 120:
+                                repo.write({
+                                    "pr_collection_status": "failed",
+                                    "error_message": (
+                                        "S3 recovery failed after 2h (artifacts may be missing): %s"
+                                        % str(e)[:1500]
+                                    ),
+                                })
+                                _logger.warning(
+                                    "Reconcile: %s marked failed (S3 recovery exhausted after 2h)",
+                                    repo.name,
+                                )
+                            else:
+                                _logger.warning(
+                                    "Reconcile: %s instance recovery failed, "
+                                    "will retry next run: %s",
+                                    repo.name, e,
+                                )
                             continue
                     vals = {
                         "pr_collection_status": "done",
@@ -459,3 +490,186 @@ class JaegerRepositoryCrons(models.Model):
             })
         if stale:
             _logger.info("Watchdog: marked %d stale dataset finalizations as failed", len(stale))
+
+    @api.model
+    def _cron_reconcile_build_jobs(self):
+        cr = self.env.cr
+        cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_RECONCILE_BUILDS,))
+        if not cr.fetchone()[0]:
+            return
+        try:
+            self._run_reconcile_build_jobs()
+        finally:
+            cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_RECONCILE_BUILDS,))
+
+    def _run_reconcile_build_jobs(self):
+        repos = self.search([
+            ("docker_build_status", "in", ("queued", "building")),
+        ], limit=500)
+        if not repos:
+            return
+
+        try:
+            from kubernetes import client, config as k8s_config
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                config_file = os.environ.get("KUBECONFIG")
+                k8s_config.load_kube_config(config_file=config_file if config_file else None)
+            batch_v1 = client.BatchV1Api()
+        except (ImportError, Exception) as e:
+            _logger.warning("Cannot connect to K8s for build reconciliation: %s", e)
+            return
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+        cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=5)
+
+        for repo in repos:
+            try:
+                job_name = "jaeger-phase2-%s" % repo.id
+                try:
+                    job = batch_v1.read_namespaced_job(name=job_name, namespace=namespace)
+                except client.ApiException as e:
+                    if e.status == 404:
+                        if repo.build_queued_at and repo.build_queued_at < cutoff:
+                            repo.write({
+                                "docker_build_status": "failed",
+                                "error_message": "Phase2 Job not found in K8s (may have been deleted)",
+                            })
+                        continue
+                    raise
+
+                if job.status.succeeded and job.status.succeeded > 0:
+                    if repo.docker_build_status != "done":
+                        built = len(repo.instance_ids.filtered(
+                            lambda i: i.docker_build_status == "built",
+                        ))
+                        failed_inst = len(repo.instance_ids.filtered(
+                            lambda i: i.docker_build_status == "failed",
+                        ))
+                        vals = {
+                            "docker_build_status": "done",
+                            "docker_build_progress": 100.0,
+                            "images_built_count": built,
+                            "images_failed_count": failed_inst,
+                            "error_message": False,
+                        }
+                        if built > 0:
+                            vals["current_stage"] = "stage4"
+                            vals["test_execution_status"] = "running"
+                        _logger.info(
+                            "Reconciler: phase2 Job %s succeeded — %d built, %d failed",
+                            job_name, built, failed_inst,
+                        )
+                        repo.write(vals)
+                elif job.status.failed and job.status.failed > 0:
+                    repo.write({
+                        "docker_build_status": "failed",
+                        "error_message": "Phase2 Job failed (K8s reported failure)",
+                    })
+                elif job.status.active:
+                    if repo.docker_build_status == "queued":
+                        repo.write({"docker_build_status": "building"})
+            except Exception as e:
+                _logger.error("Build reconcile error for %s: %s", repo.name, e)
+
+    @api.model
+    def _cron_reconcile_test_jobs(self):
+        cr = self.env.cr
+        cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_RECONCILE_TESTS,))
+        if not cr.fetchone()[0]:
+            return
+        try:
+            self._run_reconcile_test_jobs()
+        finally:
+            cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_RECONCILE_TESTS,))
+
+    def _run_reconcile_test_jobs(self):
+        repos = self.search([
+            ("test_execution_status", "in", ("queued", "running")),
+        ], limit=500)
+        if not repos:
+            return
+
+        try:
+            from kubernetes import client, config as k8s_config
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                config_file = os.environ.get("KUBECONFIG")
+                k8s_config.load_kube_config(config_file=config_file if config_file else None)
+            batch_v1 = client.BatchV1Api()
+        except (ImportError, Exception) as e:
+            _logger.warning("Cannot connect to K8s for test reconciliation: %s", e)
+            return
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+        cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=5)
+
+        for repo in repos:
+            try:
+                job_name = "jaeger-test-%s" % repo.id
+                try:
+                    job = batch_v1.read_namespaced_job(name=job_name, namespace=namespace)
+                except client.ApiException as e:
+                    if e.status == 404:
+                        if repo.test_queued_at and repo.test_queued_at < cutoff:
+                            repo.write({
+                                "test_execution_status": "failed",
+                                "error_message": "Test Job not found in K8s (may have been deleted)",
+                            })
+                        continue
+                    raise
+
+                if job.status.succeeded and job.status.succeeded > 0:
+                    if repo.test_execution_status != "done":
+                        # Recover instance counts from DB (webhook was missed)
+                        valid = len(repo.instance_ids.filtered(lambda i: i.is_valid))
+                        invalid = len(repo.instance_ids.filtered(
+                            lambda i: i.report_json and not i.is_valid,
+                        ))
+                        error = len(repo.instance_ids.filtered(
+                            lambda i: i.validation_error and "error" in (i.validation_error or "").lower(),
+                        ))
+                        vals = {
+                            "test_execution_status": "done",
+                            "test_execution_progress": 100.0,
+                            "instances_valid_count": valid,
+                            "instances_invalid_count": invalid,
+                            "instances_error_count": error,
+                            "instances_tested_count": valid + invalid + error,
+                            "error_message": False,
+                        }
+                        if valid == 0 and (invalid + error) > 0:
+                            vals["terminal_state"] = "no_valid_instances"
+                            vals["error_message"] = (
+                                "All %d tested instances are invalid "
+                                "(recovered by test reconciler)" % (invalid + error)
+                            )
+                        if valid > 0:
+                            try:
+                                gate_ok, _ = repo._check_current_gate()
+                                if gate_ok:
+                                    vals["current_stage"] = "stage5"
+                            except Exception:
+                                _logger.warning(
+                                    "Reconciler: %s stage advance failed (cron will catch up)",
+                                    repo.name, exc_info=True,
+                                )
+                        repo.write(vals)
+                        _logger.info(
+                            "Reconciler: test Job %s succeeded — %d valid, %d invalid, %d error",
+                            job_name, valid, invalid, error,
+                        )
+                elif job.status.failed and job.status.failed > 0:
+                    repo.write({
+                        "test_execution_status": "failed",
+                        "error_message": "Test Job failed (K8s reported failure)",
+                    })
+                elif job.status.active:
+                    if repo.test_execution_status == "queued":
+                        repo.write({"test_execution_status": "running"})
+            except Exception as e:
+                _logger.error("Test reconcile error for %s: %s", repo.name, e)

@@ -297,7 +297,7 @@ def _read_config(registry, rec_id: int) -> dict[str, Any]:
             "retry_attempts": int(ICP.get_param("aurora.retry_attempts", "3")),
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
-            "cache_dir": ICP.get_param("aurora.cache_dir", "/data/repo_cache"),
+            "cache_dir": ICP.get_param("aurora.cache_dir", "/tmp/repo_cache"),
             "s3_bucket": S3_BUCKET,
             "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
             "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),

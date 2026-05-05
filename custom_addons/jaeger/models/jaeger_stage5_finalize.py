@@ -33,6 +33,8 @@ class JaegerRepositoryStage5(models.Model):
         self.write({"dataset_status": "generating", "error_message": False})
         self.env.cr.commit()
         try:
+            if self.cancel_requested:
+                raise ValueError("Pipeline cancelled by user")
             self._build_final_dataset()
             vals = {"dataset_status": "done", "terminal_state": "none", "error_message": False}
             gate_ok, _ = self._check_current_gate()

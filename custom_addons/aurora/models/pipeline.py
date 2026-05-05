@@ -48,7 +48,6 @@ S3_REGION = "us-east-1"
 S3_AURORA_PREFIX = "aurora"
 
 KUEUE_QUEUE = "aurora-pipelines"
-EFS_PVC = "aurora-repo-cache"
 
 DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/odoo:latest"
 
@@ -61,9 +60,23 @@ DEADLINE_SECONDS = 14400  # 4 hours
 WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py"
 ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
 
-CONFIGMAP_NAME = "aurora-worker-config"
-SECRET_NAME = "aurora-odoo-config"
-WORKER_SECRET_NAME = "aurora-odoo-config"
+SECRET_NAME = "aurora-secrets"
+
+# Minimal odoo.conf generated at runtime — no volume mounts needed.
+# DB credentials come from Secret env vars (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD).
+_ODOO_CONF_TEMPLATE = """\
+[options]
+admin_passwd = False
+db_host = False
+db_port = 5432
+db_user = False
+db_password = False
+db_name = False
+addons_path = /opt/odoo/addons,/opt/odoo/custom_addons
+data_dir = /tmp/odoo-data
+without_demo = all
+server_wide_modules = base,web
+"""
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -288,7 +301,7 @@ class AuroraPipeline(models.Model):
         ICP = self.env["ir.config_parameter"].sudo()
         return {
             "output_dir": ICP.get_param("aurora.output_dir", "/tmp/aurora_output"),
-            "cache_dir": ICP.get_param("aurora.cache_dir", "/data/repo_cache"),
+            "cache_dir": ICP.get_param("aurora.cache_dir", "/tmp/repo_cache"),
             "delay_on_error": int(ICP.get_param("aurora.delay_on_error", "300")),
             "retry_attempts": int(ICP.get_param("aurora.retry_attempts", "3")),
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
@@ -396,49 +409,6 @@ class AuroraPipeline(models.Model):
         if harness_token:
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_TOKEN", value=harness_token))
 
-        volume_mounts = [
-            k8s_client.V1VolumeMount(
-                name="odoo-config",
-                mount_path="/etc/odoo",
-                read_only=True,
-            ),
-            k8s_client.V1VolumeMount(
-                name="repo-cache",
-                mount_path="/data/repo_cache",
-            ),
-        ]
-        volumes = [
-            k8s_client.V1Volume(
-                name="odoo-config",
-                secret=k8s_client.V1SecretVolumeSource(
-                    secret_name=SECRET_NAME,
-                ),
-            ),
-            k8s_client.V1Volume(
-                name="repo-cache",
-                persistent_volume_claim=k8s_client.V1PersistentVolumeClaimVolumeSource(
-                    claim_name=EFS_PVC,
-                ),
-            ),
-        ]
-
-        if CONFIGMAP_NAME:
-            volumes.append(
-                k8s_client.V1Volume(
-                    name="odoo-config-extra",
-                    config_map=k8s_client.V1ConfigMapVolumeSource(
-                        name=CONFIGMAP_NAME,
-                    ),
-                ),
-            )
-            volume_mounts.append(
-                k8s_client.V1VolumeMount(
-                    name="odoo-config-extra",
-                    mount_path="/etc/odoo/extra",
-                    read_only=True,
-                ),
-            )
-
         labels = {
             "app.kubernetes.io/name": "aurora-pipeline",
             "app.kubernetes.io/component": "pipeline-worker",
@@ -452,9 +422,18 @@ class AuroraPipeline(models.Model):
             name="pipeline",
             image=DOCKER_IMAGE,
             image_pull_policy="Always",
-            command=["python", WORKER_SCRIPT],
+            command=[
+                "sh", "-c",
+                f"mkdir -p /etc/odoo && cat > {ODOO_CONF_PATH} <<'EOF'\n"
+                f"{_ODOO_CONF_TEMPLATE}EOF\n"
+                f"exec python {WORKER_SCRIPT}",
+            ],
             env=env_vars,
-            volume_mounts=volume_mounts,
+            env_from=[
+                k8s_client.V1EnvFromSource(
+                    secret_ref=k8s_client.V1SecretEnvSource(name=SECRET_NAME),
+                ),
+            ],
             resources=k8s_client.V1ResourceRequirements(
                 requests={
                     "cpu": CPU_REQUEST,
@@ -485,7 +464,6 @@ class AuroraPipeline(models.Model):
                         restart_policy="Never",
                         node_selector=NODE_SELECTOR,
                         containers=[container],
-                        volumes=volumes,
                     ),
                 ),
             ),
@@ -544,21 +522,12 @@ class AuroraPipeline(models.Model):
 
         s3_config = {
             "bucket": config.get("s3_bucket", ""),
-            "access_key": config.get("s3_access_key", ""),
-            "secret_key": config.get("s3_secret_key", ""),
             "region": config.get("s3_region", "ap-south-1"),
             "folder": config.get("s3_folder", ""),
         }
         use_s3 = s3_storage.is_configured(s3_config)
 
         if use_s3:
-            try:
-                s3_storage.validate_credentials(s3_config)
-            except Exception as exc:
-                raise UserError(
-                    f"S3 credential validation failed: {exc}\n"
-                    "Check your S3 bucket, access key, secret key, and region in Settings."
-                ) from exc
             s3_folder = s3_config.get("folder", "").strip("/")
             if s3_folder:
                 out = f"s3://{s3_config['bucket']}/{s3_folder}/aurora_phase1/{self.github_org}__{self.github_repo}"

@@ -96,7 +96,7 @@ services:
       - |
         cp /etc/rancher/k3s/k3s.yaml /tmp/k3s.yaml
         sed -i 's|server: https://127.0.0.1:6443|server: https://k3s:6443|' /tmp/k3s.yaml
-        exec ./odoo-bin -c /etc/odoo/odoo.conf -d jaeger_dev
+        exec ./odoo-bin -c /etc/odoo/odoo.conf -d jaeger_dev -u jaeger
     depends_on:
       db:
         condition: service_healthy
@@ -111,7 +111,6 @@ services:
       JAEGER_S3_PREFIX: "jaeger/phase1"
       JAEGER_WEBHOOK_BASE_URL: "http://odoo:8069"
       JAEGER_WEBHOOK_TOKEN: "sandbox-webhook-secret"
-      JAEGER_PATCHES_VOLUME: "sandbox_jaeger-patches"
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       KUBECONFIG: /tmp/k3s.yaml
@@ -125,8 +124,21 @@ services:
       - ./odoo.conf:/etc/odoo/odoo.conf:ro
       - k3s-kubeconfig:/etc/rancher/k3s:ro
       - odoo-filestore:/root/.local/share/Odoo
-      - /var/run/docker.sock:/var/run/docker.sock
-      - jaeger-patches:/jaeger_patches
+    networks:
+      - jaeger
+
+  # ── Container Registry (local image storage for build/test pods) ───────
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/v2/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - jaeger
 
@@ -148,7 +160,7 @@ volumes:
   k3s-data:
   k3s-kubeconfig:
   odoo-filestore:
-  jaeger-patches:
+  registry-data:
 
 networks:
   jaeger:

@@ -685,7 +685,7 @@ def main():
     except PipelineCancelled:
         _logger.warning("Pipeline cancelled (SIGTERM) for repo %s", repo_id)
         send_failed("Pipeline cancelled (SIGTERM)")
-        sys.exit(0)
+        sys.exit(1)
     except Exception as exc:
         _logger.exception("Pipeline failed for repo %s: %s", repo_id, exc)
         send_failed(str(exc))
