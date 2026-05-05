@@ -312,7 +312,42 @@ You can save a subset of responses. Only provided config_ids are updated.
 **File**: `task_forge_core/controllers/task_controllers.py`
 **Auth**: `validate_token`
 
-#### New Validation
+#### Accepts Responses (Optional)
+
+The task end endpoint can also **save responses** in the same call. If `responses` is provided, values are persisted before validation — allowing the frontend to submit everything at once.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `task_id` | int | Yes | Task log ID |
+| `responses` | array/JSON string | No | Response values to save before completing |
+| `responses[].config_id` | int | Yes (per item) | Response config ID |
+| `responses[].value` | string | Yes (per item) | Response text value |
+| `end_screenshot` | file | No | End screenshot upload |
+| `rubric_ratings` | JSON string | No | Rubric ratings array |
+| `blocker_reason` | string | No | If provided, creates blocker instead of completing |
+
+#### Example Request (with responses)
+
+```json
+{
+  "task_id": 100,
+  "responses": [
+    {"config_id": 1, "value": "The model produced a coherent paragraph about climate change."},
+    {"config_id": 2, "value": "Minor grammatical errors in second sentence."},
+    {"config_id": 3, "value": "Overall quality is acceptable."}
+  ],
+  "rubric_ratings": "[{\"dimension_id\": 1, \"option_id\": 2}]"
+}
+```
+
+#### Flow
+
+1. Save responses (if `responses` provided in request body)
+2. Validate all response fields are filled (if project requires it)
+3. Validate rubric ratings (if project requires it)
+4. Complete task or raise blocker
+
+#### Validation
 
 If the task's project has `is_response_required=True`:
 - All response records must have a non-empty `value`

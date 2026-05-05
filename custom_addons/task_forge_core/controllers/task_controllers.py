@@ -510,13 +510,45 @@ class TaskForgeTaskController(http.Controller):
         return None
 
     def _validate_responses(self, task, kwargs):
-        """Validate response fields are filled before task completion. Returns Response on error, None on success."""
+        """Save responses if provided, then validate all are filled. Returns Response on error, None on success."""
         if kwargs.get('blocker_reason'):
             return None
 
         project = task.project_id
         if not project or not project.is_response_required:
             return None
+
+        raw_responses = kwargs.get('responses')
+        if raw_responses:
+            payload = []
+            if isinstance(raw_responses, str):
+                try:
+                    payload = json.loads(raw_responses)
+                except Exception:
+                    return return_Response(
+                        message="responses must be valid JSON",
+                        status=400,
+                    )
+            elif isinstance(raw_responses, list):
+                payload = raw_responses
+
+            if payload and isinstance(payload, list):
+                Response = request.env['task.forge.response'].sudo()
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    config_id = item.get('config_id')
+                    value = item.get('value', '')
+                    if not config_id:
+                        continue
+                    rec = Response.search([
+                        ('task_id', '=', task.id),
+                        ('config_id', '=', int(config_id)),
+                    ], limit=1)
+                    if rec:
+                        rec.write({'value': value})
+
+                task.invalidate_recordset(['response_ids'])
 
         unfilled = task.response_ids.filtered(lambda r: not r.value)
         if unfilled:
