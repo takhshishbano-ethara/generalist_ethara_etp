@@ -288,6 +288,8 @@ class TaskForgeTaskController(http.Controller):
             }
             if kwargs.get('project_id'):
                 vals['project_id'] = int(kwargs.get('project_id'))
+            if kwargs.get('chain_of_thought'):
+                vals['chain_of_thought'] = kwargs.get('chain_of_thought')
 
             # Handle start screenshot
             screenshot_file = request.httprequest.files.get('start_screenshot')
@@ -351,6 +353,8 @@ class TaskForgeTaskController(http.Controller):
                 task.prompt_text = kwargs.get('prompt')
             if kwargs.get('justification'):
                 task.justification_text = kwargs.get('justification')
+            if kwargs.get('chain_of_thought'):
+                task.chain_of_thought = kwargs.get('chain_of_thought')
 
             rubric_validation_error = self._validate_and_stage_rubric_ratings(task, kwargs)
             if rubric_validation_error:
@@ -563,7 +567,8 @@ class TaskForgeTaskController(http.Controller):
     @validate_token
     @validate_request({
         'task_id': {'type': 'int', 'required': True},
-        'responses': {'type': 'list', 'required': True},
+        'responses': {'type': 'list', 'required': False},
+        'chain_of_thought': {'type': 'string', 'required': False},
     })
     def save_responses(self, **kwargs):
         try:
@@ -581,6 +586,9 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message="Not your task", status=403)
             if task.state != 'in_progress':
                 return return_Response(message="Task is not in progress", status=400)
+
+            if jdata.get('chain_of_thought'):
+                task.chain_of_thought = jdata.get('chain_of_thought')
 
             responses = jdata.get('responses', [])
             if not isinstance(responses, list):
@@ -722,6 +730,8 @@ class TaskForgeTaskController(http.Controller):
             }
             if jdata.get('project_id'):
                 vals['project_id'] = jdata['project_id']
+            if jdata.get('chain_of_thought'):
+                vals['chain_of_thought'] = jdata['chain_of_thought']
 
             task = TaskLog.create(vals)
 
@@ -803,6 +813,7 @@ class TaskForgeTaskController(http.Controller):
             } for r in task.response_ids.sorted('sequence')],
             'response_completed': task.response_completed or False,
             'is_timer_enabled': task.project_id.is_timer_enabled if task.project_id else False,
+	    'chain_of_thought': task.chain_of_thought or '',
             'task_score': task.task_score or 0,
             'comment': task.comment or '',
             'grammar_checked': task.grammar_checked or False,
@@ -1058,6 +1069,7 @@ class TaskForgeTaskController(http.Controller):
                     'value': r.value or '',
                 } for r in task.response_ids.sorted('sequence')],
                 'response_completed': task.response_completed or False,
+                'chain_of_thought': task.chain_of_thought or '',
                 'rubric_completed': task.rubric_completed,
                 'locked': task.state == 'completed',
                 'rubric_categories': rubric_categories,

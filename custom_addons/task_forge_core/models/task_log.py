@@ -97,6 +97,7 @@ class TaskForgeLog(models.Model):
     employee_name = fields.Char(related='employee_id.name', store=True)
     project_name = fields.Char(related='project_id.name', store=True)
     image_url_lines = fields.One2many('task.forge.image', 'task_id', string="Image Url Lines")
+    chain_of_thought = fields.Text(string='Chain of Thought')
 
     # Rating Syste
     task_score = fields.Integer(string='Task Score')
