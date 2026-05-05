@@ -1,0 +1,16 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_kensei_kensei_tasker,kensei.kensei.tasker,model_kensei_kensei,etp_user_roles.group_tasker,1,1,1,1
+access_kensei_turn_tasker,kensei.turn.tasker,model_kensei_turn,etp_user_roles.group_tasker,1,1,1,1
+access_kensei_sandbox_tasker,kensei.sandbox.tasker,model_kensei_sandbox,etp_user_roles.group_tasker,1,1,1,1
+access_kensei_persona_tasker,kensei.persona.tasker,model_kensei_persona,etp_user_roles.group_tasker,1,0,0,0
+access_kensei_taxonomy_tasker,kensei.taxonomy.tasker,model_kensei_taxonomy,etp_user_roles.group_tasker,1,0,0,0
+access_kensei_domain_tasker,kensei.domain.tasker,model_kensei_domain,etp_user_roles.group_tasker,1,0,0,0
+access_kensei_persona_ql,kensei.persona.ql,model_kensei_persona,etp_user_roles.group_quality_lead,1,1,1,1
+access_kensei_taxonomy_ql,kensei.taxonomy.ql,model_kensei_taxonomy,etp_user_roles.group_quality_lead,1,1,1,1
+access_kensei_domain_ql,kensei.domain.ql,model_kensei_domain,etp_user_roles.group_quality_lead,1,1,1,1
+access_kensei_kensei_admin,kensei.kensei.admin,model_kensei_kensei,group_kensei_admin,1,1,1,1
+access_kensei_turn_admin,kensei.turn.admin,model_kensei_turn,group_kensei_admin,1,1,1,1
+access_kensei_sandbox_admin,kensei.sandbox.admin,model_kensei_sandbox,group_kensei_admin,1,1,1,1
+access_kensei_persona_admin,kensei.persona.admin,model_kensei_persona,group_kensei_admin,1,1,1,1
+access_kensei_taxonomy_admin,kensei.taxonomy.admin,model_kensei_taxonomy,group_kensei_admin,1,1,1,1
+access_kensei_domain_admin,kensei.domain.admin,model_kensei_domain,group_kensei_admin,1,1,1,1
