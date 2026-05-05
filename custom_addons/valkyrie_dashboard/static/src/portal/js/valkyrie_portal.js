@@ -243,7 +243,11 @@
         document.addEventListener("click", function (e) {
             var trigger = e.target.closest(".vk-chart-trigger");
             if (!trigger) return;
-            var img = trigger.querySelector("img");
+            var imgs = trigger.querySelectorAll("img");
+            var img = null;
+            for (var i = 0; i < imgs.length; i++) {
+                if (window.getComputedStyle(imgs[i]).display !== "none") { img = imgs[i]; break; }
+            }
             if (!img) return;
             var fig = trigger.closest("figure");
             var caption = fig ? (fig.querySelector("figcaption") || {}).textContent : "";

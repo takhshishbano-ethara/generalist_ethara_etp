@@ -252,7 +252,11 @@
 
   const openLightbox = (trigger) => {
     if (!lightbox) return;
-    const img = trigger.querySelector('img');
+    const imgs = trigger.querySelectorAll('img');
+    let img = null;
+    for (let i = 0; i < imgs.length; i++) {
+      if (getComputedStyle(imgs[i]).display !== 'none') { img = imgs[i]; break; }
+    }
     const figcap = trigger.closest('figure')?.querySelector('figcaption');
     if (!img) return;
     lightboxImg.src = img.currentSrc || img.src;

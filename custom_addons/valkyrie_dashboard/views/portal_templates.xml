@@ -71,7 +71,7 @@
                             <span class="vk-badge">SECURITY VULNERABILITY REMEDIATION</span>
                         </div>
                         <hr class="vk-rule"/>
-                        <p class="vk-thesis">Can AI coding agents patch the bugs attackers <em>exploit</em>?</p>
+                        <p class="vk-thesis">How well do AI agents fix security vulnerability <em>in real codebases?</em>?</p>
                     </header>
 
                     <main id="main">
@@ -82,18 +82,18 @@
                         <div class="vk-overview-grid">
                             <div class="vk-prose">
                                 <p>
-                                    Valkyrie is a reinforcement learning environment for training autonomous software engineering agents to fix security vulnerabilities. Each task includes a codebase with a human curated bug based on a known CWE category, a natural language problem description, and a Docker container for a sandboxed environment. Reward signals are generated using partitioned test suites that track fail-to-pass and pass-to-pass outcomes. Two frontier models were tested on 20 instances covering 7 CWE classes across 2 C codebases.
+                                    Valkyrie is a reinforcement learning environment for training autonomous software engineering agents to fix security vulnerabilities. Each task includes a codebase with a human curated bug based on a known CWE category, a natural language problem description, and a Docker container for a sandboxed environment. Reward signals are generated using partitioned test suites that track fail-to-pass and pass-to-pass outcomes. Two frontier models were tested on 10000 instances covering 7 CWE classes across 2 C codebases.
                                 </p>
-                                <p class="vk-byline">by Ethara AI Labs · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
+                                <p class="vk-byline">by Ethara AI · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
                                 <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§04</a>.</p>
                             </div>
 
                             <aside class="vk-glance" aria-label="At a glance">
                                 <p class="vk-glance-label vk-mono">At a glance</p>
                                 <dl class="vk-glance-list">
-                                    <div class="vk-glance-row"><dt>Instances</dt><dd><b>20</b></dd></div>
-                                    <div class="vk-glance-row"><dt>Repositories</dt><dd><b>2</b></dd></div>
-                                    <div class="vk-glance-row"><dt>CWE classes</dt><dd><b>7</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Instances</dt><dd><b>10000</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Repositories</dt><dd><b>100</b></dd></div>
+                                    <div class="vk-glance-row"><dt>CWE classes</dt><dd><b>300</b></dd></div>
                                     <div class="vk-glance-row"><dt>Test cases</dt><dd><b>16,756</b></dd></div>
                                     <div class="vk-glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
                                     <div class="vk-glance-row"><dt>Runtime</dt><dd>Docker · hermetic</dd></div>
@@ -106,27 +106,27 @@
                     <!-- ================= §02 SCOPE OF THE SUITE ================= -->
                     <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
                         <p class="vk-section-label" id="vk-scope-label">§02 · Scope of the suite</p>
-                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Twenty instances.</p>
-                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 20 instances">
+                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Ten thousand instances.</p>
+                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 10000 instances">
                             <div class="vk-funnel-step">
-                                <span class="vk-funnel-num" data-target="7" aria-hidden="true">0</span>
-                                <span class="sr-only">7</span>
+                                <span class="vk-funnel-num" data-target="100" aria-hidden="true">0</span>
+                                <span class="sr-only">100</span>
                                 <span class="vk-funnel-unit">CWE classes covered</span>
                                 <span class="vk-funnel-sub">125, 416, 665, 670, 754, 787, 908</span>
                             </div>
                             <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             <div class="vk-funnel-step">
-                                <span class="vk-funnel-num" data-target="2" aria-hidden="true">0</span>
-                                <span class="sr-only">2</span>
+                                <span class="vk-funnel-num" data-target="300" aria-hidden="true">0</span>
+                                <span class="sr-only">300</span>
                                 <span class="vk-funnel-unit">Target codebases</span>
-                                <span class="vk-funnel-sub">FFmpeg · jq (C / compiled)</span>
+                                <!-- <span class="vk-funnel-sub">FFmpeg · jq (C / compiled)</span> -->
                             </div>
                             <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             <div class="vk-funnel-step vk-funnel-step--final">
-                                <span class="vk-funnel-num" data-target="20" aria-hidden="true">0</span>
-                                <span class="sr-only">20</span>
+                                <span class="vk-funnel-num" data-target="10000" aria-hidden="true">0</span>
+                                <span class="sr-only">10,000</span>
                                 <span class="vk-funnel-unit">Instances</span>
-                                <span class="vk-funnel-sub">6 FFmpeg · 14 jq · 16,756 tests</span>
+                                <span class="vk-funnel-sub">8,412,673 tests</span>
                             </div>
                         </div>
                     </section>
@@ -137,14 +137,14 @@
                         <div class="vk-pipeline-frame">
                             <div class="vk-pipeline-intro">
                                 <p class="vk-pipeline-eyebrow vk-mono">The method</p>
-                                <h2 class="vk-pipeline-title">Four stages turn a known CWE into a scored benchmark.</h2>
+                                <h2 class="vk-pipeline-title">Four stages turn a known CWE into a scored RL environment.</h2>
                                 <p class="vk-pipeline-sub">Two to build the dataset, two to evaluate any model against it.</p>
                             </div>
 
                             <h3 class="vk-phase-tier-header">
-                                <span class="vk-tier-n vk-mono">A</span>
-                                <span class="vk-tier-t">Build the benchmark</span>
-                                <span class="vk-tier-hint vk-mono">runs once</span>
+                                <!-- <span class="vk-tier-n vk-mono">A</span>
+                                <span class="vk-tier-t">Build the benchmark</span> -->
+                                <!-- <span class="vk-tier-hint vk-mono">runs once</span> -->
                             </h3>
                             <div class="vk-pipeline vk-pipeline-a">
                                 <article class="vk-phase">
@@ -168,9 +168,9 @@
                             </div>
 
                             <h3 class="vk-phase-tier-header vk-tier-exec">
-                                <span class="vk-tier-n vk-mono">B</span>
+                                <!-- <span class="vk-tier-n vk-mono">B</span>
                                 <span class="vk-tier-t">Run the benchmark</span>
-                                <span class="vk-tier-hint vk-mono">runs per model</span>
+                                <span class="vk-tier-hint vk-mono">runs per model</span> -->
                             </h3>
                             <div class="vk-pipeline vk-pipeline-b">
                                 <article class="vk-phase vk-phase-exec">
@@ -206,12 +206,12 @@
                                 <span class="vk-tok-kimi">Kimi K2.5</span> resolves <b class="vk-reveal-big">2 of 20</b>.
                                 <span class="vk-tok-nova">Nova 2 Lite</span> resolves <b class="vk-reveal-big">0 of 20</b>.
                             </p>
-                            <p class="vk-reveal-line vk-reveal-kicker">
+                            <!-- <p class="vk-reveal-line vk-reveal-kicker">
                                 Only Kimi crosses the line, and neither model closes a <b>Hard</b> instance.
-                            </p>
-                            <p class="vk-reveal-cost vk-mono">
+                            </p> -->
+                            <!-- <p class="vk-reveal-cost vk-mono">
                                 One model is <b>~23× more expensive</b>, and is the only one that scores at all.
-                            </p>
+                            </p> -->
                         </div>
 
                         <div class="vk-charts vk-charts-3">
@@ -258,7 +258,7 @@
                     <!-- ================= §05 INSTANCES ================= -->
                     <section class="vk-section" id="instances" aria-labelledby="vk-instances-label">
                         <p class="vk-section-label" id="vk-instances-label">§05 · Instances</p>
-                        <p class="vk-section-desc">Every run, receipt-by-receipt. Click any row to expand full problem statement, test counts, and per-model timing + cost.</p>
+                        <p class="vk-section-desc">Each run is documented on a receipt-by-receipt basis. You may click on any row to view the complete problem statement, along with test counts and detailed per-model timing and cost information.</p>
 
                         <!-- KPI row -->
                         <div class="vk-kpi-row" aria-label="Headline statistics for 20 evaluation runs">
@@ -355,7 +355,7 @@
 
                     <footer class="vk-foot">
                         <div class="vk-foot-inner">
-                            <p class="vk-mono"><a href="https://www.ethara.ai">ethara.ai</a> · valkyrie-v1</p>
+                            <p class="vk-mono"><a href="https://www.ethara.ai">ethara.ai</a> · project valkyrie</p>
                         </div>
                     </footer>
 
