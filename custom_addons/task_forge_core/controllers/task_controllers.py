@@ -1062,6 +1062,7 @@ class TaskForgeTaskController(http.Controller):
                 'locked': task.state == 'completed',
                 'rubric_categories': rubric_categories,
                 'ratings': ratings,
+                'is_justification_required': project.is_justification_required
             }
             return return_Response(message="Success", status=200, data={'data': data})
         except Exception as e:
