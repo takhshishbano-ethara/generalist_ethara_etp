@@ -2067,6 +2067,7 @@ export class KenseiChatWidget extends Component {
             rpc("/kensei/chat/persist_attachments", {
                 sandbox_id: this.props.sandboxId,
                 attachments: attachmentsPayload,
+                turn_id: turnId || 0,
             }).catch(e => console.warn(LOG_PREFIX, "persist_attachments failed:", e));
         }
 

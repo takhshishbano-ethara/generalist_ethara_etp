@@ -531,8 +531,9 @@ class KenseiChatController(http.Controller):
         })
 
     @http.route("/kensei/chat/persist_attachments", type="json", auth="user")
-    def persist_attachments(self, sandbox_id=0, attachments=None, **kw):
+    def persist_attachments(self, sandbox_id=0, attachments=None, turn_id=0, **kw):
         sandbox_id = int(sandbox_id or 0)
+        turn_id = int(turn_id or 0)
         if not sandbox_id or not attachments:
             return {"error": "sandbox_id and attachments are required"}
 
@@ -573,7 +574,7 @@ class KenseiChatController(http.Controller):
                 "content_type": mime_type,
             })
 
-            persisted.append({"name": name, "storedAs": safe_name, "size": len(file_bytes)})
+            persisted.append({"name": name, "storedAs": safe_name, "mimeType": mime_type, "size": len(file_bytes)})
 
         if s3_files:
             icp = request.env["ir.config_parameter"].sudo()
@@ -590,6 +591,26 @@ class KenseiChatController(http.Controller):
                 t.start()
             else:
                 _logger.info("S3 bucket not configured in Settings → skipping S3 upload")
+
+        if turn_id and persisted:
+            turn = request.env["kensei.turn"].browse(turn_id)
+            if turn.exists():
+                try:
+                    existing = json.loads(turn.attachments or "[]")
+                    if not isinstance(existing, list):
+                        existing = []
+                except (json.JSONDecodeError, TypeError):
+                    existing = []
+                for p in persisted:
+                    matched = False
+                    for e in existing:
+                        if e.get("name") == p["name"]:
+                            e["storedAs"] = p["storedAs"]
+                            matched = True
+                            break
+                    if not matched:
+                        existing.append(p)
+                turn.sudo().write({"attachments": json.dumps(existing)})
 
         return {"success": True, "persisted": persisted}
 

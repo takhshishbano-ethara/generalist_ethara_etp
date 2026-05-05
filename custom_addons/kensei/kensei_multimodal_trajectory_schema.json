@@ -264,6 +264,11 @@
           "type": "string",
           "description": "What this file contains and why it's needed for the task.",
           "minLength": 10
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL where the input file is stored.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$"
         }
       }
     },
