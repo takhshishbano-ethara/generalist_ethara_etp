@@ -1,8 +1,14 @@
 from . import controllers as controllers, models as models, wizard as wizard
 
 
-def _migrate_hard_swe(env):
-    """Migrate hard_swe → swe before Selection values are validated."""
+def _pre_init_jaeger(env):
+    """Ensure schema is ready before ORM validation runs."""
+    env.cr.execute("""
+        ALTER TABLE jaeger_repository
+            ADD COLUMN IF NOT EXISTS pr_collection_log TEXT,
+            ADD COLUMN IF NOT EXISTS prs_jsonl_path VARCHAR,
+            ADD COLUMN IF NOT EXISTS filtered_prs_jsonl_path VARCHAR
+    """)
     env.cr.execute("""
         UPDATE jaeger_repository SET pipeline_mode = 'swe'
         WHERE pipeline_mode = 'hard_swe'
