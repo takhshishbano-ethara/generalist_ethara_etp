@@ -23,6 +23,8 @@ class TaskForgeLog(models.Model):
     state = fields.Selection([
         ('in_progress', 'In Progress'),
         ('completed', 'Completed'),
+        ('qc_approved', 'QC Approved'),
+        ('qc_rejected', 'QC Rejected'),
         ('blocker', 'Blocker'),
         ('returned', 'Returned'),
         ('ack', 'Acknowledged'),
@@ -100,11 +102,6 @@ class TaskForgeLog(models.Model):
     chain_of_thought = fields.Text(string='Chain of Thought')
 
     # QC Review
-    qc_status = fields.Selection([
-        ('pending', 'Pending Review'),
-        ('approved', 'Approved'),
-        ('rejected', 'Rejected'),
-    ], string='QC Status', default='pending', tracking=True)
     reviewed_by_id = fields.Many2one('hr.employee', string='Reviewed By', readonly=True)
     review_date = fields.Datetime(string='Review Date', readonly=True)
     rejection_reason = fields.Text(string='Rejection Reason')
