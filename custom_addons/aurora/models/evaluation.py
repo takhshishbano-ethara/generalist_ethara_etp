@@ -450,7 +450,7 @@ class AuroraEvaluation(models.Model):
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
 
         labels = {
-            "app.kubernetes.io/name": "aurora-evaluation",
+            "app.kubernetes.io/name": "aurora-pipelines",
             "app.kubernetes.io/component": "evaluation-worker",
             "app.kubernetes.io/managed-by": "aurora-odoo",
             "platform": "aurora",
