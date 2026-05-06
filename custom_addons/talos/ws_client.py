@@ -321,8 +321,8 @@ class OpenClawClient:
 
     def _handle_raw(self, raw):
         """Process a single incoming WS frame."""
-        # Drop heartbeat text frames
-        if isinstance(raw, str) and raw.strip() in (
+        # Drop heartbeat text frames (case-insensitive)
+        if isinstance(raw, str) and raw.strip().upper() in (
             "HEARTBEAT_OK",
             "HEARTBEAT",
             "PONG",
@@ -407,7 +407,7 @@ class OpenClawClient:
         data_text = ""
         if isinstance(data, dict):
             data_text = data.get("text", "")
-        if isinstance(data_text, str) and "HEARTBEAT" in data_text:
+        if isinstance(data_text, str) and "HEARTBEAT" in data_text.upper():
             return
 
         self._log.debug(
