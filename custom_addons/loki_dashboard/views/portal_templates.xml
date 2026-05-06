@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_dashboard" name="Loki Dashboard">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title t-esc="dashboard_title"/>
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+      <link rel="stylesheet" href="/loki_dashboard/static/src/portal/css/loki_portal.css?v=6"/>
+      <script src="/loki_dashboard/static/src/portal/js/loki_portal.js?v=6" defer="defer"/>
+    </head>
+    <body>
+
+      <div class="loki-page">
+
+        <header class="loki-header">
+          <div class="header-badge">ECG Viewer</div>
+          <h1 class="loki-title" t-esc="dashboard_title"/>
+          <p class="loki-subtitle">12-lead electrocardiogram records</p>
+        </header>
+
+        <section class="loki-table-section">
+          <div class="table-wrap">
+            <table class="loki-table" id="loki-table">
+              <thead>
+                <tr>
+                  <th class="th-num">#</th>
+                  <th>Record</th>
+                  <th>Age</th>
+                  <th>Sex</th>
+                  <th>Diagnosis</th>
+                  <th>HR</th>
+                  <th>QRS</th>
+                  <th class="th-expand"></th>
+                </tr>
+              </thead>
+              <tbody id="loki-tbody">
+                <tr class="loading-row"><td colspan="8">Loading&#8230;</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer class="loki-footer">
+          <p>Ethara AI &#183; Loki Project</p>
+        </footer>
+
+      </div>
+
+      <div class="lightbox" id="lightbox" aria-hidden="true">
+        <div class="lightbox-backdrop" id="lightbox-backdrop"></div>
+        <div class="lightbox-content">
+          <img id="lightbox-img" src="" alt="ECG Full Preview"/>
+          <p class="lightbox-caption" id="lightbox-caption"></p>
+        </div>
+        <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="lightbox-zoom-bar" id="lightbox-zoom-bar">
+          <button type="button" class="lb-zoom-btn" id="lb-zoom-out" aria-label="Zoom out">&#8722;</button>
+          <span class="lb-zoom-level" id="lb-zoom-level">100%</span>
+          <button type="button" class="lb-zoom-btn" id="lb-zoom-in" aria-label="Zoom in">&#43;</button>
+          <button type="button" class="lb-zoom-btn" id="lb-zoom-reset" aria-label="Reset zoom">&#8634;</button>
+        </div>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>
