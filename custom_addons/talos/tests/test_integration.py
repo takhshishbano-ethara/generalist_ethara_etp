@@ -158,7 +158,7 @@ class TestTokenAggregation(TalosTestCase):
         self._create_turn(
             sandbox=glm_sb, turn_number=1,
             prompt="Q", response="A",
-            model_name="litellm/kimi-k2.5",
+            model_name="litellm/kimi-k2.6",
             glm_input_tokens=200, glm_output_tokens=75,
         )
 

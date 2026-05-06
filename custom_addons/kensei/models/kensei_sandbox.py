@@ -39,12 +39,12 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "Kimi K2.5"),
+    ("glm", "Kimi K2.6"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
-    "glm": "litellm/kimi-k2.5",
+    "glm": "litellm/kimi-k2.6",
 }
 
 GATEWAY_PORT_BASE = 21000
@@ -369,7 +369,7 @@ class KenseiSandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
+                    rec.docker_dashboard_url = "https://%s/%s/#token=%s" % (
                         ws_host,
                         rec.id,
                         rec.docker_gateway_token,
@@ -770,7 +770,7 @@ class KenseiSandbox(models.Model):
                 return 0, 0
             base_url = "https://%s/litellm/%s" % (ws_host, self.id)
             dotenv = _load_dotenv()
-            litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+            litellm_key = (dotenv.get("KENSEI_LITELLM_MASTER_KEY") or dotenv.get("LITELLM_MASTER_KEY", "")).strip()
             if not litellm_key:
                 litellm_key = (
                     "sk-kensei-%s" % self.docker_gateway_token[:16]
@@ -783,7 +783,7 @@ class KenseiSandbox(models.Model):
                 return 0, 0
             base_url = "http://localhost:%d" % litellm_port
             dotenv = _load_dotenv()
-            litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+            litellm_key = (dotenv.get("KENSEI_LITELLM_MASTER_KEY") or dotenv.get("LITELLM_MASTER_KEY", "")).strip()
             if not litellm_key and self.docker_gateway_token:
                 # Mirror the derivation in _build_compose_env so boot-time and
                 # query-time agree when no dotenv key is set.
@@ -2210,10 +2210,10 @@ class KenseiSandbox(models.Model):
                 with open(os.path.join(ws_dir, fname), "w") as f:
                     f.write(content)
 
-        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
-        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
-        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
+        aws_bearer = (env.get("KENSEI_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
+        aws_region = (env.get("KENSEI_AWS_REGION") or env.get("AWS_REGION", "ap-south-1")).strip()
+        bedrock_arn = (env.get("KENSEI_BEDROCK_MODEL_ARN") or env.get("BEDROCK_MODEL_ARN", "")).strip()
+        litellm_key = (env.get("KENSEI_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY", "")).strip()
         if not litellm_key:
             litellm_key = "sk-kensei-%s" % secrets.token_hex(8)
 
@@ -2303,8 +2303,8 @@ class KenseiSandbox(models.Model):
                     "maxTokens": 128000,
                 },
                 {
-                    "id": "kimi-k2.5",
-                    "name": "kimi-k2.5",
+                    "id": "kimi-k2.6",
+                    "name": "kimi-k2.6",
                     "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {
@@ -2347,8 +2347,8 @@ class KenseiSandbox(models.Model):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
-            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
+            glm_arn = (env.get("KENSEI_GLM_BEDROCK_MODEL_ARN") or env.get("GLM_BEDROCK_MODEL_ARN", "")).strip()
+            glm_region = (env.get("KENSEI_GLM_AWS_REGION") or env.get("GLM_AWS_REGION", "us-east-1")).strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
@@ -2533,11 +2533,30 @@ class KenseiSandbox(models.Model):
         env["PERSONA"] = persona.name
         env["OPENCLAW_GATEWAY_TOKEN"] = gateway_token
 
-        if not env.get("LITELLM_MASTER_KEY"):
+        if not (env.get("KENSEI_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY")):
             # Derive from gateway_token so _query_litellm_spend can reconstruct
             # the same key without persistence. Random keys would drift between
             # boot and query, causing 401 against LiteLLM_VerificationTokenTable.
             env["LITELLM_MASTER_KEY"] = "sk-kensei-%s" % gateway_token[:16]
+
+        # Map KENSEI_* env vars to the standard names docker-compose.yml expects.
+        # This allows Kensei to use its own credentials while the compose file
+        # continues to use generic ${VAR} interpolation.
+        _kensei_env_map = {
+            "KENSEI_AWS_BEARER_TOKEN": "AWS_BEARER_TOKEN_BEDROCK",
+            "KENSEI_AWS_REGION": "AWS_REGION",
+            "KENSEI_BEDROCK_MODEL_ARN": "BEDROCK_MODEL_ARN",
+            "KENSEI_LITELLM_MASTER_KEY": "LITELLM_MASTER_KEY",
+            "KENSEI_LITELLM_DB_PASSWORD": "LITELLM_DB_PASSWORD",
+            "KENSEI_MOONSHOT_API_KEY": "MOONSHOT_API_KEY",
+            "KENSEI_LLAMA_API_KEY": "LLAMA_API_KEY",
+            "KENSEI_GLM_BEDROCK_MODEL_ARN": "GLM_BEDROCK_MODEL_ARN",
+            "KENSEI_GLM_AWS_REGION": "GLM_AWS_REGION",
+        }
+        for kensei_key, standard_key in _kensei_env_map.items():
+            val = env.get(kensei_key, "").strip()
+            if val:
+                env[standard_key] = val
 
         gog_kp = self.kensei_id.password or ""
         if gog_kp:

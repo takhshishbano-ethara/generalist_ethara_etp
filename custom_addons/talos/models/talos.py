@@ -636,9 +636,9 @@ model_list:
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
-  - model_name: kimi-k2.5
+  - model_name: kimi-k2.6
     litellm_params:
-      model: moonshot/kimi-k2.5
+      model: moonshot/kimi-k2.6
       api_key: os.environ/MOONSHOT_API_KEY
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003

@@ -38,7 +38,7 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "Kimi K2.5"),
+    ("glm", "Kimi K2.6"),
     ("1pa", "1PA"),
     ("1pb", "1PB"),
     ("1pc", "1PC"),
@@ -47,7 +47,7 @@ MODEL_TYPES = [
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
-    "glm": "litellm/kimi-k2.5",
+    "glm": "litellm/kimi-k2.6",
     "1pa": "litellm/quiet_sand",
     "1pb": "litellm/quiet_sand",
     "1pc": "litellm/quiet_sand",
@@ -2104,8 +2104,8 @@ class TalosSandbox(models.Model):
                     "maxTokens": 128000,
                 },
                 {
-                    "id": "kimi-k2.5",
-                    "name": "kimi-k2.5",
+                    "id": "kimi-k2.6",
+                    "name": "kimi-k2.6",
                     "reasoning": True,
                     "input": ["text", "image"],
                     "cost": {

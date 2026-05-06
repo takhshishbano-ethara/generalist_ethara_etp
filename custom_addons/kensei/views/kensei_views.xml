@@ -120,11 +120,11 @@
 
             <widget name="kensei_task_dashboard"/>
 
-            <group string="Trajectories" colspan="2" invisible="not is_ql_or_pl">
+            <group string="Trajectories" colspan="2">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="kensei_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
-              <separator string="Kimi K2.5 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.5 Trajectory" colspan="2"/>
+              <separator string="Kimi K2.6 Trajectory" colspan="2"/>
+              <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.6 Trajectory" colspan="2"/>
             </group>
             <field name="onePA_trajectory" invisible="1"/>
             <field name="onePB_trajectory" invisible="1"/>

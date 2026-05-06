@@ -207,7 +207,7 @@
                                 </div>
                             </div>
                             <div class="o_kensei_rubric_model_block">
-                                <div class="o_kensei_rubric_model_label">Kimi K2.5</div>
+                                <div class="o_kensei_rubric_model_label">Kimi K2.6</div>
                                 <div class="o_kensei_rubric_toggles">
                                     <t t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11]" t-as="si" t-key="'k'+si">
                                         <button class="o_kensei_rubric_toggle"

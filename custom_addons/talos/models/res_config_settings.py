@@ -24,7 +24,7 @@ class TalosConfigSettings(models.TransientModel):
     talos_moonshot_api_key = fields.Char(
         string="Moonshot API Key",
         config_parameter="talos.moonshot_api_key",
-        help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation.",
+        help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation.",
     )
     talos_docker_available = fields.Boolean(
         string="Docker Available",

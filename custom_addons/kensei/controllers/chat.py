@@ -14,16 +14,20 @@ from ..models.kensei_sandbox import MODEL_DEFAULTS, TRAJECTORY_FIELD_MAP
 
 _logger = logging.getLogger(__name__)
 
-def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta, subfolder="input"):
+def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta, subfolder="input", access_key=None, secret_key=None):
     try:
         import boto3
         from botocore.config import Config as BotoConfig
 
-        s3 = boto3.client(
-            "s3",
-            region_name=region,
-            config=BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
-        )
+        client_kwargs = {
+            "region_name": region,
+            "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        }
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        s3 = boto3.client("s3", **client_kwargs)
         for fm in files_meta:
             key = "%s/%s/tasks/%s/%s" % (prefix, subfolder, task_id, fm["object_key"])
             s3.put_object(
@@ -579,13 +583,16 @@ class KenseiChatController(http.Controller):
         if s3_files:
             icp = request.env["ir.config_parameter"].sudo()
             bucket = icp.get_param("kensei.s3_bucket") or ""
-            region = icp.get_param("kensei.s3_region") or "ap-south-1"
+            region = icp.get_param("kensei.s3_region") or "us-east-1"
             prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+            access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+            secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
 
             if bucket:
                 t = threading.Thread(
                     target=_upload_to_s3_background,
                     args=(bucket, region, prefix, task_id, s3_files),
+                    kwargs={"access_key": access_key, "secret_key": secret_key},
                     daemon=True,
                 )
                 t.start()
@@ -731,8 +738,10 @@ class KenseiChatController(http.Controller):
 
         icp = request.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei.s3_bucket") or ""
-        region = icp.get_param("kensei.s3_region") or "ap-south-1"
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
         prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
 
         if not bucket:
             return {"success": False, "error": "S3 bucket not configured"}
@@ -757,6 +766,7 @@ class KenseiChatController(http.Controller):
             t = threading.Thread(
                 target=_upload_to_s3_background,
                 args=(bucket, region, prefix, task_id, s3_files, "output"),
+                kwargs={"access_key": access_key, "secret_key": secret_key},
                 daemon=True,
             )
             t.start()

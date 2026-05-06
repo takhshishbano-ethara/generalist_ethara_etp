@@ -30,7 +30,7 @@ NODE_SELECTOR = {
 SANDBOX_SERVICE_ACCOUNT = "kensei-sandbox"
 
 S3_BUCKET = "production-grtlabs-tag"
-S3_KENSEI_PREFIX = "kensei"
+S3_KENSEI_PREFIX = "Kensei"
 
 TERMINATION_GRACE_PERIOD = 300
 
@@ -43,7 +43,7 @@ server {
     listen 80;
     server_name _;
     resolver kube-dns.kube-system.svc.cluster.local valid=10s;
-    location ~ ^/sandbox/(\\d+)(?:/(.*))? {
+    location ~ ^/(\\d+)(?:/(.*))? {
         set $task_id $1;
         set $path $2;
         set $backend kensei-sandbox-$task_id.%(namespace)s.svc.cluster.local:18789;
@@ -157,10 +157,10 @@ def _build_prestop_script(task_id, persona_name):
 
 
 def _build_openclaw_config(gateway_token, env, model_type="claude"):
-    aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-    aws_region = env.get("AWS_REGION", "ap-south-1").strip()
-    bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
-    litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
+    aws_bearer = (env.get("KENSEI_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
+    aws_region = (env.get("KENSEI_AWS_REGION") or env.get("AWS_REGION", "ap-south-1")).strip()
+    bedrock_arn = (env.get("KENSEI_BEDROCK_MODEL_ARN") or env.get("BEDROCK_MODEL_ARN", "")).strip()
+    litellm_key = (env.get("KENSEI_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY", "")).strip()
     if not litellm_key:
         litellm_key = "sk-kensei-%s" % secrets.token_hex(8)
 
@@ -239,8 +239,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 "maxTokens": 128000,
             },
             {
-                "id": "kimi-k2.5",
-                "name": "kimi-k2.5",
+                "id": "kimi-k2.6",
+                "name": "kimi-k2.6",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
@@ -296,17 +296,17 @@ class KenseiSandboxK8s(models.AbstractModel):
         labels = _sandbox_labels(sandbox_record)
 
         env = _load_dotenv()
-        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
-        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
-        litellm_master_key = env.get("LITELLM_MASTER_KEY", "").strip()
+        aws_bearer = (env.get("KENSEI_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
+        aws_region = (env.get("KENSEI_AWS_REGION") or env.get("AWS_REGION", "ap-south-1")).strip()
+        bedrock_arn = (env.get("KENSEI_BEDROCK_MODEL_ARN") or env.get("BEDROCK_MODEL_ARN", "")).strip()
+        litellm_master_key = (env.get("KENSEI_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY", "")).strip()
         if not litellm_master_key:
             litellm_master_key = "sk-kensei-%s" % secrets.token_hex(8)
-        litellm_db_password = env.get("LITELLM_DB_PASSWORD", "").strip()
+        litellm_db_password = (env.get("KENSEI_LITELLM_DB_PASSWORD") or env.get("LITELLM_DB_PASSWORD", "")).strip()
         if not litellm_db_password:
             litellm_db_password = secrets.token_hex(16)
-        llama_api_key = env.get("LLAMA_API_KEY", "").strip()
-        moonshot_api_key = env.get("MOONSHOT_API_KEY", "").strip()
+        llama_api_key = (env.get("KENSEI_LLAMA_API_KEY") or env.get("LLAMA_API_KEY", "")).strip()
+        moonshot_api_key = (env.get("KENSEI_MOONSHOT_API_KEY") or env.get("MOONSHOT_API_KEY", "")).strip()
 
         openclaw_image = self._get_config_param(
             "kensei.openclaw_image",
@@ -362,8 +362,8 @@ class KenseiSandboxK8s(models.AbstractModel):
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
-            glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
-            glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
+            glm_arn = (env.get("KENSEI_GLM_BEDROCK_MODEL_ARN") or env.get("GLM_BEDROCK_MODEL_ARN", "")).strip()
+            glm_region = (env.get("KENSEI_GLM_AWS_REGION") or env.get("GLM_AWS_REGION", "us-east-1")).strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
                 bedrock_arn=bedrock_arn or "PLACEHOLDER",
                 aws_region=aws_region,
@@ -1421,7 +1421,7 @@ class KenseiSandboxK8s(models.AbstractModel):
                             http=client.V1HTTPIngressRuleValue(
                                 paths=[
                                     client.V1HTTPIngressPath(
-                                        path="/sandbox/",
+                                        path="/",
                                         path_type="Prefix",
                                         backend=client.V1IngressBackend(
                                             service=client.V1IngressServiceBackend(

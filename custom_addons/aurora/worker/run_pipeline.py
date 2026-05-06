@@ -157,9 +157,16 @@ def _notify_webhook(registry, db_name: str, rec_id: int, stage: str, progress_te
     import os
     import time
     import requests
+    from odoo.addons.aurora.models.credential_manager import get_encrypted_param_raw
     webhook_url = os.environ.get("AURORA_WEBHOOK_URL", "")
-    webhook_secret = os.environ.get("AURORA_WEBHOOK_SECRET", "")
-    if not webhook_url or not webhook_secret:
+    if not webhook_url:
+        return
+    cr = _open_cursor(registry)
+    try:
+        webhook_secret = get_encrypted_param_raw(cr, "aurora.webhook_secret", "")
+    finally:
+        cr.close()
+    if not webhook_secret:
         return
     jsonrpc_body = {
         "jsonrpc": "2.0",

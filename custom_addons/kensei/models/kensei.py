@@ -93,10 +93,10 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
             region = (ICP.get_param("kensei.bedrock_region") or "ap-south-1").strip()
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = (dotenv.get("KENSEI_AWS_BEARER_TOKEN") or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
 
         if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+            raise RuntimeError("KENSEI_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set in .env")
         if not inference_arn:
             raise RuntimeError(
                 "Bedrock Inference ARN not configured in Settings > Kensei"
@@ -261,10 +261,10 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
             region = (ICP.get_param("kensei.bedrock_region") or "ap-south-1").strip()
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = (dotenv.get("KENSEI_AWS_BEARER_TOKEN") or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
 
         if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+            raise RuntimeError("KENSEI_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set in .env")
         if not inference_arn:
             raise RuntimeError(
                 "Bedrock Inference ARN not configured in Settings > Kensei"
@@ -655,9 +655,9 @@ model_list:
       input_cost_per_token: 0.000005
       output_cost_per_token: 0.000025
 
-  - model_name: kimi-k2.5
+  - model_name: kimi-k2.6
     litellm_params:
-      model: moonshot/kimi-k2.5
+      model: moonshot/kimi-k2.6
       api_key: os.environ/MOONSHOT_API_KEY
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
