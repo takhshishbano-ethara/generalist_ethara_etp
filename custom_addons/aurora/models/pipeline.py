@@ -8,6 +8,7 @@ from github import Auth, Github, GithubException
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools import config as odoo_config
 
 from .pipeline_config import GITHUB_LANG_MAP, LANGUAGE_SELECTION
 
@@ -15,6 +16,7 @@ _logger = logging.getLogger(__name__)
 
 try:
     from kubernetes import client as k8s_client, config as k8s_config
+    from kubernetes.client.rest import ApiException as K8sApiException
     K8S_AVAILABLE = True
 except ImportError:
     K8S_AVAILABLE = False
@@ -59,24 +61,6 @@ DEADLINE_SECONDS = 14400  # 4 hours
 
 WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py"
 ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
-
-SECRET_NAME = "aurora-secrets"
-
-# Minimal odoo.conf generated at runtime — no volume mounts needed.
-# DB credentials come from Secret env vars (DB_HOST, DB_PORT, DB_USER, DB_PASSWORD).
-_ODOO_CONF_TEMPLATE = """\
-[options]
-admin_passwd = False
-db_host = False
-db_port = 5432
-db_user = False
-db_password = False
-db_name = False
-addons_path = /opt/odoo/addons,/opt/odoo/custom_addons
-data_dir = /tmp/odoo-data
-without_demo = all
-server_wide_modules = base,web
-"""
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -368,6 +352,60 @@ class AuroraPipeline(models.Model):
             return self._detect_language_from_github()
         return ICP.get_param("aurora.lang", "python")
 
+    def _build_worker_odoo_conf(self):
+        """Build odoo.conf content from the global Odoo config (no hardcoded values)."""
+        addons_path = odoo_config.get("addons_path", "/opt/odoo/addons,/opt/odoo/custom_addons")
+        data_dir = odoo_config.get("data_dir", "/tmp/odoo-data")
+        server_wide_modules = odoo_config.get("server_wide_modules", "base,web")
+
+        # DB credentials are injected via K8s Secret env vars and overridden
+        # at boot by the worker's _DB_ENV_OVERRIDES mechanism.
+        return (
+            "[options]\n"
+            "admin_passwd = False\n"
+            "db_host = False\n"
+            "db_port = 5432\n"
+            "db_user = False\n"
+            "db_password = False\n"
+            "db_name = False\n"
+            f"addons_path = {addons_path}\n"
+            f"data_dir = {data_dir}\n"
+            "without_demo = all\n"
+            f"server_wide_modules = {server_wide_modules}\n"
+        )
+
+    def _create_worker_configmap(self, core_v1, labels):
+        """Create a per-pipeline ConfigMap with odoo.conf for the worker pod."""
+        cm_name = f"aurora-worker-config-{self.id}"
+        cm = k8s_client.V1ConfigMap(
+            api_version="v1",
+            kind="ConfigMap",
+            metadata=k8s_client.V1ObjectMeta(
+                name=cm_name,
+                namespace=NAMESPACE,
+                labels=labels,
+            ),
+            data={"odoo.conf": self._build_worker_odoo_conf()},
+        )
+        try:
+            core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
+        except K8sApiException as exc:
+            if exc.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name=cm_name, namespace=NAMESPACE, body=cm,
+                )
+            else:
+                raise
+        return cm_name
+
+    def _delete_worker_configmap(self):
+        cm_name = f"aurora-worker-config-{self.id}"
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            core_v1.delete_namespaced_config_map(name=cm_name, namespace=NAMESPACE)
+        except Exception:
+            _logger.debug("ConfigMap %s already gone or failed to delete", cm_name)
+
     def _create_pipeline_job(self):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes Python package is not installed on this server.")
@@ -378,36 +416,37 @@ class AuroraPipeline(models.Model):
 
         _load_k8s_config()
         batch_v1 = k8s_client.BatchV1Api()
+        core_v1 = k8s_client.CoreV1Api()
 
         env_vars = [
             k8s_client.V1EnvVar(name="PIPELINE_ID", value=str(self.id)),
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
             k8s_client.V1EnvVar(
                 name="PYTHONPATH",
-                value="/opt/ethara/app/src:/opt/ethara/app:/opt/ethara/app/custom_addons",
+                value="/opt/odoo:/opt/odoo/custom_addons",
             ),
             k8s_client.V1EnvVar(name="ODOO_CONF", value=ODOO_CONF_PATH),
+            k8s_client.V1EnvVar(name="DB_HOST", value=odoo_config["db_host"]),
+            k8s_client.V1EnvVar(name="DB_PORT", value=str(odoo_config["db_port"] or "5432")),
+            k8s_client.V1EnvVar(name="DB_USER", value=odoo_config["db_user"]),
+            k8s_client.V1EnvVar(name="DB_PASSWORD", value=odoo_config["db_password"]),
+            k8s_client.V1EnvVar(name="AURORA_ENCRYPTION_KEY", value=_get_env("AURORA_ENCRYPTION_KEY")),
         ]
 
         ICP = self.env["ir.config_parameter"].sudo()
 
-        webhook_secret = _get_env("AURORA_WEBHOOK_SECRET")
         webhook_url = (
             _get_env("AURORA_WEBHOOK_URL")
             or ICP.get_param("aurora.webhook_url")
             or ICP.get_param("web.base.url", "http://localhost:8069")
         )
-        if webhook_url and webhook_secret:
+        if webhook_url:
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_URL", value=webhook_url))
-            env_vars.append(k8s_client.V1EnvVar(name="AURORA_WEBHOOK_SECRET", value=webhook_secret))
 
         harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
         harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
-        harness_token = ICP.get_param("aurora.github_registry_write_token", "")
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
-        if harness_token:
-            env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_TOKEN", value=harness_token))
 
         labels = {
             "app.kubernetes.io/name": "aurora-pipeline",
@@ -418,20 +457,20 @@ class AuroraPipeline(models.Model):
             "kueue.x-k8s.io/queue-name": KUEUE_QUEUE,
         }
 
+        cm_name = self._create_worker_configmap(core_v1, labels)
+
         container = k8s_client.V1Container(
             name="pipeline",
             image=DOCKER_IMAGE,
             image_pull_policy="Always",
-            command=[
-                "sh", "-c",
-                f"mkdir -p /etc/odoo && cat > {ODOO_CONF_PATH} <<'EOF'\n"
-                f"{_ODOO_CONF_TEMPLATE}EOF\n"
-                f"exec python {WORKER_SCRIPT}",
-            ],
+            command=["python", WORKER_SCRIPT],
             env=env_vars,
-            env_from=[
-                k8s_client.V1EnvFromSource(
-                    secret_ref=k8s_client.V1SecretEnvSource(name=SECRET_NAME),
+            volume_mounts=[
+                k8s_client.V1VolumeMount(
+                    name="odoo-config",
+                    mount_path=ODOO_CONF_PATH,
+                    sub_path="odoo.conf",
+                    read_only=True,
                 ),
             ],
             resources=k8s_client.V1ResourceRequirements(
@@ -444,6 +483,13 @@ class AuroraPipeline(models.Model):
                 },
             ),
         )
+
+        volumes = [
+            k8s_client.V1Volume(
+                name="odoo-config",
+                config_map=k8s_client.V1ConfigMapVolumeSource(name=cm_name),
+            ),
+        ]
 
         job = k8s_client.V1Job(
             api_version="batch/v1",
@@ -464,6 +510,7 @@ class AuroraPipeline(models.Model):
                         restart_policy="Never",
                         node_selector=NODE_SELECTOR,
                         containers=[container],
+                        volumes=volumes,
                     ),
                 ),
             ),
@@ -636,6 +683,7 @@ class AuroraPipeline(models.Model):
                     self.job_name, self.id,
                     exc_info=True,
                 )
+            self._delete_worker_configmap()
 
         self.write({"stage": "failed"})
         self.message_post(body="Pipeline cancelled by user.")
@@ -1053,6 +1101,7 @@ class AuroraPipeline(models.Model):
                     )
                 except Exception:
                     _logger.warning("Failed to delete stalled Job %s", rec.job_name, exc_info=True)
+                rec._delete_worker_configmap()
 
             rec.write({"stage": "failed"})
             rec.message_post(

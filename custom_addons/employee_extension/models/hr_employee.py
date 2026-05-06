@@ -16,10 +16,10 @@ class HrEmployee(models.Model):
     offboard_notes = fields.Text(string='Offboard Notes')
     is_offboarded = fields.Boolean(string='Is Offboarded', compute='_compute_is_offboarded', store=True)
 
-    # @api.depends('offboarding_state')
-    # def _compute_is_offboarded(self):
-    #     for record in self:
-    #         record.is_offboarded = record.offboarding_state == 'offboarded'
+    @api.depends('offboarding_state')
+    def _compute_is_offboarded(self):
+        for record in self:
+            record.is_offboarded = record.offboarding_state == 'offboarded'
     #
     # def action_make_offboard(self):
     #     self.ensure_one()

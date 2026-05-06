@@ -1182,3 +1182,39 @@ class TaskForgeTaskController(http.Controller):
         except Exception as e:
             _logger.error('Review task failed: %s', str(e))
             return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/crons/trigger_all', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    # @validate_token
+    def trigger_all_crons(self, **kwargs):
+        try:
+            request.update_env(user=2)
+            results = []
+
+            try:
+                request.env['task.forge.log'].sudo()._cron_inactivity_check()
+                results.append({'cron': 'Task Forge: Inactivity Check', 'status': 'success'})
+            except Exception as e:
+                results.append({'cron': 'Task Forge: Inactivity Check', 'status': 'failed', 'error': str(e)})
+
+            try:
+                request.env['hr.attendance'].sudo().create_attendance_record()
+                results.append({'cron': 'Create Attendance Record (Auto 8:30h)', 'status': 'success'})
+            except Exception as e:
+                results.append({'cron': 'Create Attendance Record (Auto 8:30h)', 'status': 'failed', 'error': str(e)})
+
+            try:
+                request.env['project.blocker'].sudo()._cron_escalate_blockers()
+                results.append({'cron': 'Project Blocker: Escalation Checker', 'status': 'success'})
+            except Exception as e:
+                results.append({'cron': 'Project Blocker: Escalation Checker', 'status': 'failed', 'error': str(e)})
+            success_count = sum(1 for r in results if r['status'] == 'success')
+            failed_count = sum(1 for r in results if r['status'] == 'failed')
+
+            return return_Response(
+                message=f"Crons executed: {success_count} success, {failed_count} failed",
+                status=200,
+                data={'data': results}
+            )
+        except Exception as e:
+            _logger.error('Trigger all crons failed: %s', str(e))
+            return return_Response(message=str(e), status=400)

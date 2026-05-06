@@ -6,6 +6,7 @@ COMPOSE="docker compose -f ${SCRIPT_DIR}/docker-compose.yml"
 DB_NAME="jaeger_dev"
 TIMEOUT=180
 WORKER_IMAGE="jaeger-scrape:latest"
+PHASE2_IMAGE="jaeger-phase2:latest"
 K8S_NAMESPACE="jaeger"
 
 red()   { printf "\033[0;31m%s\033[0m\n" "$*"; }
@@ -44,8 +45,9 @@ done
 blue "Creating K8s namespace '${K8S_NAMESPACE}'..."
 $COMPOSE exec -T k3s kubectl create namespace "$K8S_NAMESPACE" 2>/dev/null || true
 
-blue "Importing worker image into K3s..."
+blue "Importing worker images into K3s..."
 docker save "$WORKER_IMAGE" | $COMPOSE exec -T k3s ctr images import -
+docker save "$PHASE2_IMAGE" | $COMPOSE exec -T k3s ctr images import -
 
 blue "Initializing Odoo database and installing Jaeger module..."
 $COMPOSE exec -T odoo ./odoo-bin \
@@ -64,6 +66,7 @@ ICP = env["ir.config_parameter"].sudo()
 ICP.set_param("jaeger.sandbox_mode", "1")
 ICP.set_param("jaeger.eks_namespace", "jaeger")
 ICP.set_param("jaeger.scrape_image", "jaeger-scrape:latest")
+ICP.set_param("jaeger.build_image", "jaeger-phase2:latest")
 ICP.set_param("jaeger.s3_bucket", "jaeger-local")
 ICP.set_param("jaeger.s3_region", "us-east-1")
 ICP.set_param("jaeger.s3_prefix", "jaeger/phase1")
@@ -86,6 +89,7 @@ blue  "  S3 bucket:      jaeger-local (on MinIO via JAEGER_S3_BUCKET env)"
 blue  "  S3 endpoint:    http://minio:9000 (via JAEGER_S3_ENDPOINT env)"
 blue  "  K8s namespace:  ${K8S_NAMESPACE}"
 blue  "  Worker image:   ${WORKER_IMAGE} (loaded into K3s)"
+blue  "  Phase2 image:   ${PHASE2_IMAGE} (loaded into K3s)"
 blue  "  Webhook base:   http://odoo:8069 (via JAEGER_WEBHOOK_BASE_URL env)"
 blue  "  Webhook token:  sandbox-webhook-secret (via JAEGER_WEBHOOK_TOKEN env)"
 echo ""

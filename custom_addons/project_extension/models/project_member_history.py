@@ -36,11 +36,10 @@ class ProjectMemberHistory(models.Model):
     notes = fields.Text(string='Notes')
     reason_id = fields.Many2one('hr.employee.offboarding.reasons', string='Offboarding Reasons')
 
-    _sql_constraints = [
-        ('unique_active_assignment',
-         'UNIQUE(project_id, employee_id, role, end_date)',
-         'Employee already has an active assignment with this role on the project.'),
-    ]
+    _unique_active_assignment = models.Constraint(
+        'UNIQUE(project_id, employee_id, role, end_date)',
+        'Employee already has an active assignment with this role on the project.',
+    )
 
     def action_offboard(self, reason=None, notes=None, end_date=None):
         self.write({

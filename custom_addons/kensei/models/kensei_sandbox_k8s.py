@@ -43,7 +43,7 @@ server {
     listen 80;
     server_name _;
     resolver kube-dns.kube-system.svc.cluster.local valid=10s;
-    location ~ ^/sandbox/(\\d+)(?:/(.*))? {
+    location ~ ^/(\\d+)(?:/(.*))? {
         set $task_id $1;
         set $path $2;
         set $backend kensei-sandbox-$task_id.%(namespace)s.svc.cluster.local:18789;
@@ -1421,7 +1421,7 @@ class KenseiSandboxK8s(models.AbstractModel):
                             http=client.V1HTTPIngressRuleValue(
                                 paths=[
                                     client.V1HTTPIngressPath(
-                                        path="/sandbox/",
+                                        path="/",
                                         path_type="Prefix",
                                         backend=client.V1IngressBackend(
                                             service=client.V1IngressServiceBackend(

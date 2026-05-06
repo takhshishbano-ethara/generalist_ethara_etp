@@ -13,10 +13,10 @@ class ProjectResponseConfig(models.Model):
     sequence = fields.Integer(string='Sequence', required=True, default=1)
     label = fields.Char(string='Label', required=True)
 
-    _sql_constraints = [
-        ('uniq_project_sequence', 'unique(project_id, sequence)',
-         'Each response field sequence must be unique per project.'),
-    ]
+    _uniq_project_sequence = models.Constraint(
+        'UNIQUE(project_id, sequence)',
+        'Each response field sequence must be unique per project.',
+    )
 
     @staticmethod
     def _generate_label(sequence):
