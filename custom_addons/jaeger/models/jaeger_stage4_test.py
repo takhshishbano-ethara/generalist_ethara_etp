@@ -56,7 +56,6 @@ class JaegerRepositoryStage4(models.Model):
 
         manifest_key = self._upload_test_manifest()
 
-        webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         base_url = (
             os.environ.get("JAEGER_WEBHOOK_BASE_URL")
             or ICP.get_param("web.base.url", "http://localhost:8069")
@@ -66,7 +65,7 @@ class JaegerRepositoryStage4(models.Model):
         job_name = "jaeger-test-%s" % self.id
         secret_name = "jaeger-test-%s-secrets" % self.id
 
-        secret_data = {"WEBHOOK_SECRET": webhook_secret}
+        secret_data = {}
         if sandbox:
             aws_key = ICP.get_param("jaeger.s3_access_key", "")
             aws_secret_val = ICP.get_param("jaeger.s3_secret_key", "")
@@ -75,10 +74,11 @@ class JaegerRepositoryStage4(models.Model):
             if aws_secret_val:
                 secret_data["AWS_SECRET_ACCESS_KEY"] = aws_secret_val
 
-        self._upsert_k8s_secret(
-            core_v1, namespace, secret_name, secret_data,
-            {"app.kubernetes.io/name": "jaeger-test", "repo-id": str(self.id)},
-        )
+        if secret_data:
+            self._upsert_k8s_secret(
+                core_v1, namespace, secret_name, secret_data,
+                {"app.kubernetes.io/name": "jaeger-test", "repo-id": str(self.id)},
+            )
 
         def _secret_ref(key):
             return client.V1EnvVar(
@@ -108,7 +108,6 @@ class JaegerRepositoryStage4(models.Model):
             client.V1EnvVar(name="S3_REGION", value=s3_region),
             client.V1EnvVar(name="S3_PREFIX", value=s3_prefix),
             client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
-            _secret_ref("WEBHOOK_SECRET"),
             client.V1EnvVar(name="DOCKER_HOST", value="tcp://localhost:2375"),
         ]
 

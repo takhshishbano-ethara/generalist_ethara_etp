@@ -70,9 +70,6 @@ class JaegerConfigSettings(models.TransientModel):
     )
 
     # ── Webhook ───────────────────────────────────────────────────────────
-    # Webhook base URL and tokens are now sourced exclusively from environment
-    # variables (JAEGER_WEBHOOK_BASE_URL, JAEGER_WEBHOOK_TOKEN).
-    # DevOps sets these in the deployment manifest; end users don't manage them.
     jaeger_webhook_secret = fields.Char(
         string="Webhook Secret",
         config_parameter="jaeger.webhook_secret",
@@ -119,6 +116,11 @@ class JaegerConfigSettings(models.TransientModel):
     jaeger_llm_config_template = fields.Char(
         string="LLM Config Template (JSON)",
         config_parameter="jaeger.llm_config_template",
+    )
+    jaeger_trajectory_image = fields.Char(
+        string="Trajectory Worker Image",
+        config_parameter="jaeger.trajectory_image",
+        default="426628337772.dkr.ecr.ap-south-1.amazonaws.com/jaeger-trajectory:latest",
     )
 
     # ── RabbitMQ (deprecated — kept for DB view compatibility) ─────────────

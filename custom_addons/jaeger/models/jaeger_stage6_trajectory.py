@@ -1,7 +1,14 @@
+"""Stage 6: Trajectory Generation — K8s Job Dispatch.
+
+Dispatches a single K8s Job per repository that runs the full
+run_custom_eval.sh pipeline (inference + evaluation + summary).
+"""
+import json
 import logging
 import os
+import uuid
 
-from odoo import models
+from odoo import fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -13,95 +20,411 @@ class JaegerRepositoryStage6(models.Model):
     # ── Stage 6 Actions ──────────────────────────────────────────────────
 
     def action_dispatch_trajectories(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
-
-    def run_trajectory_dispatch(self):
-        """Dispatch trajectory generation to EKS. Called by consumer.py via XML-RPC."""
+        """Button handler: dispatch trajectory generation K8s Job."""
         self.ensure_one()
-        self.write({"trajectory_status": "running", "error_message": False})
-        try:
-            self._dispatch_to_eks()
-        except Exception as e:
-            self.write(
-                {
-                    "trajectory_status": "failed",
-                    "error_message": str(e)[:2000],
-                },
-            )
-            raise
+        if self.current_stage != "stage6":
+            raise UserError("Repository must be in Stage 6 to generate trajectories.")
+        if self.trajectory_status in ("dispatched", "running", "evaluating"):
+            raise UserError("Trajectory generation is already in progress.")
+        if not self.final_dataset_jsonl_path and not self.final_dataset_count:
+            raise UserError("No finalized dataset found. Complete Stage 5 first.")
 
-    def _dispatch_to_eks(self):
-        """Dispatch trajectory generation jobs to EKS.
-
-        For each valid instance, creates K pods on EKS (one per pass@k run).
-        Each pod runs the SWE agent with the configured LLM model, receives
-        the problem statement, and produces a patch.
-        """
-        import json
-        import uuid
-
+        # Validate LLM config
         ICP = self.env["ir.config_parameter"].sudo()
+        llm_template = ICP.get_param("jaeger.llm_config_template", "")
+        if not llm_template:
+            raise UserError(
+                "No LLM config template configured. "
+                "Go to Settings → Jaeger → Trajectory Settings and set the LLM config template."
+            )
+
+        # Validate ECR prefix
+        ecr_prefix = self.ecr_prefix or ICP.get_param("jaeger.ecr_prefix", "")
+        if not ecr_prefix:
+            raise UserError(
+                "No ECR prefix configured. Set it on the repository or in Settings → Jaeger."
+            )
+
+        # Lock and dispatch
+        self.env.cr.execute(
+            "SELECT id FROM jaeger_repository WHERE id = %s FOR UPDATE NOWAIT",
+            [self.id],
+        )
+
+        job_id = f"jaeger-traj-{self.id}-{uuid.uuid4().hex[:8]}"
         config = self._resolve_trajectory_config()
 
-        # Gather valid instances
-        valid_instances = self.instance_ids.filtered(
-            lambda i: i.is_valid and i.docker_build_status == "built",
-        )
-        if not valid_instances:
-            raise ValueError(f"No valid instances for trajectory generation in {self.name}")
-
-        k_runs = config.get("k_runs", 8)
-        total_pods = len(valid_instances) * k_runs
-
-        self._append_log(
-            f"Dispatching {total_pods} trajectory pods "
-            f"({len(valid_instances)} instances x {k_runs} runs)",
-        )
-
-        # Generate unique job ID
-        job_id = f"jaeger-traj-{self.org}-{self.repo_name}-{uuid.uuid4().hex[:8]}"
         self.write({
+            "trajectory_status": "dispatched",
             "eks_job_id": job_id,
-            "trajectory_status": "running",
             "llm_config_json": json.dumps(config),
+            "error_message": False,
         })
 
-        # Create trajectory run records
-        Run = self.env["jaeger.trajectory.run"]
-        for inst in valid_instances:
-            for run_num in range(1, k_runs + 1):
-                Run.create({
-                    "name": f"{inst.name}-run-{run_num}",
-                    "instance_id": inst.id,
-                    "repository_id": self.id,
-                    "run_number": run_num,
-                    "model": config.get("model_name", "claude"),
-                    "status": "queued",
-                    "eks_pod_name": f"{job_id}-{inst.name}-{run_num}".lower().replace("__", "-"),
-                })
+        # Dispatch K8s Job via post-commit hook
+        repo_id = self.id
+        db_name = self.env.cr.dbname
 
-        self._append_log(f"Created {total_pods} trajectory run records (job_id={job_id})")
+        def _dispatch_k8s():
+            from odoo import SUPERUSER_ID, api
+            from odoo.modules.registry import Registry
+            registry = Registry(db_name)
+            with registry.cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                repo = env["jaeger.repository"].browse(repo_id)
+                if repo.exists():
+                    repo._create_trajectory_k8s_job(config, job_id)
 
-        # Dispatch to EKS
+        self.env.cr.postcommit.add(_dispatch_k8s)
+        self._append_log(f"Trajectory job dispatched: {job_id}")
+        return True
+
+    def _create_trajectory_k8s_job(self, config, job_id):
+        """Create the K8s Job for trajectory generation."""
+        from kubernetes import client
+        from kubernetes import config as k8s_config
+
         try:
-            eks_cluster = ICP.get_param("jaeger.eks_cluster", "")
-            eks_namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+            k8s_config.load_incluster_config()
+        except Exception:
+            k8s_config.load_kube_config()
 
-            if not eks_cluster:
-                self._append_log("WARNING: No EKS cluster configured. Runs created but not dispatched.")
-                return
+        ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+        traj_image = ICP.get_param(
+            "jaeger.trajectory_image",
+            "426628337772.dkr.ecr.ap-south-1.amazonaws.com/jaeger-trajectory:latest",
+        )
+        ecr_prefix = self.ecr_prefix or ICP.get_param("jaeger.ecr_prefix", "")
+        sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
-            self._create_eks_jobs(config, valid_instances, k_runs, eks_cluster, eks_namespace)
-            self._append_log("EKS jobs dispatched successfully")
+        # Upload dataset to S3 for the pod to download
+        dataset_s3_key = self._upload_dataset_for_trajectory()
 
-        except Exception as e:
-            self._append_log(f"EKS dispatch error: {e}")
-            raise
+        # Build webhook URL
+        base_url = (
+            os.environ.get("JAEGER_WEBHOOK_BASE_URL")
+            or ICP.get_param("jaeger.webhook_base_url", "")
+            or ICP.get_param("web.base.url", "http://localhost:8069")
+        )
+        webhook_url = f"{base_url.rstrip('/')}/jaeger/webhook/pipeline"
+
+        # Upsert K8s Secret
+        secret_name = f"jaeger-traj-{self.id}-secrets"
+        secret_data = {
+            "LLM_CONFIG_JSON": json.dumps(config),
+        }
+        if sandbox:
+            secret_data["AWS_ACCESS_KEY_ID"] = ICP.get_param("jaeger.s3_access_key", "")
+            secret_data["AWS_SECRET_ACCESS_KEY"] = ICP.get_param("jaeger.s3_secret_key", "")
+
+        core_v1 = client.CoreV1Api()
+        self._ensure_k8s_namespace(core_v1, namespace)
+        self._upsert_k8s_secret(
+            core_v1, namespace, secret_name,
+            secret_data,
+            {"app.kubernetes.io/name": "jaeger-trajectory", "repo-id": str(self.id)},
+        )
+
+        # Build env vars
+        env_vars = [
+            client.V1EnvVar(name="REPO_ID", value=str(self.id)),
+            client.V1EnvVar(name="JOB_ID", value=job_id),
+            client.V1EnvVar(name="DATASET_S3_KEY", value=dataset_s3_key),
+            client.V1EnvVar(name="ECR_PREFIX", value=ecr_prefix),
+            client.V1EnvVar(name="LANGUAGE", value=self.language or "python"),
+            client.V1EnvVar(name="K_RUNS", value=str(config.get("k_runs", 8))),
+            client.V1EnvVar(name="NUM_WORKERS", value=str(config.get("num_workers", 1))),
+            client.V1EnvVar(name="MAX_ITERATIONS", value=str(config.get("max_iterations", 300))),
+            client.V1EnvVar(name="MAX_RETRIES", value=str(config.get("max_retries", 3))),
+            client.V1EnvVar(
+                name="CONVERSATION_TIMEOUT",
+                value=str(config.get("conversation_timeout", 3600)),
+            ),
+            client.V1EnvVar(name="TEMPERATURE", value=str(config.get("temperature", 1.0))),
+            client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
+            client.V1EnvVar(
+                name="S3_BUCKET",
+                value=os.environ.get(
+                    "JAEGER_S3_BUCKET", ICP.get_param("jaeger.s3_bucket", ""),
+                ),
+            ),
+            client.V1EnvVar(
+                name="S3_REGION",
+                value=os.environ.get(
+                    "JAEGER_S3_REGION", ICP.get_param("jaeger.s3_region", "ap-south-1"),
+                ),
+            ),
+            client.V1EnvVar(name="S3_PREFIX", value="jaeger/phase3"),
+            # From Secret
+            client.V1EnvVar(
+                name="LLM_CONFIG_JSON",
+                value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(
+                        name=secret_name, key="LLM_CONFIG_JSON",
+                    ),
+                ),
+            ),
+        ]
+
+        # Container spec — privileged for DinD (runs Docker builds + containers)
+        container = client.V1Container(
+            name="trajectory",
+            image=traj_image,
+            env=env_vars,
+            security_context=client.V1SecurityContext(privileged=True),
+            resources=client.V1ResourceRequirements(
+                requests={"cpu": "4", "memory": "8Gi", "ephemeral-storage": "50Gi"},
+                limits={"memory": "32Gi", "ephemeral-storage": "200Gi"},
+            ),
+        )
+
+        # Job spec
+        job = client.V1Job(
+            metadata=client.V1ObjectMeta(
+                name=f"jaeger-traj-{self.id}",
+                namespace=namespace,
+                labels={
+                    "app.kubernetes.io/name": "jaeger-trajectory",
+                    "app.kubernetes.io/component": "pipeline",
+                    "repo-id": str(self.id),
+                    "platform": "jaeger",
+                    "jaeger-job-id": job_id,
+                },
+            ),
+            spec=client.V1JobSpec(
+                template=client.V1PodTemplateSpec(
+                    metadata=client.V1ObjectMeta(labels={
+                        "app.kubernetes.io/name": "jaeger-trajectory",
+                        "repo-id": str(self.id),
+                    }),
+                    spec=client.V1PodSpec(
+                        containers=[container],
+                        restart_policy="Never",
+                        service_account_name="jaeger-pipeline-runner" if not sandbox else None,
+                        node_selector={
+                            "kubernetes.io/arch": "amd64",
+                            "ethara.ai/node-pool": "build",
+                        } if not sandbox else None,
+                    ),
+                ),
+                backoff_limit=1,
+                active_deadline_seconds=86400,
+                ttl_seconds_after_finished=7200,
+            ),
+        )
+
+        # Submit
+        import time as _time
+        batch_v1 = client.BatchV1Api()
+        job_name = f"jaeger-traj-{self.id}"
+        try:
+            batch_v1.create_namespaced_job(namespace=namespace, body=job)
+        except client.ApiException as e:
+            if e.status == 409:
+                _logger.warning("Trajectory Job %s already exists — recreating", job_name)
+                batch_v1.delete_namespaced_job(
+                    name=job_name, namespace=namespace,
+                    body=client.V1DeleteOptions(propagation_policy="Foreground"),
+                )
+                _time.sleep(2)
+                batch_v1.create_namespaced_job(namespace=namespace, body=job)
+            else:
+                raise
+        self._append_log(f"K8s Job created: {job_name} in namespace {namespace}")
+
+    def _upload_dataset_for_trajectory(self):
+        """Upload the final dataset JSONL to S3 for the trajectory pod."""
+        s3_prefix = "jaeger/phase3"
+        s3_key = f"{s3_prefix}/{self.id}/final_dataset.jsonl"
+
+        local_path = self.final_dataset_jsonl_path
+        if local_path and os.path.exists(local_path):
+            s3_bucket = os.environ.get("JAEGER_S3_BUCKET", "")
+            if s3_bucket:
+                import boto3
+                s3_client = boto3.client(
+                    "s3",
+                    region_name=os.environ.get("JAEGER_S3_REGION", "ap-south-1"),
+                )
+                s3_client.upload_file(local_path, s3_bucket, s3_key)
+            return s3_key
+
+        # If already on S3 from phase1/2, construct the key
+        phase1_prefix = os.environ.get("JAEGER_S3_PREFIX", "jaeger/phase1")
+        mode = self.pipeline_mode or "swe"
+        return (
+            f"{phase1_prefix}/{mode}/{self.id}/"
+            f"{self.org}__{self.repo_name}_final_dataset.jsonl"
+        )
+
+    # ── Webhook Handler ──────────────────────────────────────────────────
+
+    def _handle_trajectory_webhook(self, status, results):
+        """Handle trajectory webhook — routes to type-specific handlers.
+
+        Called from the pipeline webhook controller when payload type
+        starts with 'trajectory_'.
+        """
+        if status == "trajectory_progress":
+            self._handle_trajectory_progress(results)
+        elif status == "done":
+            self._handle_trajectory_done(results)
+        elif status == "failed":
+            self._handle_trajectory_failed(results)
+        elif status == "completed":
+            # Legacy per-pod webhook (backward compat)
+            self._handle_legacy_pod_result(status, results)
+        else:
+            _logger.warning(
+                "Unknown trajectory webhook status '%s' for repo %s",
+                status, self.name,
+            )
+
+    def _handle_trajectory_progress(self, data):
+        """Handle trajectory progress update."""
+        step = data.get("step", "")
+        self._append_log(f"Trajectory: {step}")
+        if self.trajectory_status != "running":
+            self.write({"trajectory_status": "running"})
+
+    def _handle_trajectory_done(self, data):
+        """Handle trajectory completion — process summary and per-run results."""
+        summary = data.get("summary") or {}
+        per_run_results = data.get("per_run_results") or []
+        s3_output_key = data.get("s3_output_key", "")
+
+        # Create/update trajectory run records from per_run_results
+        Run = self.env["jaeger.trajectory.run"]
+        for run_data in per_run_results:
+            run_num = run_data.get("run_number", 0)
+            vals = {
+                "status": "resolved" if run_data.get("resolved") else "unresolved",
+                "resolved": run_data.get("resolved", False),
+                "agent_patch": run_data.get("agent_patch", ""),
+                "api_calls": run_data.get("api_calls", 0),
+                "api_cost": run_data.get("api_cost", 0.0),
+                "api_time_seconds": run_data.get("api_time", 0.0),
+                "prompt_tokens": run_data.get("prompt_tokens", 0),
+                "completion_tokens": run_data.get("completion_tokens", 0),
+            }
+            if run_data.get("report"):
+                vals["eval_report_json"] = json.dumps(run_data["report"])
+                vals["eval_status"] = "resolved" if run_data.get("resolved") else "unresolved"
+
+            # Find existing or create — one run record per instance per run_number
+            existing = Run.search([
+                ("repository_id", "=", self.id),
+                ("run_number", "=", run_num),
+            ], limit=1)
+
+            if existing:
+                existing.write(vals)
+            else:
+                # Create run records for each valid instance
+                for inst in self.instance_ids.filtered(lambda i: i.is_valid):
+                    Run.create({
+                        "name": f"{inst.name}-run-{run_num}",
+                        "instance_id": inst.id,
+                        "repository_id": self.id,
+                        "run_number": run_num,
+                        "model": self.model_canonical_name or "claude",
+                        **vals,
+                    })
+
+        # Write summary
+        self._summarize_trajectories_from_data(summary)
+
+    def _handle_trajectory_failed(self, data):
+        """Handle trajectory failure."""
+        error = data.get("error", "Unknown error")
+        log_tail = data.get("log_tail", "")
+        error_msg = f"{error}\n\n{log_tail}" if log_tail else error
+        self.write({
+            "trajectory_status": "failed",
+            "error_message": error_msg[:2000],
+        })
+        self._append_log(f"Trajectory FAILED: {error}")
+
+    def _summarize_trajectories_from_data(self, summary):
+        """Write summary from the run_custom_eval.sh output."""
+        pass_at_k = summary.get("pass_at_k", 0.0)
+        timing = summary.get("timing_metrics", {}).get("total", {})
+
+        self.write({
+            "trajectory_status": "done",
+            "pass_at_k": pass_at_k,
+            "pass_at_k_summary_json": json.dumps(summary, indent=2),
+            "total_api_cost": timing.get("accumulated_cost_usd", 0.0),
+            "total_api_calls": timing.get("api_calls", 0),
+            "total_prompt_tokens": timing.get("prompt_tokens", 0),
+            "total_completion_tokens": timing.get("completion_tokens", 0),
+        })
+
+        self._append_log(
+            f"Trajectory complete: pass@{self.k_runs} = {pass_at_k:.4f}, "
+            f"cost=${timing.get('accumulated_cost_usd', 0):.2f}"
+        )
+
+        # Auto-advance if gate passes
+        gate_ok, _ = self._check_current_gate()
+        if gate_ok:
+            next_stage = self._next_stage()
+            if next_stage:
+                self.write({"current_stage": next_stage})
+
+    # ── Legacy Per-Pod Webhook Handler (backward compat) ─────────────────
+
+    def _handle_legacy_pod_result(self, status, results):
+        """Handle incoming EKS webhook with per-pod trajectory run results.
+
+        Legacy path for the old N×K pod architecture.
+        """
+        pod_name = results.get("pod_name", "")
+        Run = self.env["jaeger.trajectory.run"]
+        run = Run.search([("eks_pod_name", "=", pod_name)], limit=1)
+
+        if not run:
+            _logger.warning("No trajectory run found for pod %s", pod_name)
+            return
+
+        if status == "completed":
+            run.write({
+                "status": "resolved" if results.get("resolved") else "unresolved",
+                "resolved": results.get("resolved", False),
+                "agent_patch": results.get("agent_patch", ""),
+                "conversation_log": results.get("conversation", ""),
+                "api_calls": results.get("api_calls", 0),
+                "api_cost": results.get("api_cost", 0.0),
+                "api_time_seconds": results.get("api_time", 0.0),
+                "prompt_tokens": results.get("prompt_tokens", 0),
+                "completion_tokens": results.get("completion_tokens", 0),
+                "duration_seconds": results.get("duration", 0.0),
+            })
+            if results.get("eval_report"):
+                run.write({
+                    "eval_status": "passed" if results.get("resolved") else "failed",
+                    "eval_report_json": json.dumps(results["eval_report"]),
+                    "eval_passed_count": results["eval_report"].get("passed", 0),
+                    "eval_failed_count": results["eval_report"].get("failed", 0),
+                })
+        else:
+            run.write({
+                "status": "error",
+                "conversation_log": results.get("error_message", "Unknown error"),
+            })
+
+        # Check if all runs for this repo are complete
+        pending = self.run_ids.filtered(
+            lambda r: r.status in ("queued", "running", "evaluating"),
+        )
+        if not pending:
+            self._summarize_trajectories()
+
+    # ── Config Resolution ────────────────────────────────────────────────
 
     def _resolve_trajectory_config(self):
         """Build trajectory configuration, merging per-repo overrides with system defaults."""
-        import json
-
         ICP = self.env["ir.config_parameter"].sudo()
 
         config = {
@@ -130,146 +453,10 @@ class JaegerRepositoryStage6(models.Model):
         template.update(config)
         return template
 
-    def _create_eks_jobs(self, config, instances, k_runs, cluster, namespace):
-        """Create K8s Job manifests and submit to EKS.
-
-        Uses the kubernetes Python client to create batch/v1 Jobs
-        in the configured EKS namespace.
-        """
-        try:
-            from kubernetes import client
-            from kubernetes import config as k8s_config
-
-            k8s_config.load_kube_config(
-                config_file=os.environ.get("KUBECONFIG") or None,
-            )
-            batch_v1 = client.BatchV1Api()
-        except ImportError:
-            _logger.warning("kubernetes Python client not installed. Skipping EKS dispatch.")
-            self._append_log("kubernetes client not available — runs created but not dispatched to EKS")
-            return
-        except Exception as e:
-            _logger.warning("Could not configure K8s client: %s", e)
-            self._append_log(f"K8s config error: {e} — runs created but not dispatched")
-            return
-
-        ICP = self.env["ir.config_parameter"].sudo()
-        agent_image = ICP.get_param("jaeger.agent_image", "jaeger-agent:latest")
-
-        for inst in instances:
-            for run_num in range(1, k_runs + 1):
-                job_name = f"{self.eks_job_id}-{inst.pr_number}-r{run_num}"
-                job_name = job_name.lower().replace("__", "-")[:63]
-
-                container = client.V1Container(
-                    name="agent",
-                    image=agent_image,
-                    env=[
-                        client.V1EnvVar(name="INSTANCE_IMAGE", value=inst.docker_image_name or ""),
-                        client.V1EnvVar(name="INSTANCE_ID", value=inst.name),
-                        client.V1EnvVar(name="RUN_NUMBER", value=str(run_num)),
-                        client.V1EnvVar(name="MODEL_NAME", value=config.get("model_name", "")),
-                        client.V1EnvVar(name="TEMPERATURE", value=str(config.get("temperature", 1.0))),
-                        client.V1EnvVar(name="MAX_ITERATIONS", value=str(config.get("max_iterations", 300))),
-                        client.V1EnvVar(name="TIMEOUT", value=str(config.get("conversation_timeout", 3600))),
-                        client.V1EnvVar(name="WEBHOOK_URL", value=(
-                            os.environ.get("JAEGER_WEBHOOK_BASE_URL")
-                            or ICP.get_param("web.base.url", "http://localhost:8069")
-                        ).rstrip("/") + "/jaeger/webhook/trajectory"),
-                        client.V1EnvVar(name="ODOO_RECORD_ID", value=str(inst.id)),
-                    ],
-                    resources=client.V1ResourceRequirements(
-                        requests={"cpu": "1", "memory": "4Gi"},
-                        limits={"cpu": "2", "memory": "8Gi"},
-                    ),
-                )
-
-                job = client.V1Job(
-                    metadata=client.V1ObjectMeta(
-                        name=job_name,
-                        namespace=namespace,
-                        labels={
-                            "app": "jaeger-trajectory",
-                            "jaeger-job-id": self.eks_job_id or "",
-                            "instance": inst.name[:63],
-                        },
-                    ),
-                    spec=client.V1JobSpec(
-                        template=client.V1PodTemplateSpec(
-                            spec=client.V1PodSpec(
-                                containers=[container],
-                                restart_policy="Never",
-                            ),
-                        ),
-                        backoff_limit=1,
-                        active_deadline_seconds=config.get("conversation_timeout", 3600) + 300,
-                    ),
-                )
-
-                try:
-                    batch_v1.create_namespaced_job(namespace=namespace, body=job)
-                except Exception as e:
-                    _logger.error("Failed to create K8s job %s: %s", job_name, e)
-
-    def _handle_trajectory_webhook(self, status, results):
-        """Handle incoming EKS webhook with trajectory run results.
-
-        Called by the webhook controller when an EKS pod completes.
-
-        Args:
-            status: 'completed' or 'failed'
-            results: dict with run data (agent_patch, conversation, costs, etc.)
-        """
-        import json
-
-        pod_name = results.get("pod_name", "")
-        Run = self.env["jaeger.trajectory.run"]
-        run = Run.search([("eks_pod_name", "=", pod_name)], limit=1)
-
-        if not run:
-            _logger.warning("No trajectory run found for pod %s", pod_name)
-            return
-
-        if status == "completed":
-            run.write({
-                "status": "resolved" if results.get("resolved") else "unresolved",
-                "resolved": results.get("resolved", False),
-                "agent_patch": results.get("agent_patch", ""),
-                "conversation_log": results.get("conversation", ""),
-                "api_calls": results.get("api_calls", 0),
-                "api_cost": results.get("api_cost", 0.0),
-                "api_time_seconds": results.get("api_time", 0.0),
-                "prompt_tokens": results.get("prompt_tokens", 0),
-                "completion_tokens": results.get("completion_tokens", 0),
-                "duration_seconds": results.get("duration", 0.0),
-            })
-
-            # Check for evaluation results
-            if results.get("eval_report"):
-                run.write({
-                    "eval_status": "passed" if results.get("resolved") else "failed",
-                    "eval_report_json": json.dumps(results["eval_report"]),
-                    "eval_passed_count": results["eval_report"].get("passed", 0),
-                    "eval_failed_count": results["eval_report"].get("failed", 0),
-                })
-        else:
-            run.write({
-                "status": "error",
-                "conversation_log": results.get("error_message", "Unknown error"),
-            })
-
-        # Check if all runs for this repo are complete
-        pending = self.run_ids.filtered(
-            lambda r: r.status in ("queued", "running", "evaluating"),
-        )
-        if not pending:
-            self._summarize_trajectories()
-
+    # ── ORM-Based Summarization (legacy/fallback for cron poll) ───────────
 
     def _summarize_trajectories(self):
-        """Summarize trajectory results and compute pass@k."""
-        import json
-
+        """Summarize trajectory results and compute pass@k from ORM run records."""
         self._append_log("All trajectory runs complete. Computing pass@k...")
 
         runs = self.run_ids
@@ -350,4 +537,3 @@ class JaegerRepositoryStage6(models.Model):
             next_stage = self._next_stage()
             if next_stage:
                 self.write({"current_stage": next_stage})
-

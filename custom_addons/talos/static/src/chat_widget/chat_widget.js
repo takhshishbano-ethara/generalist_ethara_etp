@@ -34,7 +34,7 @@ function renderMarkdown(text) {
 const LOG_PREFIX = "[talos-chat]";
 const STREAM_WORD_THRESHOLD = 5;
 const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
-const CHAT_TIMEOUT_MS = 10 * 60 * 1000;
+const CHAT_TIMEOUT_MS = 15 * 60 * 1000;
 
 const LOGIN_URL_PATTERNS = [
     /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
@@ -412,7 +412,7 @@ export class TalosChatWidget extends Component {
 
         ws.onmessage = (event) => {
             const raw = event.data;
-            if (typeof raw === "string" && (raw === "HEARTBEAT_OK" || raw === "HEARTBEAT" || raw === "PONG")) return;
+            if (typeof raw === "string" && (raw.toUpperCase() === "HEARTBEAT_OK" || raw.toUpperCase() === "HEARTBEAT" || raw.toUpperCase() === "PONG")) return;
 
             let frame;
             try { frame = JSON.parse(event.data); } catch {
@@ -762,7 +762,7 @@ export class TalosChatWidget extends Component {
         if (!payload) return;
 
         const dataText = payload.data?.text || payload.message?.text || "";
-        if (typeof dataText === "string" && dataText.includes("HEARTBEAT")) return;
+        if (typeof dataText === "string" && dataText.toUpperCase().includes("HEARTBEAT")) return;
 
         const state = payload.state;
         const messages = this._session.messages;
@@ -1927,7 +1927,7 @@ export class TalosChatWidget extends Component {
 
         const messages = this._session.messages;
         const session = this._session;
-        const timeoutNote = "⏱️ Response timed out after 5 minutes. Please try again.";
+        const timeoutNote = "⏱️ Response timed out after 15 minutes. Please try again.";
         let msg = messages.findLast(m => m.pending);
         const partial = session._streamBuf || (msg ? msg.text : "");
         const finalText = partial ? partial + "\n\n" + timeoutNote : timeoutNote;

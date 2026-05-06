@@ -1,6 +1,6 @@
 {
     "name": "Jaeger - SWE Task Data Collection Pipeline",
-    "version": "19.0.1.0.2",
+    "version": "19.0.1.1.0",
     "category": "Tools",
     "summary": "SWE task data collection: GitHub PR scraping → raw dataset (Phase 1)",
     "description": """
