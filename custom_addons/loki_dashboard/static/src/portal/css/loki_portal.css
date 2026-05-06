@@ -37,16 +37,13 @@
 html{font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 body{font-family:var(--font);background:var(--bg);color:var(--label);line-height:1.47059}
 
-.loki-page{max-width:1120px;margin:0 auto;padding:80px 40px 60px}
-
-/* ─── Header ─── */
+.loki-page{max-width:100%;margin:0 auto;padding:80px 48px 60px}
 .loki-header{text-align:center;margin-bottom:64px}
 .header-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--tint);background:rgba(0,113,227,.08);padding:5px 12px;border-radius:100px;margin-bottom:20px}
 .loki-title{font-size:48px;font-weight:700;letter-spacing:-.025em;color:var(--label);line-height:1.08}
 .loki-subtitle{font-size:19px;font-weight:400;color:var(--label-secondary);margin-top:12px;letter-spacing:-.01em}
 
-/* ─── Table ─── */
-.loki-table-section{background:var(--surface-elevated);border-radius:var(--radius-l);box-shadow:var(--shadow-m);overflow:hidden;border:1px solid var(--separator)}
+.loki-table-section{width:95%;margin:0 auto;background:var(--surface-elevated);border-radius:var(--radius-l);box-shadow:var(--shadow-m);overflow:hidden;border:1px solid var(--separator)}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .loki-table{width:100%;border-collapse:collapse}
 .loki-table thead{border-bottom:1px solid var(--separator)}

@@ -10,8 +10,8 @@
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
-      <link rel="stylesheet" href="/loki_dashboard/static/src/portal/css/loki_portal.css?v=6"/>
-      <script src="/loki_dashboard/static/src/portal/js/loki_portal.js?v=6" defer="defer"/>
+      <link rel="stylesheet" href="/loki_dashboard/static/src/portal/css/loki_portal.css?v=7"/>
+      <script src="/loki_dashboard/static/src/portal/js/loki_portal.js?v=7" defer="defer"/>
     </head>
     <body>
 

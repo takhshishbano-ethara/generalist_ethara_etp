@@ -37,8 +37,15 @@
       if(Array.isArray(val)){
         if(!val.length) return sp+kp+'<span class="jbracket">[]</span>'+comma;
         if(isNumArr(val)&&val.length>8){
+          var id=uid();
           var pv=val.slice(0,6).map(function(v){return '<span class="jn">'+v+'</span>';}).join(', ');
-          return sp+kp+'<span class="jbracket">[</span>'+pv+', <span class="jnull">\u2026 '+(val.length-6)+' more</span><span class="jbracket">]</span>'+comma;
+          var preview=sp+'<span class="jtoggle" data-t="'+id+'">\u25B6</span> '+kp+'<span class="jbracket">[</span>'+pv+', <span class="jcollapsed-hint">\u2026 '+(val.length-6)+' more</span>';
+          var allVals=[];
+          for(var ni=0;ni<val.length;ni++){
+            allVals.push(sp+'  <span class="jn">'+val[ni]+'</span>'+(ni<val.length-1?',':''));
+          }
+          var block='<span class="jtree-block jcollapsed" id="'+id+'">\n'+allVals.join('\n')+'\n'+sp+'<span class="jbracket">]</span>'+comma+'</span>';
+          return preview+'\n'+block+'<span class="jbracket jcollapsed-close" data-t="'+id+'">]</span>'+comma;
         }
         var id=uid();
         var hdr=sp+'<span class="jtoggle" data-t="'+id+'">\u25BC</span> '+kp+'<span class="jbracket">[</span> <span class="jcollapsed-hint">'+val.length+' items</span>';
@@ -61,17 +68,31 @@
       el.querySelectorAll('.jtoggle').forEach(function(t){
         t.addEventListener('click',function(e){
           e.stopPropagation();
-          var block=document.getElementById(this.dataset.t);
+          var tid=this.dataset.t;
+          var block=document.getElementById(tid);
           if(!block)return;
           var hint=this.parentElement.querySelector('.jcollapsed-hint');
+          var closeBracket=el.querySelector('.jcollapsed-close[data-t="'+tid+'"]');
           if(block.classList.contains('jcollapsed')){
-            block.classList.remove('jcollapsed');this.textContent='\u25BC';if(hint)hint.style.display='none';
+            block.classList.remove('jcollapsed');this.textContent='\u25BC';
+            if(hint)hint.style.display='none';
+            if(closeBracket)closeBracket.style.display='none';
           }else{
-            block.classList.add('jcollapsed');this.textContent='\u25B6';if(hint)hint.style.display='inline';
+            block.classList.add('jcollapsed');this.textContent='\u25B6';
+            if(hint)hint.style.display='inline';
+            if(closeBracket)closeBracket.style.display='inline';
           }
         });
       });
       el.querySelectorAll('.jcollapsed-hint').forEach(function(h){h.style.display='none';});
+      el.querySelectorAll('.jcollapsed-close').forEach(function(c){c.style.display='none';});
+      el.querySelectorAll('.jtree-block.jcollapsed').forEach(function(b){
+        var tid=b.id;
+        var hint=el.querySelector('.jtoggle[data-t="'+tid+'"]');
+        if(hint)hint.parentElement.querySelector('.jcollapsed-hint').style.display='inline';
+        var closeBracket=el.querySelector('.jcollapsed-close[data-t="'+tid+'"]');
+        if(closeBracket)closeBracket.style.display='inline';
+      });
     }
 
     function buildTable(records) {
