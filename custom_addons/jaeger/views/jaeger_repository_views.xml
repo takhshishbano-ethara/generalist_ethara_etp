@@ -63,18 +63,18 @@
                     <button name="action_finalize_dataset_direct" type="object" string="Finalize Dataset"
                             class="btn-primary" invisible="current_stage != 'stage5' or dataset_status in ('generating', 'queued')"/>
 
-                    <!-- Stage 6-7: hidden until infra ready -->
+                    <!-- Stage 6-7: active -->
                     <button name="action_dispatch_trajectories" type="object" string="Generate Trajectories"
-                            class="btn-primary" invisible="1"/>
+                            class="btn-primary" invisible="current_stage != 'stage6' or trajectory_status in ('dispatched', 'running', 'evaluating')"/>
                     <button name="action_export_meta" type="object" string="Export to Meta (Queue)"
                             class="btn-primary" invisible="1"/>
-                    <button name="action_export_meta_direct" type="object" string="Export (Direct)"
-                            class="btn-warning" invisible="1"/>
+                    <button name="action_export_meta_direct" type="object" string="Export to Meta"
+                            class="btn-warning" invisible="current_stage != 'stage7' or delivery_status in ('converting', 'queued')"/>
 
                     <button name="action_advance_stage" type="object" string="Advance Stage"
                             class="btn-secondary" invisible="current_stage in ('done', 'failed')"/>
                     <field name="current_stage" widget="statusbar"
-                           statusbar_visible="stage1,stage2,stage3,stage4,stage5,done"/>
+                           statusbar_visible="stage1,stage2,stage3,stage4,stage5,stage6,stage7,done"/>
                 </header>
                 <sheet>
                     <!-- Pipeline Progress Widget -->
@@ -318,30 +318,39 @@
                             </group>
                         </page>
 
-                        <!-- Stage 6: Trajectory (Phase 2-7: hidden) -->
-                        <page string="6 - Trajectory" name="stage6" invisible="1">
-                            <!-- Trajectory Dashboard -->
-                            <widget name="jaeger_run_dashboard"/>
+                        <!-- Stage 6: Trajectory -->
+                        <page string="6 - Trajectory" name="stage6" invisible="current_stage not in ('stage5', 'stage6', 'stage7', 'done')">
+                            <group string="Trajectory Configuration" invisible="current_stage not in ('stage5', 'stage6', 'stage7', 'done')">
+                                <group>
+                                    <field name="model_canonical_name"/>
+                                    <field name="k_runs"/>
+                                    <field name="num_workers"/>
+                                    <field name="max_iterations"/>
+                                    <field name="conversation_timeout"/>
+                                    <field name="temperature"/>
+                                </group>
+                                <group string="Results" invisible="trajectory_status != 'done'">
+                                    <field name="pass_at_k"/>
+                                    <field name="total_api_cost"/>
+                                    <field name="total_api_calls"/>
+                                    <field name="total_prompt_tokens"/>
+                                    <field name="total_completion_tokens"/>
+                                </group>
+                            </group>
                             <group>
                                 <group>
                                     <field name="trajectory_status" widget="badge"/>
                                     <field name="eks_job_id"/>
-                                    <field name="model_name"/>
-                                    <field name="k_runs"/>
-                                    <field name="num_workers"/>
-                                </group>
-                                <group>
-                                    <field name="pass_at_k"/>
-                                    <field name="total_api_cost"/>
-                                    <field name="total_api_calls"/>
-                                    <field name="temperature"/>
-                                    <field name="conversation_timeout"/>
                                 </group>
                             </group>
+                            <field name="pass_at_k_summary_json" readonly="1"
+                                   invisible="not pass_at_k_summary_json"/>
+                            <field name="run_ids" widget="jaeger_run_dashboard"
+                                   invisible="trajectory_status not in ('running', 'done')"/>
                         </page>
 
-                        <!-- Stage 7: Delivery (Phase 2-7: hidden) -->
-                        <page string="7 - Delivery" name="stage7" invisible="1">
+                        <!-- Stage 7: Delivery -->
+                        <page string="7 - Delivery" name="stage7" invisible="current_stage not in ('stage7', 'done')">
                             <group>
                                 <group>
                                     <field name="delivery_status" widget="badge"/>

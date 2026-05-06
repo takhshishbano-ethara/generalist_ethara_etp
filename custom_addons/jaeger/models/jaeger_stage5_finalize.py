@@ -168,10 +168,20 @@ class JaegerRepositoryStage5(models.Model):
     # ── Stage 7 Actions ──────────────────────────────────────────────────
 
     def action_export_meta(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
+        raise UserError(
+            "Queue-based dispatch is disabled (RabbitMQ consumer deleted). "
+            "Use the 'Export (Direct)' button instead."
+        )
 
     def action_export_meta_direct(self):
-        raise UserError("Phase 2-7 not available yet. Only Phase 1 (PR Collection) is active.")
+        self.ensure_one()
+        if self.current_stage != "stage7":
+            raise UserError("Repository must be in Stage 7.")
+        if self.delivery_status in ("converting", "queued"):
+            raise UserError("Meta export is already in progress.")
+        return self._run_pipeline_async(
+            "run_meta_export", "delivery_status", "Meta Delivery Export",
+        )
 
     def run_meta_export(self):
         """Convert to Meta delivery schema. Called by consumer.py via XML-RPC."""
@@ -244,6 +254,20 @@ class JaegerRepositoryStage5(models.Model):
 
         if not converted:
             raise ValueError("All Meta schema conversions failed")
+
+        # Enrich converted entries with trajectory data
+        Run = self.env["jaeger.trajectory.run"]
+        for entry in converted:
+            instance_name = entry.get("instance_id", "")
+            runs = Run.search([
+                ("repository_id", "=", self.id),
+                ("instance_id.name", "=", instance_name),
+            ])
+            if runs:
+                entry["trajectory_runs"] = len(runs)
+                entry["resolved_runs"] = len(runs.filtered(lambda r: r.resolved))
+                entry["pass_at_k"] = 1.0 if any(r.resolved for r in runs) else 0.0
+                entry["total_cost_usd"] = sum(r.api_cost or 0 for r in runs)
 
         # Update individual instance records
         for inst in candidates:

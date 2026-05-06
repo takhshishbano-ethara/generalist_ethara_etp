@@ -104,7 +104,6 @@ class JaegerRepositoryStage3(models.Model):
         manifest_key = self._upload_build_manifest()
 
         tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
-        webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         base_url = (
             os.environ.get("JAEGER_WEBHOOK_BASE_URL")
             or ICP.get_param("web.base.url", "http://localhost:8069")
@@ -116,7 +115,6 @@ class JaegerRepositoryStage3(models.Model):
 
         secret_data = {
             "GITHUB_TOKENS": tokens_str,
-            "WEBHOOK_SECRET": webhook_secret,
         }
         if sandbox:
             aws_key = ICP.get_param("jaeger.s3_access_key", "")
@@ -162,7 +160,6 @@ class JaegerRepositoryStage3(models.Model):
             client.V1EnvVar(name="S3_REGION", value=s3_region),
             client.V1EnvVar(name="S3_PREFIX", value=s3_prefix),
             client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
-            _secret_ref("WEBHOOK_SECRET"),
         ]
 
         if sandbox:

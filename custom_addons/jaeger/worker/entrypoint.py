@@ -14,7 +14,6 @@ Environment variables (all required unless noted):
     S3_REGION        - AWS region (default: ap-south-1)
     S3_PREFIX        - S3 key prefix (default: jaeger/phase1)
     WEBHOOK_URL      - Odoo webhook endpoint URL
-    WEBHOOK_SECRET   - shared secret for X-Jaeger-Token header
     PIPELINE_MODE    - "swe", "rct", or "lht" (default: swe)
     REPO_LANGUAGE    - repository language, e.g. "python" (default: python)
 """
@@ -47,7 +46,6 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "")
 S3_REGION = os.environ.get("S3_REGION", "ap-south-1")
 S3_PREFIX = os.environ.get("S3_PREFIX", "jaeger/phase1")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 PIPELINE_MODE = os.environ.get("PIPELINE_MODE", "swe")
 REPO_LANGUAGE = os.environ.get("REPO_LANGUAGE", "python")
 
@@ -78,7 +76,7 @@ def _check_cancelled():
 # ── Webhook helpers ──────────────────────────────────────────────────────
 
 def _post_webhook(payload):
-    """POST JSON-RPC payload to WEBHOOK_URL with X-Jaeger-Token header."""
+    """POST JSON-RPC payload to WEBHOOK_URL."""
     if not WEBHOOK_URL:
         _logger.debug("No WEBHOOK_URL configured, skipping webhook")
         return
@@ -93,7 +91,6 @@ def _post_webhook(payload):
             WEBHOOK_URL,
             json=jsonrpc_body,
             headers={
-                "X-Jaeger-Token": WEBHOOK_SECRET,
                 "Content-Type": "application/json",
             },
             timeout=30,
