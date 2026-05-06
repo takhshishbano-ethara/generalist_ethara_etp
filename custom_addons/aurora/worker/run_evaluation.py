@@ -192,6 +192,84 @@ def _read_eval_config(conn, rec_id: int) -> dict:
     }
 
 
+def _lease_tokens(db_name: str, rec_id: int, count: int = 1) -> list[str]:
+    """Lease GitHub tokens from the pool (same pattern as run_pipeline.py)."""
+    from odoo.addons.aurora.models.github_token import AuroraGithubToken
+    conn = _open_cursor(db_name)
+    try:
+        with conn.cursor() as cur:
+            tokens = AuroraGithubToken.lease_tokens(cur, rec_id, count=count)
+            conn.commit()
+        return tokens
+    finally:
+        conn.close()
+
+
+def _release_tokens(db_name: str, rec_id: int) -> None:
+    """Release leased GitHub tokens back to the pool."""
+    from odoo.addons.aurora.models.github_token import AuroraGithubToken
+    conn = _open_cursor(db_name)
+    try:
+        with conn.cursor() as cur:
+            AuroraGithubToken.release_tokens(cur, rec_id)
+            conn.commit()
+    except Exception:
+        _logger.exception("Failed to release tokens for eval=%s", rec_id)
+    finally:
+        conn.close()
+
+
+def _setup_git_auth(token: str) -> Optional[str]:
+    """Create a git credential helper script for authenticated clone.
+
+    Uses the standard git credential mechanism: a helper script that
+    outputs protocol/host/username/password. This ensures all git
+    operations (clone, fetch) are authenticated.
+
+    Returns the path to the script, or None on failure.
+    """
+    import stat
+    import tempfile
+    script_path = os.path.join(tempfile.gettempdir(), f"aurora_git_cred_{os.getpid()}.sh")
+    try:
+        with open(script_path, "w") as f:
+            f.write("#!/bin/sh\n")
+            f.write("echo protocol=https\n")
+            f.write("echo host=github.com\n")
+            f.write("echo username=x-access-token\n")
+            f.write(f"echo password={token}\n")
+            f.write("echo\n")
+        os.chmod(script_path, stat.S_IRWXU)
+        os.environ["GIT_TERMINAL_PROMPT"] = "0"
+        import subprocess
+        subprocess.run(
+            ["git", "config", "--global", "credential.helper", f"!{script_path}"],
+            check=True, capture_output=True,
+        )
+        _logger.info("Git credential helper configured for authenticated access")
+        return script_path
+    except Exception:
+        _logger.warning("Failed to configure git auth", exc_info=True)
+        return None
+
+
+def _cleanup_git_auth(script_path: Optional[str]) -> None:
+    if script_path and os.path.exists(script_path):
+        try:
+            os.remove(script_path)
+        except OSError:
+            pass
+    os.environ.pop("GIT_TERMINAL_PROMPT", None)
+    try:
+        import subprocess
+        subprocess.run(
+            ["git", "config", "--global", "--unset", "credential.helper"],
+            capture_output=True,
+        )
+    except Exception:
+        pass
+
+
 def run_evaluation(db_name: str, rec_id: int):
     """Main evaluation pipeline — runs inside K8s Job."""
     conn = _open_cursor(db_name)
@@ -209,6 +287,9 @@ def run_evaluation(db_name: str, rec_id: int):
     heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
     heartbeat_thread.start()
 
+    tokens = None
+    git_askpass_script = None
+
     try:
         _heartbeat(conn, rec_id, "Initializing evaluation worker")
         _append_log(conn, rec_id, "K8s evaluation worker started.")
@@ -221,6 +302,22 @@ def run_evaluation(db_name: str, rec_id: int):
         # Read config
         cfg = _read_eval_config(conn, rec_id)
         _append_log(conn, rec_id, f"Config loaded: workdir={cfg['workdir']}")
+
+        # Ensure working directories exist (K8s pod starts with empty volume)
+        for dir_key in ("workdir", "output_dir", "repo_dir"):
+            if cfg.get(dir_key):
+                Path(cfg[dir_key]).mkdir(parents=True, exist_ok=True)
+
+        # Lease tokens from the pool (same lifecycle as Phase 1 worker)
+        tokens = _lease_tokens(db_name, rec_id, count=1)
+        if not tokens:
+            _fail_eval(conn, rec_id, "No GitHub tokens available in the pool.")
+            return
+        _append_log(conn, rec_id, f"Leased {len(tokens)} token(s) from pool.")
+        github_token = tokens[0]
+
+        # Configure authenticated git access for repo cloning
+        git_askpass_script = _setup_git_auth(github_token)
 
         # Resolve remote dataset to local
         from odoo.addons.aurora.models import dataset_resolver
@@ -241,7 +338,7 @@ def run_evaluation(db_name: str, rec_id: int):
             _import_all_repo_modules,
         )
 
-        # Sync instance registries
+        # Sync instance registries — first try vendored, then sync missing from GitHub
         _check_cancelled()
         _append_log(conn, rec_id, "Syncing harness instance registries...")
         _heartbeat(conn, rec_id, "Syncing registries")
@@ -251,6 +348,41 @@ def run_evaluation(db_name: str, rec_id: int):
             importlib.import_module("odoo.addons.aurora.tools.harness.repos")
         except Exception:
             _logger.warning("Bulk repo import failed", exc_info=True)
+
+        # Sync any repos missing from vendored tree using token from pool
+        from odoo.addons.aurora.tools.harness.instance import Instance
+        import json
+        missing_pairs: set[tuple[str, str, str]] = set()
+        try:
+            with open(os.path.abspath(dataset_file), "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = json.loads(line)
+                    org_name = entry.get("org", "")
+                    repo_name = entry.get("repo", "")
+                    lang = entry.get("lang", "") or "python"
+                    if org_name and repo_name:
+                        key = f"{org_name}/{repo_name}"
+                        if key not in Instance._registry:
+                            missing_pairs.add((org_name, repo_name, lang))
+        except Exception:
+            _logger.warning("Failed to parse dataset for registry check", exc_info=True)
+
+        if missing_pairs:
+            _append_log(conn, rec_id, f"{len(missing_pairs)} repo(s) missing from local registry, syncing from GitHub...")
+            synced = 0
+            for org_name, repo_name, lang in missing_pairs:
+                try:
+                    if check_instance_registry(org_name, repo_name, lang, github_token=github_token):
+                        _import_all_repo_modules(org_name, repo_name, lang)
+                        synced += 1
+                        _append_log(conn, rec_id, f"Synced registry: {org_name}/{repo_name} (lang={lang})")
+                except Exception as exc:
+                    _logger.exception("Registry sync failed for %s/%s", org_name, repo_name)
+                    _append_log(conn, rec_id, f"Registry sync failed for {org_name}/{repo_name}: {exc}")
+            _append_log(conn, rec_id, f"Registry sync complete: {synced}/{len(missing_pairs)} synced.")
 
         # Parse specifics filter
         specifics = None
@@ -353,7 +485,6 @@ def run_evaluation(db_name: str, rec_id: int):
             raise
 
         # ── Finalize ──────────────────────────────────────────────────────
-        import json
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"
         total = resolved = unresolved = errors = 0
         if final_report_path.exists():
@@ -392,6 +523,9 @@ def run_evaluation(db_name: str, rec_id: int):
             _logger.exception("Failed to record eval error to DB")
     finally:
         heartbeat_stop.set()
+        _cleanup_git_auth(git_askpass_script)
+        if tokens:
+            _release_tokens(db_name, rec_id)
         try:
             conn.close()
         except Exception:

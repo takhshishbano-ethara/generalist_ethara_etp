@@ -76,7 +76,9 @@ RUN chmod +x /opt/odoo/odoo-bin 2>/dev/null || true
 RUN useradd -r -m -d /opt/odoo -s /usr/sbin/nologin odoo \
     && chown -R odoo:odoo /opt/odoo \
     && mkdir -p /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data \
-    && chown -R odoo:odoo /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data
+       /opt/multi-swe-bench/multi_swe_bench/harness/repos \
+    && chown -R odoo:odoo /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data \
+       /opt/multi-swe-bench
 
 USER odoo
 
