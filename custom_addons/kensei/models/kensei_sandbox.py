@@ -369,7 +369,7 @@ class KenseiSandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
+                    rec.docker_dashboard_url = "https://%s/%s/#token=%s" % (
                         ws_host,
                         rec.id,
                         rec.docker_gateway_token,
