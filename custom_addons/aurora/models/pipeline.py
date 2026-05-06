@@ -62,8 +62,6 @@ DEADLINE_SECONDS = 14400  # 4 hours
 WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_pipeline.py"
 ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
 
-SECRET_NAME = "aurora-secrets"
-
 
 def _get_env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
@@ -428,31 +426,11 @@ class AuroraPipeline(models.Model):
                 value="/opt/odoo:/opt/odoo/custom_addons",
             ),
             k8s_client.V1EnvVar(name="ODOO_CONF", value=ODOO_CONF_PATH),
-            k8s_client.V1EnvVar(
-                name="DB_HOST",
-                value_from=k8s_client.V1EnvVarSource(
-                    secret_key_ref=k8s_client.V1SecretKeySelector(
-                        name=SECRET_NAME, key="DB_HOST"))),
-            k8s_client.V1EnvVar(
-                name="DB_PORT",
-                value_from=k8s_client.V1EnvVarSource(
-                    secret_key_ref=k8s_client.V1SecretKeySelector(
-                        name=SECRET_NAME, key="DB_PORT"))),
-            k8s_client.V1EnvVar(
-                name="DB_USER",
-                value_from=k8s_client.V1EnvVarSource(
-                    secret_key_ref=k8s_client.V1SecretKeySelector(
-                        name=SECRET_NAME, key="DB_USER"))),
-            k8s_client.V1EnvVar(
-                name="DB_PASSWORD",
-                value_from=k8s_client.V1EnvVarSource(
-                    secret_key_ref=k8s_client.V1SecretKeySelector(
-                        name=SECRET_NAME, key="DB_PASSWORD"))),
-            k8s_client.V1EnvVar(
-                name="AURORA_ENCRYPTION_KEY",
-                value_from=k8s_client.V1EnvVarSource(
-                    secret_key_ref=k8s_client.V1SecretKeySelector(
-                        name=SECRET_NAME, key="AURORA_ENCRYPTION_KEY"))),
+            k8s_client.V1EnvVar(name="DB_HOST", value=odoo_config["db_host"]),
+            k8s_client.V1EnvVar(name="DB_PORT", value=str(odoo_config["db_port"] or "5432")),
+            k8s_client.V1EnvVar(name="DB_USER", value=odoo_config["db_user"]),
+            k8s_client.V1EnvVar(name="DB_PASSWORD", value=odoo_config["db_password"]),
+            k8s_client.V1EnvVar(name="AURORA_ENCRYPTION_KEY", value=_get_env("AURORA_ENCRYPTION_KEY")),
         ]
 
         ICP = self.env["ir.config_parameter"].sudo()
