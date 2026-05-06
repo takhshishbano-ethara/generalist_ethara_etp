@@ -85,6 +85,16 @@ services:
     networks:
       - jaeger
 
+  # ── Jaeger phase2 worker image (Docker Build + Test K8s Jobs) ────────
+  phase2-build:
+    build:
+      context: ../../..
+      dockerfile: custom_addons/jaeger/Dockerfile.phase2-worker
+    image: jaeger-phase2:latest
+    entrypoint: ["echo", "image built"]
+    networks:
+      - jaeger
+
   # ── Odoo (built from production Dockerfile) ───────────────────────────
   odoo:
     build:
