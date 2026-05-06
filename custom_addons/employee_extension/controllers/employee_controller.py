@@ -10,6 +10,7 @@ from datetime import datetime, date, timedelta, time
 import calendar
 import logging
 
+IST_OFFSET = timedelta(hours=5, minutes=30)
 _logger = logging.getLogger(__name__)
 
 
@@ -763,7 +764,7 @@ class EmployeeController(http.Controller):
                     'qr_name': employee.task_forge_qr_id.name if employee.task_forge_qr_id and employee.task_forge_qr_id.name else "",
                     'active': employee.active or False,
                     'productivity_report': productivity_report,
-                    'last_active': str(active_task.write_date) if active_task else "",
+                    'last_active': str(active_task.write_date + IST_OFFSET) if active_task else "",
                     'this_month_total_present': total_present,
                     'this_month_total_working_days': working_days_count,
                     'leave_taken': leave_taken,
@@ -879,7 +880,7 @@ class EmployeeController(http.Controller):
                     'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else 0,
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else "",
                     'active': emp.active or False,
-                    'last_active': str(active_task.write_date) if active_task else "",
+                    'last_active': str(active_task.write_date + IST_OFFSET) if active_task else "",
                     'total_task_count': total_task_count,
                     'task_reviewed_count': task_reviewed_count,
                 }

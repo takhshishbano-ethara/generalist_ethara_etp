@@ -314,7 +314,7 @@ def _auto_hint_eval_bg(
             # cursor closed here — all DB reads are done
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = (dotenv.get("KENSEI_AWS_BEARER_TOKEN") or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
 
             if not api_key or not inference_arn:
                 _logger.warning("auto_hint bg: missing Bedrock credentials")

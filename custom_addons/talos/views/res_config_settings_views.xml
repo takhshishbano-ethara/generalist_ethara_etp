@@ -22,10 +22,10 @@
                             <field name="talos_bedrock_region" />
                         </setting>
                     </block>
-                    <block title="Moonshot (Kimi K2.5)">
+                    <block title="Moonshot (Kimi K2.6)">
                         <setting
                             string="Moonshot API Key"
-                            help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation. Get from platform.moonshot.ai."
+                            help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation. Get from platform.moonshot.ai."
                         >
                             <field
                                 name="talos_moonshot_api_key"

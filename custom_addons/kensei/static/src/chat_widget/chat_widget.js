@@ -82,6 +82,21 @@ const BARE_PATH_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|
 const BARE_DIR_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)(?:\/[^\s`\n"')]*)?\/)\s*(?:\n|$)/gim;
 const MEDIA_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf)$/i;
 const RELATIVE_FILE_RE = /(?:^|\n)\s*([a-zA-Z0-9][a-zA-Z0-9_\-.]*\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf))\b/g;
+const MEDIA_EXT_PATTERN = "(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf)";
+// Natural language references: "saved to X", "wrote X", "created X", "output: X", "workspace/X", markdown ![](X)
+const WORKSPACE_REF_RE = new RegExp(
+    "(?:" +
+        "(?:saved?|wrote|created|generated|stored|output|cropped|resized)\\s+(?:to|as|at|into)?\\s*" + // action verbs
+        "|in\\s+(?:the\\s+)?workspace[:/]?\\s*" + // "in the workspace"
+        "|(?:^|\\s)workspace/" + // "workspace/file.ext"
+        "|(?:^|\\s)\\.\\/(?:workspace/)?" + // "./workspace/file.ext" or "./file.ext"
+        "|→\\s*" + // "→ file.ext"
+        "|!\\[[^\\]]*\\]\\(" + // markdown ![alt](file.ext)
+    ")" +
+    "(`?)([a-zA-Z0-9][a-zA-Z0-9_\\-./]*\\." + MEDIA_EXT_PATTERN + ")\\1" + // filename (optionally backtick-wrapped)
+    "(?:[\\s),;!?.]|$)",
+    "gim"
+);
 
 function _splitMediaFromText(text) {
     if (!text) return { cleanText: "", mediaUrls: [] };
@@ -96,6 +111,14 @@ function _splitMediaFromText(text) {
         const path = match[1].trim();
         if (!mediaUrls.includes(path)) {
             mediaUrls.push(path);
+        }
+    }
+    WORKSPACE_REF_RE.lastIndex = 0;
+    while ((match = WORKSPACE_REF_RE.exec(text)) !== null) {
+        const fileName = match[2].trim();
+        const fullPath = "/home/node/.openclaw/workspace/" + fileName;
+        if (!mediaUrls.includes(fullPath)) {
+            mediaUrls.push(fullPath);
         }
     }
     // Reconstruct full paths from directory + relative filenames

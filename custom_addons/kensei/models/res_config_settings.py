@@ -24,7 +24,7 @@ class KenseiConfigSettings(models.TransientModel):
     kensei_moonshot_api_key = fields.Char(
         string="Moonshot API Key",
         config_parameter="kensei.moonshot_api_key",
-        help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation.",
+        help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation.",
     )
     kensei_docker_available = fields.Boolean(
         string="Docker Available",
@@ -112,16 +112,17 @@ class KenseiConfigSettings(models.TransientModel):
     kensei_s3_bucket = fields.Char(
         string="S3 Bucket",
         config_parameter="kensei.s3_bucket",
+        default="production-grtlabs-tag",
     )
     kensei_s3_prefix = fields.Char(
-        string="S3 Key Prefix",
+        string="S3 Key Prefix (Folder)",
         config_parameter="kensei.s3_prefix",
-        default="kensei",
+        default="Kensei",
     )
     kensei_s3_region = fields.Char(
         string="S3 Region",
         config_parameter="kensei.s3_region",
-        default="ap-south-1",
+        default="us-east-1",
     )
 
     @api.depends_context("uid")

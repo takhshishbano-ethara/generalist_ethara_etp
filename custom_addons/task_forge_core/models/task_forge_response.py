@@ -25,10 +25,10 @@ class TaskForgeResponse(models.Model):
         related='task_id.employee_id', store=True, string='Employee',
     )
 
-    _sql_constraints = [
-        ('uniq_task_config', 'unique(task_id, config_id)',
-         'Each response config can only appear once per task.'),
-    ]
+    _uniq_task_config = models.Constraint(
+        'UNIQUE(task_id, config_id)',
+        'Each response config can only appear once per task.',
+    )
 
     @api.model
     def scaffold_for_task(self, task):

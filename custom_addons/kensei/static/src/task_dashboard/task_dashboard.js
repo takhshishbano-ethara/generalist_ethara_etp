@@ -10,7 +10,7 @@ import { rpc } from "@web/core/network/rpc";
 
 const MODEL_TABS = [
     { type: "claude", label: "Claude Opus 4.7", icon: "fa-microchip" },
-    { type: "glm", label: "Kimi K2.5", icon: "fa-cube" },
+    { type: "glm", label: "Kimi K2.6", icon: "fa-cube" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
