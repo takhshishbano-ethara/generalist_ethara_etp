@@ -67,30 +67,30 @@
                 <field name="auto_process_error" readonly="1"
                        invisible="auto_process_status != 'failed'"/>
               </group>
-              <group string="Classification" invisible="not is_ql_or_pl">
+              <group string="Classification">
                 <field name="l1_classification" domain="[('parent_id', '=', False)]"/>
                 <field name="l2_classification" domain="[('parent_id', '=', l1_classification)]" readonly="not l1_classification"/>
               </group>
-              <group string="Assignment" invisible="not is_ql_or_pl">
+              <group string="Assignment">
                 <field name="employee_id" readonly="not is_kensei_admin"/>
                 <field name="user_id" readonly="not is_kensei_admin"/>
-                <field name="email" readonly="not is_kensei_admin"/>
-                <field name="password" readonly="not is_kensei_admin" string="Google Password"/>
-                <field name="gog_auth" readonly="not is_kensei_admin" string="GOG Auth"/>
-                <field name="outlook_username" readonly="not is_kensei_admin"/>
-                <field name="outlook_password" readonly="not is_kensei_admin"/>
-                <field name="eventbrite_username" readonly="not is_kensei_admin"/>
-                <field name="eventbrite_password" readonly="not is_kensei_admin"/>
-                <field name="strava_username" readonly="not is_kensei_admin"/>
-                <field name="strava_password" readonly="not is_kensei_admin"/>
-                <field name="oura_username" readonly="not is_kensei_admin"/>
-                <field name="oura_password" readonly="not is_kensei_admin"/>
-                <field name="instagram_username" readonly="not is_kensei_admin"/>
-                <field name="instagram_password" readonly="not is_kensei_admin"/>
-                <field name="facebook_username" readonly="not is_kensei_admin"/>
-                <field name="facebook_password" readonly="not is_kensei_admin"/>
-                <field name="threads_username" readonly="not is_kensei_admin"/>
-                <field name="threads_password" readonly="not is_kensei_admin"/>
+                <field name="email"/>
+                <field name="password" string="Google Password"/>
+                <field name="gog_auth" string="GOG Auth"/>
+                <field name="outlook_username"/>
+                <field name="outlook_password"/>
+                <field name="eventbrite_username"/>
+                <field name="eventbrite_password"/>
+                <field name="strava_username"/>
+                <field name="strava_password"/>
+                <field name="oura_username"/>
+                <field name="oura_password"/>
+                <field name="instagram_username"/>
+                <field name="instagram_password"/>
+                <field name="facebook_username"/>
+                <field name="facebook_password"/>
+                <field name="threads_username"/>
+                <field name="threads_password"/>
               </group>
             </group>
 
