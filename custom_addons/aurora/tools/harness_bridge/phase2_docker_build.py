@@ -19,7 +19,7 @@ _INSTANCE_WORKDIR = "instances"
 
 _RANGE_RE = re.compile(r"^(.+)_(\d+)_to_(\d+)$")
 
-_GITHUB_REPO = os.environ.get("AURORA_HARNESS_GIT_REPO", "EtharaAI/multi-swe-bench")
+_GITHUB_REPO = os.environ.get("AURORA_HARNESS_GIT_REPO", "Ethara-Ai/multi-swe-bench")
 _GITHUB_BRANCH = os.environ.get("AURORA_HARNESS_GIT_BRANCH", "main")
 _REGISTRY_PATH_PREFIX = "multi_swe_bench/harness/repos"
 

@@ -714,6 +714,8 @@ class JaegerRepository(models.Model):
         elif stage == "stage6":
             if self.trajectory_status != "done":
                 return False, "Trajectory generation not complete"
+            if not self.pass_at_k_summary_json:
+                return False, "No pass@k summary available"
         elif stage == "stage7":
             if self.delivery_status != "done":
                 return False, "Delivery export not complete"

@@ -11,6 +11,25 @@ import json
 
 class AllocationController(http.Controller):
 
+    def _validate_team_hierarchy(self, project, qr_ids=None, tasker_ids=None):
+        Employee = request.env['hr.employee'].sudo()
+        errors = []
+        current_pl_ids = set(project.project_lead.ids)
+        current_qr_ids = set(project.project_qc_reviewer.ids)
+        if qr_ids:
+            current_qr_ids.update(qr_ids)
+        if qr_ids:
+            for qr_id in qr_ids:
+                emp = Employee.browse(qr_id)
+                if emp.task_forge_pl_id and emp.task_forge_pl_id.id not in current_pl_ids:
+                    errors.append(f"QR '{emp.name}' has PL '{emp.task_forge_pl_id.name}' who is not assigned as Project Lead.")
+        if tasker_ids:
+            for tasker_id in tasker_ids:
+                emp = Employee.browse(tasker_id)
+                if emp.task_forge_qr_id and emp.task_forge_qr_id.id not in current_qr_ids:
+                    errors.append(f"Tasker '{emp.name}' has QR '{emp.task_forge_qr_id.name}' who is not assigned as Project QC Reviewer.")
+        return errors
+
     @http.route('/api/v1/allocation/request', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     @validate_request({
@@ -125,23 +144,30 @@ class AllocationController(http.Controller):
 
             allocation_request.write(vals)
             if allocation_request.project_id:
+                assign_emp_ids = jdata.get('assign_employees')
                 if allocation_request.role_id.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
                                                      request.env.ref('api_auth_gateway.role_pl_stem').id,
                                                      request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                     total_emp = allocation_request.project_id.project_lead.ids
-                    total_emp.extend(jdata.get('assign_employees'))
+                    total_emp.extend(assign_emp_ids)
                     allocation_request.project_id.sudo().project_lead = [(6, 0, total_emp)]
                 if allocation_request.role_id.id in [request.env.ref('api_auth_gateway.role_qc_technical').id,
                                                      request.env.ref('api_auth_gateway.role_qc_stem').id,
                                                      request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+                    hierarchy_errors = self._validate_team_hierarchy(allocation_request.project_id, qr_ids=assign_emp_ids)
+                    if hierarchy_errors:
+                        return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
                     total_emp = allocation_request.project_id.project_qc_reviewer.ids
-                    total_emp.extend(jdata.get('assign_employees'))
+                    total_emp.extend(assign_emp_ids)
                     allocation_request.project_id.sudo().project_qc_reviewer = [(6, 0, total_emp)]
                 if allocation_request.role_id.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id,
                                                      request.env.ref('api_auth_gateway.role_tasker_stem').id,
                                                      request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                    hierarchy_errors = self._validate_team_hierarchy(allocation_request.project_id, tasker_ids=assign_emp_ids)
+                    if hierarchy_errors:
+                        return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
                     total_emp = allocation_request.project_id.project_tasker.ids
-                    total_emp.extend(jdata.get('assign_employees'))
+                    total_emp.extend(assign_emp_ids)
                     allocation_request.project_id.sudo().project_tasker = [(6, 0, total_emp)]
 
             return return_Response(
@@ -183,15 +209,27 @@ class AllocationController(http.Controller):
             project_qc_reviewer = project.project_qc_reviewer.ids
             project_tasker = project.project_tasker.ids
 
+            new_qr_ids = []
+            new_tasker_ids = []
             for emp in employees:
                 if emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                     project_lead.append(emp.id)
 
                 elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
                     project_qc_reviewer.append(emp.id)
+                    new_qr_ids.append(emp.id)
 
                 elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
                     project_tasker.append(emp.id)
+                    new_tasker_ids.append(emp.id)
+
+            hierarchy_errors = self._validate_team_hierarchy(
+                project,
+                qr_ids=new_qr_ids if new_qr_ids else None,
+                tasker_ids=new_tasker_ids if new_tasker_ids else None,
+            )
+            if hierarchy_errors:
+                return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
 
             project.sudo().write({
                 'project_lead': [(6, 0, project_lead)],

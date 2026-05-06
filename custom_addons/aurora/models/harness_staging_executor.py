@@ -130,6 +130,13 @@ def _run_staging_test(db_name, uid, rec_id):
         cr.commit()
 
         dataset_path = cfg["dataset_file"]
+        from . import dataset_resolver
+        if dataset_resolver.is_remote(dataset_path):
+            from odoo import api, SUPERUSER_ID
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            dataset_path = dataset_resolver.resolve_to_local(env, dataset_path)
+            _append_test_log(cr, rec_id, f"Downloaded remote dataset to {dataset_path}")
+            cr.commit()
         org, repo = cfg["org"], cfg["repo"]
         matching_prs: list[str] = []
 

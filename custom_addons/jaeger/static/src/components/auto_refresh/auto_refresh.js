@@ -36,7 +36,9 @@ export class JaegerAutoRefresh extends Component {
             || POLL_STATUSES.has(data.docker_build_status)
             || POLL_STATUSES.has(data.base_image_status)
             || POLL_STATUSES.has(data.test_execution_status)
-            || POLL_STATUSES.has(data.dataset_status);
+            || POLL_STATUSES.has(data.dataset_status)
+            || POLL_STATUSES.has(data.trajectory_status)
+            || POLL_STATUSES.has(data.delivery_status);
     }
 
     _checkAndPoll() {

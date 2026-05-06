@@ -482,6 +482,11 @@ class AuroraHarnessStaging(models.Model):
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
+        from . import dataset_resolver
+        if dataset_resolver.is_remote(self.dataset_file):
+            self.dataset_file = dataset_resolver.resolve_to_local(
+                self.env, self.dataset_file
+            )
         if not os.path.isfile(self.dataset_file):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
 
@@ -590,7 +595,9 @@ class AuroraHarnessStaging(models.Model):
                 "No dataset file is set on this record. Select a Source Pipeline "
                 "first so the dataset path gets filled in."
             )
-        abs_path = os.path.abspath(self.dataset_file)
+        from . import dataset_resolver
+        local_path = dataset_resolver.resolve_to_local(self.env, self.dataset_file)
+        abs_path = os.path.abspath(local_path)
         filename = os.path.basename(abs_path) or f"{self.org}__{self.repo}_dataset.jsonl"
         return self._download_local_file(abs_path, filename)
 

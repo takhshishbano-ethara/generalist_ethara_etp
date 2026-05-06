@@ -17,6 +17,9 @@ from .jaeger_repository import (
 
 _logger = logging.getLogger(__name__)
 
+_CRON_LOCK_WATCHDOG_TRAJECTORIES = 83927471
+_CRON_LOCK_RECONCILE_TRAJECTORIES = 83927472
+
 
 class JaegerRepositoryCrons(models.Model):
     _inherit = "jaeger.repository"
@@ -673,3 +676,109 @@ class JaegerRepositoryCrons(models.Model):
                         repo.write({"test_execution_status": "running"})
             except Exception as e:
                 _logger.error("Test reconcile error for %s: %s", repo.name, e)
+
+    @api.model
+    def _cron_watchdog_stale_trajectories(self):
+        """Mark trajectory jobs as failed if no heartbeat for 2 hours."""
+        cr = self.env.cr
+        cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_WATCHDOG_TRAJECTORIES,))
+        if not cr.fetchone()[0]:
+            return
+        try:
+            self._run_watchdog_stale_trajectories()
+        finally:
+            cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_WATCHDOG_TRAJECTORIES,))
+
+    def _run_watchdog_stale_trajectories(self):
+        from datetime import timedelta
+
+        cutoff = fields.Datetime.now() - timedelta(hours=2)
+        stale = self.search([
+            ("trajectory_status", "in", ("dispatched", "running")),
+            "|",
+            ("last_heartbeat", "=", False),
+            ("last_heartbeat", "<", cutoff),
+        ], limit=500)
+        for repo in stale:
+            _logger.warning(
+                "Watchdog: marking %s trajectory as failed (stale heartbeat)",
+                repo.name,
+            )
+            repo.write({
+                "trajectory_status": "failed",
+                "error_message": "Watchdog: trajectory job stale — no heartbeat for 2+ hours.",
+            })
+            repo._append_log("Watchdog: trajectory job marked failed (stale heartbeat)")
+        if stale:
+            _logger.info("Watchdog: marked %d stale trajectory jobs as failed", len(stale))
+
+    @api.model
+    def _cron_reconcile_trajectory_jobs(self):
+        """Reconcile trajectory K8s Jobs (check if completed/failed)."""
+        cr = self.env.cr
+        cr.execute("SELECT pg_try_advisory_lock(%s)", (_CRON_LOCK_RECONCILE_TRAJECTORIES,))
+        if not cr.fetchone()[0]:
+            return
+        try:
+            self._run_reconcile_trajectory_jobs()
+        finally:
+            cr.execute("SELECT pg_advisory_unlock(%s)", (_CRON_LOCK_RECONCILE_TRAJECTORIES,))
+
+    def _run_reconcile_trajectory_jobs(self):
+        repos = self.search([
+            ("trajectory_status", "in", ("dispatched", "running")),
+        ], limit=500)
+        if not repos:
+            return
+
+        try:
+            from kubernetes import client, config as k8s_config
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                config_file = os.environ.get("KUBECONFIG")
+                k8s_config.load_kube_config(config_file=config_file if config_file else None)
+            batch_v1 = client.BatchV1Api()
+        except (ImportError, Exception) as e:
+            _logger.warning("Cannot connect to K8s for trajectory reconciliation: %s", e)
+            return
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        namespace = ICP.get_param("jaeger.eks_namespace", "jaeger")
+
+        for repo in repos:
+            try:
+                job_name = f"jaeger-traj-{repo.id}"
+                try:
+                    job = batch_v1.read_namespaced_job(name=job_name, namespace=namespace)
+                except client.ApiException as e:
+                    if e.status == 404:
+                        queued_at = repo.write_date
+                        if (
+                            queued_at
+                            and (fields.Datetime.now() - queued_at).total_seconds() > 600
+                        ):
+                            repo.write({
+                                "trajectory_status": "failed",
+                                "error_message": "Trajectory Job not found in K8s (>10 min since dispatch)",
+                            })
+                        continue
+                    raise
+
+                if job.status.succeeded and job.status.succeeded > 0:
+                    if repo.trajectory_status != "done":
+                        _logger.info(
+                            "Reconciler: trajectory Job %s succeeded but status is %s",
+                            job_name, repo.trajectory_status,
+                        )
+                elif job.status.failed and job.status.failed > 0:
+                    if repo.trajectory_status != "failed":
+                        repo.write({
+                            "trajectory_status": "failed",
+                            "error_message": "Trajectory Job failed (K8s reported failure)",
+                        })
+                elif job.status.active:
+                    if repo.trajectory_status == "dispatched":
+                        repo.write({"trajectory_status": "running"})
+            except Exception as e:
+                _logger.error("Trajectory reconcile error for %s: %s", repo.name, e)

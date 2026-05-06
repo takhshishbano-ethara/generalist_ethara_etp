@@ -46,15 +46,14 @@ class JaegerRepositoryStage2(models.Model):
                         # Another process is advancing — let it handle stage write
                         return
                     self.write({"current_stage": next_stage})
+        except UserError:
+            raise
         except Exception as e:
             error_msg = str(e)[:2000]
             vals = {
                 "crawl_status": "failed",
                 "error_message": error_msg,
             }
-            # Only set terminal state for definitive failures (repo not found,
-            # DMCA takedown).  Transient errors (rate limits, network timeouts,
-            # 500s) should remain retryable.
             is_terminal = False
             try:
                 from github import UnknownObjectException
@@ -64,9 +63,13 @@ class JaegerRepositoryStage2(models.Model):
                 pass
             if is_terminal or "not found" in error_msg.lower():
                 vals["terminal_state"] = "repo_not_suitable"
-            self.env.cr.rollback()
-            self.write(vals)
-            self.env.cr.commit()
+            try:
+                self.env.cr.rollback()
+            except AssertionError:
+                pass
+            self.env.clear()
+            repo = self.env["jaeger.repository"].browse(self.id)
+            repo.write(vals)
             raise UserError(error_msg) from e
 
     def _validate_repo_metadata(self):
@@ -201,7 +204,6 @@ class JaegerRepositoryStage2(models.Model):
         sandbox = ICP.get_param("jaeger.sandbox_mode", "0") == "1"
 
         tokens_str = get_encrypted_param(self.env, "jaeger.github_tokens")
-        webhook_secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
         base_url = (
             os.environ.get("JAEGER_WEBHOOK_BASE_URL")
             or ICP.get_param("web.base.url", "http://localhost:8069")
@@ -213,7 +215,6 @@ class JaegerRepositoryStage2(models.Model):
 
         secret_data = {
             "GITHUB_TOKENS": tokens_str,
-            "WEBHOOK_SECRET": webhook_secret,
         }
 
         if sandbox:
@@ -249,7 +250,6 @@ class JaegerRepositoryStage2(models.Model):
             client.V1EnvVar(name="S3_REGION", value=s3_region),
             client.V1EnvVar(name="S3_PREFIX", value=s3_prefix),
             client.V1EnvVar(name="WEBHOOK_URL", value=webhook_url),
-            _secret_ref("WEBHOOK_SECRET"),
             client.V1EnvVar(name="PIPELINE_MODE", value=self.pipeline_mode or "swe"),
             client.V1EnvVar(name="REPO_LANGUAGE", value=self.language or "python"),
         ]

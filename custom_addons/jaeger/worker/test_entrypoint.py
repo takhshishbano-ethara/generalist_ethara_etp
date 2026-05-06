@@ -19,7 +19,6 @@ Environment variables (required unless noted):
     S3_REGION          - AWS region (default: ap-south-1)
     S3_PREFIX          - S3 key prefix
     WEBHOOK_URL        - Odoo webhook endpoint
-    WEBHOOK_SECRET     - Shared secret for X-Jaeger-Token header
 """
 import json
 import logging
@@ -56,7 +55,6 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "")
 S3_REGION = os.environ.get("S3_REGION", "ap-south-1")
 S3_PREFIX = os.environ.get("S3_PREFIX", "jaeger/phase1")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 # ── SIGTERM handling ─────────────────────────────────────────────────────
 
@@ -88,7 +86,7 @@ def _post_webhook(payload):
     try:
         resp = requests.post(
             WEBHOOK_URL, json=body,
-            headers={"X-Jaeger-Token": WEBHOOK_SECRET, "Content-Type": "application/json"},
+            headers={"Content-Type": "application/json"},
             timeout=30,
         )
         if resp.status_code != 200:

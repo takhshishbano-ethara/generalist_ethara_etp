@@ -108,44 +108,14 @@ class JaegerController(http.Controller):
         return {"status": "ok"}
 
     # ── Pipeline webhook (kaiju pattern) ─────────────────────────────────
-
-    _webhook_auth_warned = False
-
-    def _verify_pipeline_token(self):
-        secret = os.environ.get("JAEGER_WEBHOOK_TOKEN", "")
-        if not secret:
-            ICP = request.env["ir.config_parameter"].sudo()
-            secret = ICP.get_param("jaeger.pipeline_webhook_token", "")
-        if not secret:
-            sandbox = request.env["ir.config_parameter"].sudo().get_param(
-                "jaeger.sandbox_mode", "0",
-            ) == "1"
-            if sandbox:
-                if not JaegerController._webhook_auth_warned:
-                    _logger.warning(
-                        "JAEGER_WEBHOOK_TOKEN not set — pipeline webhook auth is DISABLED (sandbox mode). "
-                        "Set this env var in production to secure the webhook endpoint."
-                    )
-                    JaegerController._webhook_auth_warned = True
-                return True
-            if not JaegerController._webhook_auth_warned:
-                _logger.error(
-                    "JAEGER_WEBHOOK_TOKEN not set and sandbox_mode is OFF — "
-                    "rejecting pipeline webhook requests. "
-                    "Set JAEGER_WEBHOOK_TOKEN env var or jaeger.pipeline_webhook_token ICP."
-                )
-                JaegerController._webhook_auth_warned = True
-            return False
-        token = request.httprequest.headers.get("X-Jaeger-Token", "")
-        return hmac.compare_digest(token, secret)
+    # Auth removed: pipeline webhooks are internal (pod-to-pod within k8s cluster).
+    # Network-level security (k8s namespace/network policy) is the boundary.
 
     @http.route(
         "/jaeger/webhook/pipeline", type="jsonrpc", auth="none",
         methods=["POST"], csrf=False,
     )
     def pipeline_webhook(self, **kwargs):
-        if not self._verify_pipeline_token():
-            return {"error": "unauthorized"}
 
         repo_id = kwargs.get("repo_id")
         if not repo_id:
@@ -390,6 +360,22 @@ class JaegerController(http.Controller):
                 "error_message": str(error)[:2000],
                 "cancel_requested": False,
             })
+            return {"ok": True}
+
+        # ── Stage 6: Trajectory webhooks ─────────────────────────────────
+
+        if msg_type == "trajectory_progress":
+            step = kwargs.get("step", "")
+            repo._handle_trajectory_progress(kwargs)
+            repo.write({"last_heartbeat": fields.Datetime.now()})
+            return {"ok": True}
+
+        if msg_type == "trajectory_done":
+            repo._handle_trajectory_done(kwargs)
+            return {"ok": True}
+
+        if msg_type == "trajectory_failed":
+            repo._handle_trajectory_failed(kwargs)
             return {"ok": True}
 
         return {"error": "unknown message type"}

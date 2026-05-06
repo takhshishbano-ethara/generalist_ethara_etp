@@ -1,8 +1,10 @@
 from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value, generate_s3_link, is_valid_email, is_valid_mobile
+from datetime import timedelta
 import logging
 
+IST_OFFSET = timedelta(hours=5, minutes=30)
 _logger = logging.getLogger(__name__)
 
 class ApiAuthController(http.Controller):
@@ -291,7 +293,7 @@ class ApiAuthController(http.Controller):
                 'blocked_resolved': 0,
                 'avg_resolution': "",
                 'skills': [{"id": skill.skill_id.id, "name": skill.skill_id.name, "is_verified": True} for skill in request.env['hr.employee.skill'].sudo().search([('employee_id', '=', user_id.employee_id.id)])],
-                'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date)} for i in projects],
+                'project_list': [{'id': i.id, 'name': i.name, 'status': i.stage_id.name, "since": str(i.create_date + IST_OFFSET) if i.create_date else ""} for i in projects],
                 'notification_line': []
             }
             for notification in user_id.employee_id.notification_line:

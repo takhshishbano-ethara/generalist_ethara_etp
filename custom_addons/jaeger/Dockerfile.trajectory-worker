@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y \
+    git curl docker.io bash jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    uv pandas jinja2 pydantic requests boto3
+
+COPY benchmarks/ /app/benchmarks/
+COPY multi-swe-bench/ /app/multi-swe-bench/
+
+WORKDIR /app/benchmarks
+RUN uv sync
+
+COPY worker/trajectory_entrypoint.py /app/entrypoint.py
+
+WORKDIR /app
+CMD ["python", "/app/entrypoint.py"]
