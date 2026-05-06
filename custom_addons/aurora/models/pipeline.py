@@ -353,12 +353,21 @@ class AuroraPipeline(models.Model):
         return ICP.get_param("aurora.lang", "python")
 
     def _build_worker_odoo_conf(self):
-        """Build odoo.conf content from the global Odoo config (no hardcoded values)."""
-        addons_path = odoo_config.get("addons_path", "/opt/odoo/addons,/opt/odoo/custom_addons")
-        data_dir = odoo_config.get("data_dir", "/tmp/odoo-data")
-        server_wide_modules = odoo_config.get("server_wide_modules", "base,web")
+        """Build odoo.conf content for the worker pod.
 
-        # DB credentials are injected via K8s Secret env vars and overridden
+        Uses fixed paths matching the worker Docker image layout:
+        - /opt/odoo/addons (Odoo core, always auto-added)
+        - /opt/odoo/custom_addons (aurora module)
+
+        NOTE: We cannot use odoo_config.get("addons_path") because:
+        1. It returns a Python list, not a comma-separated string
+        2. The main pod paths (/opt/ethara/app/...) don't exist in the worker image
+        """
+        data_dir = odoo_config.get("data_dir") or "/tmp/odoo-data"
+        swm = odoo_config.get("server_wide_modules")
+        server_wide_modules = ",".join(swm) if isinstance(swm, list) else (swm or "base,web")
+
+        # DB credentials are injected as plain env vars and overridden
         # at boot by the worker's _DB_ENV_OVERRIDES mechanism.
         return (
             "[options]\n"
@@ -368,7 +377,7 @@ class AuroraPipeline(models.Model):
             "db_user = False\n"
             "db_password = False\n"
             "db_name = False\n"
-            f"addons_path = {addons_path}\n"
+            "addons_path = /opt/odoo/addons,/opt/odoo/custom_addons\n"
             f"data_dir = {data_dir}\n"
             "without_demo = all\n"
             f"server_wide_modules = {server_wide_modules}\n"
