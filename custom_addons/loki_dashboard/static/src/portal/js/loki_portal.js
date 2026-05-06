@@ -1,6 +1,47 @@
 (function () {
   'use strict';
-  document.addEventListener('DOMContentLoaded', init);
+
+  var root = document.documentElement;
+  var themeKey = 'loki:theme';
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+  function currentTheme() {
+    var explicit = root.getAttribute('data-theme');
+    if (explicit === 'light' || explicit === 'dark') return explicit;
+    return prefersDark.matches ? 'dark' : 'light';
+  }
+
+  function syncToggleBtn() {
+    var btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    var theme = currentTheme();
+    btn.setAttribute('aria-pressed', String(theme === 'dark'));
+    btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  }
+
+  function initThemeToggle() {
+    var btn = document.getElementById('theme-toggle');
+    syncToggleBtn();
+    if (btn) {
+      btn.addEventListener('click', function () {
+        var next = currentTheme() === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem(themeKey, next); } catch (e) {}
+        syncToggleBtn();
+      });
+    }
+    if (prefersDark.addEventListener) {
+      prefersDark.addEventListener('change', function () {
+        try { if (localStorage.getItem(themeKey)) return; } catch (e) {}
+        syncToggleBtn();
+      });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initThemeToggle();
+    init();
+  });
 
   function init() {
     var tbody = document.getElementById('loki-tbody');
@@ -96,14 +137,28 @@
     }
 
     function buildTable(records) {
+      var currentHeight = tbody.offsetHeight;
+      tbody.style.minHeight = currentHeight + 'px';
       tbody.innerHTML='';
+      expandedIdx=-1;
       records.forEach(function(rec,idx){
         var tr=document.createElement('tr');
         tr.className='data-row';
+        var d = cache[rec.index];
+        var age = d ? (d.patient||{}).age_years||'\u2014' : '\u2014';
+        var gender = d ? (d.patient||{}).gender||'\u2014' : '\u2014';
+        var hr = d ? (d.measurements||{}).heart_rate_bpm||'\u2014' : '\u2014';
+        var qrs = d ? (d.measurements||{}).qrs_duration_ms||'\u2014' : '\u2014';
+        var interp = d ? (d.interpretation||{}) : {};
+        var diagHtml = '\u2014';
+        if (d) {
+          if (interp.diseased) diagHtml='<span class="badge-diseased">'+esc(interp.label||'\u2014')+'</span>';
+          else diagHtml='<span class="badge-normal">'+esc(interp.label||'\u2014')+'</span>';
+        }
         tr.innerHTML=
           '<td class="td-num">'+String(rec.index).padStart(2,'0')+'</td>'+
           '<td class="td-id">'+esc(rec.stem.replace(/_ecg$/,'').replace(/^\d+\.\s*/,''))+'</td>'+
-          '<td>\u2014</td><td class="td-gender">\u2014</td><td class="td-diagnosis">\u2014</td><td>\u2014</td><td>\u2014</td>'+
+          '<td>'+esc(String(age))+'</td><td class="td-gender">'+esc(String(gender))+'</td><td class="td-diagnosis">'+diagHtml+'</td><td>'+esc(String(hr))+'</td><td>'+esc(String(qrs))+'</td>'+
           '<td class="td-expand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></td>';
         tr.addEventListener('click',function(){toggle(rec,idx,tr);});
         tbody.appendChild(tr);
@@ -112,23 +167,142 @@
         det.className='detail-row';det.id='det-'+idx;
         det.innerHTML='<td colspan="8"><div class="detail-content"><div class="detail-json"><pre></pre></div><div class="detail-image"><img src="/loki_dashboard/static/src/portal/img/'+encodeURIComponent(rec.png_file)+'" alt="ECG" draggable="false"/><span class="img-hint">Click to view</span></div></div></td>';
         tbody.appendChild(det);
+      });
+      tbody.style.minHeight = '';
+    }
 
-        loadSummary(rec,tr);
+    var allRecords = [];
+    var sortField = 'index';
+    var sortDir = 'asc';
+
+    function getSortValue(rec, field) {
+      var d = cache[rec.index] || {};
+      var p = d.patient || {};
+      var m = d.measurements || {};
+      var interp = d.interpretation || {};
+      switch (field) {
+        case 'index': return rec.index;
+        case 'record': return rec.stem;
+        case 'age': return p.age_years || 0;
+        case 'gender': return p.gender || '';
+        case 'diagnosis': return interp.label || '';
+        case 'hr': return m.heart_rate_bpm || 0;
+        case 'qrs': return m.qrs_duration_ms || 0;
+        default: return rec.index;
+      }
+    }
+
+    function sortAndRebuild() {
+      var sorted = allRecords.slice();
+      sorted.sort(function(a, b) {
+        var va = getSortValue(a, sortField);
+        var vb = getSortValue(b, sortField);
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+      buildTable(sorted);
+      updateSortHeaders();
+    }
+
+    function updateSortHeaders() {
+      var ths = document.querySelectorAll('.loki-table th[data-sort]');
+      ths.forEach(function(th) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (th.dataset.sort === sortField) {
+          th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
       });
     }
 
-    function loadSummary(rec,tr){
-      fetch('/loki/api/record/'+rec.index).then(function(r){return r.json();}).then(function(d){
-        cache[rec.index]=d;
-        var p=d.patient||{},m=d.measurements||{},interp=d.interpretation||{};
-        var c=tr.querySelectorAll('td');
-        c[2].textContent=p.age_years||'\u2014';
-        c[3].textContent=p.gender||'\u2014';
-        if(interp.diseased) c[4].innerHTML='<span class="badge-diseased">'+esc(interp.label||'\u2014')+'</span>';
-        else c[4].innerHTML='<span class="badge-normal">'+esc(interp.label||'\u2014')+'</span>';
-        c[5].textContent=m.heart_rate_bpm||'\u2014';
-        c[6].textContent=m.qrs_duration_ms||'\u2014';
-      }).catch(function(){});
+    function initSortHeaders() {
+      var ths = document.querySelectorAll('.loki-table th[data-sort]');
+      ths.forEach(function(th) {
+        th.addEventListener('click', function() {
+          var field = th.dataset.sort;
+          if (sortField === field) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortField = field;
+            sortDir = 'asc';
+          }
+          sortAndRebuild();
+        });
+      });
+    }
+
+    function loadAllAndBuild(records) {
+      allRecords = records;
+      var loaded = 0;
+      records.forEach(function(rec) {
+        fetch('/loki/api/record/'+rec.index).then(function(r){return r.json();}).then(function(d){
+          cache[rec.index]=d;
+          loaded++;
+          if (loaded === records.length) {
+            applyFilters();
+            initSortHeaders();
+            initViewerControls();
+          }
+        }).catch(function(){
+          loaded++;
+          if (loaded === records.length) {
+            applyFilters();
+            initSortHeaders();
+            initViewerControls();
+          }
+        });
+      });
+    }
+
+    function applyFilters() {
+      var searchEl = document.getElementById('viewer-search');
+      var filterEl = document.getElementById('viewer-filter');
+      var sortEl = document.getElementById('viewer-sort');
+      var query = (searchEl ? searchEl.value : '').toLowerCase();
+      var filter = filterEl ? filterEl.value : '';
+
+      if (sortEl) sortField = sortEl.value;
+
+      var filtered = allRecords.filter(function(rec) {
+        var d = cache[rec.index] || {};
+        var interp = d.interpretation || {};
+        var patient = d.patient || {};
+
+        if (filter === 'diseased' && !interp.diseased) return false;
+        if (filter === 'normal' && interp.diseased) return false;
+
+        if (query) {
+          var stem = rec.stem.toLowerCase();
+          var label = (interp.label || '').toLowerCase();
+          var gender = (patient.gender || '').toLowerCase();
+          if (stem.indexOf(query) === -1 && label.indexOf(query) === -1 && gender.indexOf(query) === -1) return false;
+        }
+        return true;
+      });
+
+      filtered.sort(function(a, b) {
+        var va = getSortValue(a, sortField);
+        var vb = getSortValue(b, sortField);
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      buildTable(filtered);
+      updateSortHeaders();
+
+      var countEl = document.getElementById('viewer-count');
+      if (countEl) countEl.textContent = filtered.length + ' of ' + allRecords.length + ' records';
+    }
+
+    function initViewerControls() {
+      var searchEl = document.getElementById('viewer-search');
+      var filterEl = document.getElementById('viewer-filter');
+      var sortEl = document.getElementById('viewer-sort');
+
+      if (searchEl) searchEl.addEventListener('input', function() { applyFilters(); });
+      if (filterEl) filterEl.addEventListener('change', function() { applyFilters(); });
+      if (sortEl) sortEl.addEventListener('change', function() { sortDir = 'asc'; applyFilters(); });
     }
 
     function toggle(rec,idx,tr){
@@ -189,6 +363,6 @@
       if(e.key==='0'){lbZoom=1;lbPanX=0;lbPanY=0;applyLbTransform();}
     });
 
-    fetch('/loki/api/records').then(function(r){return r.json();}).then(buildTable).catch(function(){tbody.innerHTML='<tr class="loading-row"><td colspan="8">Failed to load.</td></tr>';});
+    fetch('/loki/api/records').then(function(r){return r.json();}).then(loadAllAndBuild).catch(function(){tbody.innerHTML='<tr class="loading-row"><td colspan="8">Failed to load.</td></tr>';});
   }
 })();
