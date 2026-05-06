@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <delete model="ir.actions.client" search="[('xml_id', '=', 'loki_dashboard.loki_dashboard_action')]"/>
+
+    <record id="loki_dashboard_url_action" model="ir.actions.act_url">
+        <field name="name">Loki Dashboard</field>
+        <field name="url">/loki</field>
+        <field name="target">self</field>
+    </record>
+
+    <menuitem id="loki_dashboard_menu_root"
+              name="Loki Dashboard"
+              action="loki_dashboard_url_action"
+              sequence="203"/>
+</odoo>
