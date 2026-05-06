@@ -227,7 +227,10 @@ class AuroraEvaluation(models.Model):
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
-        if not os.path.isfile(self.dataset_file):
+        from . import dataset_resolver
+        if dataset_resolver.is_remote(self.dataset_file):
+            pass  # will be resolved to local in the worker/executor
+        elif not os.path.isfile(self.dataset_file):
             raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         ICP = self.env["ir.config_parameter"].sudo()
