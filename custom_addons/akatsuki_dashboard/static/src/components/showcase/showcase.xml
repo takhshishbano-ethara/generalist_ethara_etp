@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="akatsuki_dashboard.AkatsukiShowcase">
+        <div class="ak-showcase">
+            <header class="ak-showcase-header">
+                <span class="ak-tag">BENCHMARK</span>
+                <h1 class="ak-title">AKATSUKI</h1>
+                <p class="ak-subtitle">
+                    AI Benchmark Dashboard
+                </p>
+                <p class="ak-byline">
+                    by <strong>Ethara AI</strong> &#x2014;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="ak-section ak-description">
+                <p>
+                    TODO: Add project description here. This section should explain what
+                    Akatsuki evaluates and how it works.
+                </p>
+            </section>
+
+            <section class="ak-section ak-metrics">
+                <div class="ak-metric-grid">
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 1</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 2</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 3</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 4</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 5</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                    <div class="ak-metric-card">
+                        <span class="ak-metric-value">0</span>
+                        <span class="ak-metric-label">Metric 6</span>
+                        <span class="ak-metric-detail">Detail</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ak-section ak-phases">
+                <div class="ak-phases-row">
+                    <div class="ak-phase-card">
+                        <div class="ak-phase-number">1</div>
+                        <h3>Step 1</h3>
+                        <p>TODO: Describe step 1.</p>
+                    </div>
+                    <div class="ak-phase-arrow">&#x2192;</div>
+                    <div class="ak-phase-card">
+                        <div class="ak-phase-number">2</div>
+                        <h3>Step 2</h3>
+                        <p>TODO: Describe step 2.</p>
+                    </div>
+                    <div class="ak-phase-arrow">&#x2192;</div>
+                    <div class="ak-phase-card">
+                        <div class="ak-phase-number">3</div>
+                        <h3>Step 3</h3>
+                        <p>TODO: Describe step 3.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ak-section ak-links">
+                <a class="ak-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Trajectories on GitHub
+                </a>
+                <a class="ak-btn ak-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset on HuggingFace
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>
