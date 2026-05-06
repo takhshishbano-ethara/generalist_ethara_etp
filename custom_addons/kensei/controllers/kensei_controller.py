@@ -137,7 +137,7 @@ class KenseiController(http.Controller):
                     creds = item.get('credentials', {})
                     gmail_creds = creds.get('gmail', {})
                     email = (creds.get('email') or gmail_creds.get('email') or '').strip()
-                    password = (gmail_creds.get('password') or '').strip()
+                    password = (creds.get('password') or gmail_creds.get('password') or '').strip()
 
                     gog_auth_val = item.get('gog_auth')
                     gog_auth_str = json.dumps(gog_auth_val) if gog_auth_val else ''
