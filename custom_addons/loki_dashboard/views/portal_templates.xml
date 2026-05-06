@@ -9,32 +9,78 @@
       <title t-esc="dashboard_title"/>
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
-      <link rel="stylesheet" href="/loki_dashboard/static/src/portal/css/loki_portal.css?v=7"/>
-      <script src="/loki_dashboard/static/src/portal/js/loki_portal.js?v=7" defer="defer"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"/>
+      <link rel="stylesheet" href="/loki_dashboard/static/src/portal/css/loki_portal.css?v=12"/>
+      <script>
+        (function(){
+          var t;
+          try { t = localStorage.getItem('loki:theme'); } catch(e){}
+          if (t === 'dark' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        })();
+      </script>
+      <script src="/loki_dashboard/static/src/portal/js/loki_portal.js?v=12" defer="defer"/>
     </head>
     <body>
 
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" aria-pressed="false">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+
       <div class="loki-page">
 
-        <header class="loki-header">
-          <div class="header-badge">ECG Viewer</div>
-          <h1 class="loki-title" t-esc="dashboard_title"/>
-          <p class="loki-subtitle">12-lead electrocardiogram records</p>
-        </header>
+        <section class="section" id="dataset">
 
-        <section class="loki-table-section">
+          <div class="viewer-controls">
+            <div class="viewer-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="text" id="viewer-search" placeholder="Search records..." autocomplete="off"/>
+            </div>
+            <div class="viewer-filters">
+              <select id="viewer-filter">
+                <option value="">All Records</option>
+                <option value="diseased">Diseased</option>
+                <option value="normal">Normal</option>
+              </select>
+              <select id="viewer-sort">
+                <option value="index">Record #</option>
+                <option value="age">Age</option>
+                <option value="hr">Heart Rate</option>
+                <option value="diagnosis">Diagnosis</option>
+                <option value="gender">Sex</option>
+              </select>
+            </div>
+            <div class="viewer-meta">
+              <span id="viewer-count">Loading...</span>
+            </div>
+          </div>
+
+          <div class="loki-table-section">
           <div class="table-wrap">
             <table class="loki-table" id="loki-table">
               <thead>
                 <tr>
-                  <th class="th-num">#</th>
-                  <th>Record</th>
-                  <th>Age</th>
-                  <th>Sex</th>
-                  <th>Diagnosis</th>
-                  <th>HR</th>
-                  <th>QRS</th>
+                  <th class="th-num" data-sort="index">#</th>
+                  <th data-sort="record">Record</th>
+                  <th data-sort="age">Age</th>
+                  <th data-sort="gender">Sex</th>
+                  <th data-sort="diagnosis">Diagnosis</th>
+                  <th data-sort="hr">HR</th>
+                  <th data-sort="qrs">QRS</th>
                   <th class="th-expand"></th>
                 </tr>
               </thead>
@@ -43,10 +89,13 @@
               </tbody>
             </table>
           </div>
+          </div>
         </section>
 
-        <footer class="loki-footer">
-          <p>Ethara AI &#183; Loki Project</p>
+        <footer class="foot">
+          <div class="foot-inner">
+            <p class="mono"><a href="https://www.ethara.ai">Ethara.AI</a> · Project Loki</p>
+          </div>
         </footer>
 
       </div>
