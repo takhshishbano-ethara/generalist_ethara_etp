@@ -34,10 +34,10 @@ class TaskForgeRubricRating(models.Model):
     option_name_snapshot = fields.Char(string='Option (Snapshot)')
     option_value_snapshot = fields.Integer(string='Option Value (Snapshot)')
 
-    _sql_constraints = [
-        ('uniq_log_dimension', 'unique(log_id, dimension_id)',
-         'A dimension can only be rated once per task.'),
-    ]
+    _uniq_log_dimension = models.Constraint(
+        'UNIQUE(log_id, dimension_id)',
+        'A dimension can only be rated once per task.',
+    )
 
     @api.model_create_multi
     def create(self, vals_list):
