@@ -1,4 +1,5 @@
 from odoo import models, fields, api
+from odoo.exceptions import UserError
 
 
 class RubricCategory(models.Model):
@@ -31,6 +32,16 @@ class RubricCategoryOption(models.Model):
     value = fields.Integer(string='Score Value', default=0)
     sequence = fields.Integer(default=10)
     category_id = fields.Many2one('rubric.category', string='Category', ondelete='cascade', required=True)
+    is_temp = fields.Boolean(string='Temporary', default=False)
+
+    def action_approve_temp(self):
+        for rec in self:
+            if not rec.is_temp:
+                raise UserError(f"Option '{rec.name}' is already approved.")
+            rec.is_temp = False
+
+    def action_reject_temp(self):
+        self.filtered('is_temp').unlink()
 
     def write(self, vals):
         res = super().write(vals)
@@ -75,6 +86,16 @@ class RubricDimension(models.Model):
         'option_id',
         string='Options',
     )
+    is_temp = fields.Boolean(string='Temporary', default=False)
+
+    def action_approve_temp(self):
+        for rec in self:
+            if not rec.is_temp:
+                raise UserError(f"Dimension '{rec.name}' is already approved.")
+            rec.is_temp = False
+
+    def action_reject_temp(self):
+        self.filtered('is_temp').unlink()
 
     def _sync_options_from_category(self):
         for dim in self:
