@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import amazon_seller_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Amazon Selling Partner API (Mock)", version="1.0.0")
+install_tracker(app)
 
 
 @app.get("/health")

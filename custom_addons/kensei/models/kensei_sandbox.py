@@ -30,6 +30,46 @@ from .kensei import (
 
 _logger = logging.getLogger(__name__)
 
+
+def _parse_service_toml_fallback(path):
+    """Minimal TOML parser for service.toml when tomllib/tomli unavailable."""
+    result = {
+        "name": "", "port": 0, "env_var_name": "", "healthcheck_path": "/health",
+        "k8s_image": "", "cpu_request": "25m", "memory_request": "128Mi",
+        "memory_limit": "256Mi",
+    }
+    key_map = {
+        "service.name": "name",
+        "service.port": "port",
+        "service.env_var_name": "env_var_name",
+        "service.healthcheck_path": "healthcheck_path",
+        "k8s.image": "k8s_image",
+        "k8s.cpu_request": "cpu_request",
+        "k8s.memory_request": "memory_request",
+        "k8s.memory_limit": "memory_limit",
+    }
+    section = ""
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip()
+                continue
+            if "=" in line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                full_key = "%s.%s" % (section, key) if section else key
+                if full_key in key_map:
+                    mapped = key_map[full_key]
+                    if mapped == "port":
+                        try:
+                            val = int(val)
+                        except ValueError:
+                            val = 0
+                    result[mapped] = val
+    return result if result["name"] else None
+
 _SANDBOX_POOL_WORKERS = int(os.getenv("SANDBOX_POOL_WORKERS", "3"))
 _SANDBOX_POOL = ThreadPoolExecutor(
     max_workers=_SANDBOX_POOL_WORKERS, thread_name_prefix="kensei-sandbox"
@@ -330,6 +370,9 @@ class KenseiSandbox(models.Model):
 
     # Turns
     turn_ids = fields.One2many("kensei.turn", "sandbox_id", string="Turns")
+    api_request_ids = fields.One2many(
+        "kensei.api.request", "sandbox_id", string="API Request Logs"
+    )
 
     _sql_constraints = [
         (
@@ -1463,6 +1506,7 @@ class KenseiSandbox(models.Model):
         self.ensure_one()
 
         self._export_trajectory_to_task()
+        self._collect_mock_api_audit()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -2201,6 +2245,9 @@ class KenseiSandbox(models.Model):
         os.makedirs(os.path.join(ws_dir, "memory"), exist_ok=True)
         os.makedirs(os.path.join(ws_dir, "skills"), exist_ok=True)
 
+        self._write_skill_files(ws_dir)
+        mock_services = self._write_mock_service_dirs(workdir)
+
         for fname, content in [
             ("SOUL.md", persona.soul_md),
             ("MEMORY.md", persona.memory_md),
@@ -2503,6 +2550,21 @@ class KenseiSandbox(models.Model):
             "    environment:\n"
             "      - GOG_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD:-}\n"
             "      - GOG_ACCOUNT=${GOG_ACCOUNT:-}\n"
+        ) % gateway_token
+
+        for svc in mock_services:
+            if svc["env_var_name"]:
+                override += "      - %s=http://%s:%d\n" % (svc["env_var_name"], svc["name"], svc["port"])
+
+        if mock_services:
+            override += "    depends_on:\n"
+            override += "      litellm:\n"
+            override += "        condition: service_healthy\n"
+            for svc in mock_services:
+                override += "      %s:\n" % svc["name"]
+                override += "        condition: service_healthy\n"
+
+        override += (
             "  nginx:\n"
             "    image: nginx:alpine\n"
             "    depends_on:\n"
@@ -2519,11 +2581,306 @@ class KenseiSandbox(models.Model):
             "  db:\n"
             "    ports:\n"
             '      - "%d:5432"\n'
-        ) % (gateway_token, gateway_port, litellm_port, db_port)
+        ) % (gateway_port, litellm_port, db_port)
+
+        for svc in mock_services:
+            override += "  %s:\n" % svc["name"]
+            override += "    build:\n"
+            override += "      context: ./%s\n" % svc["name"]
+            override += "    expose:\n"
+            override += '      - "%d"\n' % svc["port"]
+            override += "    healthcheck:\n"
+            override += (
+                '      test: ["CMD", "python3", "-c", '
+                '"import urllib.request; urllib.request.urlopen('
+                "'http://localhost:%d%s')\"]"
+                "\n"
+            ) % (svc["port"], svc["healthcheck_path"])
+            override += "      interval: 2s\n"
+            override += "      timeout: 5s\n"
+            override += "      retries: 15\n"
+            override += "      start_period: 5s\n"
+            override += "    networks:\n"
+            override += "      - backend\n"
+            if svc.get("memory_limit"):
+                mem = svc["memory_limit"]
+                # Convert K8s format (256Mi) to Docker format (256m)
+                if mem.endswith("Mi"):
+                    mem = mem[:-2] + "m"
+                elif mem.endswith("Gi"):
+                    mem = mem[:-2] + "g"
+                override += "    deploy:\n"
+                override += "      resources:\n"
+                override += "        limits:\n"
+                override += "          memory: %s\n" % mem
+
         with open(os.path.join(workdir, "docker-compose.override.yml"), "w") as f:
             f.write(override)
 
         return workdir
+
+    def _write_skill_files(self, ws_dir):
+        """Copy skill directories from module's environment/skills/ into workspace/skills/."""
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return
+        env_skills_dir = os.path.join(mod_path, "environment", "skills")
+        if not os.path.isdir(env_skills_dir):
+            return
+        dest_skills_dir = os.path.join(ws_dir, "skills")
+        for entry in os.listdir(env_skills_dir):
+            src = os.path.join(env_skills_dir, entry)
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(dest_skills_dir, entry), dirs_exist_ok=True)
+
+    def _write_mock_service_dirs(self, workdir):
+        """Copy mock API service directories from module's environment/ into workdir."""
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return []
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return []
+        tracker_src = os.path.join(env_dir, "tracking_middleware.py")
+        services = []
+        for entry in sorted(os.listdir(env_dir)):
+            svc_dir = os.path.join(env_dir, entry)
+            toml_path = os.path.join(svc_dir, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            svc_meta = self._parse_service_toml(toml_path)
+            if not svc_meta:
+                continue
+            dest_dir = os.path.join(workdir, entry)
+            shutil.copytree(svc_dir, dest_dir, dirs_exist_ok=True)
+            if os.path.isfile(tracker_src):
+                shutil.copy2(tracker_src, os.path.join(dest_dir, "tracking_middleware.py"))
+            services.append(svc_meta)
+        return services
+
+    @staticmethod
+    def _parse_service_toml(path):
+        """Parse a service.toml file and return metadata dict."""
+        try:
+            if hasattr(__builtins__, "__import__"):
+                import tomllib
+            else:
+                import tomllib
+        except ImportError:
+            try:
+                import tomli as tomllib
+            except ImportError:
+                return _parse_service_toml_fallback(path)
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        svc = data.get("service", {})
+        k8s = data.get("k8s", {})
+        return {
+            "name": svc.get("name", ""),
+            "port": svc.get("port", 0),
+            "env_var_name": svc.get("env_var_name", ""),
+            "healthcheck_path": svc.get("healthcheck_path", "/health"),
+            "k8s_image": k8s.get("image", ""),
+            "cpu_request": k8s.get("cpu_request", "25m"),
+            "memory_request": k8s.get("memory_request", "128Mi"),
+            "memory_limit": k8s.get("memory_limit", "256Mi"),
+        }
+
+    def _collect_mock_api_audit(self):
+        """Collect request logs from mock API /audit/requests endpoints before shutdown."""
+        self.ensure_one()
+        if self.docker_status != "running":
+            return
+
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return
+
+        services = []
+        for entry in sorted(os.listdir(env_dir)):
+            toml_path = os.path.join(env_dir, entry, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            svc_meta = self._parse_service_toml(toml_path)
+            if svc_meta:
+                services.append(svc_meta)
+
+        if not services:
+            return
+
+        mode = self._deployment_mode()
+        if mode == "k8s":
+            self._collect_audit_k8s(services)
+        else:
+            self._collect_audit_local(services)
+
+    def _collect_audit_local(self, services):
+        compose_bin = _compose_cmd()
+        project_name = self.docker_compose_project
+        workdir = self.docker_workdir
+        if not compose_bin or not project_name or not workdir:
+            return
+
+        for svc in services:
+            try:
+                fetch_cmd = (
+                    "import urllib.request, sys; "
+                    "r = urllib.request.urlopen('http://localhost:%d/audit/requests'); "
+                    "sys.stdout.write(r.read().decode())" % svc["port"]
+                )
+                cmd = compose_bin + ["-p", project_name]
+                cmd += ["-f", "docker-compose.yml"]
+                override = os.path.join(workdir, "docker-compose.override.yml")
+                if os.path.isfile(override):
+                    cmd += ["-f", "docker-compose.override.yml"]
+                cmd += ["exec", "-T", svc["name"], "python3", "-c", fetch_cmd]
+
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=workdir,
+                )
+                if result.returncode != 0:
+                    _logger.debug(
+                        "Audit collection failed for %s: %s",
+                        svc["name"],
+                        result.stderr[:200],
+                    )
+                    continue
+
+                self._ingest_audit_json(svc["name"], result.stdout)
+            except subprocess.TimeoutExpired:
+                _logger.warning(
+                    "Audit collection timed out for %s (sandbox=%s)",
+                    svc["name"],
+                    self.id,
+                )
+            except Exception as e:
+                _logger.warning(
+                    "Audit collection error for %s (sandbox=%s): %s",
+                    svc["name"],
+                    self.id,
+                    e,
+                )
+
+    def _collect_audit_k8s(self, services):
+        try:
+            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes.stream import stream as k8s_stream
+        except ImportError:
+            _logger.debug("kubernetes package not available, skipping K8s audit collection")
+            return
+
+        try:
+            k8s_config.load_incluster_config()
+        except Exception:
+            _logger.debug("Not in K8s cluster, skipping K8s audit collection")
+            return
+
+        core_v1 = k8s_client.CoreV1Api()
+        pod_label = "app=kensei-sandbox-%s" % self.id
+        namespace = "kensei"
+
+        try:
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=pod_label
+            )
+            if not pods.items:
+                return
+            pod_name = pods.items[0].metadata.name
+        except Exception as e:
+            _logger.warning("Could not find K8s pod for sandbox %s: %s", self.id, e)
+            return
+
+        for svc in services:
+            if not svc.get("k8s_image"):
+                continue
+            try:
+                fetch_cmd = [
+                    "python3", "-c",
+                    "import urllib.request, sys; "
+                    "r = urllib.request.urlopen('http://localhost:%d/audit/requests'); "
+                    "sys.stdout.write(r.read().decode())" % svc["port"],
+                ]
+                resp = k8s_stream(
+                    core_v1.connect_get_namespaced_pod_exec,
+                    pod_name,
+                    namespace,
+                    container=svc["name"],
+                    command=fetch_cmd,
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                    _preload_content=True,
+                )
+                self._ingest_audit_json(svc["name"], resp)
+            except Exception as e:
+                _logger.warning(
+                    "K8s audit collection error for %s (sandbox=%s): %s",
+                    svc["name"],
+                    self.id,
+                    e,
+                )
+
+    def _ingest_audit_json(self, service_name, raw_json):
+        import json as json_mod
+        from datetime import datetime
+
+        data = json_mod.loads(raw_json)
+        requests_list = data.get("requests", [])
+        ApiRequest = self.env["kensei.api.request"].sudo()
+
+        for entry in requests_list:
+            request_time = None
+            ts_iso = entry.get("timestamp_iso")
+            if ts_iso:
+                try:
+                    request_time = datetime.strptime(ts_iso, "%Y-%m-%dT%H:%M:%S")
+                except (ValueError, TypeError):
+                    pass
+
+            vals = {
+                "sandbox_id": self.id,
+                "service_name": service_name,
+                "method": entry.get("method", ""),
+                "path": entry.get("path", ""),
+                "query_params": json_mod.dumps(entry.get("query_params"))
+                if entry.get("query_params")
+                else False,
+                "request_body": (
+                    json_mod.dumps(entry["request_body"])
+                    if isinstance(entry.get("request_body"), (dict, list))
+                    else entry.get("request_body") or False
+                ),
+                "status_code": entry.get("status_code", 0),
+                "response_body": (
+                    json_mod.dumps(entry["response_body"])
+                    if isinstance(entry.get("response_body"), (dict, list))
+                    else entry.get("response_body") or False
+                ),
+                "request_time": request_time,
+                "duration_ms": entry.get("duration_ms", 0),
+            }
+            ApiRequest.create(vals)
+
+        _logger.info(
+            "Collected %d audit entries from %s (sandbox=%s)",
+            len(requests_list),
+            service_name,
+            self.id,
+        )
 
     def _build_compose_env(self, gateway_token):
         self.ensure_one()

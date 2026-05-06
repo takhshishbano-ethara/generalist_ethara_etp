@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import linear_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Linear API (Mock)", version="2024.01")
+install_tracker(app)
 
 
 @app.get("/health")

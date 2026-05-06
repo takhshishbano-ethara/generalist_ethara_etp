@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import classroom_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Google Classroom API (Mock)", version="1.0")
+install_tracker(app)
 
 
 @app.get("/health")

@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional
 
 import pinterest_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Pinterest API v5 (Mock)", version="5.0.0")
+install_tracker(app)
 
 
 @app.get("/health")

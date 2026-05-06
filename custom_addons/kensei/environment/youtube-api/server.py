@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import youtube_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="YouTube Data API v3 (Mock)", version="3.0")
+install_tracker(app)
 
 
 @app.get("/health")

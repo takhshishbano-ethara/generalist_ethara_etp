@@ -863,6 +863,7 @@ class Kensei(models.Model):
 
     # Sandboxes
     sandbox_ids = fields.One2many("kensei.sandbox", "kensei_id", string="Sandboxes")
+
     qc_status = fields.Selection(
         [("pending", "Pending"), ("passed", "Passed"), ("failed", "Failed")],
         default="pending",

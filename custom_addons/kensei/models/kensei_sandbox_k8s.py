@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import secrets
 
 from odoo import api, fields, models
@@ -372,6 +373,8 @@ class KenseiSandboxK8s(models.AbstractModel):
             )
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
+        skills_cm = self._create_skills_configmap(core_v1, task_id, labels, sandbox_record)
+
         self._create_deployment(
             apps_v1,
             sandbox_record,
@@ -390,6 +393,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             aws_region,
             bedrock_arn,
             gateway_token,
+            skills_cm=skills_cm,
         )
 
         self._create_service(core_v1, sandbox_record, labels, name)
@@ -628,6 +632,127 @@ class KenseiSandboxK8s(models.AbstractModel):
             else:
                 raise
 
+    def _create_skills_configmap(self, core_v1, task_id, labels, sandbox_record):
+        """Create ConfigMap for skill files from module's environment/skills/ directory."""
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return None
+        skills_dir = os.path.join(mod_path, "environment", "skills")
+        if not os.path.isdir(skills_dir):
+            return None
+
+        data = {}
+        for skill_name in sorted(os.listdir(skills_dir)):
+            skill_path = os.path.join(skills_dir, skill_name)
+            if not os.path.isdir(skill_path):
+                continue
+            for root, _dirs, files in os.walk(skill_path):
+                for fname in files:
+                    full_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(full_path, skill_path)
+                    key = "%s__%s" % (skill_name, rel_path.replace(os.sep, "__"))
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            data[key] = f.read()
+                    except (UnicodeDecodeError, OSError):
+                        continue
+
+        if not data:
+            return None
+
+        total_size = sum(len(v.encode("utf-8")) for v in data.values())
+        if total_size > 1_000_000:
+            raise UserError(
+                "Skills ConfigMap exceeds 1MB limit (%d bytes). "
+                "Reduce skill file sizes." % total_size
+            )
+        if total_size > 900_000:
+            _logger.warning(
+                "Skills ConfigMap for task %s is near 1MB limit (%d bytes)",
+                task_id, total_size,
+            )
+
+        cm_name = "kensei-sandbox-skills-%s" % task_id
+        cm = client.V1ConfigMap(
+            api_version="v1",
+            kind="ConfigMap",
+            metadata=client.V1ObjectMeta(
+                name=cm_name,
+                namespace=NAMESPACE,
+                labels=labels,
+            ),
+            data=data,
+        )
+        try:
+            core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=cm)
+        except ApiException as e:
+            if e.status == 409:
+                core_v1.replace_namespaced_config_map(
+                    name=cm_name, namespace=NAMESPACE, body=cm,
+                )
+            else:
+                raise
+        return cm_name
+
+    def _load_environment_services(self):
+        """Load mock service metadata from module's environment/ directory."""
+        from odoo.modules.module import get_module_path
+        from .kensei_sandbox import _parse_service_toml_fallback
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return []
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return []
+
+        # Dynamic image resolution from Odoo system parameters
+        ICP = self.env["ir.config_parameter"].sudo()
+        registry_prefix = ICP.get_param("kensei.ecr_registry", "")
+        image_tag = ICP.get_param("kensei.mock_image_tag", "latest")
+
+        services = []
+        for entry in sorted(os.listdir(env_dir)):
+            toml_path = os.path.join(env_dir, entry, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            try:
+                import tomllib
+            except ImportError:
+                try:
+                    import tomli as tomllib
+                except ImportError:
+                    svc_meta = _parse_service_toml_fallback(toml_path)
+                    if svc_meta:
+                        services.append(svc_meta)
+                    continue
+            with open(toml_path, "rb") as f:
+                data = tomllib.load(f)
+            svc = data.get("service", {})
+            k8s = data.get("k8s", {})
+            k8s_image = k8s.get("image", "")
+            # Auto-derive image URI from registry prefix if not explicitly set
+            if not k8s_image and registry_prefix:
+                svc_name = svc.get("name", entry)
+                k8s_image = "%s/kensei-mock-%s:%s" % (
+                    registry_prefix.rstrip("/"), svc_name, image_tag
+                )
+            svc_meta = {
+                "name": svc.get("name", ""),
+                "port": svc.get("port", 0),
+                "env_var_name": svc.get("env_var_name", ""),
+                "healthcheck_path": svc.get("healthcheck_path", "/health"),
+                "k8s_image": k8s_image,
+                "cpu_request": k8s.get("cpu_request", "25m"),
+                "memory_request": k8s.get("memory_request", "128Mi"),
+                "memory_limit": k8s.get("memory_limit", "256Mi"),
+            }
+            if svc_meta["name"]:
+                services.append(svc_meta)
+        return services
+
     def _create_deployment(
         self,
         apps_v1,
@@ -647,6 +772,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         aws_region,
         bedrock_arn,
         gateway_token,
+        skills_cm=None,
     ):
         task_id = sandbox_record.id
         secret_name = "kensei-sandbox-creds-%s" % task_id
@@ -737,6 +863,53 @@ class KenseiSandboxK8s(models.AbstractModel):
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
             ),
+        ]
+
+        if skills_cm:
+            init_containers.append(
+                client.V1Container(
+                    name="skills-setup",
+                    image=openclaw_image,
+                    command=[
+                        "sh",
+                        "-c",
+                        "cd /skills-src && "
+                        "for f in *; do "
+                        '  skill="${f%%%%__*}"; '
+                        '  rest="${f#*__}"; '
+                        '  case "$rest" in '
+                        "    *__*) "
+                        '      subdir="${rest%%%%__*}"; '
+                        '      fname="${rest#*__}"; '
+                        '      mkdir -p "/data/workspace/skills/$skill/$subdir" && '
+                        '      cp "$f" "/data/workspace/skills/$skill/$subdir/$fname"; '
+                        "    ;; "
+                        "    *) "
+                        '      mkdir -p "/data/workspace/skills/$skill" && '
+                        '      cp "$f" "/data/workspace/skills/$skill/$rest"; '
+                        "    ;; "
+                        "  esac; "
+                        "done && "
+                        "chown -R 1000:1000 /data/workspace/skills",
+                    ],
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="skills-files",
+                            mount_path="/skills-src",
+                            read_only=True,
+                        ),
+                        client.V1VolumeMount(
+                            name="openclaw-data",
+                            mount_path="/data",
+                        ),
+                    ],
+                    resources=client.V1ResourceRequirements(
+                        requests={"cpu": "50m", "memory": "64Mi"},
+                    ),
+                )
+            )
+
+        init_containers.extend([
             client.V1Container(
                 name="snapshot-start",
                 image=aws_cli_image,
@@ -814,13 +987,9 @@ class KenseiSandboxK8s(models.AbstractModel):
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
             ),
-        ]
+        ])
 
-        openclaw_container = client.V1Container(
-            name="openclaw",
-            image=openclaw_image,
-            ports=[client.V1ContainerPort(container_port=18789)],
-            env=[
+        openclaw_env = [
                 client.V1EnvVar(
                     name="OPENCLAW_GATEWAY_TOKEN",
                     value_from=client.V1EnvVarSource(
@@ -881,7 +1050,23 @@ class KenseiSandboxK8s(models.AbstractModel):
                     name="PATH",
                     value="/gog-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 ),
-            ],
+        ]
+
+        mock_services = self._load_environment_services()
+        for svc in mock_services:
+            if svc["env_var_name"] and svc["port"]:
+                openclaw_env.append(
+                    client.V1EnvVar(
+                        name=svc["env_var_name"],
+                        value="http://localhost:%d" % svc["port"],
+                    )
+                )
+
+        openclaw_container = client.V1Container(
+            name="openclaw",
+            image=openclaw_image,
+            ports=[client.V1ContainerPort(container_port=18789)],
+            env=openclaw_env,
             volume_mounts=[
                 client.V1VolumeMount(
                     name="persona-files",
@@ -1118,6 +1303,42 @@ class KenseiSandboxK8s(models.AbstractModel):
             session_backup_container,
         ]
 
+        for svc in mock_services:
+            if not svc.get("k8s_image"):
+                continue
+            containers.append(
+                client.V1Container(
+                    name=svc["name"],
+                    image=svc["k8s_image"],
+                    ports=[client.V1ContainerPort(container_port=svc["port"])],
+                    resources=client.V1ResourceRequirements(
+                        requests={
+                            "cpu": svc.get("cpu_request") or "25m",
+                            "memory": svc.get("memory_request") or "128Mi",
+                        },
+                        limits={"memory": svc.get("memory_limit") or "256Mi"},
+                    ),
+                    startup_probe=client.V1Probe(
+                        http_get=client.V1HTTPGetAction(
+                            path=svc.get("healthcheck_path") or "/health",
+                            port=svc["port"],
+                        ),
+                        initial_delay_seconds=5,
+                        period_seconds=2,
+                        failure_threshold=30,
+                        timeout_seconds=3,
+                    ),
+                    readiness_probe=client.V1Probe(
+                        http_get=client.V1HTTPGetAction(
+                            path=svc.get("healthcheck_path") or "/health",
+                            port=svc["port"],
+                        ),
+                        period_seconds=5,
+                        timeout_seconds=3,
+                    ),
+                )
+            )
+
         volumes = [
             client.V1Volume(
                 name="persona-files",
@@ -1163,6 +1384,17 @@ class KenseiSandboxK8s(models.AbstractModel):
                 empty_dir=client.V1EmptyDirVolumeSource(),
             ),
         ]
+
+        if skills_cm:
+            volumes.append(
+                client.V1Volume(
+                    name="skills-files",
+                    config_map=client.V1ConfigMapVolumeSource(
+                        name=skills_cm,
+                        optional=True,
+                    ),
+                )
+            )
 
         deployment = client.V1Deployment(
             api_version="apps/v1",

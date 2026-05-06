@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional
 
 import ring_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Ring API (Mock)", version="1.0.0")
+install_tracker(app)
 
 
 @app.get("/health")

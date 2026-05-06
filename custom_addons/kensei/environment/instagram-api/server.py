@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import instagram_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Instagram Graph API (Mock)", version="18.0")
+install_tracker(app)
 
 
 @app.get("/health")

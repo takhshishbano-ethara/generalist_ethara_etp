@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 import etsy_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="Etsy Open API v3 (Mock)", version="3.0.0")
+install_tracker(app)
 
 
 @app.get("/health")

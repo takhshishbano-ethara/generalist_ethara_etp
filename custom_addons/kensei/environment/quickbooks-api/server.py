@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 import quickbooks_data
+from tracking_middleware import install_tracker
 
 app = FastAPI(title="QuickBooks Online API (Mock)", version="3.0")
+install_tracker(app)
 
 REALM_ID = quickbooks_data.REALM_ID
 
