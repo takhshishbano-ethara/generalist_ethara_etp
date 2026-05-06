@@ -553,8 +553,8 @@ class LlmAssistQc(http.Controller):
         """Trigger background task-description generation for a trajectory entry."""
         user = request.env.user
         if not (
-            user.has_group("etp_user_roles.group_quality_lead")
-            or user.has_group("etp_user_roles.group_project_lead")
+            user.has_group("kensei.group_kensei_ql")
+            or user.has_group("kensei.group_kensei_pl")
         ):
             return {"error": "Only Quality Leads and Project Leads can regenerate task descriptions"}
 

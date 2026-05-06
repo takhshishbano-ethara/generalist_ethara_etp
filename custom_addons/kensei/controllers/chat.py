@@ -14,8 +14,7 @@ from ..models.kensei_sandbox import MODEL_DEFAULTS, TRAJECTORY_FIELD_MAP
 
 _logger = logging.getLogger(__name__)
 
-def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta):
-    """Upload files_meta [{object_key, data (bytes), content_type}] to S3."""
+def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta, subfolder="input"):
     try:
         import boto3
         from botocore.config import Config as BotoConfig
@@ -26,7 +25,7 @@ def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta):
             config=BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
         )
         for fm in files_meta:
-            key = "%s/tasks/%s/attachments/%s" % (prefix, task_id, fm["object_key"])
+            key = "%s/%s/tasks/%s/%s" % (prefix, subfolder, task_id, fm["object_key"])
             s3.put_object(
                 Bucket=bucket,
                 Key=key,
@@ -35,7 +34,7 @@ def _upload_to_s3_background(bucket, region, prefix, task_id, files_meta):
             )
             _logger.info("S3 upload OK: s3://%s/%s (%d bytes)", bucket, key, len(fm["data"]))
     except Exception:
-        _logger.exception("S3 attachment upload failed for task %s", task_id)
+        _logger.exception("S3 %s upload failed for task %s", subfolder, task_id)
 
 
 class KenseiChatController(http.Controller):
@@ -532,8 +531,9 @@ class KenseiChatController(http.Controller):
         })
 
     @http.route("/kensei/chat/persist_attachments", type="json", auth="user")
-    def persist_attachments(self, sandbox_id=0, attachments=None, **kw):
+    def persist_attachments(self, sandbox_id=0, attachments=None, turn_id=0, **kw):
         sandbox_id = int(sandbox_id or 0)
+        turn_id = int(turn_id or 0)
         if not sandbox_id or not attachments:
             return {"error": "sandbox_id and attachments are required"}
 
@@ -574,7 +574,7 @@ class KenseiChatController(http.Controller):
                 "content_type": mime_type,
             })
 
-            persisted.append({"name": name, "storedAs": safe_name, "size": len(file_bytes)})
+            persisted.append({"name": name, "storedAs": safe_name, "mimeType": mime_type, "size": len(file_bytes)})
 
         if s3_files:
             icp = request.env["ir.config_parameter"].sudo()
@@ -591,6 +591,26 @@ class KenseiChatController(http.Controller):
                 t.start()
             else:
                 _logger.info("S3 bucket not configured in Settings → skipping S3 upload")
+
+        if turn_id and persisted:
+            turn = request.env["kensei.turn"].browse(turn_id)
+            if turn.exists():
+                try:
+                    existing = json.loads(turn.attachments or "[]")
+                    if not isinstance(existing, list):
+                        existing = []
+                except (json.JSONDecodeError, TypeError):
+                    existing = []
+                for p in persisted:
+                    matched = False
+                    for e in existing:
+                        if e.get("name") == p["name"]:
+                            e["storedAs"] = p["storedAs"]
+                            matched = True
+                            break
+                    if not matched:
+                        existing.append(p)
+                turn.sudo().write({"attachments": json.dumps(existing)})
 
         return {"success": True, "persisted": persisted}
 
@@ -653,7 +673,7 @@ class KenseiChatController(http.Controller):
             return request.not_found()
         task = sandbox.kensei_id
         user = request.env.user
-        is_admin = user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = user.has_group("kensei.group_kensei_ql")
         if not is_admin and task.employee_id.user_id.id != user.id:
             return request.not_found()
         if not source or not source.startswith("/home/node/.openclaw/"):
@@ -692,6 +712,80 @@ class KenseiChatController(http.Controller):
             ("Cache-Control", "private, max-age=3600"),
         ]
         return request.make_response(data, headers=headers)
+
+    @http.route("/kensei/chat/persist_output_media", type="json", auth="user")
+    def persist_output_media(self, sandbox_id=0, media_paths=None, **kw):
+        sandbox_id = int(sandbox_id or 0)
+        if not sandbox_id or not media_paths:
+            return {"success": False, "error": "sandbox_id and media_paths required"}
+
+        sandbox = request.env["kensei.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return {"success": False, "error": "Sandbox not found"}
+
+        task = sandbox.kensei_id
+        task_id = task.task_id or str(task.id)
+        persona_name = (task.persona_id.name or "default").strip().lower().replace(" ", "_")
+
+        from ..models.kensei_sandbox_k8s import S3_KENSEI_PREFIX
+
+        icp = request.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or ""
+        region = icp.get_param("kensei.s3_region") or "ap-south-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+        if not bucket:
+            return {"success": False, "error": "S3 bucket not configured"}
+
+        s3_files = []
+        for source_path in (media_paths or []):
+            if not source_path or not isinstance(source_path, str):
+                continue
+            file_bytes = self._read_media_from_container(sandbox, persona_name, source_path)
+            if not file_bytes:
+                _logger.warning("persist_output_media: could not read %s", source_path)
+                continue
+            filename = os.path.basename(source_path)
+            content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            s3_files.append({
+                "object_key": filename,
+                "data": file_bytes,
+                "content_type": content_type,
+            })
+
+        if s3_files:
+            t = threading.Thread(
+                target=_upload_to_s3_background,
+                args=(bucket, region, prefix, task_id, s3_files, "output"),
+                daemon=True,
+            )
+            t.start()
+
+        return {"success": True, "uploaded": len(s3_files)}
+
+    def _read_media_from_container(self, sandbox, persona_name, container_path):
+        mode = sandbox._deployment_mode()
+        if mode == "k8s":
+            return self._read_from_k8s_pod(sandbox, container_path)
+
+        workdir = sandbox.docker_workdir
+        if not workdir:
+            return None
+
+        base = os.path.join(workdir, "data", persona_name)
+        relative = container_path.replace("/home/node/.openclaw/", "")
+        host_path = os.path.realpath(os.path.join(base, relative))
+        if not host_path.startswith(os.path.realpath(base)):
+            _logger.warning("Path traversal blocked: %s", container_path)
+            return None
+        if not os.path.isfile(host_path):
+            return None
+        try:
+            with open(host_path, "rb") as f:
+                return f.read()
+        except OSError as e:
+            _logger.warning("Failed to read output media %s: %s", host_path, e)
+            return None
 
     def _read_from_k8s_pod(self, sandbox, container_path):
         import subprocess

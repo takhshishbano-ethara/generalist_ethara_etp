@@ -188,7 +188,7 @@
         <ul class="phase-body">
           <li>Curate <b>10000 instances</b> from 610 candidates</li>
           <li>Across 1100 repositories, 8 languages</li>
-          <li>67 embedded images · JSONL + HuggingFace</li>
+          <li>24000 embedded images · JSONL + HuggingFace</li>
         </ul>
       </article>
     </div>

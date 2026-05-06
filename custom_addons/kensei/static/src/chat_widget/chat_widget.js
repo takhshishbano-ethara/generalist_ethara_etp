@@ -976,6 +976,12 @@ export class KenseiChatWidget extends Component {
                             }
                         }
                         if (mediaItems.length > 0) msg.mediaItems = mediaItems;
+                        if (sandboxId) {
+                            rpc("/kensei/chat/persist_output_media", {
+                                sandbox_id: sandboxId,
+                                media_paths: mediaUrls,
+                            }).catch(e => console.warn(LOG_PREFIX, "persist_output_media failed:", e));
+                        }
                     }
                 }
                 if (session._thinkingBuf) {
@@ -1101,6 +1107,12 @@ export class KenseiChatWidget extends Component {
                 }
                 if (mediaItems.length > 0) {
                     msg.mediaItems = mediaItems;
+                }
+                if (mediaUrls.length > 0 && sandboxId) {
+                    rpc("/kensei/chat/persist_output_media", {
+                        sandbox_id: sandboxId,
+                        media_paths: mediaUrls,
+                    }).catch(e => console.warn(LOG_PREFIX, "persist_output_media failed:", e));
                 }
             }
             let toolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : [];
@@ -2055,6 +2067,7 @@ export class KenseiChatWidget extends Component {
             rpc("/kensei/chat/persist_attachments", {
                 sandbox_id: this.props.sandboxId,
                 attachments: attachmentsPayload,
+                turn_id: turnId || 0,
             }).catch(e => console.warn(LOG_PREFIX, "persist_attachments failed:", e));
         }
 

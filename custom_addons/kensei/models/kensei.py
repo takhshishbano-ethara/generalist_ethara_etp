@@ -598,6 +598,25 @@ def _wrap_messages_with_turn_feedback(messages, turns):
     return wrapped
 
 
+def _unwrap_trajectory_messages(messages):
+    """Unwrap hint-wrapper format and assign sequential turn_index."""
+    unwrapped = []
+    for msg in messages:
+        if (
+            "message" in msg
+            and isinstance(msg["message"], dict)
+            and "message" in msg["message"]
+        ):
+            actual = msg["message"]
+            unwrapped.append(actual)
+        else:
+            unwrapped.append(msg)
+    for idx, m in enumerate(unwrapped):
+        m["turn_index"] = idx
+        m.pop("parentId", None)
+    return unwrapped
+
+
 def _load_dotenv():
     env = os.environ.copy()
 
@@ -728,14 +747,14 @@ class Kensei(models.Model):
 
     @api.depends_context("uid")
     def _compute_is_kensei_admin(self):
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         for rec in self:
             rec.is_kensei_admin = is_admin
 
     def _search_is_kensei_admin(self, operator, value):
         if operator not in ("=", "!="):
             raise ValueError("Unsupported operator")
-        is_admin = self.env.user.has_group("etp_user_roles.group_quality_lead")
+        is_admin = self.env.user.has_group("kensei.group_kensei_ql")
         if (operator == "=" and value) or (operator == "!=" and not value):
             return [] if is_admin else [("id", "=", False)]
         return [("id", "=", False)] if is_admin else []
@@ -744,8 +763,8 @@ class Kensei(models.Model):
     def _compute_is_ql_or_pl(self):
         user = self.env.user
         allowed = (
-            user.has_group("etp_user_roles.group_quality_lead")
-            or user.has_group("etp_user_roles.group_project_lead")
+            user.has_group("kensei.group_kensei_ql")
+            or user.has_group("kensei.group_kensei_pl")
         )
         for rec in self:
             rec.is_ql_or_pl = allowed
@@ -814,6 +833,9 @@ class Kensei(models.Model):
         ],
         string="Safety Critical",
     )
+    l1_classification = fields.Many2one('kensei.domain', string="L1",
+                                        domain="[('parent_id', '=', False)]")
+    l2_classification = fields.Many2one('kensei.domain', string="L2")
     system_prompt = fields.Text(string="System Prompt")
     seed_prompt = fields.Text(string="Seed Prompt")
     initial_prompt = fields.Text(string="Initial Prompt")
@@ -894,6 +916,8 @@ class Kensei(models.Model):
     )
     golden_error = fields.Text(string="Golden Error")
     golden_started_at = fields.Datetime(string="Golden Started At")
+
+    rubrics = fields.Text(string="Rubrics (JSON)")
 
     task_description = fields.Text(string="Task Description")
     task_description_status = fields.Selection(
@@ -981,9 +1005,10 @@ class Kensei(models.Model):
         return records
 
     def ensure_sandboxes(self):
+        from .kensei_sandbox import MODEL_TYPES
         for rec in self:
             existing = rec.sandbox_ids.mapped("model_type")
-            for mtype in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+            for mtype, _label in MODEL_TYPES:
                 if mtype not in existing:
                     self.env["kensei.sandbox"].create(
                         {"kensei_id": rec.id, "model_type": mtype}
@@ -1069,8 +1094,8 @@ class Kensei(models.Model):
         self.ensure_one()
 
         if not (
-            self.env.user.has_group("etp_user_roles.group_quality_lead")
-            or self.env.user.has_group("etp_user_roles.group_project_lead")
+            self.env.user.has_group("kensei.group_kensei_ql")
+            or self.env.user.has_group("kensei.group_kensei_pl")
         ):
             raise AccessError(
                 "Only Quality Leads and Project Leads can delete trajectories."
@@ -1144,8 +1169,8 @@ class Kensei(models.Model):
 
         if field_name == "golden_trajectory":
             if not (
-                self.env.user.has_group("etp_user_roles.group_quality_lead")
-                or self.env.user.has_group("etp_user_roles.group_project_lead")
+                self.env.user.has_group("kensei.group_kensei_ql")
+                or self.env.user.has_group("kensei.group_kensei_pl")
             ):
                 raise AccessError(
                     "Only Quality Leads and Project Leads can delete trajectories."
@@ -1245,25 +1270,185 @@ class Kensei(models.Model):
 
     # ── Trajectory export ───────────────────────────────────────
 
+    def _slugify_task_type(self):
+        self.ensure_one()
+        l1 = self.l1_classification.name if self.l1_classification else ""
+        l2 = self.l2_classification.name if self.l2_classification else ""
+        if not l1 and not l2:
+            return "uncategorized__uncategorized"
+        slug_l1 = _re.sub(r"[^a-z0-9]+", "_", (l1 or "uncategorized").lower()).strip("_")
+        slug_l2 = _re.sub(r"[^a-z0-9]+", "_", (l2 or "uncategorized").lower()).strip("_")
+        return "%s__%s" % (slug_l1, slug_l2)
+
+    def _build_multimodal_metadata(self):
+        self.ensure_one()
+        modality_tags = set()
+        input_modalities = set()
+        all_turns = self._get_all_turns().sorted("turn_number")
+        for t in all_turns:
+            if not t.attachments:
+                continue
+            try:
+                atts = json.loads(t.attachments)
+                if not isinstance(atts, list):
+                    continue
+                for att in atts:
+                    mime = att.get("mimeType", "")
+                    if mime:
+                        input_modalities.add(mime)
+                    if mime.startswith("image/"):
+                        modality_tags.add("upload_image")
+                    elif mime == "application/pdf":
+                        modality_tags.add("pdf")
+                    elif mime.startswith("video/"):
+                        modality_tags.add("video")
+                    elif mime.startswith("audio/"):
+                        modality_tags.add("audio")
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        output_modalities = ["text"]
+        output_artifacts = self._build_output_artifacts()
+        for art in output_artifacts:
+            m = art.get("mime_type", "")
+            if m.startswith("image/") and "image" not in output_modalities:
+                output_modalities.append("image")
+            elif m and not m.startswith("image/") and "file" not in output_modalities:
+                output_modalities.append("file")
+
+        return {
+            "modality_tags": sorted(modality_tags),
+            "taxonomy_l1": self.l1_classification.name if self.l1_classification else "",
+            "taxonomy_l2": self.l2_classification.name if self.l2_classification else "",
+            "media_necessity": "Multimodal input required for visual understanding task.",
+            "cross_modal_reasoning": {
+                "percentage": 50,
+                "modalities_fused": ["text", "image"],
+                "description": "Agent processes visual and text inputs together.",
+            },
+            "input_modalities": sorted(input_modalities),
+            "output_modalities": output_modalities,
+            "asset_realism_notes": "Natural user-uploaded content with realistic filenames and varying quality.",
+        }
+
+    def _build_input_files_manifest(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        task_id = self.task_id or str(self.id)
+
+        seen_filenames = set()
+        manifest = []
+        idx = 0
+        all_turns = self._get_all_turns().sorted("turn_number")
+        for t in all_turns:
+            if not t.attachments:
+                continue
+            try:
+                atts = json.loads(t.attachments)
+                if not isinstance(atts, list):
+                    continue
+                for att in atts:
+                    fname = att.get("name", "")
+                    if not fname or fname in seen_filenames:
+                        continue
+                    seen_filenames.add(fname)
+                    mime = att.get("mimeType", "")
+                    stored_as = att.get("storedAs", "")
+                    entry = {
+                        "ref_id": "input_%d" % idx,
+                        "filename": fname,
+                        "mime_type": mime,
+                        "role": "primary_reference",
+                        "description": "User-uploaded %s file" % mime,
+                        "size_bytes": att.get("size", 0),
+                    }
+                    if stored_as and bucket:
+                        entry["source"] = "s3://%s/%s/input/tasks/%s/%s" % (
+                            bucket, prefix, task_id, stored_as
+                        )
+                    manifest.append(entry)
+                    idx += 1
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return manifest
+
+    def _build_output_artifacts(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        task_id = self.task_id or str(self.id)
+
+        media_ext_re = _re.compile(
+            r"/home/node/\.openclaw/(?:workspace|uploads|media)/[^\s\"'`\n)]+\."
+            r"(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|csv|json|md|txt|html)",
+            _re.IGNORECASE,
+        )
+
+        mime_map = {
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
+            "svg": "image/svg+xml", "mp4": "video/mp4", "webm": "video/webm",
+            "mov": "video/quicktime", "mp3": "audio/mpeg", "wav": "audio/wav",
+            "ogg": "audio/ogg", "m4a": "audio/mp4", "pdf": "application/pdf",
+            "csv": "text/csv", "json": "application/json", "md": "text/markdown",
+            "txt": "text/plain", "html": "text/html",
+        }
+
+        seen = set()
+        artifacts = []
+        all_turns = self._get_all_turns().sorted("turn_number")
+        for t in all_turns:
+            response_text = t.response or ""
+            paths = media_ext_re.findall(response_text)
+            for path in paths:
+                basename = path.rsplit("/", 1)[-1] if "/" in path else path
+                if basename in seen:
+                    continue
+                seen.add(basename)
+                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+                mime = mime_map.get(ext, "application/octet-stream")
+                if mime.startswith("image"):
+                    artifact_type = "generated_image"
+                elif mime.startswith("video") or mime.startswith("audio"):
+                    artifact_type = "media"
+                elif mime == "application/pdf":
+                    artifact_type = "document"
+                else:
+                    artifact_type = "data_export"
+
+                entry = {
+                    "filename": basename,
+                    "mime_type": mime,
+                    "artifact_type": artifact_type,
+                    "description": "Agent-generated %s output" % ext.upper(),
+                }
+                if bucket:
+                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                        bucket, prefix, task_id, basename
+                    )
+                artifacts.append(entry)
+        return artifacts
+
     def build_trajectory_json(self):
         self.ensure_one()
-        model_name = ""
         all_turns = self._get_all_turns().sorted("turn_number")
-        for t in reversed(all_turns):
-            if t.model_name:
-                model_name = t.model_name
-                break
 
         meta_info = {
-            "task_type": self.task_type or "",
-            "task_description": self.task_id or "",
+            "task_type": self._slugify_task_type(),
+            "task_description": self.seed_prompt or self.task_id or "",
             "task_completion_status": "success",
             "system_prompt": self.system_prompt or "",
             "platform": "macOS",
-            "persona": self.persona_id.name if self.persona_id else "",
-            "model": model_name,
-            "difficulty": self.difficulty or "",
-            "conv_id": str(uuid.uuid4()),
+            "multimodal_metadata": self._build_multimodal_metadata(),
+            "input_files": self._build_input_files_manifest(),
+            "output_artifacts": self._build_output_artifacts(),
         }
 
         messages = self._trajectory_from_ws()
@@ -1272,7 +1457,13 @@ class Kensei(models.Model):
         else:
             messages = self._build_trajectory_fallback()
 
-        return {"meta_info": meta_info, "messages": messages}
+        messages = _unwrap_trajectory_messages(messages)
+
+        return {
+            "schema_version": "1.0.0",
+            "meta_info": meta_info,
+            "messages": messages,
+        }
 
     def _trajectory_from_ws(self):
         self.ensure_one()

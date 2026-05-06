@@ -6,24 +6,24 @@
     </record>
 
     <menuitem name="Kensei" id="kensei.menu_kensei_root"
-              groups="etp_user_roles.group_tasker"/>
+              groups="kensei.group_kensei_tasker"/>
 
     <menuitem name="Tasks" id="kensei.menu_kensei_tasks" parent="kensei.menu_kensei_root"
               action="kensei_kensei_action_window" sequence="10"
-              groups="etp_user_roles.group_tasker"/>
+              groups="kensei.group_kensei_tasker"/>
     <menuitem name="Costing" id="kensei.menu_kensei_costing" parent="kensei.menu_kensei_root"
               action="kensei_costing_action" sequence="12"
-              groups="etp_user_roles.group_project_lead"/>
+              groups="kensei.group_kensei_pl"/>
     <menuitem name="Personas" id="kensei.menu_kensei_personas" parent="kensei.menu_kensei_root"
               action="kensei_persona_action_window" sequence="15"
-              groups="etp_user_roles.group_quality_lead"/>
-    <menuitem name="Taxonomy" id="kensei.menu_kensei_taxonomy" parent="kensei.menu_kensei_root"
-              action="taxonomy_action_window" sequence="30"
-              groups="etp_user_roles.group_quality_lead"/>
+              groups="kensei.group_kensei_ql"/>
+    <menuitem name="Domains" id="kensei.menu_kensei_domains" parent="kensei.menu_kensei_root"
+              action="domain_action_window" sequence="30"
+              groups="kensei.group_kensei_ql"/>
     <menuitem name="Turns" id="kensei.menu_kensei_turns" parent="kensei.menu_kensei_root"
               action="kensei_turn_action_window" sequence="25"
-              groups="etp_user_roles.group_quality_lead"/>
+              groups="kensei.group_kensei_ql"/>
     <menuitem name="Sandboxes" id="kensei.menu_kensei_sandboxes" parent="kensei.menu_kensei_root"
               action="kensei_sandbox_action_window" sequence="35"
-              groups="etp_user_roles.group_quality_lead"/>
+              groups="kensei.group_kensei_ql"/>
 </odoo>

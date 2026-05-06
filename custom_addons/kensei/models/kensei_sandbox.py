@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -39,19 +40,11 @@ _SANDBOX_LOCK = threading.Lock()
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
     ("glm", "Kimi K2.5"),
-    ("1pa", "1PA"),
-    ("1pb", "1PB"),
-    ("1pc", "1PC"),
-    ("1pd", "1PD"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
     "glm": "litellm/kimi-k2.5",
-    "1pa": "litellm/quiet_sand",
-    "1pb": "litellm/quiet_sand",
-    "1pc": "litellm/quiet_sand",
-    "1pd": "litellm/quiet_sand",
 }
 
 GATEWAY_PORT_BASE = 21000
@@ -246,6 +239,27 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
     finally:
         with _SANDBOX_LOCK:
             _SANDBOX_STARTING.discard(sandbox_id)
+
+
+def _unwrap_trajectory_messages(messages):
+    """Unwrap hint-wrapper format and assign sequential turn_index."""
+    unwrapped = []
+    for msg in messages:
+        if (
+            "message" in msg
+            and isinstance(msg["message"], dict)
+            and "message" in msg["message"]
+        ):
+            # Wrapped: {"is_accepted": ..., "hints": ..., "message": {actual_msg}}
+            actual = msg["message"]
+            unwrapped.append(actual)
+        else:
+            unwrapped.append(msg)
+    # Assign turn_index and remove parentId
+    for idx, m in enumerate(unwrapped):
+        m["turn_index"] = idx
+        m.pop("parentId", None)
+    return unwrapped
 
 
 class KenseiSandbox(models.Model):
@@ -644,18 +658,16 @@ class KenseiSandbox(models.Model):
     def _build_trajectory_from_jsonl(self, entries):
         self.ensure_one()
         task = self.kensei_id
-        model_name = ""
-        default = MODEL_DEFAULTS.get(self.model_type)
-        if default:
-            model_name = default.replace("litellm/", "")
 
         meta_info = {
-            "task_type": task.task_type or "",
-            "task_description": task.task_id or "",
+            "task_type": self._slugify_task_type(),
+            "task_description": task.seed_prompt or task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
-            "conv_id": str(uuid.uuid4()),
+            "multimodal_metadata": self._build_multimodal_metadata(),
+            "input_files": self._build_input_files_manifest(),
+            "output_artifacts": self._build_output_artifacts(),
         }
 
         messages = []
@@ -672,7 +684,6 @@ class KenseiSandbox(models.Model):
             if not role:
                 continue
 
-            # Skip session startup messages (system init before first user message)
             if role == "user":
                 seen_user_msg = True
             elif role == "system" and not seen_user_msg:
@@ -693,14 +704,19 @@ class KenseiSandbox(models.Model):
             messages.append(delivery_msg)
             last_kept_id = entry_id
 
-        # Apply hint/feedback wrappers from Odoo turn data
         all_turns = self.turn_ids.sorted("turn_number")
         if all_turns:
             messages = _wrap_messages_with_turn_feedback(messages, all_turns)
         else:
             messages = [_wrap_trajectory_message(m) for m in messages]
 
-        return {"meta_info": meta_info, "messages": messages}
+        messages = _unwrap_trajectory_messages(messages)
+
+        return {
+            "schema_version": "1.0.0",
+            "meta_info": meta_info,
+            "messages": messages,
+        }
 
     @staticmethod
     def _extract_tokens_from_jsonl(entries):
@@ -878,6 +894,179 @@ class KenseiSandbox(models.Model):
     # Export
     # ------------------------------------------------------------------
 
+    def _slugify_task_type(self):
+        self.ensure_one()
+        task = self.kensei_id
+        l1 = task.l1_classification.name if task.l1_classification else ""
+        l2 = task.l2_classification.name if task.l2_classification else ""
+        if not l1 and not l2:
+            return "uncategorized__uncategorized"
+        slug_l1 = re.sub(r"[^a-z0-9]+", "_", (l1 or "uncategorized").lower()).strip("_")
+        slug_l2 = re.sub(r"[^a-z0-9]+", "_", (l2 or "uncategorized").lower()).strip("_")
+        return "%s__%s" % (slug_l1, slug_l2)
+
+    def _build_multimodal_metadata(self):
+        self.ensure_one()
+        task = self.kensei_id
+        modality_tags = set()
+        input_modalities = set()
+        all_turns = self.turn_ids.sorted("turn_number")
+        for t in all_turns:
+            if not t.attachments:
+                continue
+            try:
+                atts = json.loads(t.attachments)
+                if not isinstance(atts, list):
+                    continue
+                for att in atts:
+                    mime = att.get("mimeType", "")
+                    if mime:
+                        input_modalities.add(mime)
+                    if mime.startswith("image/"):
+                        modality_tags.add("upload_image")
+                    elif mime == "application/pdf":
+                        modality_tags.add("pdf")
+                    elif mime.startswith("video/"):
+                        modality_tags.add("video")
+                    elif mime.startswith("audio/"):
+                        modality_tags.add("audio")
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        output_modalities = ["text"]
+        output_artifacts = self._build_output_artifacts()
+        for art in output_artifacts:
+            m = art.get("mime_type", "")
+            if m.startswith("image/") and "image" not in output_modalities:
+                output_modalities.append("image")
+            elif m and not m.startswith("image/") and "file" not in output_modalities:
+                output_modalities.append("file")
+
+        return {
+            "modality_tags": sorted(modality_tags),
+            "taxonomy_l1": task.l1_classification.name if task.l1_classification else "",
+            "taxonomy_l2": task.l2_classification.name if task.l2_classification else "",
+            "media_necessity": "Multimodal input required for visual understanding task.",
+            "cross_modal_reasoning": {
+                "percentage": 50,
+                "modalities_fused": ["text", "image"],
+                "description": "Agent processes visual and text inputs together.",
+            },
+            "input_modalities": sorted(input_modalities),
+            "output_modalities": output_modalities,
+            "asset_realism_notes": "Natural user-uploaded content with realistic filenames and varying quality.",
+        }
+
+    def _build_input_files_manifest(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        task_id = self.kensei_id.task_id or str(self.kensei_id.id)
+
+        seen_filenames = set()
+        manifest = []
+        idx = 0
+        all_turns = self.turn_ids.sorted("turn_number")
+        for t in all_turns:
+            if not t.attachments:
+                continue
+            try:
+                atts = json.loads(t.attachments)
+                if not isinstance(atts, list):
+                    continue
+                for att in atts:
+                    fname = att.get("name", "")
+                    if not fname or fname in seen_filenames:
+                        continue
+                    seen_filenames.add(fname)
+                    mime = att.get("mimeType", "")
+                    stored_as = att.get("storedAs", "")
+                    entry = {
+                        "ref_id": "input_%d" % idx,
+                        "filename": fname,
+                        "mime_type": mime,
+                        "role": "primary_reference",
+                        "description": "User-uploaded %s file" % mime,
+                        "size_bytes": att.get("size", 0),
+                    }
+                    if stored_as and bucket:
+                        entry["source"] = "s3://%s/%s/input/tasks/%s/%s" % (
+                            bucket, prefix, task_id, stored_as
+                        )
+                    manifest.append(entry)
+                    idx += 1
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return manifest
+
+    def _build_output_artifacts(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        task_id = self.kensei_id.task_id or str(self.kensei_id.id)
+
+        media_ext_re = re.compile(
+            r"/home/node/\.openclaw/(?:workspace|uploads|media)/[^\s\"'`\n)]+\."
+            r"(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|csv|json|md|txt|html)",
+            re.IGNORECASE,
+        )
+
+        mime_map = {
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
+            "svg": "image/svg+xml", "mp4": "video/mp4", "webm": "video/webm",
+            "mov": "video/quicktime", "mp3": "audio/mpeg", "wav": "audio/wav",
+            "ogg": "audio/ogg", "m4a": "audio/mp4", "pdf": "application/pdf",
+            "csv": "text/csv", "json": "application/json", "md": "text/markdown",
+            "txt": "text/plain", "html": "text/html",
+        }
+
+        type_map = {
+            "image": "generated_image", "video": "media", "audio": "media",
+            "application/pdf": "document", "text": "data_export",
+        }
+
+        seen = set()
+        artifacts = []
+        all_turns = self.turn_ids.sorted("turn_number")
+        for t in all_turns:
+            response_text = t.response or ""
+            paths = media_ext_re.findall(response_text)
+            for path in paths:
+                basename = path.rsplit("/", 1)[-1] if "/" in path else path
+                if basename in seen:
+                    continue
+                seen.add(basename)
+                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+                mime = mime_map.get(ext, "application/octet-stream")
+                if mime.startswith("image"):
+                    artifact_type = "generated_image"
+                elif mime.startswith("video") or mime.startswith("audio"):
+                    artifact_type = "media"
+                elif mime == "application/pdf":
+                    artifact_type = "document"
+                else:
+                    artifact_type = "data_export"
+
+                entry = {
+                    "filename": basename,
+                    "mime_type": mime,
+                    "artifact_type": artifact_type,
+                    "description": "Agent-generated %s output" % ext.upper(),
+                }
+                if bucket:
+                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                        bucket, prefix, task_id, basename
+                    )
+                artifacts.append(entry)
+        return artifacts
+
     def action_export_session(self):
         self.ensure_one()
         return {
@@ -889,27 +1078,17 @@ class KenseiSandbox(models.Model):
     def build_trajectory_json(self):
         self.ensure_one()
         task = self.kensei_id
-        model_name = ""
         all_turns = self.turn_ids.sorted("turn_number")
-        for t in reversed(all_turns):
-            if t.model_name:
-                model_name = t.model_name
-                break
-        if not model_name:
-            default = MODEL_DEFAULTS.get(self.model_type)
-            if default:
-                model_name = default.replace("litellm/", "")
 
         meta_info = {
-            "task_type": task.task_type or "",
-            "task_description": task.task_id or "",
+            "task_type": self._slugify_task_type(),
+            "task_description": task.seed_prompt or task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
-            "persona": task.persona_id.name if task.persona_id else "",
-            "model": model_name,
-            "difficulty": task.difficulty or "",
-            "conv_id": str(uuid.uuid4()),
+            "multimodal_metadata": self._build_multimodal_metadata(),
+            "input_files": self._build_input_files_manifest(),
+            "output_artifacts": self._build_output_artifacts(),
         }
 
         messages = self._trajectory_from_ws()
@@ -950,7 +1129,13 @@ class KenseiSandbox(models.Model):
                 len(messages),
             )
 
-        return {"meta_info": meta_info, "messages": messages}
+        messages = _unwrap_trajectory_messages(messages)
+
+        return {
+            "schema_version": "1.0.0",
+            "meta_info": meta_info,
+            "messages": messages,
+        }
 
     def _trajectory_from_ws(self):
         self.ensure_one()
@@ -1401,7 +1586,16 @@ class KenseiSandbox(models.Model):
                     "window_end": window_end.isoformat(),
                 }
 
-                entries = [session_entry]
+                # APPEND to existing trajectory entries (multi-session, cap at 12)
+                MAX_TRAJECTORIES_PER_MODEL = 12
+                existing_raw = self.kensei_id[field_name] or ""
+                entries = json.loads(existing_raw) if existing_raw.strip() else []
+                if not isinstance(entries, list):
+                    entries = []
+                entries.append(session_entry)
+                # Cap at 12 — keep most recent
+                if len(entries) > MAX_TRAJECTORIES_PER_MODEL:
+                    entries = entries[-MAX_TRAJECTORIES_PER_MODEL:]
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.kensei_id.write({field_name: new_value})

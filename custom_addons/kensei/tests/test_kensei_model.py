@@ -20,12 +20,12 @@ class TestKenseiCreation(KenseiTestCase):
     """Tests for Kensei record creation, ensure_sandboxes, and field defaults."""
 
     def test_create_auto_creates_sandboxes(self):
-        """create() calls ensure_sandboxes — all 6 model types exist."""
+        """create() calls ensure_sandboxes — active model types exist."""
         task = self._create_task(task_id="CREATE-001")
         types = task.sandbox_ids.mapped("model_type")
-        for mt in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+        for mt in ("claude", "glm"):
             self.assertIn(mt, types)
-        self.assertEqual(len(task.sandbox_ids), 6)
+        self.assertEqual(len(task.sandbox_ids), 2)
 
     def test_create_without_persona_raises(self):
         """persona_id is required — creating without it raises."""
