@@ -1,0 +1,5 @@
+id,name,description,state,leadId,teamIds,startDate,targetDate,createdAt,updatedAt
+proj-api-v2,API v2 Migration,Migrate all REST endpoints to the new v2 API specification with improved pagination and filtering,started,user-01,"team-backend,team-platform",2025-02-01,2025-06-30,2025-01-15T10:00:00,2025-04-20T14:00:00
+proj-dashboard,Dashboard Redesign,Complete redesign of the analytics dashboard with new visualization components and real-time data,started,user-06,"team-frontend,team-backend",2025-03-01,2025-07-15,2025-02-10T09:00:00,2025-04-22T11:00:00
+proj-perf,Performance Improvements,Reduce p95 latency by 40% across all critical API paths and frontend bundle optimization,started,user-10,"team-platform,team-backend,team-frontend",2025-01-15,2025-05-30,2025-01-10T08:00:00,2025-04-18T16:00:00
+proj-soc2,SOC2 Compliance,Implement audit logging and access controls required for SOC2 Type II certification,planned,user-10,"team-platform,team-backend",2025-05-01,2025-09-30,2025-03-01T10:00:00,2025-04-15T09:00:00

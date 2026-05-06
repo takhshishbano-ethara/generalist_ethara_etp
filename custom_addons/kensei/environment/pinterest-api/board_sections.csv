@@ -1,0 +1,12 @@
+section_id,board_id,name,pin_count
+section_2001,board_1002,Woodworking,5
+section_2002,board_1002,Painting Projects,4
+section_2003,board_1002,Organization Hacks,3
+section_2004,board_1003,Modern Kitchens,6
+section_2005,board_1003,Farmhouse Style,4
+section_2006,board_1005,Christmas,5
+section_2007,board_1005,Halloween,4
+section_2008,board_1007,Bathroom Storage,4
+section_2009,board_1007,Closet Systems,3
+section_2010,board_1004,Neutral Tones,7
+section_2011,board_1004,Bold Colors,5

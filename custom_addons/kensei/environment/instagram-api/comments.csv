@@ -1,0 +1,51 @@
+id,media_id,user_id,username,text,timestamp,like_count,hidden,parent_id
+17800001001,17900001002,17841400999001,latteart_lover,"OMG this is STUNNING! How long did it take to learn this? \ud83d\ude0d",2026-05-02T12:45:00,12,false,
+17800001002,17900001002,17841400123456789,brewedawakening_,"@latteart_lover Thank you! Maria has been practicing for about 8 months. Come to our workshop Saturday!",2026-05-02T13:00:00,8,false,17800001001
+17800001003,17900001002,17841400999002,portland_foodie,"Best latte art in Portland, hands down \ud83d\ude4c",2026-05-02T13:15:00,15,false,
+17800001004,17900001002,17841400999003,coffeenerd_pdx,"The symmetry is insane. What milk are you using?",2026-05-02T14:00:00,6,false,
+17800001005,17900001002,17841400123456789,brewedawakening_,"@coffeenerd_pdx We use Oatly Barista Edition! It steams beautifully \ud83d\udc4c",2026-05-02T14:30:00,9,false,17800001004
+17800001006,17900001002,17841400999004,spam_account_xyz,"Check my page for FREE followers!!! \ud83d\ude80\ud83d\ude80",2026-05-02T15:00:00,0,true,
+17800001007,17900001002,17841400999005,maria_pours,"Ahh thank you for posting this!! Still can\u2019t believe I nailed it \ud83e\udd29",2026-05-02T16:00:00,23,false,
+17800001008,17900001005,17841400999006,interior_inspo,"The autumn one is EVERYTHING \ud83c\udf42\ud83d\ude0d Photo 1 wins!",2026-04-25T19:00:00,7,false,
+17800001009,17900001005,17841400999007,pdx_adventures,"I love the summer golden hour shot! When was that taken?",2026-04-25T19:30:00,4,false,
+17800001010,17900001005,17841400123456789,brewedawakening_,"@pdx_adventures That was last August around 7:30pm! The west-facing windows are magical.",2026-04-25T20:00:00,6,false,17800001009
+17800001011,17900001005,17841400999008,design_portland,"Would love to feature your space in our Portland Cafes roundup! DM?",2026-04-26T08:00:00,3,false,
+17800001012,17900001008,17841400999009,homebrew_hero,"SAVED! Trying this tomorrow morning. What grinder do you recommend for V60?",2026-04-19T08:30:00,5,false,
+17800001013,17900001008,17841400123456789,brewedawakening_,"@homebrew_hero We love the Comandante C40 for hand grinding, or Baratza Encore for electric! Both great for pour over.",2026-04-19T09:00:00,11,false,17800001012
+17800001014,17900001008,17841400999010,coffee_science,"The 96\u00b0C is key! Most people brew too hot. Great recipe \ud83d\udc4f",2026-04-19T10:15:00,8,false,
+17800001015,17900001008,17841400999011,morning_ritual_co,"We use a similar recipe at our shop! Solid ratio \u2615",2026-04-19T11:00:00,4,false,
+17800001016,17900001013,17841400999012,coffee_industry_news,"Congrats on the 92! Well deserved \ud83c\udfc6",2026-04-09T10:30:00,14,false,
+17800001017,17900001013,17841400999013,bean_enthusiast,"I\u2019ve been buying this since you launched it. So happy it\u2019s getting recognition!",2026-04-09T11:00:00,9,false,
+17800001018,17900001013,17841400123456789,brewedawakening_,"@bean_enthusiast That means the world to us! You\u2019ve been with us since day one \u2764\ufe0f",2026-04-09T11:30:00,12,false,17800001017
+17800001019,17900001013,17841400999014,roaster_collective,"The natural process really shines through. Incredible work!",2026-04-09T14:00:00,7,false,
+17800001020,17900001014,17841400999015,aspiring_barista,"This is SO helpful! Do you offer any barista training courses?",2026-04-07T07:00:00,6,false,
+17800001021,17900001014,17841400123456789,brewedawakening_,"@aspiring_barista Yes! We run a 3-day intensive every month. Check our website for the next dates \ud83d\ude4c",2026-04-07T08:00:00,8,false,17800001020
+17800001022,17900001014,17841400999016,espresso_daily,"18.5g dose in what basket size? I\u2019m running a similar setup.",2026-04-07T09:30:00,3,false,
+17800001023,17900001017,17841400999017,latte_art_world,"This might be the most perfect tulip I\u2019ve ever seen on IG \ud83c\udf37\ud83d\ude4c",2026-04-01T08:30:00,28,false,
+17800001024,17900001017,17841400999018,barista_magazine,"Mind if we share this on our page? Full credit of course!",2026-04-01T09:00:00,19,false,
+17800001025,17900001017,17841400123456789,brewedawakening_,"@barista_magazine Absolutely! We\u2019d be honored \ud83d\ude4f",2026-04-01T09:30:00,14,false,17800001024
+17800001026,17900001017,17841400999019,coffee_art_daily,"How many layers? This is insane detail!",2026-04-01T10:00:00,5,false,
+17800001027,17900001017,17841400999020,wannabe_barista,"I\u2019ve been trying for weeks and mine looks like a blob \ud83d\ude02 teach me your ways!",2026-04-01T12:00:00,11,false,
+17800001028,17900001007,17841400999021,clay_and_kiln,"So excited about this collab!! Can\u2019t wait for everyone to see them in person \ud83e\udec2",2026-04-21T12:30:00,16,false,
+17800001029,17900001007,17841400999022,portland_makers_market,"These are gorgeous! Will you have them at the makers market next month?",2026-04-21T13:00:00,5,false,
+17800001030,17900001007,17841400123456789,brewedawakening_,"@portland_makers_market Yes! We\u2019ll have a booth at the May market \ud83c\udf89",2026-04-21T14:00:00,7,false,17800001029
+17800001031,17900001016,17841400999023,nw_coffee_alliance,"Can\u2019t wait to judge tonight! Going to be amazing \ud83c\udfc6",2026-04-03T17:30:00,9,false,
+17800001032,17900001016,17841400999024,local_barista_guy,"I\u2019m competing! Nervous but ready. See everyone there!",2026-04-03T18:00:00,12,false,
+17800001033,17900001016,17841400999025,pdx_events_guide,"Added to our weekend picks! Great event \ud83d\udc4d",2026-04-03T18:30:00,4,false,
+17800001034,17900001021,17841400999026,matcha_obsessed,"STRAWBERRY MATCHA?! I\u2019m running there tomorrow \ud83c\udf53\ud83c\udf75",2026-03-24T12:30:00,8,false,
+17800001035,17900001021,17841400999027,cold_brew_king,"Meyer Lemon Cold Brew sounds incredible. Is it sweetened?",2026-03-24T13:00:00,3,false,
+17800001036,17900001021,17841400123456789,brewedawakening_,"@cold_brew_king Just a touch of agave! You can ask for unsweetened too \ud83d\udc4c",2026-03-24T13:30:00,5,false,17800001035
+17800001037,17900001026,17841400999028,coffee_newbie_2024,"Wait, I\u2019ve been keeping mine in the freezer this whole time \ud83d\ude31 Thanks for this!",2026-03-12T11:30:00,14,false,
+17800001038,17900001026,17841400123456789,brewedawakening_,"@coffee_newbie_2024 Don\u2019t worry, it\u2019s a super common mistake! The moisture from the freezer is the main issue. Room temp in an airtight container is the way to go \u2615",2026-03-12T12:00:00,10,false,17800001037
+17800001039,17900001026,17841400999029,another_spam_bot,"DM me for cheap promo \ud83d\udcb0\ud83d\udcb0",2026-03-12T14:00:00,0,true,
+17800001040,17900001027,17841400999030,feminist_coffee,"This is amazing! Love that you source from women-led farms \ud83d\udc9c",2026-03-08T08:30:00,18,false,
+17800001041,17900001027,17841400999031,rwanda_coffee_co,"Thank you for supporting our cooperative! This means everything to us \u2764\ufe0f",2026-03-08T09:00:00,22,false,
+17800001042,17900001027,17841400123456789,brewedawakening_,"@rwanda_coffee_co We\u2019re so proud to work with you! Your coffees are exceptional \ud83c\udf1f",2026-03-08T09:30:00,15,false,17800001041
+17800001043,17900001025,17841400999032,pdx_sourdough,"Saturday morning bake drops are our favorite tradition! Thanks for being such great partners \ud83c\udf5e\u2764\ufe0f",2026-03-15T07:30:00,11,false,
+17800001044,17900001025,17841400999033,bread_lover_pdx,"The cardamom morning buns are LIFE. Please never stop making them!",2026-03-15T08:00:00,7,false,
+17800001045,17900001010,17841400999034,pdx_bookworm,"This made my whole day!! \ud83d\ude2d\u2764\ufe0f Thank you for always making me feel welcome. Best cafe family ever!",2026-04-15T16:30:00,19,false,
+17800001046,17900001010,17841400999035,community_coffee_lover,"This is why I love local cafes. Real connections \u2764\ufe0f",2026-04-15T17:00:00,6,false,
+17800001047,17900001009,17841400999036,latte_addict,"Had this yesterday and I\u2019m already craving another one!",2026-04-17T08:00:00,4,false,
+17800001048,17900001009,17841400999037,herbal_tea_fan,"I don\u2019t even drink coffee and this looks amazing. Does it come in decaf?",2026-04-17T10:00:00,2,false,
+17800001049,17900001009,17841400123456789,brewedawakening_,"@herbal_tea_fan Absolutely! We can make it with decaf espresso, no problem \u2615",2026-04-17T10:30:00,5,false,17800001048
+17800001050,17900001003,17841400999038,bean_subscriber,"Just ordered a bag! Can\u2019t wait to try it with my V60 \ud83d\ude4c",2026-04-30T17:30:00,3,false,

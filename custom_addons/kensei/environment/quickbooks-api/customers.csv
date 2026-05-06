@@ -1,0 +1,26 @@
+Id,DisplayName,GivenName,FamilyName,CompanyName,PrimaryEmailAddr,PrimaryPhone,BillAddr_Line1,BillAddr_City,BillAddr_CountrySubDivisionCode,BillAddr_PostalCode,Balance,Active,Job,Notes
+1,Mark Thompson,Mark,Thompson,,mark.thompson@email.com,(704) 555-0201,892 Elm Street,Charlotte,NC,28205,0.00,true,false,Residential - weekly mowing
+2,Sarah Jenkins,Sarah,Jenkins,,sarah.jenkins@gmail.com,(704) 555-0302,1455 Magnolia Lane,Charlotte,NC,28207,350.00,true,false,Residential - garden design client
+3,Robert & Lisa Chen,Robert,Chen,,rchen@email.com,(704) 555-0418,3201 Oakdale Drive,Charlotte,NC,28210,0.00,true,false,Residential - full service
+4,Patricia Nguyen,Patricia,Nguyen,,pnguyen@outlook.com,(704) 555-0534,567 Willow Creek Ct,Charlotte,NC,28226,175.00,true,false,Residential - bi-weekly mowing
+5,James & Karen Mitchell,James,Mitchell,,jkmitchell@email.com,(704) 555-0645,2890 Pinehurst Blvd,Charlotte,NC,28211,0.00,true,false,Residential - seasonal cleanups
+6,David Washington,David,Washington,,dwash@email.com,(704) 555-0756,4102 Brookshire Lane,Charlotte,NC,28216,0.00,true,false,Residential - tree trimming
+7,Amanda Foster,Amanda,Foster,,afoster@gmail.com,(704) 555-0867,1678 Rosewood Ave,Charlotte,NC,28203,525.00,true,false,Residential - hardscaping project
+8,Oakwood HOA,,,Oakwood Homeowners Association,admin@oakwoodhoa.org,(704) 555-1100,100 Oakwood Commons Blvd,Charlotte,NC,28277,1200.00,true,false,Commercial - common area maintenance
+9,Meridian Office Park,,,Meridian Property Management LLC,facilities@meridianoffice.com,(704) 555-1200,5500 Meridian Parkway,Charlotte,NC,28217,0.00,true,false,Commercial - weekly grounds maintenance
+10,William Carter,William,Carter,,wcarter@email.com,(704) 555-0978,3456 Sunset Hills Drive,Charlotte,NC,28270,0.00,true,false,Residential - irrigation install
+11,Jennifer Martinez,Jennifer,Martinez,,jmartinez@email.com,(704) 555-1089,890 Cypress Hollow Rd,Charlotte,NC,28212,250.00,true,false,Residential - garden design
+12,Thomas & Mary Kelly,Thomas,Kelly,,tkelly@email.com,(704) 555-1190,2345 Heritage Lane,Charlotte,NC,28209,0.00,true,false,Residential - weekly mowing
+13,Lakeside Village HOA,,,Lakeside Village HOA Inc,board@lakesidevillage.org,(704) 555-1300,200 Lakeside Village Drive,Charlotte,NC,28278,950.00,true,false,Commercial - landscape maintenance contract
+14,Michael Brown,Michael,Brown,,mbrown77@gmail.com,(704) 555-1401,4567 Maple Ridge Ct,Charlotte,NC,28213,0.00,true,false,Residential - one-time cleanup
+15,Catherine Shaw,Catherine,Shaw,,cshaw@email.com,(704) 555-1512,1234 Birchwood Lane,Charlotte,NC,28204,0.00,true,false,Residential - mulch and planting
+16,Richard & Joan Palmer,Richard,Palmer,,rpalmer@email.com,(704) 555-1623,6789 Meadowbrook Dr,Charlotte,NC,28227,450.00,true,false,Residential - ongoing maintenance
+17,Uptown Church Campus,,,First Baptist Church of Uptown,office@uptownfbc.org,(704) 555-1700,300 N Tryon Street,Charlotte,NC,28202,0.00,true,false,Commercial - seasonal landscaping
+18,Daniel Harris,Daniel,Harris,,dharris@outlook.com,(704) 555-1834,5432 Stonebridge Way,Charlotte,NC,28269,0.00,true,false,Residential - weekly mowing
+19,Stephanie Coleman,Stephanie,Coleman,,scoleman@email.com,(704) 555-1945,876 Wisteria Court,Charlotte,NC,28208,0.00,true,false,Residential - tree trimming
+20,Brian & Tanya Ross,Brian,Ross,,bross@email.com,(704) 555-2056,2109 Dogwood Lane,Charlotte,NC,28214,0.00,true,false,Residential - spring cleanup
+21,Heritage Square Shopping,,,Heritage Square Management Co,property@heritagesq.com,(704) 555-2100,7000 Heritage Square Blvd,Charlotte,NC,28262,0.00,true,false,Commercial - parking lot landscaping
+22,Nancy Wright,Nancy,Wright,,nwright@gmail.com,(704) 555-2167,3890 Camellia Way,Charlotte,NC,28215,0.00,true,false,Residential - irrigation maintenance
+23,Kevin & Laura Adams,Kevin,Adams,,kadams@email.com,(704) 555-2278,1567 Azalea Drive,Charlotte,NC,28206,800.00,true,false,Residential - patio hardscaping
+24,George Henderson,George,Henderson,,ghenderson@email.com,(704) 555-2389,4321 Cedar Hill Road,Charlotte,NC,28211,0.00,true,false,Residential - bi-weekly mowing
+25,Sandra Phillips,Sandra,Phillips,,sphillips@email.com,(704) 555-2490,2678 Jasmine Circle,Charlotte,NC,28270,0.00,true,false,Residential - seasonal plantings

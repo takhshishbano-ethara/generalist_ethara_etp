@@ -1,0 +1,53 @@
+{
+  "CompanyName": "Greenleaf Landscaping LLC",
+  "LegalName": "Greenleaf Landscaping LLC",
+  "CompanyAddr": {
+    "Id": "1",
+    "Line1": "4521 Shamrock Drive",
+    "City": "Charlotte",
+    "CountrySubDivisionCode": "NC",
+    "PostalCode": "28215",
+    "Country": "US"
+  },
+  "CustomerCommunicationAddr": {
+    "Id": "1",
+    "Line1": "4521 Shamrock Drive",
+    "City": "Charlotte",
+    "CountrySubDivisionCode": "NC",
+    "PostalCode": "28215",
+    "Country": "US"
+  },
+  "LegalAddr": {
+    "Id": "1",
+    "Line1": "4521 Shamrock Drive",
+    "City": "Charlotte",
+    "CountrySubDivisionCode": "NC",
+    "PostalCode": "28215",
+    "Country": "US"
+  },
+  "PrimaryPhone": {
+    "FreeFormNumber": "(704) 555-0173"
+  },
+  "CompanyStartDate": "2022-01-15",
+  "FiscalYearStartMonth": "January",
+  "Country": "US",
+  "Email": {
+    "Address": "info@greenleaflandscaping.com"
+  },
+  "WebAddr": {
+    "URI": "https://www.greenleaflandscaping.com"
+  },
+  "SupportedLanguages": "en",
+  "NameValue": [
+    {"Name": "QBOSubscriptionStatus", "Value": "QuickBooks Online Plus"},
+    {"Name": "Industry", "Value": "Landscaping Services"}
+  ],
+  "Id": "1",
+  "SyncToken": "4",
+  "MetaData": {
+    "CreateTime": "2022-01-15T09:00:00-05:00",
+    "LastUpdatedTime": "2025-04-28T14:30:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+}
