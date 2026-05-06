@@ -38,6 +38,11 @@ def migrate(cr, version):
         group_id = row[0]
 
         cr.execute(
+            "DELETE FROM rule_group_rel WHERE group_id = %s",
+            (group_id,),
+        )
+
+        cr.execute(
             "DELETE FROM res_groups_users_rel WHERE gid = %s",
             (group_id,),
         )
@@ -46,6 +51,16 @@ def migrate(cr, version):
         cr.execute(
             "DELETE FROM res_groups_implied_rel WHERE gid = %s OR hid = %s",
             (group_id, group_id),
+        )
+
+        cr.execute(
+            "DELETE FROM ir_act_window_group_rel WHERE gid = %s",
+            (group_id,),
+        )
+
+        cr.execute(
+            "DELETE FROM ir_ui_menu_group_rel WHERE gid = %s",
+            (group_id,),
         )
 
         cr.execute("DELETE FROM res_groups WHERE id = %s", (group_id,))

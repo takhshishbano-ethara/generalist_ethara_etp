@@ -3,7 +3,6 @@
     <record model="ir.actions.client" id="kensei_costing_action">
         <field name="name">Token Usage</field>
         <field name="tag">kensei_costing_dashboard</field>
-        <field name="groups_id" eval="[(4, ref('group_kensei_pl'))]"/>
     </record>
 
     <menuitem name="Kensei" id="kensei.menu_kensei_root"

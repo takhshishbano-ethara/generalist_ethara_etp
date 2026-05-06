@@ -160,6 +160,36 @@ action = records.action_publish_auto_process()
       </field>
     </record>
 
+    <!-- Server Actions: Mass-assign Kensei roles from res.users list -->
+    <record model="ir.actions.server" id="kensei_action_assign_tasker">
+      <field name="name">Assign Kensei Tasker Role</field>
+      <field name="model_id" ref="base.model_res_users"/>
+      <field name="binding_model_id" ref="base.model_res_users"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+tasker_group = env.ref('kensei.group_kensei_tasker')
+ql_group = env.ref('kensei.group_kensei_ql')
+pl_group = env.ref('kensei.group_kensei_pl')
+for user in records:
+    user.write({'groups_id': [(3, ql_group.id), (3, pl_group.id), (4, tasker_group.id)]})
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei_action_assign_ql">
+      <field name="name">Assign Kensei Quality Lead Role</field>
+      <field name="model_id" ref="base.model_res_users"/>
+      <field name="binding_model_id" ref="base.model_res_users"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+ql_group = env.ref('kensei.group_kensei_ql')
+pl_group = env.ref('kensei.group_kensei_pl')
+for user in records:
+    user.write({'groups_id': [(3, pl_group.id), (4, ql_group.id)]})
+      </field>
+    </record>
+
     <!-- ============ Turn Views ============ -->
 
     <record model="ir.ui.view" id="kensei_turn_list">
@@ -244,7 +274,6 @@ action = records.action_publish_auto_process()
       <field name="name">Turns</field>
       <field name="res_model">kensei.turn</field>
       <field name="view_mode">list,form</field>
-      <field name="groups_id" eval="[(4, ref('group_kensei_ql'))]"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_turn_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_turn_form')})]"/>
@@ -310,7 +339,6 @@ action = records.action_publish_auto_process()
       <field name="name">Sandboxes</field>
       <field name="res_model">kensei.sandbox</field>
       <field name="view_mode">list,form</field>
-      <field name="groups_id" eval="[(4, ref('group_kensei_ql'))]"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_sandbox_list')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_sandbox_form')})]"/>
