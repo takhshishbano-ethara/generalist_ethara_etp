@@ -404,9 +404,9 @@ class LlmAssistQc(http.Controller):
             return {"error": "prompt is required"}
 
         env = _load_dotenv()
-        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        api_key = (env.get("KENSEI_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
         if not api_key:
-            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+            return {"error": "KENSEI_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set in .env"}
 
         ICP = request.env["ir.config_parameter"].sudo()
         inference_arn = (ICP.get_param("kensei.bedrock_inference_arn") or "").strip()
@@ -680,11 +680,11 @@ class LlmAssistQc(http.Controller):
             temperature = float(jdata.get("temperature", 0.7))
 
             env = _load_dotenv()
-            api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = (env.get("KENSEI_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
             if not api_key:
                 return request.make_json_response(
                     {
-                        "error": "AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "error": "KENSEI_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set in .env",
                         "status": 500,
                     },
                     status=500,

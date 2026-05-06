@@ -22,10 +22,10 @@
                             <field name="kensei_bedrock_region" />
                         </setting>
                     </block>
-                    <block title="Moonshot (Kimi K2.5)">
+                    <block title="Moonshot (Kimi K2.6)">
                         <setting
                             string="Moonshot API Key"
-                            help="API key for Moonshot (Kimi K2.5) used in sandbox trajectory generation. Get from platform.moonshot.ai."
+                            help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation. Get from platform.moonshot.ai."
                         >
                             <field
                                 name="kensei_moonshot_api_key"
@@ -183,8 +183,8 @@
                             <field name="kensei_s3_bucket" />
                         </setting>
                         <setting
-                            string="S3 Key Prefix"
-                            help="Prefix for S3 object keys (e.g. 'kensei'). Attachments stored at: {prefix}/tasks/{task_id}/attachments/"
+                            string="S3 Key Prefix (Folder)"
+                            help="Prefix for S3 object keys (e.g. 'Kensei'). Attachments stored at: {prefix}/input/tasks/{task_id}/{file}"
                         >
                             <field name="kensei_s3_prefix" />
                         </setting>
@@ -193,6 +193,12 @@
                             help="AWS region for the S3 bucket."
                         >
                             <field name="kensei_s3_region" />
+                        </setting>
+                        <setting
+                            string="S3 Credentials"
+                            help="Access Key ID and Secret are read from .env (AWS_SECRET_KEY, AWS_ACCESS_SECRET_KEY). Not configurable here."
+                        >
+                            <div class="text-muted">Credentials loaded from .env file</div>
                         </setting>
                     </block>
                 </app>
