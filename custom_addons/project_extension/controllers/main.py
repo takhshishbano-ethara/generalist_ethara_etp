@@ -20,6 +20,30 @@ def create_calendar_event(request, meet_body):
 
 class ProjectController(http.Controller):
 
+    def _validate_team_hierarchy(self, project, qr_ids=None, tasker_ids=None):
+        """Validate that QR's PL is assigned as project_lead and Tasker's QR is assigned as project_qc_reviewer."""
+        Employee = request.env['hr.employee'].sudo()
+        errors = []
+
+        current_pl_ids = set(project.project_lead.ids)
+        current_qr_ids = set(project.project_qc_reviewer.ids)
+        if qr_ids:
+            current_qr_ids = set(qr_ids)
+
+        if qr_ids:
+            for qr_id in qr_ids:
+                emp = Employee.browse(qr_id)
+                if emp.task_forge_pl_id and emp.task_forge_pl_id.id not in current_pl_ids:
+                    errors.append(f"QR '{emp.name}' has PL '{emp.task_forge_pl_id.name}' who is not assigned as Project Lead.")
+
+        if tasker_ids:
+            for tasker_id in tasker_ids:
+                emp = Employee.browse(tasker_id)
+                if emp.task_forge_qr_id and emp.task_forge_qr_id.id not in current_qr_ids:
+                    errors.append(f"Tasker '{emp.name}' has QR '{emp.task_forge_qr_id.name}' who is not assigned as Project QC Reviewer.")
+
+        return errors
+
     @validate_token
     @http.route('/api/v1/get_employee_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_request({})
@@ -417,6 +441,13 @@ class ProjectController(http.Controller):
                 vals['project_qc_reviewer'] = [(6, 0, parse_ids('project_qc_reviewer') or project.project_qc_reviewer.ids)]
             if kwargs.get('project_tasker'):
                 vals['project_tasker'] = [(6, 0, parse_ids('project_tasker') or project.project_tasker.ids)]
+
+            qr_ids = parse_ids('project_qc_reviewer') if kwargs.get('project_qc_reviewer') else None
+            tasker_ids = parse_ids('project_tasker') if kwargs.get('project_tasker') else None
+            if qr_ids or tasker_ids:
+                hierarchy_errors = self._validate_team_hierarchy(project, qr_ids=qr_ids, tasker_ids=tasker_ids)
+                if hierarchy_errors:
+                    return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
 
             if kwargs.get('is_rubrics_required') in ['1', 1, True, 'true']:
                 vals['is_rubrics_required'] = True
@@ -878,10 +909,17 @@ class ProjectController(http.Controller):
             rfp_stage = request.env.ref('project_extension.project_project_stage_ethara_4', raise_if_not_found=False)
             if rfp_stage and project.stage_id.id != rfp_stage.id:
                 return return_Response(message="Project is not in the required RFP stage.", status=400)
-            # Skills And Team Assign
+
+            qr_ids = kwargs.get('project_qc_reviewer') or []
+            tasker_ids = kwargs.get('project_tasker') or []
+            if qr_ids or tasker_ids:
+                hierarchy_errors = self._validate_team_hierarchy(project, qr_ids=qr_ids, tasker_ids=tasker_ids)
+                if hierarchy_errors:
+                    return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
+
             vals = {
-                'project_qc_reviewer': [(6, 0, kwargs.get('project_qc_reviewer'))],
-                'project_tasker': [(6, 0, kwargs.get('project_tasker'))],
+                'project_qc_reviewer': [(6, 0, qr_ids)],
+                'project_tasker': [(6, 0, tasker_ids)],
                 'skill_tags': [(6, 0, kwargs.get('skill_tags'))]
             }
             # Document Upload

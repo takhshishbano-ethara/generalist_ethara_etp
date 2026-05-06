@@ -1,7 +1,9 @@
 from odoo import http
 from odoo.http import request
 from werkzeug.utils import secure_filename
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+
+IST_OFFSET = timedelta(hours=5, minutes=30)
 import functools
 import json
 import calendar
@@ -300,13 +302,12 @@ def safe_get_value(record, field_path, expected_type=str):
             return ""
         elif expected_type == datetime:
             if isinstance(value, datetime):
-                return value.strftime("%Y-%m-%d %H:%M:%S")
+                return (value + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
             elif isinstance(value, date):
                 return datetime.combine(value, datetime.min.time()).strftime("%Y-%m-%d %H:%M:%S")
             elif isinstance(value, str):
                 try:
-                    # Normalize datetime string
-                    return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
+                    return (datetime.fromisoformat(value) + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     return ""
             return ""
