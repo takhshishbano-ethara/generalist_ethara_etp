@@ -842,6 +842,7 @@ class ProjectController(http.Controller):
                         'name': opt.name or '',
                         'value': opt.value,
                         'sequence': opt.sequence,
+                        'is_temp': opt.is_temp,
                     } for opt in cat.option_ids],
                     'dimensions': [{
                         'id': dim.id,
@@ -849,10 +850,12 @@ class ProjectController(http.Controller):
                         'description': dim.description or '',
                         'is_required': dim.is_required,
                         'sequence': dim.sequence,
+                        'is_temp': dim.is_temp,
                         'options': [{
                             'id': o.id,
                             'name': o.name or '',
                             'value': o.value,
+                            'is_temp': o.is_temp,
                         } for o in dim.option_ids],
                     } for dim in cat.dimension_ids],
                 } for cat in project.rubric_category_ids],

@@ -1017,6 +1017,16 @@ class TaskForgeTaskController(http.Controller):
             if role not in ('admin', 'pl', 'qr', 'ql') and task.employee_id.id != employee.id:
                 return return_Response(message="Not permitted", status=403)
 
+            rubric_text = kwargs.get('rubric_text', '')
+            if rubric_text and rubric_text.strip():
+                task.write({'rubric_text': rubric_text})
+                from odoo.addons.task_forge_core.services.rubric_text_parser import (
+                    parse_rubric_text, match_and_create_rubric
+                )
+                parsed = parse_rubric_text(rubric_text)
+                if parsed and task.project_id:
+                    match_and_create_rubric(request.env, task.project_id, parsed)
+
             project = task.project_id
             rubric_categories = []
             if project:
@@ -1031,6 +1041,7 @@ class TaskForgeTaskController(http.Controller):
                             'name': opt.name or '',
                             'value': opt.value,
                             'sequence': opt.sequence,
+                            'is_temp': opt.is_temp,
                         } for opt in cat.option_ids],
                         'dimensions': [{
                             'id': dim.id,
@@ -1038,10 +1049,12 @@ class TaskForgeTaskController(http.Controller):
                             'description': dim.description or '',
                             'is_required': dim.is_required,
                             'sequence': dim.sequence,
+                            'is_temp': dim.is_temp,
                             'options': [{
                                 'id': o.id,
                                 'name': o.name or '',
                                 'value': o.value,
+                                'is_temp': o.is_temp,
                             } for o in dim.option_ids],
                         } for dim in cat.dimension_ids],
                     })
@@ -1217,4 +1230,101 @@ class TaskForgeTaskController(http.Controller):
             )
         except Exception as e:
             _logger.error('Trigger all crons failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/rubric/approve', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def approve_temp_rubric(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role() if hasattr(employee, '_get_task_forge_role') else 'tasker'
+            if role not in ('admin', 'pl'):
+                return return_Response(message="Only PL or Admin can approve rubric items", status=403)
+
+            item_type = kwargs.get('type', '')
+            item_id = kwargs.get('id')
+
+            if not item_type or not item_id:
+                return return_Response(message="'type' and 'id' are required", status=400)
+
+            try:
+                item_id = int(item_id)
+            except (TypeError, ValueError):
+                return return_Response(message="'id' must be an integer", status=400)
+
+            if item_type == 'dimension':
+                record = request.env['rubric.dimension'].sudo().browse(item_id)
+            elif item_type == 'option':
+                record = request.env['rubric.category.option'].sudo().browse(item_id)
+            else:
+                return return_Response(message="'type' must be 'dimension' or 'option'", status=400)
+
+            if not record.exists():
+                return return_Response(message=f"{item_type} with id {item_id} not found", status=404)
+
+            if not record.is_temp:
+                return return_Response(message=f"{item_type} is already approved", status=400)
+
+            record.write({'is_temp': False})
+
+            return return_Response(
+                message=f"{item_type.capitalize()} approved",
+                status=200,
+                data={'data': {'type': item_type, 'id': record.id, 'name': record.name, 'is_temp': False}}
+            )
+        except Exception as e:
+            _logger.error('Approve temp rubric failed: %s', str(e))
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/rubric/reject', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def reject_temp_rubric(self, **kwargs):
+        try:
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role() if hasattr(employee, '_get_task_forge_role') else 'tasker'
+            if role not in ('admin', 'pl'):
+                return return_Response(message="Only PL or Admin can reject rubric items", status=403)
+
+            item_type = kwargs.get('type', '')
+            item_id = kwargs.get('id')
+
+            if not item_type or not item_id:
+                return return_Response(message="'type' and 'id' are required", status=400)
+
+            try:
+                item_id = int(item_id)
+            except (TypeError, ValueError):
+                return return_Response(message="'id' must be an integer", status=400)
+
+            if item_type == 'dimension':
+                record = request.env['rubric.dimension'].sudo().browse(item_id)
+            elif item_type == 'option':
+                record = request.env['rubric.category.option'].sudo().browse(item_id)
+            else:
+                return return_Response(message="'type' must be 'dimension' or 'option'", status=400)
+
+            if not record.exists():
+                return return_Response(message=f"{item_type} with id {item_id} not found", status=404)
+
+            if not record.is_temp:
+                return return_Response(message=f"Cannot reject an approved {item_type}", status=400)
+
+            record_name = record.name
+            record.unlink()
+
+            return return_Response(
+                message=f"{item_type.capitalize()} '{record_name}' rejected and removed",
+                status=200,
+                data={'data': {'type': item_type, 'id': item_id, 'name': record_name, 'removed': True}}
+            )
+        except Exception as e:
+            _logger.error('Reject temp rubric failed: %s', str(e))
             return return_Response(message=str(e), status=400)

@@ -107,6 +107,42 @@ class TaskForgeLog(models.Model):
     rejection_reason = fields.Text(string='Rejection Reason')
 
     # Rating System
+
+    rubric_text = fields.Text(string='Rubric Text')
+
+    def action_parse_rubric_text(self):
+        self.ensure_one()
+        if not self.rubric_text:
+            raise UserError('Please paste rubric text first.')
+        if not self.project_id:
+            raise UserError('Select a project first.')
+
+        from odoo.addons.task_forge_core.services.rubric_text_parser import (
+            parse_rubric_text, match_and_create_rubric
+        )
+
+        parsed = parse_rubric_text(self.rubric_text)
+        if not parsed:
+            raise UserError('Could not parse any rubric structure from the text.')
+
+        result = match_and_create_rubric(self.env, self.project_id, parsed)
+
+        new_dims = [d for d in result['dimensions'] if d['is_new']]
+        new_opts = [o for o in result['options'] if o['is_new']]
+
+        msg = f"{len(new_dims)} new dimension(s) and {len(new_opts)} new option(s) created as temp. PL needs to approve them in project settings before they appear on tasks."
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Rubric Parsed',
+                'message': msg,
+                'type': 'success' if (new_dims or new_opts) else 'info',
+                'sticky': False,
+            }
+        }
+
+    # Rating Syste
     task_score = fields.Integer(string='Task Score')
     comment = fields.Char(string='Comment')
 

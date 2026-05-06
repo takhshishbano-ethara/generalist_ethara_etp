@@ -124,6 +124,9 @@
                                                 <field name="sequence" widget="handle"/>
                                                 <field name="name"/>
                                                 <field name="value"/>
+                                                <field name="is_temp" string="Temp" readonly="1"/>
+                                                <button name="action_approve_temp" type="object" string="✓" title="Approve" class="btn-success btn-sm" invisible="not is_temp"/>
+                                                <button name="action_reject_temp" type="object" string="✗" title="Reject" class="btn-danger btn-sm" invisible="not is_temp" confirm="Delete this temp option?"/>
                                             </list>
                                         </field>
                                     </page>
@@ -133,6 +136,9 @@
                                                 <field name="sequence" widget="handle"/>
                                                 <field name="name"/>
                                                 <field name="description"/>
+                                                <field name="is_temp" string="Temp" readonly="1"/>
+                                                <button name="action_approve_temp" type="object" string="✓" title="Approve" class="btn-success btn-sm" invisible="not is_temp"/>
+                                                <button name="action_reject_temp" type="object" string="✗" title="Reject" class="btn-danger btn-sm" invisible="not is_temp" confirm="Delete this temp dimension and its options?"/>
                                             </list>
                                         </field>
                                     </page>

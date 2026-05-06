@@ -90,6 +90,22 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Rubrics" name="rubrics_page">
+                            <group>
+                                <group colspan="2">
+                                    <field name="rubric_text" widget="text" nolabel="1" placeholder="Paste rubric text here..." colspan="2"/>
+                                </group>
+                            </group>
+                            <button name="action_parse_rubric_text" type="object" string="Parse Rubric Text" class="btn-primary mb-3" icon="fa-cogs"/>
+                            <separator string="Rubric Ratings"/>
+                            <field name="rubric_rating_ids" readonly="1">
+                                <list>
+                                    <field name="dimension_name_snapshot" string="Dimension"/>
+                                    <field name="option_name_snapshot" string="Option"/>
+                                    <field name="option_value_snapshot" string="Score"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Grammar Check" name="grammar_check">
                             <group>
                                 <group string="Status">
