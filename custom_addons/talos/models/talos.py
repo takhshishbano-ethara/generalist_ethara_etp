@@ -881,7 +881,16 @@ class Talos(models.Model):
     onePB_trajectory = fields.Text(string="1PB Trajectory")
     onePC_trajectory = fields.Text(string="1PC Trajectory")
     onePD_trajectory = fields.Text(string="1PD Trajectory")
-    golden_trajectory = fields.Text(string="Golden Trajectory")
+    golden_trajectory = fields.Text(string="Golden Trajectory (AI)")
+    golden_trajectory_manual = fields.Text(string="Golden Trajectory (Manual)")
+    golden_input_mode = fields.Selection(
+        [
+            ("ai", "AI Generated"),
+            ("manual", "Manual"),
+        ],
+        string="Golden Input Mode",
+        default="ai",
+    )
     golden_status = fields.Selection(
         [
             ("idle", "Idle"),
@@ -1029,6 +1038,7 @@ class Talos(models.Model):
             "onePC_trajectory",
             "onePD_trajectory",
             "golden_trajectory",
+            "golden_trajectory_manual",
         }
         if field_name not in valid_fields:
             raise UserError(f"Invalid trajectory field: {field_name}")
