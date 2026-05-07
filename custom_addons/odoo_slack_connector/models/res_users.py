@@ -108,6 +108,68 @@ class ResUsers(models.Model):
             'unmatched_emails': unmatched_emails,
         }
 
+    def lookup_slack_id_by_email(self):
+        """Look up the Slack user ID for this Odoo user by their email.
+
+        Uses the Slack users.lookupByEmail API to find the Slack member
+        matching this user's login (email). If found, stores the Slack
+        user ID in slack_user_ref.
+
+        Returns:
+            str or False: The Slack user ID if found, False otherwise.
+        """
+        self.ensure_one()
+
+        email = self.login
+        if not email or '@' not in email:
+            _logger.warning(
+                "Cannot lookup Slack ID for user %s: no valid email (login=%s)",
+                self.name, self.login)
+            return False
+
+        token = self.env.user.company_id.sudo().token
+        if not token:
+            _logger.error(
+                "Slack Bot Token not configured. Cannot lookup user by email.")
+            return False
+
+        headers = {'Authorization': 'Bearer ' + token}
+        try:
+            resp = requests.get(
+                "https://slack.com/api/users.lookupByEmail",
+                headers=headers,
+                params={'email': email},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.exceptions.ConnectionError:
+            _logger.error("Cannot reach Slack API for email lookup: %s", email)
+            return False
+        except requests.exceptions.Timeout:
+            _logger.error("Slack API timed out during email lookup: %s", email)
+            return False
+
+        if not data.get('ok'):
+            error = data.get('error', 'Unknown')
+            if error == 'users_not_found':
+                _logger.info(
+                    "No Slack user found for email %s", email)
+            else:
+                _logger.warning(
+                    "Slack lookupByEmail error for %s: %s", email, error)
+            return False
+
+        slack_id = data['user']['id']
+        self.sudo().write({
+            'slack_user_ref': slack_id,
+            'is_slack_internal_users': True,
+        })
+        _logger.info(
+            "Linked Odoo user %s (ID %d) → Slack %s via email lookup",
+            self.login, self.id, slack_id)
+        return slack_id
+
     def invite_to_slack(self):
         """Invite this Odoo user to the Slack workspace.
 

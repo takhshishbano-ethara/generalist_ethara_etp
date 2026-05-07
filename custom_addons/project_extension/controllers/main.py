@@ -2,6 +2,9 @@ from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value
 import base64
+import logging
+
+_logger = logging.getLogger(__name__)
 
 def create_calendar_event(request, meet_body):
     meet_vals = {
@@ -293,6 +296,12 @@ class ProjectController(http.Controller):
                     vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             project = request.env['project.project'].sudo().create(vals)
 
+            if project.slack_channel_name and project.slack_members:
+                try:
+                    project.create_slack_channel()
+                except Exception as e:
+                    _logger.error('Slack channel creation failed for project %s: %s', project.name, str(e))
+
             if kwargs.get('rubric_categories'):
                 import json as _json
                 raw = kwargs.get('rubric_categories')
@@ -448,10 +457,10 @@ class ProjectController(http.Controller):
 
             qr_ids = parse_ids('project_qc_reviewer') if kwargs.get('project_qc_reviewer') else None
             tasker_ids = parse_ids('project_tasker') if kwargs.get('project_tasker') else None
-            if qr_ids or tasker_ids:
-                hierarchy_errors = self._validate_team_hierarchy(project, qr_ids=qr_ids, tasker_ids=tasker_ids)
-                if hierarchy_errors:
-                    return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
+            # if qr_ids or tasker_ids:
+            #     hierarchy_errors = self._validate_team_hierarchy(project, qr_ids=qr_ids, tasker_ids=tasker_ids)
+            #     if hierarchy_errors:
+            #         return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
 
             if kwargs.get('is_rubrics_required') in ['1', 1, True, 'true']:
                 vals['is_rubrics_required'] = True
@@ -588,6 +597,11 @@ class ProjectController(http.Controller):
                         vals['meeting_attachments'] = [(6, 0, attachment_ids)]
             if vals:
                 project.sudo().write(vals)
+                if kwargs.get('slack_channel_name') and not project.slack_channels_id:
+                    try:
+                        project.create_slack_channel()
+                    except Exception as e:
+                        _logger.error('Slack channel creation failed for project %s: %s', project.name, str(e))
                 try:
                     request.env['kubera.notification'].sudo().create({
                         'title': 'Project Updated',
