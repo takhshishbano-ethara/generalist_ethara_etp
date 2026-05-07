@@ -56,12 +56,7 @@
                     /* Watermark overlay */
                     .watermark-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9998; overflow: hidden; }
                     .watermark-text { position: absolute; white-space: nowrap; font-size: 16px; font-weight: 600; color: rgba(100, 100, 100, 0.08); transform: rotate(-30deg); font-family: monospace; }
-                    /* Fullscreen prompt */
-                    .fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 99998; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
-                    .fullscreen-overlay h2 { font-size: 1.5rem; margin-bottom: 12px; }
-                    .fullscreen-overlay p { font-size: 1rem; opacity: 0.85; margin-bottom: 20px; }
-                    .fullscreen-overlay button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: #fff; padding: 12px 32px; border-radius: 8px; font-size: 16px; cursor: pointer; }
-                    .fullscreen-overlay button:hover { opacity: 0.9; }
+
                 </style>
             </head>
             <body oncontextmenu="return false;" oncopy="return false;" oncut="return false;" onpaste="return false;" ondragstart="return false;" onselectstart="return false;">
@@ -74,7 +69,6 @@
                     (function() {
                         var form = document.querySelector("form");
                         var violated = false;
-                        var isFullscreen = false;
                         var blurTimeout = null;
 
                         /* ===== WATERMARK OVERLAY ===== */
@@ -128,62 +122,7 @@
                             }
                         }
 
-                        /* ===== FULLSCREEN ENFORCEMENT ===== */
-                        function enterFullscreen() {
-                            var el = document.documentElement;
-                            var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-                            if (rfs) {
-                                rfs.call(el).then(function() {
-                                    isFullscreen = true;
-                                    var fsOverlay = document.querySelector(".fullscreen-overlay");
-                                    if (fsOverlay) fsOverlay.remove();
-                                }).catch(function() {
-                                    /* If fullscreen denied, show prompt */
-                                    showFullscreenPrompt();
-                                });
-                            }
-                        }
 
-                        function showFullscreenPrompt() {
-                            if (document.querySelector(".fullscreen-overlay")) return;
-                            var overlay = document.createElement("div");
-                            overlay.className = "fullscreen-overlay";
-                            overlay.innerHTML = '&lt;h2&gt;🔒 Fullscreen Required&lt;/h2&gt;&lt;p&gt;This assessment must be taken in fullscreen mode for security.&lt;/p&gt;&lt;button onclick="document.documentElement.requestFullscreen().then(function(){document.querySelector(\'.fullscreen-overlay\').remove();})"&gt;Enter Fullscreen&lt;/button&gt;';
-                            document.body.appendChild(overlay);
-                        }
-
-                        document.addEventListener("fullscreenchange", function() {
-                            if (!document.fullscreenElement &amp;&amp; !document.webkitFullscreenElement) {
-                                if (isFullscreen &amp;&amp; !violated) {
-                                    /* Candidate exited fullscreen — show prompt, blur content */
-                                    isFullscreen = false;
-                                    document.body.classList.add("content-blurred");
-                                    showFullscreenPrompt();
-                                }
-                            } else {
-                                isFullscreen = true;
-                                document.body.classList.remove("content-blurred");
-                                var fsOverlay = document.querySelector(".fullscreen-overlay");
-                                if (fsOverlay) fsOverlay.remove();
-                            }
-                        });
-                        document.addEventListener("webkitfullscreenchange", function() {
-                            if (!document.webkitFullscreenElement &amp;&amp; isFullscreen &amp;&amp; !violated) {
-                                isFullscreen = false;
-                                document.body.classList.add("content-blurred");
-                                showFullscreenPrompt();
-                            } else if (document.webkitFullscreenElement) {
-                                isFullscreen = true;
-                                document.body.classList.remove("content-blurred");
-                                var fsOverlay = document.querySelector(".fullscreen-overlay");
-                                if (fsOverlay) fsOverlay.remove();
-                            }
-                        });
-
-                        /* Auto-enter fullscreen if form exists (actual question page) */
-                        if (form) {
-                            enterFullscreen();
-                        }
 
                         /* ===== CONTENT BLUR ON FOCUS LOSS ===== */
                         document.addEventListener("visibilitychange", function() {
@@ -212,8 +151,8 @@
                                 clearTimeout(blurTimeout);
                                 blurTimeout = null;
                             }
-                            /* Only unblur if not violated and in fullscreen */
-                            if (!violated &amp;&amp; (document.fullscreenElement || document.webkitFullscreenElement)) {
+                            /* Unblur if not violated */
+                            if (!violated) {
                                 document.body.classList.remove("content-blurred");
                             }
                         });
@@ -240,11 +179,6 @@
                             if (e.key === "F12" || (e.ctrlKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j"))) {
                                 e.preventDefault();
                                 triggerViolation("Developer tools detected");
-                            }
-                            /* Block Escape to prevent easy fullscreen exit */
-                            if (e.key === "Escape") {
-                                e.preventDefault();
-                                e.stopPropagation();
                             }
                         });
 
@@ -405,11 +339,10 @@
                     </table>
                 </div>
 
-                <div style="margin: 24px 0;">
+                    <div style="margin: 24px 0;">
                     <h6 style="color: #dc3545; margin-bottom: 12px; font-weight: 700;">⚠️ Important Rules</h6>
                     <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px;">
                         <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
-                            <li><strong>Fullscreen mode is mandatory</strong> — The assessment runs in fullscreen. Exiting fullscreen will blur all content until you re-enter.</li>
                             <li><strong>Do NOT switch tabs or windows</strong> — Your assessment will be auto-submitted immediately.</li>
                             <li><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will auto-submit your assessment. Content blurs instantly on any attempt.</li>
                             <li><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
@@ -446,26 +379,10 @@
             </div>
 
             <form t-attf-action="/assessment/#{token}/begin" method="post" id="begin-form" style="text-align: center; margin-bottom: 40px;">
-                <button type="button" onclick="startAssessment()" class="btn btn-submit" style="padding: 14px 48px; font-size: 18px;">
+                <button type="submit" class="btn btn-submit" style="padding: 14px 48px; font-size: 18px;">
                     🚀 Start Assessment
                 </button>
             </form>
-            <script>
-                function startAssessment() {
-                    var el = document.documentElement;
-                    var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-                    if (rfs) {
-                        rfs.call(el).then(function() {
-                            document.getElementById("begin-form").submit();
-                        }).catch(function() {
-                            /* If fullscreen fails, submit anyway */
-                            document.getElementById("begin-form").submit();
-                        });
-                    } else {
-                        document.getElementById("begin-form").submit();
-                    }
-                }
-            </script>
         </t>
     </template>
 
