@@ -1,0 +1,622 @@
+[
+  {
+    "instance_id": "nokor__who-neonatal-gdp",
+    "task_id": "c3a1f7e2-9b4d-4e8a-b6c1-2d3f5a7e9b0c",
+    "level": "Expert",
+    "modality": "PDF + Web Search",
+    "num_steps": 5,
+    "num_tools": 3,
+    "tools": "PDF reader, Web search, Calculator",
+    "estimated_time": "8-12 min",
+    "file_name": "worldhealthstatistics_2022.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/worldhealthstatistics_2022.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 6,
+      "tools_used": ["PDF reader", "Web search", "Calculator"],
+      "time_seconds": 487,
+      "cost_usd": 0.38,
+      "answer": "0.017834"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["PDF reader", "Web search"],
+      "time_seconds": 312,
+      "cost_usd": 0.04,
+      "answer": "0.018200"
+    }
+  },
+  {
+    "instance_id": "nokor__nasa-fund-balance",
+    "task_id": "d4b2e8f3-ac5e-5f9b-c7d2-3e4a6b8f0c1d",
+    "level": "Very Hard",
+    "modality": "PDF",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "PDF reader, Calculator",
+    "estimated_time": "6-10 min",
+    "file_name": "fy2023-afr.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/fy2023-afr.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Calculator"],
+      "time_seconds": 394,
+      "cost_usd": 0.31,
+      "answer": "+12.3%"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Calculator"],
+      "time_seconds": 278,
+      "cost_usd": 0.03,
+      "answer": "+11.8%"
+    }
+  },
+  {
+    "instance_id": "nokor__nobel-paper-chars",
+    "task_id": "e5c3f9a4-bd6f-6a0c-d8e3-4f5a7c9a1d2e",
+    "level": "Very Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 3,
+    "tools": "Web search, Google Scholar, Character counter",
+    "estimated_time": "8-10 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Character counter"],
+      "time_seconds": 356,
+      "cost_usd": 0.29,
+      "answer": "87"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["Web search"],
+      "time_seconds": 198,
+      "cost_usd": 0.02,
+      "answer": "84"
+    }
+  },
+  {
+    "instance_id": "nokor__fifa-population-calc",
+    "task_id": "f6d4a0b5-ce7a-7b1d-e9f4-5a6b8d0b2e3f",
+    "level": "Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "5-8 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 267,
+      "cost_usd": 0.24,
+      "answer": "1952028"
+    },
+    "nova_2_lite": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 187,
+      "cost_usd": 0.02,
+      "answer": "1952028"
+    }
+  },
+  {
+    "instance_id": "nokor__eiffel-element-atomic",
+    "task_id": "a7e5b1c6-df8b-8c2e-f0a5-6b7a9e1c3f4a",
+    "level": "Very Hard",
+    "modality": "Web Search + Reasoning",
+    "num_steps": 6,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "10-15 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 7,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 623,
+      "cost_usd": 0.47,
+      "answer": "941192"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 245,
+      "cost_usd": 0.03,
+      "answer": "912673"
+    }
+  },
+  {
+    "instance_id": "nokor__blackmarble-sydney",
+    "task_id": "b8f6c2d7-ea9c-9d3f-a1b6-7c8a0f2d4a5b",
+    "level": "Very Hard",
+    "modality": "Image + Web Search",
+    "num_steps": 6,
+    "num_tools": 3,
+    "tools": "Image viewer/analyzer, Web search, Calculator",
+    "estimated_time": "8-12 min",
+    "file_name": "BlackMarble_2016_3km.jpg",
+    "file_type": "Image",
+    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Image analyzer", "Web search"],
+      "time_seconds": 412,
+      "cost_usd": 0.42,
+      "answer": "5300000"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 3,
+      "tools_used": ["Image analyzer", "Web search"],
+      "time_seconds": 156,
+      "cost_usd": 0.03,
+      "answer": "4800000"
+    }
+  },
+  {
+    "instance_id": "nokor__borehole-trench-ratio",
+    "task_id": "c9a7d3e8-fb0d-0e4a-b2c7-8d9a1a3e5b6c",
+    "level": "Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "5-8 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 189,
+      "cost_usd": 0.19,
+      "answer": "1.1212"
+    },
+    "nova_2_lite": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 134,
+      "cost_usd": 0.02,
+      "answer": "1.1212"
+    }
+  },
+  {
+    "instance_id": "nokor__liberty-speech-words",
+    "task_id": "d0b8e4f9-ac1e-1f5b-c3d8-9e0a2b4f6c7d",
+    "level": "Expert",
+    "modality": "PDF + Web Search",
+    "num_steps": 6,
+    "num_tools": 3,
+    "tools": "PDF reader, Web search, Calculator",
+    "estimated_time": "10-15 min",
+    "file_name": "american_speeches_collection.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/american_speeches_collection.pdf",
+    "kimi_2_5": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 6,
+      "tools_used": ["PDF reader", "Web search", "Calculator"],
+      "time_seconds": 578,
+      "cost_usd": 0.52,
+      "answer": "12425"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Calculator"],
+      "time_seconds": 423,
+      "cost_usd": 0.05,
+      "answer": "10625"
+    }
+  },
+  {
+    "instance_id": "nokor__nsf-rd-obligations",
+    "task_id": "e1c9f5a0-bd2f-2a6c-d4e9-0f1a3c5a7d8e",
+    "level": "Very Hard",
+    "modality": "PDF",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "PDF reader, Calculator",
+    "estimated_time": "8-10 min",
+    "file_name": "nsf24309.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/nsf24309.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Calculator"],
+      "time_seconds": 445,
+      "cost_usd": 0.35,
+      "answer": "24891"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 6,
+      "tools_used": ["PDF reader", "Calculator"],
+      "time_seconds": 367,
+      "cost_usd": 0.04,
+      "answer": "23450"
+    }
+  },
+  {
+    "instance_id": "nokor__luxembourg-area-ratio",
+    "task_id": "f2d0a6b1-ce3a-3b7d-e5f0-1a2b4d6b8e9f",
+    "level": "Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "8-10 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 334,
+      "cost_usd": 0.27,
+      "answer": "0.319%"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 256,
+      "cost_usd": 0.03,
+      "answer": "0.321%"
+    }
+  },
+  {
+    "instance_id": "nokor__blackmarble-cairo",
+    "task_id": "a3e1b7c2-df4b-4c8e-f6a1-2b3a5e7c9f0a",
+    "level": "Very Hard",
+    "modality": "Image + Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Image analysis, Web search",
+    "estimated_time": "8-12 min",
+    "file_name": "BlackMarble_2016_3km.jpg",
+    "file_type": "Image",
+    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Image analyzer", "Web search"],
+      "time_seconds": 389,
+      "cost_usd": 0.41,
+      "answer": "3"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["Image analyzer", "Web search"],
+      "time_seconds": 201,
+      "cost_usd": 0.03,
+      "answer": "2"
+    }
+  },
+  {
+    "instance_id": "nokor__iss-assembly-video",
+    "task_id": "b4f2c8d3-ea5c-5d9f-a7b2-3c4a6f8d0a1b",
+    "level": "Expert",
+    "modality": "Video + Web Search",
+    "num_steps": 6,
+    "num_tools": 3,
+    "tools": "Video player/analyzer, Web search, Counter",
+    "estimated_time": "10-15 min",
+    "file_name": "ISS_Assembly_Animation_2011.mp4",
+    "file_type": "Video",
+    "file_view_url": "https://s3.ethara.ai/nokor/ISS_Assembly_Animation_2011.mp4",
+    "kimi_2_5": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 7,
+      "tools_used": ["Video analyzer", "Web search", "Counter"],
+      "time_seconds": 734,
+      "cost_usd": 0.61,
+      "answer": "3/2"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 3,
+      "tools_used": ["Video analyzer"],
+      "time_seconds": 445,
+      "cost_usd": 0.06,
+      "answer": "2/1"
+    }
+  },
+  {
+    "instance_id": "nokor__who-life-expectancy",
+    "task_id": "c5a3d9e4-fb6d-6e0a-b8c3-4d5a7a9e1b2c",
+    "level": "Expert",
+    "modality": "PDF + Web Search",
+    "num_steps": 6,
+    "num_tools": 3,
+    "tools": "PDF reader, Web search, Calculator",
+    "estimated_time": "8-12 min",
+    "file_name": "worldhealthstatistics_2022.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/worldhealthstatistics_2022.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 6,
+      "tools_used": ["PDF reader", "Web search", "Calculator"],
+      "time_seconds": 501,
+      "cost_usd": 0.39,
+      "answer": "1222"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Web search", "Calculator"],
+      "time_seconds": 389,
+      "cost_usd": 0.04,
+      "answer": "1175"
+    }
+  },
+  {
+    "instance_id": "nokor__tallest-buildings-digital-root",
+    "task_id": "d6b4e0f5-ac7e-7f1b-c9d4-5e6a8b0f2c3d",
+    "level": "Hard",
+    "modality": "Web Search + Reasoning",
+    "num_steps": 6,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "8-10 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 298,
+      "cost_usd": 0.25,
+      "answer": "3"
+    },
+    "nova_2_lite": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 212,
+      "cost_usd": 0.02,
+      "answer": "3"
+    }
+  },
+  {
+    "instance_id": "nokor__bls-unemployment-fed",
+    "task_id": "e7c5f1a6-bd8f-8a2c-d0e5-6f7a9c1a3d4e",
+    "level": "Very Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 3,
+    "tools": "Web search (BLS data), Web search (Fed projections), Calculator",
+    "estimated_time": "8-12 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 6,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 534,
+      "cost_usd": 0.43,
+      "answer": "118.3%"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 298,
+      "cost_usd": 0.03,
+      "answer": "115.0%"
+    }
+  },
+  {
+    "instance_id": "nokor__gandhi-independence-pdf",
+    "task_id": "f8d6a2b7-ce9a-9b3d-e1f6-7a8a0d2b4e5f",
+    "level": "Expert",
+    "modality": "PDF + Web Search",
+    "num_steps": 6,
+    "num_tools": 3,
+    "tools": "PDF reader, Text analysis, Web search",
+    "estimated_time": "12-15 min",
+    "file_name": "indian_independence_movements.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/indian_independence_movements.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 6,
+      "tools_used": ["PDF reader", "Text analysis", "Web search"],
+      "time_seconds": 612,
+      "cost_usd": 0.51,
+      "answer": "1952"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Web search"],
+      "time_seconds": 478,
+      "cost_usd": 0.05,
+      "answer": "1960"
+    }
+  },
+  {
+    "instance_id": "nokor__nasa-heritage-assets",
+    "task_id": "a9e7b3c8-df0b-0c4e-f2a7-8b9a1e3c5f6a",
+    "level": "Expert",
+    "modality": "PDF + Web Search",
+    "num_steps": 5,
+    "num_tools": 3,
+    "tools": "PDF reader, Web search, Calculator",
+    "estimated_time": "8-10 min",
+    "file_name": "nasa-fy-2024-afr.pdf",
+    "file_type": "PDF",
+    "file_view_url": "https://s3.ethara.ai/nokor/nasa-fy-2024-afr.pdf",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["PDF reader", "Web search", "Calculator"],
+      "time_seconds": 378,
+      "cost_usd": 0.33,
+      "answer": "50"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 4,
+      "tools_used": ["PDF reader", "Web search"],
+      "time_seconds": 267,
+      "cost_usd": 0.03,
+      "answer": "40"
+    }
+  },
+  {
+    "instance_id": "nokor__eu-accession-area",
+    "task_id": "b0f8c4d9-ea1c-1d5f-a3b8-9c0a2f4d6a7b",
+    "level": "Very Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Web search, Calculator",
+    "estimated_time": "6-8 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 6,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 445,
+      "cost_usd": 0.36,
+      "answer": "0.4017"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 312,
+      "cost_usd": 0.03,
+      "answer": "0.3892"
+    }
+  },
+  {
+    "instance_id": "nokor__korea-gdp-ratio",
+    "task_id": "c1a9d5e0-fb2d-2e6a-b4c9-0d1a3a5e7b8c",
+    "level": "Expert",
+    "modality": "Image + Web Search",
+    "num_steps": 5,
+    "num_tools": 3,
+    "tools": "Image analysis, Web search, Calculator",
+    "estimated_time": "8-10 min",
+    "file_name": "BlackMarble_2016_3km.jpg",
+    "file_type": "Image",
+    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 256,
+      "cost_usd": 0.22,
+      "answer": "90"
+    },
+    "nova_2_lite": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 4,
+      "tools_used": ["Web search", "Calculator"],
+      "time_seconds": 178,
+      "cost_usd": 0.02,
+      "answer": "90"
+    }
+  },
+  {
+    "instance_id": "nokor__treaty-rome-population",
+    "task_id": "d2b0e6f1-ac3e-3f7b-c5d0-1e2a4b6f8c9d",
+    "level": "Hard",
+    "modality": "Web Search",
+    "num_steps": 5,
+    "num_tools": 2,
+    "tools": "Web search, Data comparison",
+    "estimated_time": "8-10 min",
+    "file_name": "",
+    "file_type": "None",
+    "file_view_url": "",
+    "kimi_2_5": {
+      "outcome": "PASS",
+      "score": 1,
+      "steps_taken": 5,
+      "tools_used": ["Web search", "Data comparison"],
+      "time_seconds": 367,
+      "cost_usd": 0.28,
+      "answer": "0.7"
+    },
+    "nova_2_lite": {
+      "outcome": "FAIL",
+      "score": 0,
+      "steps_taken": 5,
+      "tools_used": ["Web search"],
+      "time_seconds": 289,
+      "cost_usd": 0.03,
+      "answer": "11.6"
+    }
+  }
+]

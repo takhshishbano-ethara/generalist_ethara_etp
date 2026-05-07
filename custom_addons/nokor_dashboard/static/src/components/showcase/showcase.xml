@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="nokor_dashboard.NokorShowcase">
+        <div class="nk-showcase">
+            <header class="nk-showcase-header">
+                <span class="nk-tag">GENERAL AI ASSISTANT BENCHMARK</span>
+                <h1 class="nk-title">NOKOR</h1>
+                <p class="nk-subtitle">
+                    Multi-Modal Reasoning and Tool-Use Evaluation &#xB7; GAIA Framework
+                </p>
+                <p class="nk-byline">
+                    by <strong>Ethara AI Labs</strong> &#x2014;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="nk-section nk-description">
+                <p>
+                    Nokor evaluates frontier AI assistants on multi-modal reasoning and
+                    tool-use tasks derived from the GAIA (General AI Assistant) framework.
+                    Given real-world documents, images, videos, and web-accessible information,
+                    models must decompose complex questions into multi-step reasoning chains,
+                    select appropriate tools, and synthesize precise answers across PDF analysis,
+                    web search, image understanding, video comprehension, and mathematical
+                    reasoning.
+                </p>
+            </section>
+
+            <section class="nk-section nk-capabilities">
+                <ul class="nk-capabilities-list">
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Multi-modal evaluation across 5 modalities: PDF, Web, Image, Video, Reasoning</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Tool-use assessment: PDF reader, Web search, Calculator, Image/Video analysis</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Three difficulty tiers: Hard, Very Hard, Expert</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Exact-match scoring with deterministic ground truth answers</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Cost and latency tracking per model per instance</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> GAIA methodology for reproducible multi-step evaluation</li>
+                </ul>
+            </section>
+
+            <section class="nk-section nk-metrics">
+                <div class="nk-metric-grid">
+                    <div class="nk-metric-card">
+                        <span class="nk-metric-value">10,000</span>
+                        <span class="nk-metric-label">Instances</span>
+                        <span class="nk-metric-detail">across 5 modalities</span>
+                    </div>
+                    <div class="nk-metric-card">
+                        <span class="nk-metric-value">2</span>
+                        <span class="nk-metric-label">Models Evaluated</span>
+                        <span class="nk-metric-detail">Kimi 2.5, Nova-2-Lite</span>
+                    </div>
+                    <div class="nk-metric-card">
+                        <span class="nk-metric-value">5</span>
+                        <span class="nk-metric-label">Modalities</span>
+                        <span class="nk-metric-detail">PDF, Web, Image, Video, Reasoning</span>
+                    </div>
+                    <div class="nk-metric-card">
+                        <span class="nk-metric-value">3</span>
+                        <span class="nk-metric-label">Difficulty Levels</span>
+                        <span class="nk-metric-detail">Hard, Very Hard, Expert</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="nk-section nk-phases">
+                <div class="nk-phases-row">
+                    <div class="nk-phase-card">
+                        <div class="nk-phase-number">1</div>
+                        <h3>Data Curation</h3>
+                        <p>
+                            Collect real-world documents. Design multi-step questions.
+                            Establish deterministic ground truth answers.
+                        </p>
+                    </div>
+                    <div class="nk-phase-arrow">&#x2192;</div>
+                    <div class="nk-phase-card">
+                        <div class="nk-phase-number">2</div>
+                        <h3>Agent Execution</h3>
+                        <p>
+                            Deploy AI agents with tools. Track tool selection,
+                            execution time, and API costs per instance.
+                        </p>
+                    </div>
+                    <div class="nk-phase-arrow">&#x2192;</div>
+                    <div class="nk-phase-card">
+                        <div class="nk-phase-number">3</div>
+                        <h3>Scoring</h3>
+                        <p>
+                            Compare answers against ground truth. Compute accuracy
+                            by difficulty and modality. Analyze cost-efficiency.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="nk-section nk-links">
+                <a class="nk-btn" t-att-href="state.githubUrl"
+                   target="_blank" rel="noopener">
+                    Source on GitHub
+                </a>
+                <a class="nk-btn nk-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Dataset on HuggingFace
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>
