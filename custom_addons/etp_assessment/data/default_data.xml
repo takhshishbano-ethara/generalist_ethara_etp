@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="dimension_instruction_following" model="etp.assessment.dimension">
+            <field name="name">Instruction Following</field>
+            <field name="sequence">1</field>
+        </record>
+
+        <record id="dimension_visual_quality" model="etp.assessment.dimension">
+            <field name="name">Visual Quality</field>
+            <field name="sequence">2</field>
+        </record>
+
+        <record id="dimension_less_ai" model="etp.assessment.dimension">
+            <field name="name">Less AI Generated</field>
+            <field name="sequence">3</field>
+        </record>
+
+        <record id="dimension_overall" model="etp.assessment.dimension">
+            <field name="name">Overall Quality</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <record id="opt_if_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="dimension_instruction_following"/>
+            <field name="sequence">1</field>
+        </record>
+        <record id="opt_if_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="dimension_instruction_following"/>
+            <field name="sequence">2</field>
+        </record>
+        <record id="opt_if_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="dimension_instruction_following"/>
+            <field name="sequence">3</field>
+        </record>
+        <record id="opt_if_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="dimension_instruction_following"/>
+            <field name="sequence">4</field>
+        </record>
+
+        <record id="opt_vq_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="dimension_visual_quality"/>
+            <field name="sequence">1</field>
+        </record>
+        <record id="opt_vq_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="dimension_visual_quality"/>
+            <field name="sequence">2</field>
+        </record>
+        <record id="opt_vq_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="dimension_visual_quality"/>
+            <field name="sequence">3</field>
+        </record>
+        <record id="opt_vq_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="dimension_visual_quality"/>
+            <field name="sequence">4</field>
+        </record>
+
+        <record id="opt_ai_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="dimension_less_ai"/>
+            <field name="sequence">1</field>
+        </record>
+        <record id="opt_ai_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="dimension_less_ai"/>
+            <field name="sequence">2</field>
+        </record>
+        <record id="opt_ai_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="dimension_less_ai"/>
+            <field name="sequence">3</field>
+        </record>
+        <record id="opt_ai_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="dimension_less_ai"/>
+            <field name="sequence">4</field>
+        </record>
+
+        <record id="opt_ov_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="dimension_overall"/>
+            <field name="sequence">1</field>
+        </record>
+        <record id="opt_ov_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="dimension_overall"/>
+            <field name="sequence">2</field>
+        </record>
+        <record id="opt_ov_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="dimension_overall"/>
+            <field name="sequence">3</field>
+        </record>
+        <record id="opt_ov_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="dimension_overall"/>
+            <field name="sequence">4</field>
+        </record>
+
+        <record id="category_image_eval" model="etp.assessment.category">
+            <field name="name">T3 Image Evaluation</field>
+            <field name="sequence">1</field>
+            <field name="description">Image comparison assessment for evaluating AI-generated responses.</field>
+        </record>
+
+        <record id="category_text_eval" model="etp.assessment.category">
+            <field name="name">Text Quality Assessment</field>
+            <field name="sequence">2</field>
+            <field name="description">Text-based assessment for evaluating written responses and comprehension.</field>
+        </record>
+
+    </data>
+</odoo>

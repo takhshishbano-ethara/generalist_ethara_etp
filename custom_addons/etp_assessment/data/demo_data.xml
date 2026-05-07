@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Dimensions -->
+        <record id="demo_dimension_instruction_following" model="etp.assessment.dimension">
+            <field name="name">Instruction Following</field>
+            <field name="sequence">1</field>
+        </record>
+
+        <record id="demo_dimension_visual_quality" model="etp.assessment.dimension">
+            <field name="name">Visual Quality</field>
+            <field name="sequence">2</field>
+        </record>
+
+        <record id="demo_dimension_less_ai" model="etp.assessment.dimension">
+            <field name="name">Less AI Generated</field>
+            <field name="sequence">3</field>
+        </record>
+
+        <record id="demo_dimension_overall" model="etp.assessment.dimension">
+            <field name="name">Overall Quality</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <!-- Dimension Options: Instruction Following -->
+        <record id="demo_opt_if_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="demo_dimension_instruction_following"/>
+            <field name="score">3</field>
+            <field name="sequence">1</field>
+        </record>
+        <record id="demo_opt_if_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="demo_dimension_instruction_following"/>
+            <field name="score">3</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="demo_opt_if_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="demo_dimension_instruction_following"/>
+            <field name="score">2</field>
+            <field name="sequence">3</field>
+        </record>
+        <record id="demo_opt_if_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="demo_dimension_instruction_following"/>
+            <field name="score">0</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <!-- Dimension Options: Visual Quality -->
+        <record id="demo_opt_vq_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="demo_dimension_visual_quality"/>
+            <field name="score">3</field>
+            <field name="sequence">1</field>
+        </record>
+        <record id="demo_opt_vq_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="demo_dimension_visual_quality"/>
+            <field name="score">3</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="demo_opt_vq_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="demo_dimension_visual_quality"/>
+            <field name="score">2</field>
+            <field name="sequence">3</field>
+        </record>
+        <record id="demo_opt_vq_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="demo_dimension_visual_quality"/>
+            <field name="score">0</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <!-- Dimension Options: Less AI Generated -->
+        <record id="demo_opt_ai_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="demo_dimension_less_ai"/>
+            <field name="score">3</field>
+            <field name="sequence">1</field>
+        </record>
+        <record id="demo_opt_ai_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="demo_dimension_less_ai"/>
+            <field name="score">3</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="demo_opt_ai_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="demo_dimension_less_ai"/>
+            <field name="score">2</field>
+            <field name="sequence">3</field>
+        </record>
+        <record id="demo_opt_ai_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="demo_dimension_less_ai"/>
+            <field name="score">0</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <!-- Dimension Options: Overall Quality -->
+        <record id="demo_opt_ov_response_a" model="etp.assessment.dimension.option">
+            <field name="name">Response A</field>
+            <field name="dimension_id" ref="demo_dimension_overall"/>
+            <field name="score">3</field>
+            <field name="sequence">1</field>
+        </record>
+        <record id="demo_opt_ov_response_b" model="etp.assessment.dimension.option">
+            <field name="name">Response B</field>
+            <field name="dimension_id" ref="demo_dimension_overall"/>
+            <field name="score">3</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="demo_opt_ov_both_good" model="etp.assessment.dimension.option">
+            <field name="name">Both Good</field>
+            <field name="dimension_id" ref="demo_dimension_overall"/>
+            <field name="score">2</field>
+            <field name="sequence">3</field>
+        </record>
+        <record id="demo_opt_ov_both_bad" model="etp.assessment.dimension.option">
+            <field name="name">Both Bad</field>
+            <field name="dimension_id" ref="demo_dimension_overall"/>
+            <field name="score">0</field>
+            <field name="sequence">4</field>
+        </record>
+
+        <!-- Categories -->
+        <record id="demo_category_image_eval" model="etp.assessment.category">
+            <field name="name">T3 Image Evaluation</field>
+            <field name="sequence">1</field>
+            <field name="description">Image comparison assessment for evaluating AI-generated responses.</field>
+        </record>
+
+        <record id="demo_category_text_eval" model="etp.assessment.category">
+            <field name="name">Text Quality Assessment</field>
+            <field name="sequence">2</field>
+            <field name="description">Text-based assessment for evaluating written responses and comprehension.</field>
+        </record>
+
+        <!-- Image Comparison Questions -->
+        <record id="demo_question_img_01" model="etp.assessment.question">
+            <field name="name">Image Generation: Mountain Landscape</field>
+            <field name="question_type">image_comparison</field>
+            <field name="sequence">1</field>
+            <field name="category_id" ref="demo_category_image_eval"/>
+            <field name="prompt">Compare the two AI-generated mountain landscape images. Evaluate which response better follows the instruction: "Generate a photorealistic mountain landscape at sunset with a lake in the foreground."</field>
+            <field name="image_a_url">https://placehold.co/600x400/4e79a7/ffffff?text=Response+A</field>
+            <field name="image_b_url">https://placehold.co/600x400/f28e2b/ffffff?text=Response+B</field>
+        </record>
+
+        <record id="demo_question_img_02" model="etp.assessment.question">
+            <field name="name">Image Generation: Abstract Art</field>
+            <field name="question_type">image_comparison</field>
+            <field name="sequence">2</field>
+            <field name="category_id" ref="demo_category_image_eval"/>
+            <field name="prompt">Compare the two AI-generated abstract art pieces. Evaluate which response better follows the instruction: "Create an abstract digital artwork using warm colors with geometric shapes."</field>
+            <field name="image_a_url">https://placehold.co/600x400/e15759/ffffff?text=Response+A</field>
+            <field name="image_b_url">https://placehold.co/600x400/76b7b2/ffffff?text=Response+B</field>
+        </record>
+
+        <record id="demo_question_img_03" model="etp.assessment.question">
+            <field name="name">Image Generation: Portrait Style</field>
+            <field name="question_type">image_comparison</field>
+            <field name="sequence">3</field>
+            <field name="category_id" ref="demo_category_image_eval"/>
+            <field name="prompt">Compare the two AI-generated portraits. Evaluate which response better follows the instruction: "Generate a professional headshot of a person in business attire with studio lighting."</field>
+            <field name="image_a_url">https://placehold.co/600x400/59a14f/ffffff?text=Response+A</field>
+            <field name="image_b_url">https://placehold.co/600x400/edc948/ffffff?text=Response+B</field>
+        </record>
+
+        <!-- Text Questions -->
+        <record id="demo_question_text_01" model="etp.assessment.question">
+            <field name="name">Reading Comprehension: Climate Change</field>
+            <field name="question_type">text</field>
+            <field name="sequence">1</field>
+            <field name="category_id" ref="demo_category_text_eval"/>
+            <field name="prompt">Read the following passage and evaluate the quality of the AI-generated summary provided below.</field>
+            <field name="description">Passage: Climate change refers to long-term shifts in temperatures and weather patterns. These shifts may be natural, such as through variations in the solar cycle. But since the 1800s, human activities have been the main driver of climate change, primarily due to the burning of fossil fuels like coal, oil, and gas. Burning fossil fuels generates greenhouse gas emissions that act like a blanket wrapped around the Earth, trapping the sun's heat and raising temperatures.
+
+Summary to evaluate: Climate change is caused by humans burning fossil fuels since the 1800s, which creates greenhouse gases that trap heat around Earth and raise global temperatures.</field>
+        </record>
+
+        <record id="demo_question_text_02" model="etp.assessment.question">
+            <field name="name">Writing Quality: Email Response</field>
+            <field name="question_type">text</field>
+            <field name="sequence">2</field>
+            <field name="category_id" ref="demo_category_text_eval"/>
+            <field name="prompt">Evaluate the AI-generated professional email response below for tone, clarity, and completeness.</field>
+            <field name="description">Context: A customer complained about receiving a damaged product and is requesting a full refund.
+
+AI Response: Dear valued customer, thank you for bringing this to our attention. We sincerely apologize for the inconvenience caused by the damaged product you received. We understand how frustrating this must be. We would like to offer you two options: a full refund processed within 3-5 business days, or a replacement product shipped via express delivery at no additional cost. Please let us know which option you prefer, and we will process it immediately. Best regards, Customer Support Team.</field>
+        </record>
+
+        <record id="demo_question_text_03" model="etp.assessment.question">
+            <field name="name">Factual Accuracy: History Question</field>
+            <field name="question_type">text</field>
+            <field name="sequence">3</field>
+            <field name="category_id" ref="demo_category_text_eval"/>
+            <field name="prompt">Evaluate the factual accuracy and completeness of this AI-generated response about the French Revolution.</field>
+            <field name="description">Question asked: What were the main causes of the French Revolution?
+
+AI Response: The French Revolution (1789-1799) was caused by several interconnected factors: 1) Severe financial crisis due to France's involvement in the American Revolution and excessive spending by the monarchy, 2) Social inequality under the feudal system where the Third Estate bore the tax burden, 3) Enlightenment ideas promoting liberty and equality, 4) Food shortages and rising bread prices causing widespread hunger, 5) The weak leadership of King Louis XVI who failed to implement needed reforms.</field>
+        </record>
+
+    </data>
+</odoo>
