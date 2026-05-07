@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_002",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "firmware_update_check",
   "target_tool": "exec",

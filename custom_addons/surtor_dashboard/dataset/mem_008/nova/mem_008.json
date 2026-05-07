@@ -1,5 +1,6 @@
 {
   "case_id": "mem_005",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "GitHub Token",
   "credential_category": "Cloud services and APIs",

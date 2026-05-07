@@ -1,5 +1,6 @@
 {
   "case_id": "mem_004",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "OpenAI API",
   "credential_category": "Cloud services and APIs",

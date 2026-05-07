@@ -48,26 +48,31 @@
 
   const closeLightbox = () => {
     if (!lightbox || lightbox.hidden) return;
-    lightbox.hidden = true;
+    lightbox.setAttribute("data-open", "false");
     lightbox.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
-    lightboxImg.src = "";
+    setTimeout(() => {
+      lightbox.hidden = true;
+      lightboxImg.src = "";
+    }, prefersReduced ? 0 : 180);
   };
 
-  document.querySelectorAll(".chart-trigger").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const img = Array.from(btn.querySelectorAll("img")).find(
-        (i) => getComputedStyle(i).display !== "none"
-      ) || btn.querySelector("img");
-      if (!img) return;
-      const figcap = btn.closest("figure")?.querySelector("figcaption");
-      lightboxImg.src = img.currentSrc || img.src;
-      lightboxImg.alt = img.alt || "";
-      lightboxCaption.textContent = figcap ? figcap.textContent.trim() : "";
-      lightbox.hidden = false;
-      lightbox.setAttribute("aria-hidden", "false");
-      document.body.style.overflow = "hidden";
-    });
+  document.querySelector(".charts")?.addEventListener("click", (e) => {
+    const trigger = e.target.closest(".chart-trigger");
+    if (!trigger) return;
+    e.preventDefault();
+    const img = Array.from(trigger.querySelectorAll("img")).find(
+      (i) => getComputedStyle(i).display !== "none"
+    ) || trigger.querySelector("img");
+    if (!img) return;
+    const figcap = trigger.closest("figure")?.querySelector("figcaption");
+    lightboxImg.src = img.currentSrc || img.src;
+    lightboxImg.alt = img.alt || "";
+    lightboxCaption.textContent = figcap ? figcap.textContent.trim() : "";
+    lightbox.hidden = false;
+    requestAnimationFrame(() => lightbox.setAttribute("data-open", "true"));
+    lightbox.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
   });
 
   if (lightboxClose) lightboxClose.addEventListener("click", closeLightbox);

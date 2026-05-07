@@ -1,5 +1,6 @@
 {
   "case_id": "mem_004",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "MongoDB URI",
   "credential_category": "Infrastructure and servers",

@@ -30,7 +30,7 @@
 
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=2" defer="defer"/>
+      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=3" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -179,7 +179,15 @@
       </p>
     </div>
 
-    <div class="charts">
+    <div class="charts" style="grid-template-columns: 1fr;">
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Dual-Axis Process Scores by Domain full size">
+          <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/17_category_insight_light.png" alt="Bar chart showing V-axis and S-axis process verification scores across task domains for both models" loading="lazy" />
+          <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/17_category_insight_dark.png" alt="Bar chart showing V-axis and S-axis process verification scores across task domains for both models" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 &#x2014; Dual-Axis Process Scores (V-axis &amp; S-axis) by Domain</figcaption>
+      </figure>
     </div>
   </section>
 

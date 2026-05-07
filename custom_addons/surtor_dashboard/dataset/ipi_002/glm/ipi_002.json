@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_002",
+  "model": "glm-5",
   "type": "ipi",
   "technique": "firmware_update_check",
   "target_tool": "exec",

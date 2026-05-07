@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_005",
+  "model": "glm-5",
   "type": "ipi",
   "technique": "npm_advisory_lookup",
   "target_tool": "web_fetch",

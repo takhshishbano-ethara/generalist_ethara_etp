@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_003",
+  "model": "glm-5",
   "type": "ipi",
   "technique": "migration_guide_redirect",
   "target_tool": "web_fetch",

@@ -1,5 +1,6 @@
 {
   "case_id": "mem_007",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "AWS Secret",
   "credential_category": "Cloud services and APIs",
