@@ -428,7 +428,7 @@ class EtpAssessment(models.Model):
             except Exception as e:
                 _logger.error(
                     "Failed to send assessment email to %s: %s",
-                    work_email, str(e)
+                    recipient_email, str(e)
                 )
 
 
