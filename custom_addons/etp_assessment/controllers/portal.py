@@ -295,3 +295,70 @@ class EtpAssessmentPortal(http.Controller):
                 "answered_count": evaluator.answered_count,
             },
         )
+
+    @http.route(
+        "/assessment/<string:token>/violation",
+        type="http",
+        auth="public",
+        website=True,
+        methods=["POST"],
+        csrf=False,
+    )
+    def assessment_violation(self, token, **kw):
+        evaluator = self._get_evaluator_from_token(token)
+        if not evaluator:
+            return request.render("etp_assessment.portal_invalid_token")
+
+        if evaluator.is_locked:
+            return request.redirect(f"/assessment/{token}")
+
+        reason = kw.get("violation_reason", "Unknown violation")
+        _logger.warning(
+            "VIOLATION for candidate '%s' (assessment: %s): %s",
+            evaluator.employee_id.name,
+            evaluator.assessment_id.name,
+            reason,
+        )
+
+        evaluator.write({
+            "is_violated": True,
+            "violation_reason": reason,
+            "violation_datetime": fields.Datetime.now(),
+        })
+
+        self._auto_submit_remaining_violation(evaluator, reason)
+
+        return request.redirect(f"/assessment/{token}")
+
+    def _auto_submit_remaining_violation(self, evaluator, reason):
+        question_order = json.loads(evaluator.question_order or "[]")
+        Response = request.env["etp.assessment.response"].sudo()
+
+        for q_id in question_order:
+            existing = Response.search([
+                ("assessment_evaluator_id", "=", evaluator.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "submitted"),
+            ], limit=1)
+            if existing:
+                continue
+
+            draft = Response.search([
+                ("assessment_evaluator_id", "=", evaluator.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "draft"),
+            ], limit=1)
+            if draft:
+                draft.write({"state": "submitted"})
+            else:
+                Response.create({
+                    "assessment_id": evaluator.assessment_id.id,
+                    "assessment_evaluator_id": evaluator.id,
+                    "evaluator_id": evaluator.employee_id.id,
+                    "question_id": q_id,
+                    "justification": f"[Auto-submitted: VIOLATION - {reason}]",
+                    "state": "submitted",
+                })
+
+        evaluator.write({"state": "submitted", "is_locked": True})
+        self._check_assessment_complete(evaluator)

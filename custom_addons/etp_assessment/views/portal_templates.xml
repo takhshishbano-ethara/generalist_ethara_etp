@@ -50,9 +50,23 @@
                     .violation-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(220,53,69,0.95); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
                     .violation-overlay h2 { font-size: 2rem; margin-bottom: 12px; }
                     .violation-overlay p { font-size: 1.1rem; opacity: 0.9; }
+                    /* Blur protection - applied on focus loss */
+                    .content-blurred .assessment-container { filter: blur(20px) !important; transition: filter 0.1s ease; pointer-events: none; }
+                    .content-blurred .watermark-overlay { filter: none !important; }
+                    /* Watermark overlay */
+                    .watermark-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9998; overflow: hidden; }
+                    .watermark-text { position: absolute; white-space: nowrap; font-size: 16px; font-weight: 600; color: rgba(100, 100, 100, 0.08); transform: rotate(-30deg); font-family: monospace; }
+                    /* Fullscreen prompt */
+                    .fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 99998; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
+                    .fullscreen-overlay h2 { font-size: 1.5rem; margin-bottom: 12px; }
+                    .fullscreen-overlay p { font-size: 1rem; opacity: 0.85; margin-bottom: 20px; }
+                    .fullscreen-overlay button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: #fff; padding: 12px 32px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+                    .fullscreen-overlay button:hover { opacity: 0.9; }
                 </style>
             </head>
             <body oncontextmenu="return false;" oncopy="return false;" oncut="return false;" onpaste="return false;" ondragstart="return false;" onselectstart="return false;">
+                <span data-candidate-name="" t-att-data-candidate-name="evaluator.employee_id.name if evaluator else ''" style="display:none;"/>
+                <span data-token="" t-att-data-token="token if token else ''" style="display:none;"/>
                 <div class="assessment-container">
                     <t t-raw="0"/>
                 </div>
@@ -60,19 +74,151 @@
                     (function() {
                         var form = document.querySelector("form");
                         var violated = false;
+                        var isFullscreen = false;
+                        var blurTimeout = null;
 
+                        /* ===== WATERMARK OVERLAY ===== */
+                        function createWatermark() {
+                            var overlay = document.createElement("div");
+                            overlay.className = "watermark-overlay";
+                            var candidateName = document.querySelector("[data-candidate-name]");
+                            var name = candidateName ? candidateName.getAttribute("data-candidate-name") : "Candidate";
+                            var now = new Date().toLocaleString();
+                            var text = name + " | " + now;
+                            /* Create grid of watermark text */
+                            for (var row = -2; row &lt; 20; row++) {
+                                for (var col = -2; col &lt; 10; col++) {
+                                    var span = document.createElement("span");
+                                    span.className = "watermark-text";
+                                    span.textContent = text;
+                                    span.style.top = (row * 120) + "px";
+                                    span.style.left = (col * 400) + "px";
+                                    overlay.appendChild(span);
+                                }
+                            }
+                            document.body.appendChild(overlay);
+                        }
+                        createWatermark();
+
+                        /* ===== VIOLATION HANDLER ===== */
                         function triggerViolation(reason) {
                             if (violated) return;
                             violated = true;
+                            document.body.classList.remove("content-blurred");
                             var overlay = document.createElement("div");
                             overlay.className = "violation-overlay";
                             overlay.innerHTML = '&lt;h2&gt;⚠️ Violation Detected&lt;/h2&gt;&lt;p&gt;' + reason + '&lt;/p&gt;&lt;p&gt;Your assessment is being submitted automatically.&lt;/p&gt;';
                             document.body.appendChild(overlay);
-                            if (form) {
+
+                            var tokenEl = document.querySelector("[data-token]");
+                            var token = tokenEl ? tokenEl.getAttribute("data-token") : "";
+                            if (token) {
+                                var violationForm = document.createElement("form");
+                                violationForm.method = "POST";
+                                violationForm.action = "/assessment/" + token + "/violation";
+                                var input = document.createElement("input");
+                                input.type = "hidden";
+                                input.name = "violation_reason";
+                                input.value = reason;
+                                violationForm.appendChild(input);
+                                document.body.appendChild(violationForm);
+                                setTimeout(function() { violationForm.submit(); }, 1500);
+                            } else if (form) {
                                 setTimeout(function() { form.submit(); }, 1500);
                             }
                         }
 
+                        /* ===== FULLSCREEN ENFORCEMENT ===== */
+                        function enterFullscreen() {
+                            var el = document.documentElement;
+                            var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+                            if (rfs) {
+                                rfs.call(el).then(function() {
+                                    isFullscreen = true;
+                                    var fsOverlay = document.querySelector(".fullscreen-overlay");
+                                    if (fsOverlay) fsOverlay.remove();
+                                }).catch(function() {
+                                    /* If fullscreen denied, show prompt */
+                                    showFullscreenPrompt();
+                                });
+                            }
+                        }
+
+                        function showFullscreenPrompt() {
+                            if (document.querySelector(".fullscreen-overlay")) return;
+                            var overlay = document.createElement("div");
+                            overlay.className = "fullscreen-overlay";
+                            overlay.innerHTML = '&lt;h2&gt;🔒 Fullscreen Required&lt;/h2&gt;&lt;p&gt;This assessment must be taken in fullscreen mode for security.&lt;/p&gt;&lt;button onclick="document.documentElement.requestFullscreen().then(function(){document.querySelector(\'.fullscreen-overlay\').remove();})"&gt;Enter Fullscreen&lt;/button&gt;';
+                            document.body.appendChild(overlay);
+                        }
+
+                        document.addEventListener("fullscreenchange", function() {
+                            if (!document.fullscreenElement &amp;&amp; !document.webkitFullscreenElement) {
+                                if (isFullscreen &amp;&amp; !violated) {
+                                    /* Candidate exited fullscreen — show prompt, blur content */
+                                    isFullscreen = false;
+                                    document.body.classList.add("content-blurred");
+                                    showFullscreenPrompt();
+                                }
+                            } else {
+                                isFullscreen = true;
+                                document.body.classList.remove("content-blurred");
+                                var fsOverlay = document.querySelector(".fullscreen-overlay");
+                                if (fsOverlay) fsOverlay.remove();
+                            }
+                        });
+                        document.addEventListener("webkitfullscreenchange", function() {
+                            if (!document.webkitFullscreenElement &amp;&amp; isFullscreen &amp;&amp; !violated) {
+                                isFullscreen = false;
+                                document.body.classList.add("content-blurred");
+                                showFullscreenPrompt();
+                            } else if (document.webkitFullscreenElement) {
+                                isFullscreen = true;
+                                document.body.classList.remove("content-blurred");
+                                var fsOverlay = document.querySelector(".fullscreen-overlay");
+                                if (fsOverlay) fsOverlay.remove();
+                            }
+                        });
+
+                        /* Auto-enter fullscreen if form exists (actual question page) */
+                        if (form) {
+                            enterFullscreen();
+                        }
+
+                        /* ===== CONTENT BLUR ON FOCUS LOSS ===== */
+                        document.addEventListener("visibilitychange", function() {
+                            if (document.hidden &amp;&amp; form &amp;&amp; !violated) {
+                                document.body.classList.add("content-blurred");
+                                triggerViolation("You switched away from the assessment tab");
+                            }
+                        });
+
+                        window.addEventListener("blur", function() {
+                            if (form &amp;&amp; !violated) {
+                                /* Blur content INSTANTLY so any screenshot captures blurred content */
+                                document.body.classList.add("content-blurred");
+                                /* Give 200ms grace period for false positives (e.g. clicking browser chrome) */
+                                blurTimeout = setTimeout(function() {
+                                    if (!violated) {
+                                        triggerViolation("You switched away from the assessment window");
+                                    }
+                                }, 200);
+                            }
+                        });
+
+                        window.addEventListener("focus", function() {
+                            /* Clear blur timeout if focus returns quickly (false positive) */
+                            if (blurTimeout) {
+                                clearTimeout(blurTimeout);
+                                blurTimeout = null;
+                            }
+                            /* Only unblur if not violated and in fullscreen */
+                            if (!violated &amp;&amp; (document.fullscreenElement || document.webkitFullscreenElement)) {
+                                document.body.classList.remove("content-blurred");
+                            }
+                        });
+
+                        /* ===== KEYBOARD SHORTCUTS BLOCKING ===== */
                         document.addEventListener("keydown", function(e) {
                             if (e.key === "PrintScreen" || e.key === "Snapshot") {
                                 e.preventDefault();
@@ -95,37 +241,32 @@
                                 e.preventDefault();
                                 triggerViolation("Developer tools detected");
                             }
-                        });
-
-                        document.addEventListener("visibilitychange", function() {
-                            if (document.hidden &amp;&amp; form &amp;&amp; !violated) {
-                                triggerViolation("You switched away from the assessment tab");
+                            /* Block Escape to prevent easy fullscreen exit */
+                            if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
                             }
                         });
 
-                        window.addEventListener("blur", function() {
-                            if (form &amp;&amp; !violated) {
-                                triggerViolation("You switched away from the assessment window");
-                            }
-                        });
-
+                        /* ===== SCREEN CAPTURE API OVERRIDE ===== */
                         if (navigator.mediaDevices &amp;&amp; navigator.mediaDevices.getDisplayMedia) {
-                            var origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
                             navigator.mediaDevices.getDisplayMedia = function() {
                                 triggerViolation("Screen capture attempt detected");
                                 return Promise.reject(new Error("Screen capture blocked"));
                             };
                         }
 
-                        var observer = new PerformanceObserver(function(list) {
+                        /* ===== EXTENSION DETECTION ===== */
+                        var perfObserver = new PerformanceObserver(function(list) {
                             list.getEntries().forEach(function(entry) {
                                 if (entry.name &amp;&amp; entry.name.indexOf("screenshot") !== -1) {
                                     triggerViolation("Screenshot extension detected");
                                 }
                             });
                         });
-                        try { observer.observe({entryTypes: ["resource"]}); } catch(e) {}
+                        try { perfObserver.observe({entryTypes: ["resource"]}); } catch(e) {}
 
+                        /* ===== DEV TOOLS SIZE DETECTION ===== */
                         setInterval(function() {
                             var threshold = 160;
                             if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
@@ -268,12 +409,14 @@
                     <h6 style="color: #dc3545; margin-bottom: 12px; font-weight: 700;">⚠️ Important Rules</h6>
                     <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px;">
                         <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
+                            <li><strong>Fullscreen mode is mandatory</strong> — The assessment runs in fullscreen. Exiting fullscreen will blur all content until you re-enter.</li>
                             <li><strong>Do NOT switch tabs or windows</strong> — Your assessment will be auto-submitted immediately.</li>
-                            <li><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will auto-submit your assessment.</li>
+                            <li><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will auto-submit your assessment. Content blurs instantly on any attempt.</li>
                             <li><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
                             <li><strong>Do NOT open Developer Tools</strong> — Opening browser dev tools will auto-submit your assessment.</li>
                             <li><strong>Do NOT right-click</strong> — Context menu is disabled throughout the assessment.</li>
                             <li><strong>Do NOT use screen recording</strong> — Screen capture attempts are detected and will auto-submit.</li>
+                            <li><strong>Watermark tracking is active</strong> — All content is watermarked with your name and timestamp.</li>
                         </ul>
                     </div>
                 </div>
@@ -302,11 +445,27 @@
                 </div>
             </div>
 
-            <form t-attf-action="/assessment/#{token}/begin" method="post" style="text-align: center; margin-bottom: 40px;">
-                <button type="submit" class="btn btn-submit" style="padding: 14px 48px; font-size: 18px;">
+            <form t-attf-action="/assessment/#{token}/begin" method="post" id="begin-form" style="text-align: center; margin-bottom: 40px;">
+                <button type="button" onclick="startAssessment()" class="btn btn-submit" style="padding: 14px 48px; font-size: 18px;">
                     🚀 Start Assessment
                 </button>
             </form>
+            <script>
+                function startAssessment() {
+                    var el = document.documentElement;
+                    var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+                    if (rfs) {
+                        rfs.call(el).then(function() {
+                            document.getElementById("begin-form").submit();
+                        }).catch(function() {
+                            /* If fullscreen fails, submit anyway */
+                            document.getElementById("begin-form").submit();
+                        });
+                    } else {
+                        document.getElementById("begin-form").submit();
+                    }
+                }
+            </script>
         </t>
     </template>
 

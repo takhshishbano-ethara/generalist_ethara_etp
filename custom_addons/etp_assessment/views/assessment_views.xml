@@ -124,6 +124,8 @@
                 <field name="total_questions"/>
                 <field name="total_score"/>
                 <field name="is_locked"/>
+                <field name="is_violated" widget="boolean" decoration-danger="is_violated"/>
+                <field name="violation_reason" optional="hide"/>
             </list>
         </field>
     </record>
@@ -132,10 +134,13 @@
         <field name="name">etp.assessment.evaluator.form</field>
         <field name="model">etp.assessment.evaluator</field>
         <field name="arch" type="xml">
-            <form>
+             <form>
                 <header>
                     <field name="state" widget="statusbar" statusbar_visible="pending,in_progress,submitted"/>
                 </header>
+                <div class="alert alert-danger" invisible="not is_violated" role="alert">
+                    <strong>⚠️ Violation:</strong> <field name="violation_reason" readonly="1"/> — <field name="violation_datetime" readonly="1"/>
+                </div>
                 <sheet>
                     <group>
                         <group>
@@ -148,6 +153,7 @@
                             <field name="total_score"/>
                             <field name="max_possible_score"/>
                             <field name="is_locked"/>
+                            <field name="is_violated"/>
                         </group>
                     </group>
                     <notebook>
