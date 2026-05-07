@@ -2738,7 +2738,7 @@ class KenseiSandbox(models.Model):
         mode = self._deployment_mode()
         if mode == "k8s":
             # Use _load_environment_services from K8s mixin (has dynamic image resolution)
-            services = self._load_environment_services()
+            services = self.env['kensei.sandbox.k8s']._load_environment_services()
             if services:
                 self._collect_audit_k8s(services)
         else:
