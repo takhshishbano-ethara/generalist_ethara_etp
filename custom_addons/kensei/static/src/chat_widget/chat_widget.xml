@@ -406,7 +406,10 @@
                         <div class="o_kensei_pending_attachments">
                             <t t-foreach="state.pendingAttachments" t-as="att" t-key="att.id">
                                 <div class="o_kensei_pending_thumb">
-                                    <t t-if="att.previewUrl">
+                                    <t t-if="att.previewUrl and att.isVideo">
+                                        <video t-att-src="att.previewUrl" class="o_kensei_thumb_img" muted="true" preload="metadata"/>
+                                    </t>
+                                    <t t-elif="att.previewUrl">
                                         <img t-att-src="att.previewUrl" class="o_kensei_thumb_img"/>
                                     </t>
                                     <t t-else="">

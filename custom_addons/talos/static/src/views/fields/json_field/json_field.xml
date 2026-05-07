@@ -56,8 +56,8 @@
                                         <t t-if="isTalosAdmin">
                                             <button class="talos-json-delete-btn"
                                                     t-att-disabled="isAnyActionRunning"
-                                                    t-on-click="() => this.onDeleteTrajectory()"
-                                                    title="Delete this trajectory and all its turns (QL/PL only).">
+                                                    t-on-click="() => this.onDeleteEntry(entry.index)"
+                                                    title="Delete this trajectory session (QL/PL only).">
                                                 <i class="fa fa-trash"/>
                                             </button>
                                         </t>
