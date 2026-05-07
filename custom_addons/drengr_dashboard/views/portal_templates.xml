@@ -443,8 +443,8 @@
     <div class="resources">
       <a class="resource" t-att-href="github_url" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
-        <p class="res-title">Source Code &amp; Tasks</p>
-        <p class="res-url mono">github.com/Ethara-Ai/OpenAgentSafety</p>
+        <p class="res-title">Trajectories</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Drengr</p>
         <span class="res-arrow" aria-hidden="true">&#8599;</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
@@ -453,34 +453,7 @@
         <p class="res-url mono">huggingface.co/datasets/ethara/Drengr</p>
         <span class="res-arrow" aria-hidden="true">&#8599;</span>
       </a>
-      <a class="resource" t-att-href="paper_url" target="_blank" rel="noopener">
-        <p class="res-label mono">arXiv</p>
-        <p class="res-title">Research Paper</p>
-        <p class="res-url mono">arxiv.org/abs/2507.06134</p>
-        <span class="res-arrow" aria-hidden="true">&#8599;</span>
-      </a>
-      <a class="resource" href="javascript:void(0)" id="cite-trigger">
-        <p class="res-label mono">Citation</p>
-        <p class="res-title">BibTeX</p>
-        <p class="res-url mono">Click to copy citation</p>
-        <span class="res-arrow" aria-hidden="true">&#128203;</span>
-      </a>
     </div>
-  </section>
-
-  <!-- Citation block (hidden, toggled by JS) -->
-  <section class="section citation-section" id="citation" style="display:none;" aria-labelledby="citation-label">
-    <p class="section-label" id="citation-label">Citation</p>
-    <pre class="citation-block"><code>@misc{vijayvargiya2025openagentsafety,
-      title={OpenAgentSafety: A Comprehensive Framework for Evaluating Real-World AI Agent Safety},
-      author={Sanidhya Vijayvargiya and Aditya Bharat Soni and Xuhui Zhou and Zora Zhiruo Wang and Nouha Dziri and Graham Neubig and Maarten Sap},
-      year={2025},
-      eprint={2507.06134},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2507.06134},
-}</code></pre>
-    <button type="button" class="copy-btn" id="copy-cite">Copy to clipboard</button>
   </section>
 
   </main>
