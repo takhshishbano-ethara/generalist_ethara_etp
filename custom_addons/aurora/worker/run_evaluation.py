@@ -220,6 +220,56 @@ def _release_tokens(db_name: str, rec_id: int) -> None:
         conn.close()
 
 
+def _resolve_entry_number(entry: dict) -> int | None:
+    """Extract PR number from a dataset entry (mirrors evaluation.py logic)."""
+    if "number" in entry:
+        val = entry["number"]
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str) and val.isdigit():
+            return int(val)
+        if isinstance(val, str) and "-" in val:
+            head = val.split("-", 1)[0]
+            if head.isdigit():
+                return int(head)
+    pr_numbers = entry.get("pr_numbers") or []
+    if isinstance(pr_numbers, list) and pr_numbers:
+        try:
+            return int(pr_numbers[0])
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _generate_patch_file(dataset_path: str, output_path: str) -> str:
+    """Regenerate patches.jsonl from dataset file.
+
+    The Odoo server generates this file locally but it's not available
+    inside the K8s pod. We regenerate it from the already-resolved dataset.
+    Returns the output path.
+    """
+    import json as _json
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(dataset_path, "r", encoding="utf-8") as f_in, \
+         open(output_path, "w", encoding="utf-8") as f_out:
+        for line in f_in:
+            line = line.strip()
+            if not line:
+                continue
+            entry = _json.loads(line)
+            number = _resolve_entry_number(entry)
+            if number is None:
+                continue
+            patch_entry = {
+                "org": entry["org"],
+                "repo": entry["repo"],
+                "number": number,
+                "fix_patch": entry.get("fix_patch", ""),
+            }
+            f_out.write(_json.dumps(patch_entry, ensure_ascii=False) + "\n")
+    return output_path
+
+
 def _setup_git_auth(token: str) -> Optional[str]:
     """Create a git credential helper script for authenticated clone.
 
@@ -333,8 +383,33 @@ def run_evaluation(db_name: str, rec_id: int):
             _append_log(conn, rec_id, f"Downloading remote dataset: {dataset_file}")
             dataset_file = dataset_resolver.resolve_to_local(conn, dataset_file)
             _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+        elif not os.path.isfile(dataset_file):
+            # Local path from server doesn't exist in pod — fetch original S3 URL from pipeline
+            original_url = None
+            if pipeline_id:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
+                        (pipeline_id,),
+                    )
+                    prow = cur.fetchone()
+                    if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
+                        original_url = prow[0]
+            if original_url:
+                _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
+                dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
+                _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+            else:
+                _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
+                return
 
+        # Regenerate patch file locally (server-generated file isn't in the pod)
         patch_file = cfg["patch_file"]
+        if patch_file and not os.path.isfile(patch_file):
+            _append_log(conn, rec_id, f"Patch file not found locally, regenerating from dataset...")
+            _generate_patch_file(dataset_file, patch_file)
+            _append_log(conn, rec_id, f"Patch file regenerated: {patch_file}")
+
         log_dir = Path(cfg["output_dir"]) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
