@@ -231,7 +231,9 @@
   if (lightbox) {
     document.querySelectorAll('.chart-trigger').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var img = btn.querySelector('img:not([style*="display: none"])') || btn.querySelector('img');
+        var img = btn.querySelector('img.nk-chart-light') || btn.querySelector('img');
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) { img = btn.querySelector('img.nk-chart-dark') || img; }
         if (img) openLightbox(img.src, img.alt, 'image');
       });
     });
@@ -293,7 +295,7 @@
     evalState.filtered = evalState.data.filter(function (row) {
       if (d && row.level !== d) return false;
       if (s) {
-        var hay = (row.instance_id + ' ' + row.modality + ' ' + row.level + ' ' + row.tools).toLowerCase();
+        var hay = (row.instance_id + ' ' + row.modality + ' ' + row.level + ' ' + row.tools + ' ' + (row.category || '')).toLowerCase();
         if (hay.indexOf(s) === -1) return false;
       }
       return true;
@@ -314,7 +316,7 @@
           av = a.instance_id; bv = b.instance_id;
           return av < bv ? -dir : av > bv ? dir : 0;
         case 'level':
-          var levels = { 'Hard': 1, 'Very Hard': 2, 'Expert': 3 };
+          var levels = { 'Level 1': 1, 'Level 2': 2, 'Level 3': 3 };
           av = levels[a.level] || 0; bv = levels[b.level] || 0;
           return (av - bv) * dir;
         case 'modality':
@@ -379,7 +381,7 @@
         html += '<div class="detail-block-title">Instance Info</div>';
         html += '<div class="detail-row-item"><span class="detail-key">Task ID</span><span class="detail-val">' + esc(row.task_id) + '</span></div>';
         html += '<div class="detail-row-item"><span class="detail-key">Level</span><span class="detail-val">' + esc(row.level) + '</span></div>';
-        html += '<div class="detail-row-item"><span class="detail-key">Modality</span><span class="detail-val">' + esc(row.modality) + '</span></div>';
+        html += '<div class="detail-row-item"><span class="detail-key">Category</span><span class="detail-val">' + esc(row.modality) + '</span></div>';
         html += '<div class="detail-row-item"><span class="detail-key">Num Steps</span><span class="detail-val">' + row.num_steps + '</span></div>';
         html += '<div class="detail-row-item"><span class="detail-key">Num Tools</span><span class="detail-val">' + row.num_tools + '</span></div>';
         html += '<div class="detail-row-item"><span class="detail-key">Est. Time</span><span class="detail-val">' + esc(row.estimated_time) + '</span></div>';
@@ -388,10 +390,10 @@
         }
         html += '</div>';
 
-        // Kimi 2.5 block
+        // Kimi K2.5 block
         if (row.kimi_2_5) {
           html += '<div class="detail-block">';
-          html += '<div class="detail-block-title">Kimi 2.5</div>';
+          html += '<div class="detail-block-title">Kimi K2.5</div>';
           html += '<div class="detail-row-item"><span class="detail-key">Outcome</span><span class="detail-val">' + evalRunBadge(row.kimi_2_5.outcome) + '</span></div>';
           html += '<div class="detail-row-item"><span class="detail-key">Answer</span><span class="detail-val">' + esc(String(row.kimi_2_5.answer)) + '</span></div>';
           html += '<div class="detail-row-item"><span class="detail-key">Steps</span><span class="detail-val">' + row.kimi_2_5.steps_taken + '</span></div>';

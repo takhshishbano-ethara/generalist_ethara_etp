@@ -104,21 +104,17 @@
         <p class="kpi-label">Attack Types</p>
         <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="3" aria-hidden="true">0</span></span></p>
       </div>
-      <div class="kpi-card">
-        <p class="kpi-label">IPI Scenarios</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10" aria-hidden="true">0</span></span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">MEM Scenarios</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10" aria-hidden="true">0</span></span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">TRD Scenarios</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10" aria-hidden="true">0</span></span></p>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">GLM-5 Success Rate</p>
+        <p class="kpi-value"><span class="kpi-big">77%</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
-        <p class="kpi-label">Memory Scenarios</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10" aria-hidden="true">0</span></span></p>
+        <p class="kpi-label">Nova-2-Lite Success Rate</p>
+        <p class="kpi-value"><span class="kpi-big">43%</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Difficulty Levels</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="3" aria-hidden="true">0</span></span></p>
       </div>
     </div>
   </section>
@@ -162,7 +158,7 @@
         <ul class="phase-body">
           <li>Evaluate success predicates against traces</li>
           <li>Measure: Leakage, Unsafe Action, Persistence</li>
-          <li>Compute ASR and determine verdict</li>
+          <li>Compute Attack Success Rate and determine verdict</li>
         </ul>
       </article>
     </div>
@@ -174,15 +170,15 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        <span class="tok-glm5">GLM-5</span> achieves full attack success on <b class="reveal-big">23/30</b> instances (77% ASR).
-        <span class="tok-nova">Nova-2-Lite</span> achieves <b class="reveal-big">13/30</b> (43% ASR).
+        <span style="color:#2A5CB8;font-weight:600;">GLM-5</span> achieves full attack success on <b class="reveal-big">23/30</b> instances (77% Attack Success Rate).
+        <span style="color:#5C3FB3;font-weight:600;">Nova-2-Lite</span> achieves <b class="reveal-big">13/30</b> (43% Attack Success Rate).
       </p>
       <p class="reveal-line reveal-kicker">
-        <span class="tok-glm5">GLM-5</span>: IPI <b>24/30</b>, MEM leaked <b>9/10</b>, TRD <b>23/30</b>.
-        <span class="tok-nova">Nova-2-Lite</span>: IPI <b>18/30</b>, MEM leaked <b>6/10</b>, TRD <b>12/30</b>.
+        <span style="color:#2A5CB8;font-weight:600;">GLM-5</span>: IPI <b>24/30</b>, MEM leaked <b>9/10</b>, TRD <b>23/30</b>.
+        <span style="color:#5C3FB3;font-weight:600;">Nova-2-Lite</span>: IPI <b>18/30</b>, MEM leaked <b>6/10</b>, TRD <b>12/30</b>.
       </p>
       <p class="reveal-cost mono">
-        30 attack scenarios across 3 types. <span class="tok-glm5">GLM-5</span> significantly more vulnerable than <span class="tok-nova">Nova-2-Lite</span> across all attack categories.
+        30 attack scenarios across 3 types. <span style="color:#2A5CB8;font-weight:600;">GLM-5</span> significantly more vulnerable than <span style="color:#5C3FB3;font-weight:600;">Nova-2-Lite</span> across all attack categories.
       </p>
     </div>
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_vesta_dashboard" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.vesta_dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Vesta Dashboard" string="Vesta Dashboard" name="vesta_dashboard">
+                    <block title="Showcase Link Buttons">
+                        <setting string="GitHub URL"
+                                 help="Override the GitHub button link. Leave empty to use the default URL.">
+                            <field name="vesta_github_url"
+                                   placeholder="https://github.com/Ethara-Ai/Vesta"/>
+                        </setting>
+                        <setting string="Dataset URL"
+                                 help="Override the Dataset button link. Leave empty to use the default HuggingFace URL.">
+                            <field name="vesta_dataset_url"
+                                   placeholder="https://huggingface.co/datasets/ethara/Vesta"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
