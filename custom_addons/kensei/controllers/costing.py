@@ -168,47 +168,51 @@ class KenseiCostingController(http.Controller):
         emp_map = {}
 
         for task in tasks:
-            eid = task.employee_id.id if task.employee_id else 0
-            ename = task.employee_id.name if task.employee_id else "Unassigned"
-            if eid not in emp_map:
-                emp_map[eid] = {
-                    "employee_id": eid,
-                    "employee_name": ename,
-                    "bedrock_input": 0,
-                    "bedrock_output": 0,
-                    "claude_input": 0,
-                    "claude_output": 0,
-                    "glm_input": 0,
-                    "glm_output": 0,
-                    "oneP_input": 0,
-                    "oneP_output": 0,
-                    "gpt_input": 0,
-                    "gpt_output": 0,
-                    "traj_qc_input": 0,
-                    "traj_qc_output": 0,
-                    "taskdesc_input": 0,
-                    "taskdesc_output": 0,
-                    "golden_input": 0,
-                    "golden_output": 0,
-                    "tasks": [],
-                }
-            emp_map[eid]["bedrock_input"] += task.bedrock_input_tokens or 0
-            emp_map[eid]["bedrock_output"] += task.bedrock_output_tokens or 0
-            emp_map[eid]["claude_input"] += task.claude_input_tokens or 0
-            emp_map[eid]["claude_output"] += task.claude_output_tokens or 0
-            emp_map[eid]["glm_input"] += task.glm_input_tokens or 0
-            emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
-            emp_map[eid]["oneP_input"] += task.oneP_input_tokens or 0
-            emp_map[eid]["oneP_output"] += task.oneP_output_tokens or 0
-            emp_map[eid]["gpt_input"] += task.gpt_input_tokens or 0
-            emp_map[eid]["gpt_output"] += task.gpt_output_tokens or 0
-            emp_map[eid]["traj_qc_input"] += task.traj_qc_input_tokens or 0
-            emp_map[eid]["traj_qc_output"] += task.traj_qc_output_tokens or 0
-            emp_map[eid]["taskdesc_input"] += task.taskdesc_input_tokens or 0
-            emp_map[eid]["taskdesc_output"] += task.taskdesc_output_tokens or 0
-            emp_map[eid]["golden_input"] += task.golden_input_tokens or 0
-            emp_map[eid]["golden_output"] += task.golden_output_tokens or 0
-            emp_map[eid]["tasks"].append(_task_row(task))
+            employees = task.employee_ids or task.employee_id
+            if not employees:
+                employees_list = [(0, "Unassigned")]
+            else:
+                employees_list = [(e.id, e.name) for e in employees]
+            for eid, ename in employees_list:
+                if eid not in emp_map:
+                    emp_map[eid] = {
+                        "employee_id": eid,
+                        "employee_name": ename,
+                        "bedrock_input": 0,
+                        "bedrock_output": 0,
+                        "claude_input": 0,
+                        "claude_output": 0,
+                        "glm_input": 0,
+                        "glm_output": 0,
+                        "oneP_input": 0,
+                        "oneP_output": 0,
+                        "gpt_input": 0,
+                        "gpt_output": 0,
+                        "traj_qc_input": 0,
+                        "traj_qc_output": 0,
+                        "taskdesc_input": 0,
+                        "taskdesc_output": 0,
+                        "golden_input": 0,
+                        "golden_output": 0,
+                        "tasks": [],
+                    }
+                emp_map[eid]["bedrock_input"] += task.bedrock_input_tokens or 0
+                emp_map[eid]["bedrock_output"] += task.bedrock_output_tokens or 0
+                emp_map[eid]["claude_input"] += task.claude_input_tokens or 0
+                emp_map[eid]["claude_output"] += task.claude_output_tokens or 0
+                emp_map[eid]["glm_input"] += task.glm_input_tokens or 0
+                emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
+                emp_map[eid]["oneP_input"] += task.oneP_input_tokens or 0
+                emp_map[eid]["oneP_output"] += task.oneP_output_tokens or 0
+                emp_map[eid]["gpt_input"] += task.gpt_input_tokens or 0
+                emp_map[eid]["gpt_output"] += task.gpt_output_tokens or 0
+                emp_map[eid]["traj_qc_input"] += task.traj_qc_input_tokens or 0
+                emp_map[eid]["traj_qc_output"] += task.traj_qc_output_tokens or 0
+                emp_map[eid]["taskdesc_input"] += task.taskdesc_input_tokens or 0
+                emp_map[eid]["taskdesc_output"] += task.taskdesc_output_tokens or 0
+                emp_map[eid]["golden_input"] += task.golden_input_tokens or 0
+                emp_map[eid]["golden_output"] += task.golden_output_tokens or 0
+                emp_map[eid]["tasks"].append(_task_row(task))
 
         rows = []
         total_keys = [

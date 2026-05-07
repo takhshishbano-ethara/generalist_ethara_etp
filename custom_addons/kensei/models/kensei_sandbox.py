@@ -253,9 +253,15 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
                         partner = env["res.partner"].browse(notify_partner_id)
                         if not partner.exists():
                             partner = None
-                    if not partner:
-                        partner = sandbox.employee_id.user_id.partner_id
+                    partners = env["res.partner"]
                     if partner:
+                        partners = partner
+                    else:
+                        for emp in sandbox.employee_ids:
+                            p = emp.user_id.partner_id
+                            if p:
+                                partners |= p
+                    for partner in partners:
                         env["bus.bus"]._sendone(
                             partner,
                             "kensei/sandbox_ready",
@@ -315,6 +321,9 @@ class KenseiSandbox(models.Model):
     )
     employee_id = fields.Many2one(
         related="kensei_id.employee_id", store=True, readonly=True
+    )
+    employee_ids = fields.Many2many(
+        related="kensei_id.employee_ids", readonly=True
     )
     model_type = fields.Selection(MODEL_TYPES, required=True, readonly=True)
 
@@ -3270,31 +3279,20 @@ class KenseiSandbox(models.Model):
         if result.returncode != 0:
             return "ERROR writing test file: %s" % result.stderr[:500]
 
-        # Try pytest first, fall back to unittest if not available
         install_cmd = _compose_exec("openclaw", [
-            "sh", "-c", "python3 -m pytest --version >/dev/null 2>&1 || pip install pytest -q 2>/dev/null",
+            "sh", "-c",
+            "python3 -m pytest --version >/dev/null 2>&1 || "
+            "pip install --break-system-packages pytest -q 2>&1 || "
+            "pip install pytest -q 2>&1 || "
+            "pip3 install --break-system-packages pytest -q 2>&1 || true",
         ])
         subprocess.run(
             install_cmd, capture_output=True, text=True, timeout=60, cwd=workdir
         )
 
-        # Check if pytest is available after install attempt
-        check_cmd = _compose_exec("openclaw", [
-            "sh", "-c", "python3 -m pytest --version >/dev/null 2>&1 && echo OK || echo NO",
+        run_cmd = _compose_exec("openclaw", [
+            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short",
         ])
-        check_result = subprocess.run(
-            check_cmd, capture_output=True, text=True, timeout=10, cwd=workdir
-        )
-
-        if "OK" in (check_result.stdout or ""):
-            run_cmd = _compose_exec("openclaw", [
-                "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short",
-            ])
-        else:
-            # Fallback: run with unittest
-            run_cmd = _compose_exec("openclaw", [
-                "python3", "-m", "unittest", "/tmp/test_state.py", "-v",
-            ])
 
         result = subprocess.run(
             run_cmd, capture_output=True, text=True, timeout=120, cwd=workdir
@@ -3353,7 +3351,13 @@ class KenseiSandbox(models.Model):
             k8s_stream(
                 core_v1.connect_get_namespaced_pod_exec,
                 pod_name, namespace, container="openclaw",
-                command=["sh", "-c", "pip install pytest -q 2>/dev/null || true"],
+                command=[
+                    "sh", "-c",
+                    "python3 -m pytest --version >/dev/null 2>&1 || "
+                    "pip install --break-system-packages pytest -q 2>&1 || "
+                    "pip install pytest -q 2>&1 || "
+                    "pip3 install --break-system-packages pytest -q 2>&1 || true",
+                ],
                 stderr=True, stdin=False, stdout=True, tty=False,
                 _preload_content=True,
             )
@@ -3739,11 +3743,16 @@ class KenseiSandbox(models.Model):
                         )
                     # Notify UI of status change
                     if status in ("running", "error"):
-                        partner = (
-                            sandbox.employee_id.user_id.partner_id
-                            or sandbox.kensei_id.user_id.partner_id
-                        )
-                        if partner:
+                        partners = self.env["res.partner"]
+                        for emp in sandbox.employee_ids:
+                            p = emp.user_id.partner_id
+                            if p:
+                                partners |= p
+                        if not partners:
+                            p = sandbox.kensei_id.user_id.partner_id
+                            if p:
+                                partners = p
+                        for partner in partners:
                             self.env["bus.bus"]._sendone(
                                 partner,
                                 "kensei/sandbox_ready",

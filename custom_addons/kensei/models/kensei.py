@@ -786,7 +786,31 @@ class Kensei(models.Model):
         "hr.employee",
         default=lambda self: self.env.user.employee_id,
     )
+    employee_ids = fields.Many2many(
+        "hr.employee",
+        "kensei_task_employee_rel",
+        "task_id",
+        "employee_id",
+        string="Assigned Members",
+        default=lambda self: self.env.user.employee_id,
+    )
     user_id = fields.Many2one(related="employee_id.user_id")
+
+    @api.onchange("employee_ids")
+    def _onchange_employee_ids(self):
+        """Keep employee_id in sync as the first member for backward compat."""
+        for rec in self:
+            if rec.employee_ids:
+                rec.employee_id = rec.employee_ids[0]
+            else:
+                rec.employee_id = False
+
+    @api.onchange("employee_id")
+    def _onchange_employee_id(self):
+        """Add employee_id to employee_ids if not already present."""
+        for rec in self:
+            if rec.employee_id and rec.employee_id not in rec.employee_ids:
+                rec.employee_ids = [(4, rec.employee_id.id)]
 
     persona_id = fields.Many2one(
         "kensei.persona", string="Persona", required=True, ondelete="restrict"
@@ -1017,6 +1041,9 @@ class Kensei(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get("employee_id") and not vals.get("employee_ids"):
+                vals["employee_ids"] = [(4, vals["employee_id"])]
         records = super().create(vals_list)
         for rec in records:
             rec.ensure_sandboxes()
@@ -1889,10 +1916,12 @@ class Kensei(models.Model):
         if self.seed_prompt:
             desc = self.seed_prompt.replace('"', '\\"').replace("\n", " ")[:200]
             lines.append('description = "%s"' % desc)
-        if self.employee_id:
-            lines.append(
-                'authors = [{ name = "%s" }]' % (self.employee_id.name or "").replace('"', '\\"')
+        if self.employee_ids:
+            authors = ", ".join(
+                '{ name = "%s" }' % (emp.name or "").replace('"', '\\"')
+                for emp in self.employee_ids
             )
+            lines.append("authors = [%s]" % authors)
         keywords = []
         if self.task_type:
             keywords.append(self.task_type)
@@ -2597,6 +2626,9 @@ class KenseiTurn(models.Model):
     kensei_id = fields.Many2one(related="sandbox_id.kensei_id", store=True, readonly=True)
     employee_id = fields.Many2one(
         related="kensei_id.employee_id", store=True, readonly=True
+    )
+    employee_ids = fields.Many2many(
+        related="kensei_id.employee_ids", readonly=True
     )
     turn_number = fields.Integer(string="Turn Number")
     turn_status = fields.Selection(

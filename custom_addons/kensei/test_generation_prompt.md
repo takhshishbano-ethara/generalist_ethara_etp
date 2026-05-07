@@ -23,6 +23,19 @@ Rules:
 - Use `json.loads(urllib.request.urlopen(url).read().decode())` pattern for GET requests
 - Handle pagination if the API uses it (check all pages if needed)
 
+CRITICAL — Response Structure Rules:
+- CAREFULLY examine the "Response Body" in each CUD operation — it shows the EXACT JSON structure the API returns
+- When writing verification GETs, navigate the SAME nested structure. If the CUD response shows `{"listing": {"sku": "X", ...}}`, then your test must access `data["listing"]["sku"]`, NOT `data.get("sku")`
+- If a field is nested inside an "attributes" dict with marketplace arrays like `[{"value": "X", "marketplace_id": "..."}]`, extract accordingly
+- ALWAYS prefer list/search endpoints over individual resource GETs when the API documentation shows them (avoids 404 if the individual GET uses path params you might get wrong)
+- When verifying created resources, use a list/search endpoint and filter client-side for the expected resource, rather than guessing the resource ID
+
+CRITICAL — Endpoint Selection:
+- Read the API Documentation carefully to find the correct GET endpoint for verification
+- If an API has `GET /shops/{shop_id}/listings` but NOT `GET /listings/{listing_id}`, use the shop listings endpoint
+- Match the EXACT path patterns from the documentation — do NOT invent endpoints
+- If the CUD used `PUT /listings/2021-08-01/items/{sellerId}/{sku}`, verify via the corresponding GET endpoint in the docs (e.g., `GET /listings/2021-08-01/items/{sellerId}/{sku}`)
+
 Example structure:
 ```
 import os
@@ -39,4 +52,14 @@ def test_instagram_create_media_post():
     created = [p for p in posts if p.get("caption") == "Expected caption"]
     assert len(created) >= 1, "Expected post with caption 'Expected caption' not found"
     assert created[0]["media_type"] == "IMAGE"
+
+
+def test_amazon_listing_created():
+    url = f"{os.environ['AMAZON_SELLER_API_URL']}/listings/2021-08-01/items/A3EXAMPLE1SELLER/MY-SKU"
+    data = json.loads(urllib.request.urlopen(url).read().decode())
+    listing = data["listing"]
+    assert listing["sku"] == "MY-SKU"
+    assert listing["productType"] == "HEADPHONES"
+    brand_attr = listing["attributes"]["brand"]
+    assert brand_attr[0]["value"] == "MyBrand"
 ```

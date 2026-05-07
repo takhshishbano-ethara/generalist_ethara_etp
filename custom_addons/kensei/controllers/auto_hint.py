@@ -542,19 +542,23 @@ def _accumulate_qwen_tokens(env, task_id, usage):
 
 
 def _push_bus(env, sandbox, notify_partner_id, payload):
-    partner = None
+    partners = env["res.partner"]
     if notify_partner_id:
         partner = env["res.partner"].browse(notify_partner_id)
-        if not partner.exists():
-            partner = None
-    if not partner:
+        if partner.exists():
+            partners = partner
+    if not partners:
         try:
-            partner = sandbox.employee_id.user_id.partner_id
+            for emp in sandbox.employee_ids:
+                p = emp.user_id.partner_id
+                if p:
+                    partners |= p
         except Exception:
-            partner = None
-    if not partner:
-        partner = env["res.users"].browse(SUPERUSER_ID).partner_id
-    env["bus.bus"]._sendone(partner, "kensei/auto_hint_result", payload)
+            pass
+    if not partners:
+        partners = env["res.users"].browse(SUPERUSER_ID).partner_id
+    for partner in partners:
+        env["bus.bus"]._sendone(partner, "kensei/auto_hint_result", payload)
 
 
 def _push_error(env, sandbox, sandbox_id, iteration, notify_partner_id):

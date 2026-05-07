@@ -7,7 +7,7 @@
         <list>
           <field name="task_id"/>
           <field name="persona_id"/>
-          <field name="employee_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
           <field name="task_status"/>
           <field name="qc_status" widget="badge"
                  decoration-success="qc_status == 'passed'"
@@ -77,7 +77,8 @@
                 <field name="l2_classification" domain="[('parent_id', '=', l1_classification)]" readonly="not l1_classification"/>
               </group>
               <group string="Assignment">
-                <field name="employee_id" readonly="not is_kensei_admin"/>
+                <field name="employee_ids" widget="many2many_tags" readonly="not is_kensei_admin"/>
+                <field name="employee_id" invisible="1"/>
                 <field name="user_id" readonly="not is_kensei_admin"/>
                 <field name="email"/>
                 <field name="password" string="Google Password"/>
@@ -226,10 +227,10 @@ for user in records:
       <field name="name">kensei.turn.list</field>
       <field name="model">kensei.turn</field>
       <field name="arch" type="xml">
-        <list default_order="turn_number asc, id asc">
+         <list default_order="turn_number asc, id asc">
           <field name="sandbox_id"/>
           <field name="kensei_id"/>
-          <field name="employee_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
           <field name="turn_number"/>
           <field name="turn_status" widget="badge"
                  decoration-success="turn_status == 'Completed'"
@@ -261,7 +262,7 @@ for user in records:
               <group>
                 <field name="sandbox_id"/>
                 <field name="kensei_id"/>
-                <field name="employee_id"/>
+                <field name="employee_ids" widget="many2many_tags"/>
                 <field name="turn_number"/>
                 <field name="turn_status"/>
                 <field name="model_name"/>
@@ -318,7 +319,7 @@ for user in records:
       <field name="arch" type="xml">
         <list default_order="kensei_id desc, model_type">
           <field name="kensei_id"/>
-          <field name="employee_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
           <field name="model_type"/>
           <field name="docker_status" widget="badge"
                  decoration-success="docker_status == 'running'"
@@ -341,7 +342,7 @@ for user in records:
             <group>
               <group string="Sandbox Info">
                 <field name="kensei_id"/>
-                <field name="employee_id"/>
+                <field name="employee_ids" widget="many2many_tags"/>
                 <field name="model_type"/>
                 <field name="session_status"/>
               </group>

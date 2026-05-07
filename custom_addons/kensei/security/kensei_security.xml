@@ -53,7 +53,7 @@
             <field name="name">Kensei Task: Tasker sees own</field>
             <field name="model_id" ref="model_kensei_kensei"/>
             <field name="groups" eval="[(4, ref('group_kensei_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
         </record>
 
         <record id="kensei_task_rule_ql" model="ir.rule">
@@ -75,7 +75,7 @@
             <field name="name">Kensei Turn: Tasker sees own</field>
             <field name="model_id" ref="model_kensei_turn"/>
             <field name="groups" eval="[(4, ref('group_kensei_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
         </record>
 
         <record id="kensei_turn_rule_ql" model="ir.rule">
@@ -97,7 +97,7 @@
             <field name="name">Kensei Sandbox: Tasker sees own</field>
             <field name="model_id" ref="model_kensei_sandbox"/>
             <field name="groups" eval="[(4, ref('group_kensei_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
         </record>
 
         <record id="kensei_sandbox_rule_ql" model="ir.rule">

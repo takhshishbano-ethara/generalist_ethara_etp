@@ -12,6 +12,7 @@ RUN echo "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/
     libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
     libcairo2 libasound2 libwayland-client0 \
     fonts-liberation fonts-noto-color-emoji \
+    && pip install --break-system-packages pytest==8.4.1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /home/node/.openclaw/workspace/memory \
