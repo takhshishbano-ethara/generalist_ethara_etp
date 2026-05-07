@@ -124,6 +124,18 @@ class KenseiConfigSettings(models.TransientModel):
         config_parameter="kensei.s3_region",
         default="us-east-1",
     )
+    kensei_ecr_registry = fields.Char(
+        string="ECR Registry",
+        config_parameter="kensei.ecr_registry",
+        default="426628337772.dkr.ecr.ap-south-1.amazonaws.com",
+        help="AWS ECR registry prefix for mock API container images (K8s mode).",
+    )
+    kensei_mock_image_tag = fields.Char(
+        string="Mock Image Tag",
+        config_parameter="kensei.mock_image_tag",
+        default="latest",
+        help="Docker image tag for mock API containers (e.g. 'latest', git SHA).",
+    )
 
     @api.depends_context("uid")
     def _compute_kensei_docker_available(self):
