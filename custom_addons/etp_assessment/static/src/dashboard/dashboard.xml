@@ -64,6 +64,11 @@
                         <div class="etp-dash-kpi-value"><t t-esc="state.kpis.completion_rate"/>%</div>
                         <div class="etp-dash-kpi-label">Completion Rate</div>
                     </div>
+                    <div class="etp-dash-kpi-card etp-kpi-violators" t-on-click="openViolators">
+                        <div class="etp-dash-kpi-icon"><i class="fa fa-exclamation-triangle"/></div>
+                        <div class="etp-dash-kpi-value"><t t-esc="state.kpis.total_violators"/></div>
+                        <div class="etp-dash-kpi-label">Violations</div>
+                    </div>
                 </div>
 
                 <div class="etp-dash-charts-row">

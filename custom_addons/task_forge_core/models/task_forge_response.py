@@ -17,6 +17,7 @@ class TaskForgeResponse(models.Model):
     label = fields.Char(string='Label (Snapshot)', required=True)
     sequence = fields.Integer(string='Sequence', required=True, default=1)
     value = fields.Text(string='Response Value')
+    response_url = fields.Char(string='Response URL')
 
     project_id = fields.Many2one(
         related='task_id.project_id', store=True, string='Project',

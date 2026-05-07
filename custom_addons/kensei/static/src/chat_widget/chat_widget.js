@@ -42,8 +42,17 @@ const ALLOWED_DOC_TYPES = [
     "application/pdf", "text/plain", "text/markdown",
     "text/html", "text/csv", "application/json",
 ];
-const ALLOWED_VIDEO_TYPES = [];
-const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES, ...ALLOWED_VIDEO_TYPES];
+const ALLOWED_VIDEO_TYPES = [
+    "video/mp4", "video/webm", "video/quicktime",
+    "video/x-msvideo", "video/mpeg", "video/x-m4v",
+];
+const ALLOWED_AUDIO_TYPES = [
+    "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg",
+    "audio/webm", "audio/x-m4a", "audio/mp4",
+];
+const MAX_MEDIA_SIZE_MB = 50;
+const MAX_MEDIA_SIZE_BYTES = MAX_MEDIA_SIZE_MB * 1024 * 1024;
+const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES, ...ALLOWED_VIDEO_TYPES, ...ALLOWED_AUDIO_TYPES];
 
 const LOGIN_URL_PATTERNS = [
     /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
@@ -68,6 +77,7 @@ const HTTP_ONLY_TYPES = new Set([
     "application/pdf", "text/plain", "text/markdown",
     "text/html", "text/csv", "application/json",
     ...ALLOWED_VIDEO_TYPES,
+    ...ALLOWED_AUDIO_TYPES,
 ]);
 
 function _extractUrlsFromText(text) {
@@ -1083,7 +1093,11 @@ export class KenseiChatWidget extends Component {
                 if (widget) widget.state.activityText = "";
                 const msg = messages.findLast(m => m.pending);
                 if (msg) {
-                    session._streamBuf = (session._streamBuf || "") + text;
+                    if (session._streamBuf && session._streamBuf.endsWith(text)) {
+                        // Already set by stream=assistant, skip duplicate
+                    } else {
+                        session._streamBuf = (session._streamBuf || "") + text;
+                    }
                     msg.text = session._streamBuf;
                     msg.html = markup(renderMarkdown(session._streamBuf));
                 }
@@ -1964,8 +1978,14 @@ export class KenseiChatWidget extends Component {
                 this.state.attachmentError = `"${file.name}" has unsupported type: ${file.type || "unknown"}`;
                 continue;
             }
-            const previewUrl = ALLOWED_IMAGE_TYPES.includes(file.type)
-                ? URL.createObjectURL(file) : null;
+            if ((ALLOWED_VIDEO_TYPES.includes(file.type) || ALLOWED_AUDIO_TYPES.includes(file.type)) && file.size > MAX_MEDIA_SIZE_BYTES) {
+                this.state.attachmentError = `"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max media size: ${MAX_MEDIA_SIZE_MB} MB.`;
+                continue;
+            }
+            const isImage = ALLOWED_IMAGE_TYPES.includes(file.type);
+            const isVideo = ALLOWED_VIDEO_TYPES.includes(file.type);
+            const isAudio = ALLOWED_AUDIO_TYPES.includes(file.type);
+            const previewUrl = (isImage || isVideo) ? URL.createObjectURL(file) : null;
             this.state.pendingAttachments.push({
                 id: crypto.randomUUID(),
                 file,
@@ -1973,6 +1993,7 @@ export class KenseiChatWidget extends Component {
                 mimeType: file.type,
                 size: file.size,
                 previewUrl,
+                isVideo,
             });
         }
     }
@@ -1996,10 +2017,9 @@ export class KenseiChatWidget extends Component {
         for (const att of this.state.pendingAttachments) {
             const rawBase64 = await this._fileToRawBase64(att.file);
             attachments.push({
-                type: att.mimeType.startsWith("image/") ? "image" : "file",
-                fileName: att.name,
+                name: att.name,
                 mimeType: att.mimeType,
-                content: rawBase64,
+                media: `data:${att.mimeType};base64,${rawBase64}`,
             });
         }
         return attachments;
@@ -2087,9 +2107,14 @@ export class KenseiChatWidget extends Component {
         this._session.currentTurnId = turnId;
 
         if (attachmentsPayload.length > 0) {
+            const persistPayload = attachmentsPayload.map(a => ({
+                fileName: a.name,
+                mimeType: a.mimeType,
+                content: a.media.split(",")[1] || "",
+            }));
             rpc("/kensei/chat/persist_attachments", {
                 sandbox_id: this.props.sandboxId,
-                attachments: attachmentsPayload,
+                attachments: persistPayload,
                 turn_id: turnId || 0,
             }).catch(e => console.warn(LOG_PREFIX, "persist_attachments failed:", e));
         }
@@ -2223,6 +2248,12 @@ export class KenseiChatWidget extends Component {
     }
 
     async _sendToOpenClaw(text, attachments = []) {
+        const hasMediaAttachment = attachments.some(a =>
+            a.mimeType.startsWith("audio/") || a.mimeType.startsWith("video/")
+        );
+        if (hasMediaAttachment) {
+            return this._sendMediaViaWorkspace(text, attachments);
+        }
         const hasNonImageAttachment = attachments.some(a => HTTP_ONLY_TYPES.has(a.mimeType));
         if (hasNonImageAttachment) {
             return this._sendViaHttpResponses(text, attachments);
@@ -2275,6 +2306,29 @@ export class KenseiChatWidget extends Component {
         this._scrollToBottom();
     }
 
+    async _sendMediaViaWorkspace(text, attachments) {
+        const persistPayload = attachments.map(a => ({
+            fileName: a.name,
+            mimeType: a.mimeType,
+            content: a.media.split(",")[1] || "",
+        }));
+        let persistResult;
+        try {
+            persistResult = await rpc("/kensei/chat/persist_attachments", {
+                sandbox_id: this.props.sandboxId,
+                attachments: persistPayload,
+                turn_id: this._session.currentTurnId || 0,
+            });
+        } catch (e) {
+            console.warn(LOG_PREFIX, "persist_attachments for media failed:", e);
+        }
+        const mediaRefs = (persistResult?.persisted || []).map(p =>
+            `MEDIA: \`/home/node/.openclaw/uploads/${p.storedAs}\``
+        ).join("\n");
+        const fullMessage = mediaRefs ? `${text}\n\n${mediaRefs}` : text;
+        return this._sendToOpenClaw(fullMessage, []);
+    }
+
     async _sendViaHttpResponses(text, attachmentsPayload) {
         const httpBase = _wsUrlToHttpUrl(this.gatewayWsUrl);
         const token = this.gatewayToken;
@@ -2295,17 +2349,11 @@ export class KenseiChatWidget extends Component {
             content.push({ type: "input_text", text });
         }
         for (const att of attachmentsPayload) {
-            if (att.mimeType.startsWith("image/")) {
-                content.push({
-                    type: "input_image",
-                    source: { type: "base64", media_type: att.mimeType, data: att.content },
-                });
-            } else {
-                content.push({
-                    type: "input_file",
-                    source: { type: "base64", media_type: att.mimeType, data: att.content, filename: att.fileName },
-                });
-            }
+            const rawBase64 = att.media.split(",")[1] || "";
+            content.push({
+                type: "input_image",
+                source: { type: "base64", media_type: att.mimeType, data: rawBase64 },
+            });
         }
 
         const body = {
