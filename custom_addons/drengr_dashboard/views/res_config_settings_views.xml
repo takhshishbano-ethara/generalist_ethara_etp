@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_drengr_dashboard" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.drengr_dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Drengr Dashboard" string="Drengr Dashboard" name="drengr_dashboard">
+                    <block title="Showcase Link Buttons">
+                        <setting string="GitHub URL"
+                                 help="Override the GitHub button link. Leave empty to use the default URL.">
+                            <field name="drengr_github_url"
+                                   placeholder="https://github.com/Open-Agent-Safety/OpenAgentSafety"/>
+                        </setting>
+                        <setting string="Dataset URL"
+                                 help="Override the Dataset button link. Leave empty to use the default HuggingFace URL.">
+                            <field name="drengr_dataset_url"
+                                   placeholder="https://huggingface.co/datasets/ethara/Drengr"/>
+                        </setting>
+                        <setting string="Paper URL"
+                                 help="Override the Paper button link. Leave empty to use the default arXiv URL.">
+                            <field name="drengr_paper_url"
+                                   placeholder="https://arxiv.org/abs/2507.06134"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
