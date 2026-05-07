@@ -2385,6 +2385,7 @@ class KenseiSandbox(models.Model):
             config["agents"] = {
                 "defaults": {
                     "model": default_model,
+                    "imageModel": {"primary": "litellm/" + default_model},
                     "thinkingDefault": "xhigh",
                 }
             }
@@ -2697,32 +2698,33 @@ class KenseiSandbox(models.Model):
         if self.docker_status != "running":
             return
 
-        from odoo.modules.module import get_module_path
-
-        mod_path = get_module_path("kensei")
-        if not mod_path:
-            return
-        env_dir = os.path.join(mod_path, "environment")
-        if not os.path.isdir(env_dir):
-            return
-
-        services = []
-        for entry in sorted(os.listdir(env_dir)):
-            toml_path = os.path.join(env_dir, entry, "service.toml")
-            if not os.path.isfile(toml_path):
-                continue
-            svc_meta = self._parse_service_toml(toml_path)
-            if svc_meta:
-                services.append(svc_meta)
-
-        if not services:
-            return
-
         mode = self._deployment_mode()
         if mode == "k8s":
-            self._collect_audit_k8s(services)
+            # Use _load_environment_services from K8s mixin (has dynamic image resolution)
+            services = self._load_environment_services()
+            if services:
+                self._collect_audit_k8s(services)
         else:
-            self._collect_audit_local(services)
+            from odoo.modules.module import get_module_path
+
+            mod_path = get_module_path("kensei")
+            if not mod_path:
+                return
+            env_dir = os.path.join(mod_path, "environment")
+            if not os.path.isdir(env_dir):
+                return
+
+            services = []
+            for entry in sorted(os.listdir(env_dir)):
+                toml_path = os.path.join(env_dir, entry, "service.toml")
+                if not os.path.isfile(toml_path):
+                    continue
+                svc_meta = self._parse_service_toml(toml_path)
+                if svc_meta:
+                    services.append(svc_meta)
+
+            if services:
+                self._collect_audit_local(services)
 
     def _collect_audit_local(self, services):
         compose_bin = _compose_cmd()
@@ -2790,7 +2792,7 @@ class KenseiSandbox(models.Model):
             return
 
         core_v1 = k8s_client.CoreV1Api()
-        pod_label = "app=kensei-sandbox-%s" % self.id
+        pod_label = "app.kubernetes.io/name=kensei-sandbox,task-id=%s" % self.id
         namespace = "kensei"
 
         try:
@@ -2805,8 +2807,6 @@ class KenseiSandbox(models.Model):
             return
 
         for svc in services:
-            if not svc.get("k8s_image"):
-                continue
             try:
                 fetch_cmd = [
                     "python3", "-c",

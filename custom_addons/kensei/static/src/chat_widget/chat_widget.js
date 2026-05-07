@@ -1093,7 +1093,11 @@ export class KenseiChatWidget extends Component {
                 if (widget) widget.state.activityText = "";
                 const msg = messages.findLast(m => m.pending);
                 if (msg) {
-                    session._streamBuf = (session._streamBuf || "") + text;
+                    if (session._streamBuf && session._streamBuf.endsWith(text)) {
+                        // Already set by stream=assistant, skip duplicate
+                    } else {
+                        session._streamBuf = (session._streamBuf || "") + text;
+                    }
                     msg.text = session._streamBuf;
                     msg.html = markup(renderMarkdown(session._streamBuf));
                 }

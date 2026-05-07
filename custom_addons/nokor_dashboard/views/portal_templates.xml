@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <!--
+    Nokor Dashboard — public single-page editorial view.
+
+    Mounted at /nokor by controllers/main.py (NokorShowcaseController).
+    The controller passes config URLs which the client-side JS
+    consumes to render the dataset viewer table.
+
+    Layout: standalone HTML (no portal.portal_layout). Mirrors
+    Tesseract's editorial section-numbered design with Nokor's
+    GAIA benchmark content and all DOM IDs preserved for JS hooks.
+  -->
+
+  <template id="portal_showcase" name="Nokor Dashboard">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>NOKOR — General AI Assistant Benchmark · ETHARA AI</title>
+      <meta name="description" content="Nokor evaluates AI assistants on multi-modal reasoning and tool-use tasks across PDF, Web, Image, Video, and Reasoning modalities using the GAIA framework."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <!-- Sync theme-setter: reads the saved choice BEFORE stylesheet
+           tokens resolve, so there is no flash when revisiting the page.
+           Runs inline (no defer) by design. -->
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('nokor:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <!-- Nokor editorial stylesheet served as a static asset
+           (bypasses web.assets_frontend so Bootstrap/portal chrome
+           does not override the design). -->
+      <link rel="stylesheet" href="/nokor_dashboard/static/src/portal/css/nokor_portal.css"/>
+
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/nokor_dashboard/static/src/portal/js/nokor_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+
+      <!-- Scroll progress rail. Thin 2px bar at the top of the viewport
+           that fills left-to-right as the user scrolls. Updated via
+           requestAnimationFrame in nokor_portal.js. -->
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <!-- Theme toggle. Two icons layered; CSS flips visibility per
+           `data-theme` attribute on :root. JS updates the attribute
+           and persists the choice to localStorage. -->
+      <button type="button" id="nk-theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="nk-portal page" id="nk-portal">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">NOKOR</h1>
+      <span class="badge mono">GENERAL AI ASSISTANT BENCHMARK</span>
+    </div>
+    <hr class="rule"/>
+    <p class="thesis">Multi-Modal Reasoning and Tool-Use Evaluation — GAIA Framework</p>
+  </header>
+
+  <main id="main">
+
+  <!-- ================= §01 THE BENCHMARK ================= -->
+  <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
+    <p class="section-label" id="overview-label">§01 · The benchmark</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>NOKOR evaluates frontier AI assistants on multi-modal reasoning and tool-use tasks derived from the GAIA (General AI Assistant) framework. Given real-world documents, images, videos, and web-accessible information, models must decompose complex questions into multi-step reasoning chains, select appropriate tools, and synthesize precise answers. Unlike single-modality benchmarks, Nokor requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning — mirroring the complexity of real-world information work.</p>
+        <ul class="capabilities">
+          <li>Multi-modal evaluation across 5 modalities: PDF, Web, Image, Video, Reasoning</li>
+          <li>Tool-use assessment: PDF reader, Web search, Calculator, Image/Video analysis</li>
+          <li>Three difficulty tiers: Hard, Very Hard, Expert</li>
+          <li>Exact-match scoring with deterministic ground truth answers</li>
+          <li>Cost and latency tracking per model per instance</li>
+          <li>GAIA methodology for reproducible multi-step evaluation</li>
+        </ul>
+      </div>
+
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Documents</dt><dd><b>2,400+</b></dd></div>
+          <div class="glance-row"><dt>Modalities</dt><dd><b>5</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
+          <div class="glance-row"><dt>Methodology</dt><dd>GAIA Framework</dd></div>
+          <div class="glance-row"><dt>Difficulty</dt><dd><b>3</b> levels</dd></div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= §02 THE FUNNEL ================= -->
+  <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
+    <p class="section-label" id="scale-label">§02 · The scale</p>
+    <p class="section-desc">Ten thousand curated instances. Two frontier models. Five modalities.</p>
+    <div class="funnel" aria-label="Funnel from 10,000 instances to 2 models evaluated">
+      <div class="funnel-step">
+        <span class="funnel-num" data-target="10000" aria-hidden="true">0</span>
+        <span class="sr-only">10,000</span>
+        <span class="funnel-unit">Instances curated</span>
+        <span class="funnel-sub">across 5 modalities</span>
+      </div>
+      <span class="funnel-arrow mono" aria-hidden="true">→</span>
+      <div class="funnel-step">
+        <span class="funnel-num" data-target="2" aria-hidden="true">0</span>
+        <span class="sr-only">2</span>
+        <span class="funnel-unit">Models evaluated</span>
+        <span class="funnel-sub">Kimi 2.5 · Nova-2-Lite</span>
+      </div>
+      <span class="funnel-arrow mono" aria-hidden="true">→</span>
+      <div class="funnel-step funnel-step--final">
+        <span class="funnel-num" data-target="20000" aria-hidden="true">0</span>
+        <span class="sr-only">20,000</span>
+        <span class="funnel-unit">Evaluations completed</span>
+        <span class="funnel-sub">2 models × 10,000 instances</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §03 PIPELINE ================= -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
+    <p class="section-label" id="pipeline-label">§03 · The pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">Three phases turn raw documents into scored evaluations.</h2>
+      </div>
+
+      <div class="pipeline">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">Data Curation</h4>
+          <ul class="phase-body">
+            <li>Collect real-world documents: PDFs, images, videos, web pages</li>
+            <li>Design multi-step questions requiring cross-modal reasoning</li>
+            <li>Establish deterministic ground truth answers</li>
+            <li>Assign difficulty levels (Hard, Very Hard, Expert)</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">Agent Execution</h4>
+          <ul class="phase-body">
+            <li>Deploy AI agents with access to tools (PDF reader, web search, calculator)</li>
+            <li>Agents decompose questions into multi-step reasoning chains</li>
+            <li>Track tool selection, execution time, and API costs</li>
+            <li>Record complete interaction trajectories</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">Scoring</h4>
+          <ul class="phase-body">
+            <li>Compare agent answers against ground truth (exact match)</li>
+            <li>Compute per-model accuracy across difficulty levels</li>
+            <li>Analyze cost-efficiency and latency trade-offs</li>
+            <li>Generate per-modality and per-difficulty breakdowns</li>
+          </ul>
+        </article>
+      </div>
+    </div><!-- /.pipeline-frame -->
+  </section>
+
+  <!-- ================= §04 RESULTS ================= -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
+    <p class="section-label" id="results-label">§04 · The results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        Overall accuracy for two frontier models (Kimi 2.5 at 75%, Nova-2-Lite at 20%).
+      </p>
+      <p class="reveal-line reveal-kicker">
+        Kimi 2.5 dominates across all difficulty levels but at 12× the cost of Nova-2-Lite.
+      </p>
+    </div>
+
+    <div class="results-summary">
+      <div class="result-card result-card--primary">
+        <span class="result-model mono">Kimi 2.5</span>
+        <span class="result-score">75<small>%</small></span>
+        <span class="result-detail mono">15/20 pass · $0.36/instance · 420s avg</span>
+      </div>
+      <div class="result-card">
+        <span class="result-model mono">Nova-2-Lite</span>
+        <span class="result-score">20<small>%</small></span>
+        <span class="result-detail mono">4/20 pass · $0.03/instance · 280s avg</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §05 MODEL COMPARISON ================= -->
+  <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
+    <p class="section-label" id="comparison-label">§05 · Model comparison</p>
+    <p class="section-desc">Side-by-side performance breakdown across difficulty tiers and modalities.</p>
+
+    <div class="quality-grid">
+      <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
+        <span class="nk-quality-num" data-target="75">75</span>
+        <span class="quality-label">Kimi 2.5 Accuracy</span>
+        <span class="quality-pct mono">15/20 PASS</span>
+      </div>
+      <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
+        <span class="nk-quality-num" data-target="20">20</span>
+        <span class="quality-label">Nova-2-Lite Accuracy</span>
+        <span class="quality-pct mono">4/20 PASS</span>
+      </div>
+      <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
+        <span class="nk-quality-num" data-target="12">12</span>
+        <span class="quality-label">Cost Ratio (Kimi/Nova)</span>
+        <span class="quality-pct mono">$0.36 vs $0.03</span>
+      </div>
+      <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
+        <span class="nk-quality-num" data-target="55">55</span>
+        <span class="quality-label">Accuracy Gap</span>
+        <span class="quality-pct mono">percentage points</span>
+      </div>
+    </div>
+
+    <div class="confidence-strip" data-animate="fade-up">
+      <span class="nk-confidence-big">47.5%</span>
+      <span class="confidence-lbl mono">Mean Accuracy (both models)</span>
+    </div>
+  </section>
+
+  <!-- ================= §06 DIFFICULTY DISTRIBUTION ================= -->
+  <section class="section" id="difficulty" aria-labelledby="difficulty-label" data-animate="fade-up">
+    <p class="section-label" id="difficulty-label">§06 · Difficulty distribution</p>
+    <p class="section-desc">Task breakdown by difficulty level and modality coverage.</p>
+
+    <div class="distribution-grid">
+      <div class="dist-card" data-animate="fade-up" data-delay="0">
+        <span class="dist-pct mono">25%</span>
+        <span class="dist-label">Hard</span>
+        <span class="dist-badge dist-badge--hard">5 instances</span>
+      </div>
+      <div class="dist-card" data-animate="fade-up" data-delay="1">
+        <span class="dist-pct mono">40%</span>
+        <span class="dist-label">Very Hard</span>
+        <span class="dist-badge dist-badge--vhard">8 instances</span>
+      </div>
+      <div class="dist-card" data-animate="fade-up" data-delay="2">
+        <span class="dist-pct mono">35%</span>
+        <span class="dist-label">Expert</span>
+        <span class="dist-badge dist-badge--expert">7 instances</span>
+      </div>
+    </div>
+
+    <div class="modality-strip" data-animate="fade-up">
+      <div class="mod-item"><span class="mod-pct">34%</span><span class="mod-name mono">PDF</span></div>
+      <div class="mod-item"><span class="mod-pct">38%</span><span class="mod-name mono">Web</span></div>
+      <div class="mod-item"><span class="mod-pct">15%</span><span class="mod-name mono">Image</span></div>
+      <div class="mod-item"><span class="mod-pct">8%</span><span class="mod-name mono">Video</span></div>
+      <div class="mod-item"><span class="mod-pct">5%</span><span class="mod-name mono">Reasoning</span></div>
+    </div>
+  </section>
+
+  <!-- ================= §07 DATASET VIEWER ================= -->
+  <section class="section" id="nk-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
+    <p class="section-label" id="viewer-label">§07 · Dataset viewer</p>
+
+    <!-- KPI row -->
+    <div class="kpi-row" aria-label="Headline statistics for the evaluation">
+      <div class="kpi-card">
+        <p class="kpi-label">Total Instances</p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Models</p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Modalities</p>
+        <p class="kpi-value"><span class="kpi-big">5</span></p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Kimi 2.5 Accuracy</p>
+        <p class="kpi-value"><span class="kpi-big">75<small>%</small></span></p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="eval-controls">
+      <div class="eval-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="nk-eval-search" placeholder="Search instances..." autocomplete="off"/>
+      </div>
+      <div class="eval-filters">
+        <select id="nk-eval-difficulty">
+          <option value="">All Difficulties</option>
+          <option value="Hard">Hard</option>
+          <option value="Very Hard">Very Hard</option>
+          <option value="Expert">Expert</option>
+        </select>
+        <select id="nk-eval-sort">
+          <option value="instance_id">Instance (A-Z)</option>
+          <option value="level">Difficulty</option>
+          <option value="modality">Modality</option>
+          <option value="kimi_pass" selected="selected">Kimi 2.5</option>
+          <option value="nova_pass">Nova-2-Lite</option>
+        </select>
+        <button type="button" id="nk-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
+      </div>
+      <div class="eval-meta">
+        <span id="nk-eval-count">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="eval-table-wrap" id="nk-eval-table-wrap">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th class="eth-instance">Instance</th>
+            <th class="eth-level">Difficulty</th>
+            <th class="eth-modality">Modality</th>
+            <th class="eth-kimi">Kimi 2.5</th>
+            <th class="eth-nova">Nova-2-Lite</th>
+            <th class="eth-tools">Tools</th>
+            <th class="eth-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="nk-eval-tbody"></tbody>
+      </table>
+    </div>
+    <div class="eval-pagination" id="nk-eval-pagination"></div>
+  </section>
+
+  <!-- ================= §08 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label" data-animate="fade-up">
+    <p class="section-label" id="methodology-label">§08 · Methodology</p>
+    <p class="section-desc">Four scoring principles ensure fair and reproducible evaluation.</p>
+
+    <div class="methodology-grid">
+      <div class="meth-card" data-animate="fade-up" data-delay="0">
+        <span class="meth-num mono">01</span>
+        <h4 class="meth-title">Exact Match</h4>
+        <p class="meth-desc">Answers must match ground truth exactly — no partial credit, no fuzzy matching.</p>
+      </div>
+      <div class="meth-card" data-animate="fade-up" data-delay="1">
+        <span class="meth-num mono">02</span>
+        <h4 class="meth-title">Tool Transparency</h4>
+        <p class="meth-desc">All tool calls are logged. Models must demonstrate appropriate tool selection.</p>
+      </div>
+      <div class="meth-card" data-animate="fade-up" data-delay="2">
+        <span class="meth-num mono">03</span>
+        <h4 class="meth-title">Cost Tracking</h4>
+        <p class="meth-desc">Every API call is costed. Accuracy must be weighed against economic viability.</p>
+      </div>
+      <div class="meth-card" data-animate="fade-up" data-delay="3">
+        <span class="meth-num mono">04</span>
+        <h4 class="meth-title">Reproducibility</h4>
+        <p class="meth-desc">Fixed seeds, deterministic scoring, published trajectories for independent verification.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §09 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
+    <p class="section-label" id="resources-label">§09 · Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
+      <a class="resource" t-att-href="github_url" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Code</p>
+        <p class="res-title">Source on GitHub</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Nokor</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Data</p>
+        <p class="res-title">Dataset on HuggingFace</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Nokor</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono"> Ethara AI Labs. Project Nokor.</p>
+    </div>
+  </footer>
+
+</div><!-- /.page -->
+
+      <!-- Lightbox overlay — hidden until a chart image is clicked.
+           JS sets the <img> src + alt from the trigger, then toggles
+           [data-open]. Close via button, overlay click, or Escape. -->
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt="" style="display:none;"/>
+          <iframe id="lightbox-pdf" src="" style="display:none;" allow="fullscreen"></iframe>
+          <video id="lightbox-video" src="" controls="controls" style="display:none;"></video>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+          <a id="lightbox-external" class="lightbox-external-link" href="" target="_blank" rel="noopener" style="display:none;">Open in new tab ↗</a>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>
