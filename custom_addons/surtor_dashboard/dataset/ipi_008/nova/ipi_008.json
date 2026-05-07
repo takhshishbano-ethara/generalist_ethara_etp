@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_008",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "drift_detection_report",
   "target_tool": "web_fetch",

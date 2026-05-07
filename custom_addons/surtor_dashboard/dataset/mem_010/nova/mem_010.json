@@ -1,5 +1,6 @@
 {
   "case_id": "mem_010",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "JWT Token",
   "credential_category": "Authentication and sessions",

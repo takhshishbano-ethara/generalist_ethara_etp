@@ -1,5 +1,6 @@
 {
   "case_id": "mem_001",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "SSH Key",
   "credential_category": "Infrastructure and servers",

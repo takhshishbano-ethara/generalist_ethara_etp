@@ -187,13 +187,20 @@
   function getTypeLabel(inst) {
     if (inst.type === 'ipi') return 'IPI';
     if (inst.type === 'memory_credential') return 'MEM';
+    if (inst.type === 'trd') return 'TRD';
     return inst.type || '—';
   }
 
   function scoreColor(score) {
-    if (score === 3) return 'var(--pass)';
-    if (score === 0) return 'var(--fail)';
+    if (score === 3) return 'var(--fail)';
+    if (score === 0) return 'var(--pass)';
     return 'var(--accent)';
+  }
+
+  function scoreLabel(score) {
+    if (score === 3) return 'FAIL';
+    if (score === 0) return 'PASS';
+    return 'PARTIAL';
   }
 
   function getFiltered() {
@@ -244,12 +251,6 @@
         + item('Carrier File', esc(inst.carrier_file))
         + item('Multi-Turn', inst.multi_turn ? 'Yes' : 'No')
       + `</div>`;
-      html += `<div class="detail-block"><div class="detail-block-title">Model Results</div>`
-        + item('GLM-5 Score', inst.glm_score + '/3')
-        + item('GLM-5 Cost', '$' + (inst.glm_cost || 0).toFixed(4))
-        + item('Nova Score', inst.nova_score + '/3')
-        + item('Nova Cost', '$' + (inst.nova_cost || 0).toFixed(4))
-      + `</div>`;
     } else if (inst.type === 'memory_credential') {
       html += `<div class="detail-block"><div class="detail-block-title">Memory Attack Details</div>`
         + item('Technique', esc(inst.technique))
@@ -257,15 +258,24 @@
         + item('Credential Category', esc(inst.credential_category))
         + item('Difficulty', esc(inst.difficulty))
       + `</div>`;
-      html += `<div class="detail-block"><div class="detail-block-title">Model Results</div>`
-        + item('GLM-5 Score', inst.glm_score + '/3')
-        + item('GLM-5 Leaked', inst.glm_leaked ? 'Yes' : 'No')
-        + item('GLM-5 Cost', '$' + (inst.glm_cost || 0).toFixed(4))
-        + item('Nova Score', inst.nova_score + '/3')
-        + item('Nova Leaked', inst.nova_leaked ? 'Yes' : 'No')
-        + item('Nova Cost', '$' + (inst.nova_cost || 0).toFixed(4))
+    } else if (inst.type === 'trd') {
+      html += `<div class="detail-block"><div class="detail-block-title">TRD Attack Details</div>`
+        + item('Technique', esc(inst.technique))
+        + item('Target Tool', esc(inst.target_tool))
+        + item('Target Domain', esc(inst.target_domain || ''))
+        + item('Poisoned Tool', esc(inst.poisoned_tool || ''))
+        + item('Difficulty', esc(inst.difficulty))
+        + item('Multi-Turn', inst.multi_turn ? 'Yes' : 'No')
       + `</div>`;
     }
+
+    html += `<div class="detail-block"><div class="detail-block-title">Model Results</div>`
+      + item('GLM-5', '<span style="color:' + scoreColor(inst.glm_score) + ';font-weight:600;">' + scoreLabel(inst.glm_score) + ' (' + inst.glm_score + '/3)</span>')
+      + item('Nova-2-Lite', '<span style="color:' + scoreColor(inst.nova_score) + ';font-weight:600;">' + scoreLabel(inst.nova_score) + ' (' + inst.nova_score + '/3)</span>')
+      + item('GLM-5 Cost', '$' + (inst.glm_cost || 0).toFixed(4))
+      + item('Nova Cost', '$' + (inst.nova_cost || 0).toFixed(4))
+      + (inst.type === 'memory_credential' ? item('GLM-5 Leaked', inst.glm_leaked ? 'Yes' : 'No') + item('Nova Leaked', inst.nova_leaked ? 'Yes' : 'No') : '')
+    + `</div>`;
 
     html += `</div></div></td></tr>`;
     return html;
@@ -289,14 +299,17 @@
       const tagStyle = 'display:inline-flex;align-items:center;justify-content:center;min-height:28px;text-align:center;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;padding:3px 8px;border:1px solid currentColor;white-space:nowrap;line-height:1.3;box-sizing:border-box;';
       const typeColor = typeLabel === 'IPI' ? 'color:var(--fail);' : 'color:#7c3aed;';
 
+      const glmFlag = `<span style="${tagStyle}color:${scoreColor(inst.glm_score)};">${scoreLabel(inst.glm_score)}</span>`;
+      const novaFlag = `<span style="${tagStyle}color:${scoreColor(inst.nova_score)};">${scoreLabel(inst.nova_score)}</span>`;
+
       html += `
         <tr class="matrix-row${isExpanded ? ' row-expanded' : ''}" data-id="${esc(inst.case_id)}">
           <td class="matrix-id"><span class="num mono">${String(start + i + 1).padStart(2, '0')}</span></td>
           <td class="matrix-id">${esc((inst.case_id || '').toUpperCase())}</td>
           <td class="matrix-cell"><span style="${tagStyle}${typeColor}">${esc(typeLabel)}</span></td>
           <td class="matrix-id">${esc(inst.technique)}</td>
-          <td class="matrix-id"><span style="color:${scoreColor(inst.glm_score)};font-weight:600;">${inst.glm_score}/3</span></td>
-          <td class="matrix-id"><span style="color:${scoreColor(inst.nova_score)};font-weight:600;">${inst.nova_score}/3</span></td>
+          <td class="matrix-cell">${glmFlag}</td>
+          <td class="matrix-cell">${novaFlag}</td>
           <td class="matrix-cell"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>
         </tr>
       `;

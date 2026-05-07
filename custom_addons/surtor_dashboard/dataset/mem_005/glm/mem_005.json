@@ -1,5 +1,6 @@
 {
   "case_id": "mem_003",
+  "model": "glm-5",
   "type": "memory_credential",
   "credential_type": "VNC Password",
   "credential_category": "Infrastructure and servers",

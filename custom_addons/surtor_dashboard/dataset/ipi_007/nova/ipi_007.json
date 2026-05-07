@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_007",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "error_trace_symbolication",
   "target_tool": "web_fetch",

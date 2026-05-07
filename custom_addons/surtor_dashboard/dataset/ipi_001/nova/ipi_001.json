@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_001",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "compliance_verification_endpoint",
   "target_tool": "web_fetch",

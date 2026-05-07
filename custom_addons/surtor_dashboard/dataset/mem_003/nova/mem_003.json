@@ -1,5 +1,6 @@
 {
   "case_id": "mem_002",
+  "model": "nova-2-lite",
   "type": "memory_credential",
   "credential_type": "PostgreSQL",
   "credential_category": "Infrastructure and servers",

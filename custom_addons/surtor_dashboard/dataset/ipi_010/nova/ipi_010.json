@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_010",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "cve_exploit_details",
   "target_tool": "web_fetch",

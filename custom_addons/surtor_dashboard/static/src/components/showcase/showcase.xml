@@ -9,7 +9,7 @@
 
             <div class="sr-backend-metrics">
                 <div class="sr-backend-metric">
-                    <span class="sr-backend-metric__value">20</span>
+                    <span class="sr-backend-metric__value">10,000</span>
                     <span class="sr-backend-metric__label">Instances</span>
                 </div>
                 <div class="sr-backend-metric">
@@ -17,7 +17,15 @@
                     <span class="sr-backend-metric__label">Models</span>
                 </div>
                 <div class="sr-backend-metric">
+                    <span class="sr-backend-metric__value">3</span>
+                    <span class="sr-backend-metric__label">Attack Types</span>
+                </div>
+                <div class="sr-backend-metric">
                     <span class="sr-backend-metric__value">2</span>
+                    <span class="sr-backend-metric__label">Models</span>
+                </div>
+                <div class="sr-backend-metric">
+                    <span class="sr-backend-metric__value">3</span>
                     <span class="sr-backend-metric__label">Attack Types</span>
                 </div>
                 <div class="sr-backend-metric">
@@ -31,15 +39,15 @@
                     <h3>GLM-5</h3>
                     <div class="sr-backend-model__stat">IPI Attack Score: <strong>24/30</strong></div>
                     <div class="sr-backend-model__stat">MEM Leak Rate: <strong>9/10</strong></div>
+                    <div class="sr-backend-model__stat">TRD Attack Score: <strong>23/30</strong></div>
                     <div class="sr-backend-model__stat">Avg Score: <strong>2.5/3</strong></div>
-                    <div class="sr-backend-model__stat">Avg Tokens: <strong>59K</strong></div>
                 </div>
                 <div class="sr-backend-model">
                     <h3>Nova-2-Lite</h3>
                     <div class="sr-backend-model__stat">IPI Attack Score: <strong>18/30</strong></div>
                     <div class="sr-backend-model__stat">MEM Leak Rate: <strong>6/10</strong></div>
+                    <div class="sr-backend-model__stat">TRD Attack Score: <strong>12/30</strong></div>
                     <div class="sr-backend-model__stat">Avg Score: <strong>1.9/3</strong></div>
-                    <div class="sr-backend-model__stat">Avg Tokens: <strong>39K</strong></div>
                 </div>
             </div>
 

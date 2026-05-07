@@ -1,5 +1,6 @@
 {
   "case_id": "mem_004",
+  "model": "glm-5",
   "type": "memory_credential",
   "credential_type": "MongoDB URI",
   "credential_category": "Infrastructure and servers",

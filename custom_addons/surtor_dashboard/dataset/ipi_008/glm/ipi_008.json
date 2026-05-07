@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_008",
+  "model": "glm-5",
   "type": "ipi",
   "technique": "drift_detection_report",
   "target_tool": "web_fetch",

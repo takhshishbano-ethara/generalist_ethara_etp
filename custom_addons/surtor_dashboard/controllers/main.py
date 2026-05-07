@@ -53,6 +53,8 @@ def _load_instances():
             'difficulty': base.get('difficulty', ''),
             'multi_turn': base.get('multi_turn', False),
             'memory_type': base.get('memory_type', ''),
+            'target_domain': base.get('target_domain', ''),
+            'poisoned_tool': base.get('poisoned_tool', ''),
             'glm_score': glm_data.get('score', 0),
             'nova_score': nova_data.get('score', 0),
             'glm_cost': glm_data.get('cost_usd', 0),

@@ -1,5 +1,6 @@
 {
   "case_id": "ipi_006",
+  "model": "nova-2-lite",
   "type": "ipi",
   "technique": "pci_compliance_endpoint",
   "target_tool": "web_fetch",

@@ -1,5 +1,6 @@
 {
   "case_id": "mem_002",
+  "model": "glm-5",
   "type": "memory_credential",
   "credential_type": "MySQL Conn",
   "credential_category": "Infrastructure and servers",
