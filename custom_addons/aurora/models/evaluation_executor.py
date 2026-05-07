@@ -219,7 +219,7 @@ def _promote_linked_staging_record(cr: Any, eval_rec_id: int) -> None:
         )
 
 
-def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
+def _sync_missing_registries(cr: Any, rec_id: int, eval_config, pipeline_id: int = None) -> None:
     """Ensure every (org, repo) in the dataset has a harness class registered.
 
     Lookup order per (org, repo): staging overlay (already loaded before this
@@ -247,9 +247,19 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
         return
 
     # Lease a single token from the pool for read-only registry sync.
+    # pipeline_id is used as the FK references aurora_pipeline.
     from .github_token import AuroraGithubToken
 
-    tokens = AuroraGithubToken.lease_tokens(cr, rec_id, count=1)
+    if not pipeline_id:
+        _append_log(
+            cr, rec_id,
+            f"{len(needing_sync)} repo(s) missing from local registry and "
+            f"no pipeline_id linked. Cannot lease tokens (FK constraint). "
+            f"Skipping dynamic registry sync.",
+        )
+        return
+
+    tokens = AuroraGithubToken.lease_tokens(cr, pipeline_id, count=1)
     cr.commit()
     if not tokens:
         _append_log(
@@ -268,7 +278,7 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
         )
     except Exception as exc:
         _logger.warning("harness_bridge not importable: %s", exc, exc_info=True)
-        AuroraGithubToken.release_tokens(cr, rec_id)
+        AuroraGithubToken.release_tokens(cr, pipeline_id)
         cr.commit()
         return
 
@@ -288,7 +298,7 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
                 failed.append(f"{org}/{repo}")
                 _append_log(cr, rec_id, f"Registry sync failed for {org}/{repo}: {exc}")
     finally:
-        AuroraGithubToken.release_tokens(cr, rec_id)
+        AuroraGithubToken.release_tokens(cr, pipeline_id)
 
     if synced_count:
         cr.commit()
@@ -715,6 +725,7 @@ def _read_eval_config(db_name: str, rec_id: int) -> dict[str, Any]:
             "docker_platform": rec.docker_platform or None,
             "instance_limit": rec.instance_limit or 0,
             "specific_prs": rec.specific_prs or "",
+            "pipeline_id": rec.pipeline_id.id if rec.pipeline_id else None,
         }
     finally:
         cr.close()
@@ -892,7 +903,7 @@ def _run_evaluation(db_name, uid, rec_id):
 
         total_dataset = len(eval_config.dataset)
 
-        _sync_missing_registries(cr, rec_id, eval_config)
+        _sync_missing_registries(cr, rec_id, eval_config, pipeline_id=cfg.get("pipeline_id"))
 
         total_instances = len(eval_config.instances)
         parse_failures = getattr(eval_config, "_dataset_parse_failures", []) or []

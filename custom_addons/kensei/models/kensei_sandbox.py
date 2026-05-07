@@ -80,11 +80,13 @@ _SANDBOX_LOCK = threading.Lock()
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
     ("glm", "Kimi K2.6"),
+    ("gpt", "GPT-5.5"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
     "glm": "litellm/kimi-k2.6",
+    "gpt": "litellm/gpt-5.5",
 }
 
 GATEWAY_PORT_BASE = 21000
@@ -94,6 +96,7 @@ DB_PORT_BASE = 17432
 TRAJECTORY_FIELD_MAP = {
     "claude": "claude_trajectory",
     "glm": "glm_trajectory",
+    "gpt": "gpt_trajectory",
     "1pa": "onePA_trajectory",
     "1pb": "onePB_trajectory",
     "1pc": "onePC_trajectory",
@@ -372,6 +375,9 @@ class KenseiSandbox(models.Model):
     turn_ids = fields.One2many("kensei.turn", "sandbox_id", string="Turns")
     api_request_ids = fields.One2many(
         "kensei.api.request", "sandbox_id", string="API Request Logs"
+    )
+    test_result_ids = fields.One2many(
+        "kensei.test.result", "sandbox_id", string="Test Results"
     )
 
     _sql_constraints = [
@@ -1507,6 +1513,7 @@ class KenseiSandbox(models.Model):
 
         self._export_trajectory_to_task()
         self._collect_mock_api_audit()
+        self._generate_and_run_tests()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -1609,7 +1616,7 @@ class KenseiSandbox(models.Model):
 
                 session_in, session_out = 0, 0
                 source = "none"
-                if self.model_type in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+                if self.model_type in ("claude", "glm", "gpt", "1pa", "1pb", "1pc", "1pd"):
                     session_in, session_out = self._query_litellm_spend(
                         window_start=None, window_end=window_end
                     )
@@ -1656,6 +1663,7 @@ class KenseiSandbox(models.Model):
                 token_field_map = {
                     "claude": ("claude_input_tokens", "claude_output_tokens"),
                     "glm": ("glm_input_tokens", "glm_output_tokens"),
+                    "gpt": ("gpt_input_tokens", "gpt_output_tokens"),
                     "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
                     "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
                     "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
@@ -1716,6 +1724,12 @@ class KenseiSandbox(models.Model):
                         "glm_output_tokens",
                         "glm_input_tokens",
                         "glm_output_tokens",
+                    ),
+                    "gpt": (
+                        "gpt_input_tokens",
+                        "gpt_output_tokens",
+                        "gpt_input_tokens",
+                        "gpt_output_tokens",
                     ),
                 }
                 turn_fields = turn_token_map.get(self.model_type)
@@ -2377,6 +2391,20 @@ class KenseiSandbox(models.Model):
                     "contextWindow": 131072,
                     "maxTokens": 32768,
                 },
+                {
+                    "id": "gpt-5.5",
+                    "name": "gpt-5.5",
+                    "reasoning": True,
+                    "input": ["text", "image"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                    },
+                    "contextWindow": 1050000,
+                    "maxTokens": 128000,
+                },
             ],
         }
 
@@ -2883,7 +2911,469 @@ class KenseiSandbox(models.Model):
             self.id,
         )
 
+    # ------------------------------------------------------------------
+    # Test Generation & Execution
+    # ------------------------------------------------------------------
+
+    def _generate_and_run_tests(self):
+        """Generate pytest test cases from trajectory CUD operations and execute them."""
+        self.ensure_one()
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        enabled = ICP.get_param("kensei.test_gen_enabled", "True")
+        if enabled.lower() in ("false", "0", "no"):
+            _logger.info("Test generation disabled (sandbox=%s)", self.id)
+            return
+
+        if self.docker_status != "running":
+            _logger.info(
+                "Skipping test generation — sandbox not running (sandbox=%s, status=%s)",
+                self.id, self.docker_status,
+            )
+            return
+
+        cud_operations = self._extract_cud_operations()
+        if not cud_operations:
+            _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
+            return
+
+        TestResult = self.env["kensei.test.result"].sudo()
+        result_record = TestResult.create({
+            "sandbox_id": self.id,
+            "model_used": "sonnet-4.6",
+            "status": "generating",
+        })
+
+        try:
+            system_prompt = self._load_test_gen_system_prompt()
+            user_message = self._build_test_gen_user_message(cud_operations)
+            result_record.write({"generation_prompt": user_message})
+
+            inference_arn = ICP.get_param("kensei.test_gen_inference_arn", "")
+            if not inference_arn:
+                inference_arn = ICP.get_param("kensei.bedrock_inference_arn", "")
+            if not inference_arn:
+                result_record.write({
+                    "status": "error",
+                    "test_output": "No Bedrock inference ARN configured.",
+                })
+                return
+
+            region = ICP.get_param("kensei.bedrock_region", "ap-south-1")
+            api_key = ICP.get_param("kensei.aws_bearer_token", "")
+            if not api_key:
+                env_vars = _load_dotenv()
+                api_key = env_vars.get(
+                    "KENSEI_AWS_BEARER_TOKEN",
+                    env_vars.get("AWS_BEARER_TOKEN_BEDROCK", ""),
+                )
+
+            if not api_key:
+                result_record.write({
+                    "status": "error",
+                    "test_output": "No AWS bearer token available.",
+                })
+                return
+
+            gen_start = time.time()
+            test_code, usage = self._call_test_gen_llm(
+                api_key, inference_arn, region, system_prompt, user_message
+            )
+            gen_duration_ms = (time.time() - gen_start) * 1000
+
+            result_record.write({
+                "test_code": test_code,
+                "generation_tokens_in": usage.get("input_tokens", 0),
+                "generation_tokens_out": usage.get("output_tokens", 0),
+                "duration_generation_ms": gen_duration_ms,
+                "status": "running",
+            })
+
+            if not test_code or not test_code.strip():
+                result_record.write({
+                    "status": "error",
+                    "test_output": "LLM returned empty test code.",
+                })
+                return
+
+            exec_start = time.time()
+            test_output = self._execute_tests_in_sandbox(test_code)
+            exec_duration_ms = (time.time() - exec_start) * 1000
+
+            total, passed, failed, errored = self._parse_pytest_output(test_output)
+            status = "passed" if failed == 0 and errored == 0 else "failed"
+
+            result_record.write({
+                "test_output": test_output,
+                "tests_total": total,
+                "tests_passed": passed,
+                "tests_failed": failed,
+                "tests_errored": errored,
+                "duration_execution_ms": exec_duration_ms,
+                "status": status,
+            })
+
+            _logger.info(
+                "Test generation complete (sandbox=%s): %d total, %d passed, %d failed, %d errors",
+                self.id, total, passed, failed, errored,
+            )
+
+        except Exception as e:
+            _logger.exception("Test generation failed (sandbox=%s): %s", self.id, e)
+            result_record.write({
+                "status": "error",
+                "test_output": "Exception during test generation: %s" % str(e)[:2000],
+            })
+
+    def _extract_cud_operations(self):
+        """Extract CUD (Create/Update/Delete) operations from collected API audit logs."""
+        self.ensure_one()
+        cud_methods = {"POST", "PUT", "PATCH", "DELETE"}
+        operations = []
+
+        for req in self.api_request_ids:
+            if req.method and req.method.upper() in cud_methods:
+                operations.append({
+                    "service_name": req.service_name or "",
+                    "method": req.method,
+                    "path": req.path or "",
+                    "request_body": req.request_body or "",
+                    "response_body": req.response_body or "",
+                    "status_code": req.status_code,
+                })
+
+        return operations
+
+    def _load_test_gen_system_prompt(self):
+        """Load the test generation system prompt from test_generation_prompt.md."""
+        from odoo.modules.module import get_module_path
+
+        module_path = get_module_path("kensei")
+        prompt_file = os.path.join(module_path, "test_generation_prompt.md")
+        if os.path.isfile(prompt_file):
+            with open(prompt_file, "r") as f:
+                return f.read()
+        return (
+            "You are a test engineer. Given mock API audit logs showing CUD operations "
+            "that were performed, generate pytest test cases that verify the expected "
+            "state changes occurred by querying the mock API GET endpoints.\n\n"
+            "Rules:\n"
+            "- Use only the `urllib.request` module (stdlib) for HTTP calls — do NOT use `requests`\n"
+            "- Base URLs come from environment variables (e.g., os.environ['AMAZON_SELLER_API_URL'])\n"
+            "- Test assertions verify the data state matches what the CUD operations intended\n"
+            "- Generate one test function per CUD operation or logical group\n"
+            "- Use descriptive test names: test_<service>_<operation>_<entity>\n"
+            "- Include docstrings explaining what operation this verifies\n"
+            "- Output ONLY valid Python code (no markdown fences, no explanations)\n"
+            "- Import only: os, json, urllib.request, urllib.parse, pytest\n"
+        )
+
+    def _build_test_gen_user_message(self, cud_operations):
+        """Build the user message for the LLM with CUD operations and API docs."""
+        from odoo.modules.module import get_module_path
+
+        module_path = get_module_path("kensei")
+        api_docs_path = os.path.join(module_path, "environment", "API_DOCUMENTATION.md")
+        api_docs = ""
+        if os.path.isfile(api_docs_path):
+            with open(api_docs_path, "r") as f:
+                api_docs = f.read()
+            if len(api_docs) > 30000:
+                api_docs = api_docs[:30000] + "\n\n... [truncated]"
+
+        env_dir = os.path.join(module_path, "environment")
+        env_vars = {}
+        for entry in sorted(os.listdir(env_dir)):
+            svc_dir = os.path.join(env_dir, entry)
+            toml_path = os.path.join(svc_dir, "service.toml")
+            if os.path.isdir(svc_dir) and os.path.isfile(toml_path):
+                svc_meta = self._parse_service_toml(toml_path)
+                if svc_meta:
+                    env_vars[svc_meta["name"]] = {
+                        "env_var": svc_meta["env_var_name"],
+                        "port": svc_meta["port"],
+                    }
+
+        user_prompts = []
+        for turn in self.turn_ids.sorted("turn_number"):
+            if turn.prompt:
+                user_prompts.append(turn.prompt)
+
+        message_parts = []
+        message_parts.append("## User Task Prompts (what the user asked the agent to do)\n")
+        for i, prompt in enumerate(user_prompts[:20], 1):
+            p = prompt[:2000] if len(prompt) > 2000 else prompt
+            message_parts.append("### Turn %d\n%s\n" % (i, p))
+
+        message_parts.append("\n## CUD Operations Performed (from audit log)\n")
+        message_parts.append("These are the actual HTTP mutations the agent made:\n\n")
+        for i, op in enumerate(cud_operations[:50], 1):
+            message_parts.append(
+                "### Operation %d\n"
+                "- Service: %s\n"
+                "- Method: %s\n"
+                "- Path: %s\n"
+                "- Request Body: %s\n"
+                "- Response Status: %d\n"
+                "- Response Body: %s\n\n"
+                % (
+                    i,
+                    op["service_name"],
+                    op["method"],
+                    op["path"],
+                    op["request_body"][:1000] if op["request_body"] else "N/A",
+                    op["status_code"],
+                    op["response_body"][:1000] if op["response_body"] else "N/A",
+                )
+            )
+
+        message_parts.append("\n## Environment Variables for API Base URLs\n")
+        for svc_name, info in env_vars.items():
+            message_parts.append("- %s=%s (port %d)\n" % (info["env_var"], svc_name, info["port"]))
+
+        message_parts.append("\n## Mock API Documentation (GET endpoints for verification)\n")
+        message_parts.append(api_docs)
+
+        return "\n".join(message_parts)
+
+    def _call_test_gen_llm(self, api_key, inference_arn, region, system_prompt, user_message):
+        """Call Bedrock Converse API for test generation."""
+        from urllib.parse import quote as url_quote
+
+        url = "https://bedrock-runtime.%s.amazonaws.com/model/%s/converse" % (
+            region, url_quote(inference_arn, safe=""),
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer %s" % api_key,
+        }
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": user_message}],
+                },
+            ],
+            "inferenceConfig": {
+                "maxTokens": 12000,
+                "temperature": 0.2,
+            },
+        }
+        if system_prompt:
+            payload["system"] = [{"text": system_prompt}]
+
+        import httpx
+
+        with httpx.Client(http2=True, timeout=120.0) as client:
+            resp = client.post(url, json=payload, headers=headers)
+
+        if resp.status_code != 200:
+            raise RuntimeError(
+                "Bedrock API error (HTTP %d): %s" % (resp.status_code, resp.text[:500])
+            )
+
+        result = resp.json()
+        content_blocks = result.get("output", {}).get("message", {}).get("content", [])
+        response_text = ""
+        for block in content_blocks:
+            if isinstance(block, dict) and "text" in block:
+                response_text += block["text"]
+
+        usage_raw = result.get("usage", {})
+        usage = {
+            "input_tokens": int(usage_raw.get("inputTokens", 0)),
+            "output_tokens": int(usage_raw.get("outputTokens", 0)),
+        }
+
+        code = self._extract_python_code(response_text.strip())
+        return code, usage
+
+    @staticmethod
+    def _extract_python_code(text):
+        """Extract Python code from LLM response, stripping markdown fences."""
+        pattern = r"```(?:python)?\s*\n(.*?)```"
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text
+
+    def _execute_tests_in_sandbox(self, test_code):
+        """Write test file and run pytest inside the sandbox container."""
+        self.ensure_one()
+        mode = self._deployment_mode()
+
+        if mode == "k8s":
+            return self._execute_tests_k8s(test_code)
+        else:
+            return self._execute_tests_local(test_code)
+
+    def _execute_tests_local(self, test_code):
+        """Execute tests inside the local Docker sandbox."""
+        import base64
+
+        workdir = self.docker_workdir
+        if not workdir or not os.path.isdir(workdir):
+            return "ERROR: Sandbox workdir not found: %s" % workdir
+
+        compose_bin = _compose_cmd()
+        project_name = "kensei-%s-%s" % (self.kensei_id.id, self.model_type)
+
+        def _compose_exec(container, cmd_list):
+            cmd = compose_bin + ["-p", project_name]
+            cmd += ["-f", "docker-compose.yml"]
+            override = os.path.join(workdir, "docker-compose.override.yml")
+            if os.path.isfile(override):
+                cmd += ["-f", "docker-compose.override.yml"]
+            cmd += ["exec", "-T", container] + cmd_list
+            return cmd
+
+        encoded = base64.b64encode(test_code.encode()).decode()
+        write_cmd = _compose_exec("openclaw", [
+            "sh", "-c",
+            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+        ])
+
+        result = subprocess.run(
+            write_cmd, capture_output=True, text=True, timeout=30, cwd=workdir
+        )
+        if result.returncode != 0:
+            return "ERROR writing test file: %s" % result.stderr[:500]
+
+        # Try pytest first, fall back to unittest if not available
+        install_cmd = _compose_exec("openclaw", [
+            "sh", "-c", "python3 -m pytest --version >/dev/null 2>&1 || pip install pytest -q 2>/dev/null",
+        ])
+        subprocess.run(
+            install_cmd, capture_output=True, text=True, timeout=60, cwd=workdir
+        )
+
+        # Check if pytest is available after install attempt
+        check_cmd = _compose_exec("openclaw", [
+            "sh", "-c", "python3 -m pytest --version >/dev/null 2>&1 && echo OK || echo NO",
+        ])
+        check_result = subprocess.run(
+            check_cmd, capture_output=True, text=True, timeout=10, cwd=workdir
+        )
+
+        if "OK" in (check_result.stdout or ""):
+            run_cmd = _compose_exec("openclaw", [
+                "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short",
+            ])
+        else:
+            # Fallback: run with unittest
+            run_cmd = _compose_exec("openclaw", [
+                "python3", "-m", "unittest", "/tmp/test_state.py", "-v",
+            ])
+
+        result = subprocess.run(
+            run_cmd, capture_output=True, text=True, timeout=120, cwd=workdir
+        )
+
+        output = result.stdout
+        if result.stderr:
+            output += "\n--- STDERR ---\n" + result.stderr
+        return output[:50000]
+
+    def _execute_tests_k8s(self, test_code):
+        """Execute tests inside the K8s sandbox pod."""
+        try:
+            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes.stream import stream as k8s_stream
+        except ImportError:
+            return "ERROR: kubernetes package not available"
+
+        try:
+            k8s_config.load_incluster_config()
+        except Exception:
+            return "ERROR: Not in K8s cluster"
+
+        core_v1 = k8s_client.CoreV1Api()
+        pod_label = "app.kubernetes.io/name=kensei-sandbox,task-id=%s" % self.id
+        namespace = "kensei"
+
+        try:
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=pod_label
+            )
+            if not pods.items:
+                return "ERROR: No pod found for sandbox %s" % self.id
+            pod_name = pods.items[0].metadata.name
+        except Exception as e:
+            return "ERROR finding pod: %s" % str(e)[:300]
+
+        import base64
+        encoded = base64.b64encode(test_code.encode()).decode()
+        write_cmd = [
+            "sh", "-c",
+            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+        ]
+        try:
+            k8s_stream(
+                core_v1.connect_get_namespaced_pod_exec,
+                pod_name, namespace, container="openclaw",
+                command=write_cmd,
+                stderr=True, stdin=False, stdout=True, tty=False,
+                _preload_content=True,
+            )
+        except Exception as e:
+            return "ERROR writing test file to pod: %s" % str(e)[:300]
+
+        try:
+            k8s_stream(
+                core_v1.connect_get_namespaced_pod_exec,
+                pod_name, namespace, container="openclaw",
+                command=["sh", "-c", "pip install pytest -q 2>/dev/null || true"],
+                stderr=True, stdin=False, stdout=True, tty=False,
+                _preload_content=True,
+            )
+        except Exception:
+            pass
+
+        try:
+            output = k8s_stream(
+                core_v1.connect_get_namespaced_pod_exec,
+                pod_name, namespace, container="openclaw",
+                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short"],
+                stderr=True, stdin=False, stdout=True, tty=False,
+                _preload_content=True,
+            )
+            return (output or "")[:50000]
+        except Exception as e:
+            return "ERROR running pytest: %s" % str(e)[:500]
+
+    @staticmethod
+    def _parse_pytest_output(output):
+        """Parse pytest output to extract test counts."""
+        total = passed = failed = errored = 0
+
+        # Match pytest summary line like: "5 passed, 2 failed, 1 error in 3.45s"
+        # or "3 passed in 1.23s"
+        summary_pattern = r"=+\s*(.*?)\s*=+"
+        matches = re.findall(summary_pattern, output or "")
+        if matches:
+            summary = matches[-1]  # Take the last one (final summary)
+            p = re.search(r"(\d+)\s+passed", summary)
+            f = re.search(r"(\d+)\s+failed", summary)
+            e = re.search(r"(\d+)\s+error", summary)
+
+            if p:
+                passed = int(p.group(1))
+            if f:
+                failed = int(f.group(1))
+            if e:
+                errored = int(e.group(1))
+            total = passed + failed + errored
+        else:
+            # Fallback: count individual test lines
+            passed = len(re.findall(r"PASSED", output or ""))
+            failed = len(re.findall(r"FAILED", output or ""))
+            errored = len(re.findall(r"ERROR", output or ""))
+            total = passed + failed + errored
+
+        return total, passed, failed, errored
+
     def _build_compose_env(self, gateway_token):
+        """Build environment dict for docker compose subprocess."""
         self.ensure_one()
         persona = self.kensei_id.persona_id
 
@@ -2908,6 +3398,7 @@ class KenseiSandbox(models.Model):
             "KENSEI_LITELLM_DB_PASSWORD": "LITELLM_DB_PASSWORD",
             "KENSEI_MOONSHOT_API_KEY": "MOONSHOT_API_KEY",
             "KENSEI_LLAMA_API_KEY": "LLAMA_API_KEY",
+            "KENSEI_OPENAI_API_KEY": "OPENAI_API_KEY",
             "KENSEI_GLM_BEDROCK_MODEL_ARN": "GLM_BEDROCK_MODEL_ARN",
             "KENSEI_GLM_AWS_REGION": "GLM_AWS_REGION",
         }

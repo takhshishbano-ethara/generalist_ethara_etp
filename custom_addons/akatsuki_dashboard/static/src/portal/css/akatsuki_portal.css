@@ -930,6 +930,7 @@ hr.rule {
   border: var(--hairline);
   background: var(--bg-2);
   box-shadow: var(--card-shadow);
+  overflow-x: auto;
 }
 .matrix {
   width: 100%;
@@ -943,6 +944,13 @@ hr.rule {
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matrix td:last-child {
+  overflow: visible;
+  text-overflow: clip;
 }
 .matrix thead th {
   font-weight: 500;
@@ -1347,6 +1355,9 @@ hr.rule {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
+@media (max-width: 900px) {
+  .resources { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 700px) {
   .resources { grid-template-columns: 1fr; }
 }
@@ -1428,6 +1439,81 @@ hr.rule {
   color: var(--ink);
   border-color: var(--accent);
 }
+
+/* ---------- DETAIL ROW (expandable) --------------------- */
+.detail-row td {
+  padding: 0;
+  border-top: 0;
+  background: color-mix(in oklab, var(--accent-bright) 10%, var(--bg-2));
+}
+.detail-content {
+  padding: 24px 28px;
+  animation: matrix-slide-down var(--dur-fast) var(--ease-out);
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .detail-grid { grid-template-columns: 1fr; }
+}
+.detail-block {
+  background: var(--bg-2);
+  border: var(--hairline);
+  padding: 16px;
+}
+.detail-block-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+.detail-block-title.tok-kimi { color: var(--kimi); }
+.detail-block-title.tok-nova { color: var(--nova); }
+.detail-row-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-row-item:last-child { border-bottom: 0; }
+.detail-key {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.detail-val {
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* expand icon */
+.expand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.expand-icon svg { width: 14px; height: 14px; color: var(--ink-3); }
+.matrix-row.row-expanded .expand-icon { transform: rotate(90deg); }
+.matrix-row.row-expanded .expand-icon svg { color: var(--accent); }
+.matrix-row.row-expanded { background: color-mix(in oklab, var(--accent-bright) 12%, var(--bg-2)); }
 
 /* ============================================================
    REDUCED MOTION

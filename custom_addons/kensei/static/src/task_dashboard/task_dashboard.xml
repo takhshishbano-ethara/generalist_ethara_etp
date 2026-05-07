@@ -224,6 +224,24 @@
                                     </t>
                                 </div>
                             </div>
+                            <div class="o_kensei_rubric_model_block">
+                                <div class="o_kensei_rubric_model_label">GPT-5.5</div>
+                                <div class="o_kensei_rubric_toggles">
+                                    <t t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11]" t-as="si" t-key="'g'+si">
+                                        <button class="o_kensei_rubric_toggle"
+                                                t-att-class="{'o_kensei_toggle_pass': rubric.gpt[si] === 'pass', 'o_kensei_toggle_fail': rubric.gpt[si] === 'fail'}"
+                                                t-on-click="() => this.onToggleRubricResult(rubric_index, 'gpt', si)"
+                                                t-att-title="'Trajectory ' + (si + 1)">
+                                            <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                            <span class="o_kensei_toggle_val">
+                                                <t t-if="rubric.gpt[si] === 'pass'">P</t>
+                                                <t t-elif="rubric.gpt[si] === 'fail'">F</t>
+                                                <t t-else="">—</t>
+                                            </span>
+                                        </button>
+                                    </t>
+                                </div>
+                            </div>
                         </div>
 
                         <t t-if="this.rubricNeedsJustification(rubric_index, 'claude')">
@@ -251,6 +269,20 @@
                                           placeholder="Explain why all 8 trajectories failed for Kimi..."
                                           t-att-value="rubric.justification &amp;&amp; rubric.justification.glm || ''"
                                           t-on-input="(ev) => this.onJustificationInput(rubric_index, 'glm', ev)"
+                                          t-on-blur="() => this.onSaveJustification()"/>
+                            </div>
+                        </t>
+                        <t t-if="this.rubricNeedsJustification(rubric_index, 'gpt')">
+                            <div class="o_kensei_justification_box">
+                                <div class="o_kensei_justification_label">
+                                    <i class="fa fa-exclamation-triangle text-warning me-1"/>
+                                    GPT — All Pass@8 failed. Justification required:
+                                </div>
+                                <textarea class="form-control form-control-sm o_kensei_justification_textarea"
+                                          rows="2"
+                                          placeholder="Explain why all 8 trajectories failed for GPT..."
+                                          t-att-value="rubric.justification &amp;&amp; rubric.justification.gpt || ''"
+                                          t-on-input="(ev) => this.onJustificationInput(rubric_index, 'gpt', ev)"
                                           t-on-blur="() => this.onSaveJustification()"/>
                             </div>
                         </t>

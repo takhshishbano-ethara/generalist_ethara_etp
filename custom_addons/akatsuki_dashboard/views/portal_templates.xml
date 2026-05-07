@@ -6,9 +6,9 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Akatsuki &#xB7; Ethara AI</title>
-      <meta name="description" content="Akatsuki benchmark dashboard by Ethara AI."/>
-      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <title>Akatsuki &#xB7; Multimodal Agentic Capabilities &#xB7; Ethara AI</title>
+      <meta name="description" content="Akatsuki evaluates AI agents on their ability to manipulate images and search the web to solve complex visual reasoning tasks."/>
+      <meta name="theme-color" content="#F5F3F8" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
       <script>
@@ -17,9 +17,6 @@
             var saved = localStorage.getItem('akatsuki:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
-            } else {
-              var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
-              document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
             }
           } catch(e) {}
         })();
@@ -29,15 +26,15 @@
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
-      <link rel="stylesheet" href="/akatsuki_dashboard/static/src/portal/css/akatsuki_portal.css"/>
+      <link rel="stylesheet" href="/akatsuki_dashboard/static/src/portal/css/akatsuki_portal.css?v=4"/>
 
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js" defer="defer"/>
+      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=2" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
-      <div class="scroll-progress" aria-hidden="true"></div>
+      <div class="scroll-progress" aria-hidden="true"/>
 
       <button type="button" id="theme-toggle" class="theme-toggle"
               aria-label="Toggle light / dark mode"
@@ -65,157 +62,281 @@
   <header class="masthead">
     <div class="mast-top">
       <h1 class="wordmark">AKATSUKI</h1>
-      <span class="badge">BENCHMARK</span>
+      <span class="badge">MULTIMODAL AGENTIC CAPABILITIES</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">AI Benchmark Dashboard</p>
+    <p class="thesis">Can AI agents actively manipulate images and search the web to solve <em>complex visual tasks</em>?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
+  <!-- &#xA7;01 THE QUESTION -->
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">&#xA7;01 &#xB7; Overview</p>
+    <p class="section-label" id="overview-label">&#xA7;01 &#xB7; The question</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>TODO: Add project overview description here.</p>
+        <p>Agentic-MME is a reinforcement learning environment for training multimodal agents to solve visual reasoning tasks through tool use. Each instance includes a high-resolution image, a question that cannot be answered without acting on the visual input, and a set of 17 tools spanning image manipulation and web search. Reward signals are generated using 2,000+ stepwise checkpoints that decompose performance into search correctness, visual operation accuracy, and efficiency. Two frontier models were tested on 10,000 instances requiring interleaved visual transformation and information retrieval.</p>
+        <p class="teaser">Keep scrolling. The answer is in <a href="#results">&#xA7;04</a>.</p>
       </div>
+
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>0</b></dd></div>
-          <div class="glance-row"><dt>Models</dt><dd><b>0</b></dd></div>
-          <div class="glance-row"><dt>Languages</dt><dd><b>0</b></dd></div>
-          <div class="glance-row"><dt>Stages</dt><dd><b>0</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Domains</dt><dd><b>60</b></dd></div>
+          <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
+          <div class="glance-row"><dt>Methodology</dt><dd><b>Agentic-MME</b></dd></div>
+          <div class="glance-row"><dt>Difficulty levels</dt><dd><b>L2</b></dd></div>
         </dl>
       </aside>
     </div>
   </section>
 
+  <!-- &#xA7;02 KEY METRICS -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">&#xA7;02 &#xB7; Key Metrics</p>
-    <p class="section-desc">TODO: Add key metrics description.</p>
-    <div class="kpi-row">
-      <div class="kpi-card">
-        <p class="kpi-label">Metric 1</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
-        <p class="kpi-sub mono">Description</p>
+    <p class="section-label" id="scale-label">&#xA7;02 &#xB7; Key metrics</p>
+    <p class="section-desc">Core statistics of the Akatsuki benchmark at scale.</p>
+    <div class="kpi-row" aria-label="Key metrics">
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Instances</p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
+        <p class="kpi-sub mono">visual reasoning tasks</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">Metric 2</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
-        <p class="kpi-sub mono">Description</p>
+        <p class="kpi-label">Models Evaluated</p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
+        <p class="kpi-sub mono">frontier multimodal agents</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">Metric 3</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
-        <p class="kpi-sub mono">Description</p>
+        <p class="kpi-label">Tools Available</p>
+        <p class="kpi-value"><span class="kpi-big">17</span></p>
+        <p class="kpi-sub mono">image manipulation + web search</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">Metric 4</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
-        <p class="kpi-sub mono">Description</p>
+        <p class="kpi-label">Checkpoints</p>
+        <p class="kpi-value"><span class="kpi-big">2,000<small>+</small></span></p>
+        <p class="kpi-sub mono">stepwise verification points</p>
       </div>
     </div>
   </section>
 
+  <!-- &#xA7;03 PIPELINE -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
-    <p class="section-label" id="pipeline-label">&#xA7;03 &#xB7; Pipeline</p>
+    <p class="section-label" id="pipeline-label">&#xA7;03 &#xB7; Evaluation pipeline</p>
     <div class="pipeline-frame">
-      <div class="pipeline-intro">
-        <p class="pipeline-eyebrow mono">The method</p>
-        <h2 class="pipeline-title">TODO: Pipeline description.</h2>
-        <p class="pipeline-sub">TODO: Pipeline subtitle.</p>
-      </div>
-      <div class="pipeline pipeline-a">
-        <article class="phase">
-          <p class="phase-label">Phase 01</p>
-          <h4 class="phase-title">Step 1</h4>
-          <ul class="phase-body">
-            <li>TODO: Step 1 details</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Phase 02</p>
-          <h4 class="phase-title">Step 2</h4>
-          <ul class="phase-body">
-            <li>TODO: Step 2 details</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Phase 03</p>
-          <h4 class="phase-title">Step 3</h4>
-          <ul class="phase-body">
-            <li>TODO: Step 3 details</li>
-          </ul>
-        </article>
-      </div>
+    <div class="pipeline-intro">
+      <p class="pipeline-eyebrow mono">The method</p>
+      <h2 class="pipeline-title">Three steps from image to scored result.</h2>
+      <p class="pipeline-sub">Each instance requires active visual manipulation, external knowledge retrieval, and dual-axis process verification.</p>
+    </div>
+
+    <div class="pipeline pipeline-a">
+      <article class="phase">
+        <p class="phase-label">Step 01</p>
+        <h4 class="phase-title">Investigate &amp; Manipulate</h4>
+        <ul class="phase-body">
+          <li>Agent receives an image with a task requiring active visual manipulation</li>
+          <li>Must identify the correct region, orientation, or enhancement needed</li>
+          <li>Localizes the visual evidence through crop, rotate, flip, or enhance operations</li>
+        </ul>
+      </article>
+      <article class="phase">
+        <p class="phase-label">Step 02</p>
+        <h4 class="phase-title">Expand &amp; Retrieve</h4>
+        <ul class="phase-body">
+          <li>Coordinate visual cues with open-web search when external knowledge is needed</li>
+          <li>Extract information from processed images (brand names, years, text)</li>
+          <li>Query web for factual knowledge (founding years, headquarters, historical events)</li>
+        </ul>
+      </article>
+      <article class="phase">
+        <p class="phase-label">Step 03</p>
+        <h4 class="phase-title">Verify Correctness</h4>
+        <ul class="phase-body">
+          <li>Process-level verification via dual-axis checkpoints</li>
+          <li><b>V-axis</b>: Verifies visual tool intent and intermediate artifact faithfulness</li>
+          <li><b>S-axis</b>: Audits search strategy, keywords, and retrieved information correctness</li>
+          <li>Efficiency measured via Overthink metric against human reference trajectories</li>
+        </ul>
+      </article>
+    </div>
+
     </div>
   </section>
 
+  <!-- &#xA7;04 RESULTS -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
     <p class="section-label" id="results-label">&#xA7;04 &#xB7; Results</p>
+
     <div class="reveal">
-      <p class="reveal-line">TODO: Add results description.</p>
+      <p class="reveal-line">
+        <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">10 of 20</b>.
+        <span class="tok-nova">Nova-2-Lite</span> resolves <b class="reveal-big">4 of 20</b>.
+      </p>
+      <p class="reveal-cost mono">
+        Kimi is <b>2.5&#xD7; more accurate</b> but Nova uses <b>~70% more tool calls</b> per instance (9.95 vs 5.85 avg).
+      </p>
     </div>
+
     <div class="charts">
     </div>
   </section>
 
+  <!-- &#xA7;05 DATASET VIEWER -->
   <section class="section" id="instances" aria-labelledby="instances-label">
     <p class="section-label" id="instances-label">&#xA7;05 &#xB7; Dataset Viewer</p>
-    <p class="section-desc">Browse instances in the Akatsuki dataset. Click any row to expand full details.</p>
+    <p class="section-desc">20 Level-2 instances across 9 domains. Click any row for full run metadata.</p>
 
-    <div class="viewer-controls">
-      <div class="viewer-search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="viewer-search" placeholder="Search instances..." autocomplete="off"/>
-      </div>
-      <div class="viewer-filters">
-        <select id="viewer-difficulty">
-          <option value="">All Difficulties</option>
-          <option value="Easy">Easy</option>
-          <option value="Medium">Medium</option>
-          <option value="Hard">Hard</option>
-        </select>
-        <select id="viewer-sort">
-          <option value="instance_id">Name (A-Z)</option>
-          <option value="difficulty">Difficulty</option>
-        </select>
-      </div>
-      <div class="viewer-meta">
-        <span id="viewer-count">Loading...</span>
-      </div>
+    <div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap;">
+      <input type="text" id="ak-search" placeholder="Search instances..." aria-label="Search instances" style="flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);"/>
+      <select id="ak-filter" aria-label="Filter by domain" style="padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);">
+        <option value="">All Domains</option>
+        <option value="Numismatics">Numismatics</option>
+        <option value="Electronics">Electronics</option>
+        <option value="Retail">Retail</option>
+        <option value="Telecom">Telecom</option>
+        <option value="Document">Document</option>
+        <option value="Visual Puzzle">Visual Puzzle</option>
+        <option value="Automotive">Automotive</option>
+        <option value="Sports">Sports</option>
+        <option value="Entertainment">Entertainment</option>
+        <option value="General">General</option>
+        <option value="Data Interp.">Data Interp.</option>
+        <option value="Urban">Urban</option>
+      </select>
     </div>
 
     <div class="matrix-wrap">
-      <table class="viewer-table" id="viewer-table">
+      <table class="matrix" id="matrix" style="table-layout:fixed; width:100%;">
+        <caption class="sr-only">Dataset viewer for 20 instances evaluated against two models.</caption>
+        <colgroup>
+          <col style="width:30%;"/>
+          <col style="width:11%;"/>
+          <col style="width:20%;"/>
+          <col style="width:13%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+          <col style="width:4%;"/>
+        </colgroup>
         <thead>
           <tr>
-            <th class="th-instance">Instance</th>
-            <th class="th-diff">Difficulty</th>
-            <th class="th-expand"></th>
+            <th scope="col" data-sort="instance_id">Instance</th>
+            <th scope="col" data-sort="domain">Domain</th>
+            <th scope="col" data-sort="task">Task</th>
+            <th scope="col" style="text-align:center;">Golden</th>
+            <th scope="col" data-sort="nova" style="text-align:center;"><span class="tok-nova">Nova</span></th>
+            <th scope="col" data-sort="kimi" style="text-align:center;"><span class="tok-kimi">Kimi</span></th>
+            <th scope="col"></th>
           </tr>
         </thead>
-        <tbody id="viewer-tbody"></tbody>
+        <tbody id="matrix-tbody" aria-live="polite"></tbody>
       </table>
     </div>
-    <div class="viewer-pagination" id="viewer-pagination"></div>
+    <div id="ak-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:18px;"></div>
+
+    <script type="application/json" id="instances-data" t-out="instances_json"/>
   </section>
 
+  <!-- &#xA7;06 MODEL COMPARISON -->
+  <section class="section" id="models" aria-labelledby="models-label">
+    <p class="section-label" id="models-label">&#xA7;06 &#xB7; Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models.</p>
+
+    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>20%</b> (4/20)</dd></div>
+          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.525</b></dd></div>
+          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.0</b></dd></div>
+          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>4.42</b></dd></div>
+          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>9.95</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.02</b></dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>50%</b> (10/20)</dd></div>
+          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.617</b></dd></div>
+          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.778</b></dd></div>
+          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>2.58</b></dd></div>
+          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>5.85</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.04</b></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- &#xA7;07 METHODOLOGY -->
+  <section class="section" id="methodology" aria-labelledby="method-label">
+    <p class="section-label" id="method-label">&#xA7;07 &#xB7; Methodology</p>
+    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Akatsuki scoring system.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Dual-Axis Process Verification</h4>
+          <ul class="phase-body">
+            <li><b>S-axis</b> (Strategy): Audits Knowledge Expansion &#x2014; search keywords, reference URLs, expected intermediate answers</li>
+            <li><b>V-axis</b> (Visual Evidence): Audits Visual Expansion &#x2014; tool intent (V_tool) and artifact faithfulness (V_true)</li>
+            <li>Scores = fraction of passed checkpoints on each axis</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Final Answer Accuracy</h4>
+          <ul class="phase-body">
+            <li>Computed via normalized exact match against golden answers</li>
+            <li>Supported match types: exact, contains, numeric (with tolerance)</li>
+            <li>Answer standardization eliminates evaluation ambiguity</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Efficiency (Overthink Metric)</h4>
+          <ul class="phase-body">
+            <li>Overthink = max(0, C_agent &#x2212; C_human) / (C_human + 1)</li>
+            <li>Penalizes redundant tool calls relative to human reference trajectory</li>
+            <li>Reference tool calls per task: 2&#x2013;3 (human baseline)</li>
+            <li>Max tool calls allowed: 5&#x2013;7 per instance</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Correctness Gating</h4>
+          <ul class="phase-body">
+            <li>Processed images must pass VLM judge verification</li>
+            <li>Any-pass mechanism: checkpoint passes if any artifact contains required evidence</li>
+            <li>Incorrect visual manipulations are penalized through V_true scoring</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- &#xA7;08 RESOURCES -->
   <section class="section" id="resources" aria-labelledby="resources-label">
-    <p class="section-label" id="resources-label">&#xA7;06 &#xB7; Resources</p>
-    <div class="resources">
-      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
-        <p class="res-label mono">GitHub</p>
-        <p class="res-title">Trajectories</p>
-        <p class="res-url mono">github.com/Ethara-Ai/akatsuki</p>
+    <p class="section-label" id="resources-label">&#xA7;08 &#xB7; Resources</p>
+    <div class="resources" style="grid-template-columns: repeat(3, 1fr);">
+      <a class="resource" href="https://github.com/Ethara-Ai/Akatsuki" target="_blank" rel="noopener">
+        <p class="res-label mono">Code</p>
+        <p class="res-title">GitHub Repository</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Akatsuki</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
-      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
-        <p class="res-label mono">HuggingFace</p>
-        <p class="res-title">Dataset</p>
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Akatsuki" target="_blank" rel="noopener">
+        <p class="res-label mono">Data</p>
+        <p class="res-title">Dataset on HuggingFace</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/Akatsuki</p>
+        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2604.03016" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2604.03016</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
     </div>
@@ -225,7 +346,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"><a href="https://www.ethara.ai">Ethara AI</a> &#xB7; Project Akatsuki</p>
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> &#xB7; project akatsuki</p>
     </div>
   </footer>
 
