@@ -19,7 +19,7 @@ class DrengrShowcaseController(http.Controller):
         values = {
             "github_url": ICP.get_param(
                 "drengr_dashboard.github_url", ""
-            ) or "https://github.com/Open-Agent-Safety/OpenAgentSafety",
+            ) or "https://github.com/Ethara-Ai/OpenAgentSafety",
             "dataset_url": ICP.get_param(
                 "drengr_dashboard.dataset_url", ""
             ) or "https://huggingface.co/datasets/ethara/Drengr",
