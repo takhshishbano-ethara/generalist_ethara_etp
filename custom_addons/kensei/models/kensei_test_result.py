@@ -16,7 +16,10 @@ class KenseiTestResult(models.Model):
         related="kensei_id.task_id", string="Task ID", store=True, index=True
     )
 
-    model_used = fields.Char(string="Model Used")
+    model_type = fields.Char(string="Model", index=True)
+    session_index = fields.Integer(string="Session #", default=0, index=True)
+
+    model_used = fields.Char(string="LLM Used for Generation")
     status = fields.Selection(
         [
             ("generating", "Generating"),

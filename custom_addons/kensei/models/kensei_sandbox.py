@@ -2937,9 +2937,24 @@ class KenseiSandbox(models.Model):
             _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
             return
 
+        session_index = 1
+        traj_field = TRAJECTORY_FIELD_MAP.get(self.model_type)
+        if traj_field and self.kensei_id:
+            raw = self.kensei_id[traj_field] or ""
+            try:
+                entries = json.loads(raw) if raw.strip() else []
+                session_index = len(entries) if isinstance(entries, list) else 1
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        model_label_map = {"claude": "claude", "glm": "kimi", "gpt": "gpt"}
+        model_label = model_label_map.get(self.model_type, self.model_type)
+
         TestResult = self.env["kensei.test.result"].sudo()
         result_record = TestResult.create({
             "sandbox_id": self.id,
+            "model_type": model_label,
+            "session_index": session_index,
             "model_used": "sonnet-4.6",
             "status": "generating",
         })

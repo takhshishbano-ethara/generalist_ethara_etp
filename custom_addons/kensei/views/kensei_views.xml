@@ -132,6 +132,8 @@
               <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.6 Trajectory" colspan="2"/>
               <separator string="GPT-5.5 Trajectory" colspan="2"/>
               <field name="gpt_trajectory" widget="kensei_json" nolabel="1" placeholder="GPT-5.5 Trajectory" colspan="2"/>
+              <separator string="Golden Trajectory" colspan="2"/>
+              <field name="golden_trajectory" widget="text" nolabel="1" placeholder="Paste or generate golden trajectory JSON here..." colspan="2"/>
             </group>
             <field name="onePA_trajectory" invisible="1"/>
             <field name="onePB_trajectory" invisible="1"/>
@@ -140,7 +142,6 @@
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>
             <field name="golden_started_at" invisible="1"/>
-            <field name="golden_trajectory" invisible="1"/>
             <field name="rubrics" invisible="1"/>
           </sheet>
         </form>
