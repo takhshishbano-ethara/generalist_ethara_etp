@@ -9,11 +9,18 @@ class KenseiTestResult(models.Model):
     sandbox_id = fields.Many2one(
         "kensei.sandbox", string="Sandbox", ondelete="cascade", index=True
     )
+    model_type = fields.Selection(
+        related="sandbox_id.model_type", store=True, readonly=True
+    )
     kensei_id = fields.Many2one(
         related="sandbox_id.kensei_id", store=True, readonly=True
     )
     task_id = fields.Char(
         related="kensei_id.task_id", string="Task ID", store=True, index=True
+    )
+    trajectory_index = fields.Integer(
+        string="Trajectory #", default=0, index=True,
+        help="1-based index of the trajectory this test belongs to"
     )
 
     model_type = fields.Char(string="Model", index=True)

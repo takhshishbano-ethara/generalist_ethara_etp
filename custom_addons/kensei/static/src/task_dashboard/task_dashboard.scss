@@ -1,90 +1,254 @@
+// ============================================================================
+// Kensei Task Dashboard — Modern SaaS Design System
+// Design: Linear/Vercel-inspired, clean minimalist with subtle depth
+// ============================================================================
+
+// --- Design Tokens ---
+:root {
+    --kensei-radius-sm: 6px;
+    --kensei-radius-md: 8px;
+    --kensei-radius-lg: 12px;
+    --kensei-radius-xl: 16px;
+    --kensei-radius-pill: 100px;
+    --kensei-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --kensei-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --kensei-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+    --kensei-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+    --kensei-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --kensei-surface: var(--o-view-background-color, #ffffff);
+    --kensei-surface-raised: var(--o-gray-100, #f8f9fa);
+    --kensei-surface-sunken: var(--o-gray-200, #e9ecef);
+    --kensei-border: var(--o-border-color, #e5e7eb);
+    --kensei-border-subtle: rgba(0, 0, 0, 0.06);
+    --kensei-text: var(--o-text-color, #1a1a2e);
+    --kensei-text-secondary: var(--o-text-color-muted, #6b7280);
+    --kensei-text-tertiary: #9ca3af;
+    --kensei-accent: var(--o-brand-primary, #714B67);
+    --kensei-accent-soft: rgba(113, 75, 103, 0.08);
+    --kensei-accent-hover: rgba(113, 75, 103, 0.12);
+    --kensei-success: #10b981;
+    --kensei-success-soft: rgba(16, 185, 129, 0.1);
+    --kensei-warning: #f59e0b;
+    --kensei-warning-soft: rgba(245, 158, 11, 0.1);
+    --kensei-danger: #ef4444;
+    --kensei-danger-soft: rgba(239, 68, 68, 0.1);
+    --kensei-info: #6366f1;
+    --kensei-info-soft: rgba(99, 102, 241, 0.1);
+}
+
+// --- Base Dashboard ---
 .o_kensei_dashboard {
     display: flex;
     flex-direction: column;
     min-height: 600px;
     position: relative;
+    gap: 0;
+    font-family: inherit;
 }
 
+// --- Segmented Tab Control ---
 .o_kensei_dashboard_tabs {
     display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--kensei-surface);
+    border-bottom: 1px solid var(--kensei-border);
+}
+
+.o_kensei_tabs_track {
+    display: flex;
+    align-items: center;
     gap: 2px;
-    padding: 0 4px;
-    border-bottom: 2px solid var(--o-border-color, #dee2e6);
-    background: var(--o-gray-100, #f8f9fa);
-    border-radius: 8px 8px 0 0;
+    padding: 3px;
+    background: var(--kensei-surface-raised);
+    border-radius: var(--kensei-radius-pill);
+    border: 1px solid var(--kensei-border-subtle);
 }
 
 .o_kensei_dashboard_tab {
-    padding: 10px 20px;
+    padding: 0.5rem 1rem;
     border: none;
-    background: none;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--o-text-color-muted, #6c757d);
+    background: transparent;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--kensei-text-secondary);
     cursor: pointer;
-    border-bottom: 3px solid transparent;
-    transition: all 0.15s;
+    border-radius: var(--kensei-radius-pill);
+    transition: all var(--kensei-transition);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 0.375rem;
     position: relative;
+    white-space: nowrap;
+    line-height: 1.4;
 
     &:hover:not(.disabled) {
-        color: var(--o-brand-primary, #714B67);
-        background: rgba(113, 75, 103, 0.05);
+        color: var(--kensei-text);
+        background: var(--kensei-accent-soft);
     }
 
     &.active {
-        color: var(--o-brand-primary, #714B67);
-        border-bottom-color: var(--o-brand-primary, #714B67);
+        color: var(--kensei-text);
+        background: var(--kensei-surface);
+        box-shadow: var(--kensei-shadow-sm);
+        font-weight: 600;
     }
 
     &.disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: default;
     }
 }
 
 .o_kensei_tab_dot {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     display: inline-block;
+    flex-shrink: 0;
 
     &.running {
-        background: #22c55e;
-        box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+        background: var(--kensei-success);
+        box-shadow: 0 0 0 3px var(--kensei-success-soft);
     }
 
     &.starting {
-        background: #3b82f6;
+        background: var(--kensei-info);
         animation: kensei-pulse 1.5s infinite;
     }
 
     &.error {
-        background: #ef4444;
+        background: var(--kensei-danger);
+        box-shadow: 0 0 0 3px var(--kensei-danger-soft);
     }
 }
 
 @keyframes kensei-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
 }
 
+// --- Auth Badges & Buttons ---
+.o_kensei_auth_badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--kensei-radius-pill);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+
+    &.o_kensei_auth_badge_success {
+        background: var(--kensei-success-soft);
+        color: var(--kensei-success);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+}
+
+.o_kensei_btn_ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.625rem;
+    border: none;
+    background: transparent;
+    color: var(--kensei-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: var(--kensei-radius-md);
+    cursor: pointer;
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        background: var(--kensei-surface-raised);
+        color: var(--kensei-text);
+    }
+}
+
+.o_kensei_btn_outline_danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.875rem;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: var(--kensei-danger-soft);
+    color: var(--kensei-danger);
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: var(--kensei-radius-pill);
+    cursor: pointer;
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        background: rgba(239, 68, 68, 0.15);
+        border-color: rgba(239, 68, 68, 0.5);
+    }
+}
+
+.o_kensei_btn_primary_sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.4375rem 0.875rem;
+    border: none;
+    background: var(--kensei-accent);
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-radius: var(--kensei-radius-md);
+    cursor: pointer;
+    transition: all var(--kensei-transition);
+
+    &:hover:not(:disabled) {
+        opacity: 0.9;
+        box-shadow: var(--kensei-shadow-sm);
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+}
+
+.o_kensei_btn_icon_danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    background: transparent;
+    color: var(--kensei-text-tertiary);
+    border-radius: var(--kensei-radius-sm);
+    cursor: pointer;
+    transition: all var(--kensei-transition);
+    font-size: 0.8125rem;
+
+    &:hover {
+        background: var(--kensei-danger-soft);
+        color: var(--kensei-danger);
+    }
+}
+
+// --- Loading Overlay ---
 .o_kensei_dashboard_loading {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 10;
-    border-radius: 8px;
+    border-radius: var(--kensei-radius-lg);
 }
 
+// --- Dashboard Body ---
 .o_kensei_dashboard_body {
     flex: 1;
     display: flex;
@@ -95,7 +259,28 @@
     }
 }
 
-// Full-width form sheet for Kensei task form (Odoo caps .o_form_sheet_bg at ~1400px by default).
+// --- Empty State ---
+.o_kensei_empty_state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+    color: var(--kensei-text-tertiary);
+    gap: 0.75rem;
+
+    i {
+        font-size: 1.5rem;
+        opacity: 0.5;
+    }
+
+    p {
+        margin: 0;
+        font-size: 0.875rem;
+    }
+}
+
+// Full-width form sheet for Kensei task form
 .o_form_sheet_bg:has(.o_kensei_dashboard) {
     max-width: none;
     width: 100%;
@@ -105,154 +290,312 @@
     max-width: 100%;
 }
 
+// --- Trajectory Section ---
 .o_kensei_trajectory_list {
-    border-top: 1px solid var(--o-border-color, #dee2e6);
-    padding: 12px 16px;
-    background: var(--o-gray-100, #f8f9fa);
+    padding: 1rem 1.25rem;
+    background: var(--kensei-surface);
+    border-top: 1px solid var(--kensei-border);
 }
 
 .o_kensei_trajectory_header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
 }
 
 .o_kensei_trajectory_title {
     font-weight: 600;
-    font-size: 13px;
-    color: var(--o-text-color, #212529);
+    font-size: 0.875rem;
+    color: var(--kensei-text);
+    display: flex;
+    align-items: center;
 }
 
 .o_kensei_trajectory_counter {
-    font-size: 11px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--kensei-text-secondary);
+    background: var(--kensei-surface-raised);
+    padding: 0.1875rem 0.5rem;
+    border-radius: var(--kensei-radius-pill);
+    border: 1px solid var(--kensei-border-subtle);
 }
 
 .o_kensei_trajectory_empty {
-    font-size: 12px;
-    padding: 8px 0;
-}
-
-.o_kensei_trajectory_items {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 240px;
-    overflow-y: auto;
-}
-
-.o_kensei_trajectory_item {
+    font-size: 0.8125rem;
+    padding: 0.75rem 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    background: #fff;
-    border: 1px solid var(--o-border-color, #dee2e6);
-    border-radius: 4px;
-    font-size: 12px;
-
-    &:hover {
-        background: rgba(113, 75, 103, 0.03);
-    }
-}
-
-.o_kensei_trajectory_num {
-    font-weight: 700;
-    color: var(--o-brand-primary, #714B67);
-    min-width: 24px;
-}
-
-.o_kensei_trajectory_ts {
-    color: var(--o-text-color-muted, #6c757d);
-    font-size: 11px;
-}
-
-.o_kensei_trajectory_tokens {
-    font-size: 11px;
+    gap: 0.25rem;
 }
 
 .o_kensei_trajectory_section {
-    margin-bottom: 12px;
+    margin-bottom: 1rem;
 
     &:last-child {
         margin-bottom: 0;
     }
 }
 
-.o_kensei_trajectory_section_label {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--o-text-color, #212529);
-    margin-bottom: 4px;
+.o_kensei_trajectory_section_header {
     display: flex;
     align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
+.o_kensei_trajectory_section_label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--kensei-text);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.o_kensei_trajectory_section_count {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--kensei-text-secondary);
+}
+
+// --- Progress Bar ---
+.o_kensei_progress_bar {
+    flex: 1;
+    height: 4px;
+    background: var(--kensei-surface-sunken);
+    border-radius: 2px;
+    overflow: hidden;
+    max-width: 120px;
+}
+
+.o_kensei_progress_fill {
+    height: 100%;
+    background: var(--kensei-accent);
+    border-radius: 2px;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+// --- Trajectory Items ---
+.o_kensei_trajectory_items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.o_kensei_trajectory_item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--kensei-surface);
+    border: 1px solid var(--kensei-border-subtle);
+    border-radius: var(--kensei-radius-md);
+    font-size: 0.8125rem;
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        background: var(--kensei-accent-soft);
+        border-color: var(--kensei-border);
+        box-shadow: var(--kensei-shadow-xs);
+    }
+}
+
+.o_kensei_trajectory_num {
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: var(--kensei-accent);
+    min-width: 1.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.o_kensei_trajectory_ts {
+    color: var(--kensei-text-secondary);
+    font-size: 0.6875rem;
+}
+
+.o_kensei_trajectory_tokens {
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+}
+
+// --- QC Badges ---
+.o_kensei_qc_badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: var(--kensei-radius-pill);
+    font-size: 0.6875rem;
+    font-weight: 600;
+
+    &.o_kensei_qc_done {
+        background: var(--kensei-success-soft);
+        color: var(--kensei-success);
+    }
+
+    &.o_kensei_qc_pending {
+        background: var(--kensei-warning-soft);
+        color: var(--kensei-warning);
+    }
+}
+
+// --- Inline Test Result Badges (per trajectory row) ---
+.o_kensei_traj_test_inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--kensei-radius-pill);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+
+    &.o_kensei_traj_test_inline_passed {
+        background: var(--kensei-success-soft);
+        color: var(--kensei-success);
+    }
+
+    &.o_kensei_traj_test_inline_failed {
+        background: var(--kensei-danger-soft);
+        color: var(--kensei-danger);
+    }
+
+    &.o_kensei_traj_test_inline_error {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--kensei-warning);
+    }
+
+    &.o_kensei_traj_test_inline_running,
+    &.o_kensei_traj_test_inline_generating {
+        background: var(--kensei-info-soft);
+        color: var(--kensei-info);
+    }
+}
+
+// ============================================================================
 // Rubrics Section
+// ============================================================================
 
 .o_kensei_rubrics_section {
-    border-top: 2px solid var(--o-border-color, #dee2e6);
-    padding: 16px;
-    background: #fff;
+    padding: 1.25rem;
+    background: var(--kensei-surface);
+    border-top: 1px solid var(--kensei-border);
 }
 
 .o_kensei_rubrics_header {
     display: flex;
     align-items: center;
-    margin-bottom: 12px;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
 }
 
 .o_kensei_rubrics_title {
     font-weight: 700;
-    font-size: 14px;
-    color: var(--o-text-color, #212529);
+    font-size: 0.875rem;
+    color: var(--kensei-text);
+    display: flex;
+    align-items: center;
+}
+
+.o_kensei_rubrics_count {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--kensei-text-secondary);
+    background: var(--kensei-surface-raised);
+    padding: 0.1875rem 0.5rem;
+    border-radius: var(--kensei-radius-pill);
+    border: 1px solid var(--kensei-border-subtle);
 }
 
 .o_kensei_rubric_card {
-    border: 1px solid var(--o-border-color, #dee2e6);
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-bottom: 12px;
-    background: #fafbfc;
+    border: 1px solid var(--kensei-border-subtle);
+    border-radius: var(--kensei-radius-lg);
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    background: var(--kensei-surface);
+    box-shadow: var(--kensei-shadow-xs);
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        box-shadow: var(--kensei-shadow-sm);
+        border-color: var(--kensei-border);
+    }
 }
 
 .o_kensei_rubric_card_header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 0.75rem;
 }
 
 .o_kensei_rubric_card_label {
     font-weight: 600;
-    font-size: 13px;
-    color: var(--o-text-color, #212529);
+    font-size: 0.875rem;
+    color: var(--kensei-text);
 }
 
 .o_kensei_rubric_ratings {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.75rem;
 }
 
 .o_kensei_rubric_model_block {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0.375rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--kensei-surface-raised);
+    border-radius: var(--kensei-radius-md);
 }
 
 .o_kensei_rubric_model_label {
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 600;
-    color: var(--o-text-color-muted, #6c757d);
+    color: var(--kensei-text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.o_kensei_model_dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
 }
 
 .o_kensei_rubric_toggles {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 3px;
+}
+
+.o_kensei_rubric_pass_section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+
+    &:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.o_kensei_rubric_pass_label {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--kensei-text-tertiary);
+    min-width: 2.5rem;
 }
 
 .o_kensei_rubric_toggle {
@@ -260,76 +603,372 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 38px;
-    border: 1px solid var(--o-border-color, #dee2e6);
-    border-radius: 4px;
-    background: #fff;
+    width: 2.125rem;
+    height: 2.375rem;
+    border: 1px solid var(--kensei-border);
+    border-radius: var(--kensei-radius-sm);
+    background: var(--kensei-surface);
     cursor: pointer;
-    padding: 2px;
-    transition: all 0.1s ease;
+    padding: 0.125rem;
+    transition: all var(--kensei-transition);
 
-    &:hover {
-        border-color: #0d6efd;
-        background: rgba(13, 110, 253, 0.04);
+    &:hover:not(:disabled):not(.o_kensei_toggle_disabled) {
+        border-color: var(--kensei-accent);
+        background: var(--kensei-accent-soft);
+        transform: translateY(-1px);
+        box-shadow: var(--kensei-shadow-xs);
+    }
+
+    &.o_kensei_toggle_disabled,
+    &:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        background: var(--kensei-surface-sunken);
+        border-color: var(--kensei-border-subtle);
+
+        &:hover {
+            transform: none;
+            box-shadow: none;
+        }
     }
 
     &.o_kensei_toggle_pass {
-        background: #d1e7dd;
-        border-color: #198754;
-        color: #198754;
+        background: var(--kensei-success-soft);
+        border-color: rgba(16, 185, 129, 0.3);
+        color: var(--kensei-success);
+
+        .o_kensei_toggle_num {
+            color: var(--kensei-success);
+            opacity: 0.7;
+        }
     }
 
     &.o_kensei_toggle_fail {
-        background: #f8d7da;
-        border-color: #dc3545;
-        color: #dc3545;
+        background: var(--kensei-danger-soft);
+        border-color: rgba(239, 68, 68, 0.3);
+        color: var(--kensei-danger);
+
+        .o_kensei_toggle_num {
+            color: var(--kensei-danger);
+            opacity: 0.7;
+        }
     }
 }
 
 .o_kensei_toggle_num {
-    font-size: 9px;
-    color: var(--o-text-color-muted, #6c757d);
+    font-size: 0.5625rem;
+    color: var(--kensei-text-tertiary);
     line-height: 1;
+    font-weight: 500;
 }
 
 .o_kensei_toggle_val {
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 700;
     line-height: 1;
 }
 
+// --- Add Rubric Row ---
 .o_kensei_rubric_add_row {
     display: flex;
-    gap: 8px;
+    gap: 0.5rem;
     align-items: center;
+    margin-top: 0.75rem;
 }
 
 .o_kensei_rubric_input {
-    max-width: 260px;
+    max-width: 280px;
+    border-radius: var(--kensei-radius-md) !important;
+    border-color: var(--kensei-border) !important;
+    font-size: 0.8125rem !important;
+    transition: all var(--kensei-transition);
+
+    &:focus {
+        border-color: var(--kensei-accent) !important;
+        box-shadow: 0 0 0 3px var(--kensei-accent-soft) !important;
+    }
 }
 
 .o_kensei_rubric_error {
-    font-size: 12px;
+    font-size: 0.75rem;
+    color: var(--kensei-danger);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
 }
 
+// --- Justification Box ---
 .o_kensei_justification_box {
-    margin-top: 10px;
-    padding: 10px 12px;
-    border: 1px solid #ffc107;
-    border-radius: 6px;
-    background: #fff8e1;
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: var(--kensei-radius-md);
+    background: var(--kensei-warning-soft);
 }
 
 .o_kensei_justification_label {
-    font-size: 11px;
+    font-size: 0.6875rem;
     font-weight: 600;
-    color: #664d03;
-    margin-bottom: 6px;
+    color: #92400e;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
 }
 
 .o_kensei_justification_textarea {
-    font-size: 12px;
+    font-size: 0.8125rem !important;
     resize: vertical;
-    min-height: 50px;
+    min-height: 3rem;
+    border-radius: var(--kensei-radius-sm) !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+    transition: all var(--kensei-transition);
+
+    &:focus {
+        border-color: var(--kensei-warning) !important;
+        box-shadow: 0 0 0 3px var(--kensei-warning-soft) !important;
+    }
+}
+
+// ============================================================================
+// Test Results Section
+// ============================================================================
+
+.o_kensei_test_results_section {
+    padding: 1rem 1.25rem;
+    background: var(--kensei-surface);
+    border-top: 1px solid var(--kensei-border);
+}
+
+.o_kensei_test_results_header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.o_kensei_test_results_title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--kensei-text);
+    display: flex;
+    align-items: center;
+}
+
+.o_kensei_test_results_count {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--kensei-text-secondary);
+    background: var(--kensei-surface-raised);
+    padding: 0.1875rem 0.5rem;
+    border-radius: var(--kensei-radius-pill);
+    border: 1px solid var(--kensei-border-subtle);
+}
+
+.o_kensei_test_results_empty {
+    font-size: 0.8125rem;
+    padding: 0.5rem 0;
+    color: var(--kensei-text-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.o_kensei_test_stats_row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.o_kensei_test_stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: var(--kensei-radius-md);
+    min-width: 4.5rem;
+    border: 1px solid var(--kensei-border-subtle);
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        box-shadow: var(--kensei-shadow-xs);
+    }
+}
+
+.o_kensei_test_stat_value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.o_kensei_test_stat_label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.125rem;
+}
+
+.o_kensei_test_stat_passed {
+    background: var(--kensei-success-soft);
+    border-color: rgba(16, 185, 129, 0.2);
+
+    .o_kensei_test_stat_value { color: var(--kensei-success); }
+    .o_kensei_test_stat_label { color: #059669; }
+}
+
+.o_kensei_test_stat_failed {
+    background: var(--kensei-danger-soft);
+    border-color: rgba(239, 68, 68, 0.2);
+
+    .o_kensei_test_stat_value { color: var(--kensei-danger); }
+    .o_kensei_test_stat_label { color: #dc2626; }
+}
+
+.o_kensei_test_stat_error {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.2);
+
+    .o_kensei_test_stat_value { color: var(--kensei-warning); }
+    .o_kensei_test_stat_label { color: #d97706; }
+}
+
+.o_kensei_test_stat_running {
+    background: var(--kensei-info-soft);
+    border-color: rgba(99, 102, 241, 0.2);
+
+    .o_kensei_test_stat_value { color: var(--kensei-info); }
+    .o_kensei_test_stat_label { color: #4f46e5; }
+}
+
+.o_kensei_test_results_list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.o_kensei_test_result_item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--kensei-border-subtle);
+    border-radius: var(--kensei-radius-md);
+    font-size: 0.8125rem;
+    transition: all var(--kensei-transition);
+
+    &:hover {
+        background: var(--kensei-accent-soft);
+        border-color: var(--kensei-border);
+        box-shadow: var(--kensei-shadow-xs);
+    }
+}
+
+.o_kensei_test_result_status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    font-size: 0.6875rem;
+    flex-shrink: 0;
+
+    &.o_kensei_test_result_status_passed {
+        background: var(--kensei-success-soft);
+        color: var(--kensei-success);
+    }
+
+    &.o_kensei_test_result_status_failed {
+        background: var(--kensei-danger-soft);
+        color: var(--kensei-danger);
+    }
+
+    &.o_kensei_test_result_status_error {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--kensei-warning);
+    }
+
+    &.o_kensei_test_result_status_running,
+    &.o_kensei_test_result_status_generating {
+        background: var(--kensei-info-soft);
+        color: var(--kensei-info);
+    }
+}
+
+.o_kensei_test_result_info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.0625rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.o_kensei_test_result_model {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--kensei-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.o_kensei_test_result_date {
+    font-size: 0.6875rem;
+    color: var(--kensei-text-tertiary);
+}
+
+.o_kensei_test_result_counts {
+    display: flex;
+    align-items: baseline;
+    gap: 0.125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.o_kensei_test_count_pass {
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: var(--kensei-success);
+}
+
+.o_kensei_test_count_sep {
+    font-size: 0.6875rem;
+    color: var(--kensei-text-tertiary);
+}
+
+.o_kensei_test_count_total {
+    font-weight: 500;
+    font-size: 0.75rem;
+    color: var(--kensei-text-secondary);
+}
+
+.o_kensei_test_result_duration {
+    font-size: 0.6875rem;
+    color: var(--kensei-text-secondary);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+}
+
+.o_kensei_test_fail_pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.0625rem 0.375rem;
+    border-radius: var(--kensei-radius-pill);
+    font-size: 0.625rem;
+    font-weight: 600;
+    background: var(--kensei-danger-soft);
+    color: var(--kensei-danger);
+}
+
+.o_kensei_test_error_pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.0625rem 0.375rem;
+    border-radius: var(--kensei-radius-pill);
+    font-size: 0.625rem;
+    font-weight: 600;
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--kensei-warning);
 }

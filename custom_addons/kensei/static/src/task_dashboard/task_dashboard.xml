@@ -2,37 +2,40 @@
 <templates xml:space="preserve">
     <t t-name="kensei.TaskDashboard">
         <div class="o_kensei_dashboard">
-            <!-- Model Tab Bar -->
+            <!-- Model Tab Bar - Segmented Control -->
             <div class="o_kensei_dashboard_tabs">
-                <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
-                    <button t-attf-class="o_kensei_dashboard_tab #{state.activeTab === tab.type ? 'active' : ''}"
-                            t-on-click="() => this.onTabClick(tab.type)">
-                        <i t-attf-class="fa #{tab.icon} me-1"/>
-                        <span t-out="tab.label"/>
-                        <t t-set="sbProps" t-value="this._buildSandboxProps(tab.type)"/>
-                        <span t-if="sbProps.dockerStatus === 'running'" class="o_kensei_tab_dot running"/>
-                        <span t-elif="sbProps.dockerStatus === 'starting'" class="o_kensei_tab_dot starting"/>
-                        <span t-elif="sbProps.dockerStatus === 'error'" class="o_kensei_tab_dot error"/>
-                    </button>
-                </t>
+                <div class="o_kensei_tabs_track">
+                    <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
+                        <button t-attf-class="o_kensei_dashboard_tab #{state.activeTab === tab.type ? 'active' : ''}"
+                                t-on-click="() => this.onTabClick(tab.type)">
+                            <i t-attf-class="fa #{tab.icon}"/>
+                            <span t-out="tab.label"/>
+                            <t t-set="sbProps" t-value="this._buildSandboxProps(tab.type)"/>
+                            <span t-if="sbProps.dockerStatus === 'running'" class="o_kensei_tab_dot running"/>
+                            <span t-elif="sbProps.dockerStatus === 'starting'" class="o_kensei_tab_dot starting"/>
+                            <span t-elif="sbProps.dockerStatus === 'error'" class="o_kensei_tab_dot error"/>
+                        </button>
+                    </t>
+                </div>
                 <div class="ms-auto d-flex align-items-center gap-2">
                     <t t-if="state.gogAuthDone">
-                        <span class="badge text-bg-success d-inline-flex align-items-center gap-1 py-1 px-2">
+                        <span class="o_kensei_auth_badge o_kensei_auth_badge_success">
                             <i class="fa fa-check-circle"/>
-                            Google Authenticated
+                            <span>Google Authenticated</span>
                         </span>
-                        <button class="btn btn-sm btn-link text-muted p-0"
+                        <button class="o_kensei_btn_ghost"
                                 t-on-click="onGogAuthClick"
                                 title="Re-authenticate Google account">
-                            <i class="fa fa-refresh me-1"/>Re-auth
+                            <i class="fa fa-refresh"/>
+                            <span>Re-auth</span>
                         </button>
                     </t>
                     <t t-else="">
-                        <button class="btn btn-sm btn-outline-danger"
+                        <button class="o_kensei_btn_outline_danger"
                                 t-on-click="onGogAuthClick"
                                 title="Authenticate Google account (shared across all models)">
-                            <i class="fa fa-google me-1"/>
-                            Google Auth
+                            <i class="fa fa-google"/>
+                            <span>Google Auth</span>
                         </button>
                     </t>
                 </div>
@@ -60,30 +63,123 @@
                         onStop.bind="onStopSandbox"
                     />
 
+                    <!-- Test Results Summary (inline, no scroll needed) -->
+                    <t t-if="state.activeTab === tab.type">
+                        <div class="o_kensei_test_results_section">
+                            <div class="o_kensei_test_results_header">
+                                <span class="o_kensei_test_results_title">
+                                    <i class="fa fa-flask me-2"/>Test Results
+                                </span>
+                                <t t-if="this.testResultsSummary">
+                                    <span class="o_kensei_test_results_count">
+                                        <t t-out="this.testResultsSummary.total"/> run(s)
+                                    </span>
+                                </t>
+                            </div>
+
+                            <t t-if="!this.testResultsSummary">
+                                <div class="o_kensei_test_results_empty">
+                                    <i class="fa fa-info-circle me-1"/>
+                                    No test results yet for this model.
+                                </div>
+                            </t>
+                            <t t-else="">
+                                <!-- Summary Stats Row -->
+                                <div class="o_kensei_test_stats_row">
+                                    <div class="o_kensei_test_stat o_kensei_test_stat_passed">
+                                        <span class="o_kensei_test_stat_value"><t t-out="this.testResultsSummary.passed"/></span>
+                                        <span class="o_kensei_test_stat_label">Passed</span>
+                                    </div>
+                                    <div class="o_kensei_test_stat o_kensei_test_stat_failed">
+                                        <span class="o_kensei_test_stat_value"><t t-out="this.testResultsSummary.failed"/></span>
+                                        <span class="o_kensei_test_stat_label">Failed</span>
+                                    </div>
+                                    <div class="o_kensei_test_stat o_kensei_test_stat_error">
+                                        <span class="o_kensei_test_stat_value"><t t-out="this.testResultsSummary.errored"/></span>
+                                        <span class="o_kensei_test_stat_label">Errors</span>
+                                    </div>
+                                    <t t-if="this.testResultsSummary.running > 0">
+                                        <div class="o_kensei_test_stat o_kensei_test_stat_running">
+                                            <span class="o_kensei_test_stat_value"><t t-out="this.testResultsSummary.running"/></span>
+                                            <span class="o_kensei_test_stat_label">Running</span>
+                                        </div>
+                                    </t>
+                                </div>
+
+                                <!-- Latest Results List -->
+                                <div class="o_kensei_test_results_list">
+                                    <t t-foreach="this.activeTestResults.slice(0, 8)" t-as="result" t-key="result.id">
+                                        <div class="o_kensei_test_result_item">
+                                            <span t-attf-class="o_kensei_test_result_status o_kensei_test_result_status_#{result.status}">
+                                                <t t-if="result.status === 'passed'"><i class="fa fa-check"/></t>
+                                                <t t-elif="result.status === 'failed'"><i class="fa fa-times"/></t>
+                                                <t t-elif="result.status === 'error'"><i class="fa fa-exclamation"/></t>
+                                                <t t-elif="result.status === 'running' || result.status === 'generating'"><i class="fa fa-spinner fa-spin"/></t>
+                                            </span>
+                                            <div class="o_kensei_test_result_info">
+                                                <span class="o_kensei_test_result_model">
+                                                    Trajectory <t t-out="result.trajectory_index || '?'"/>
+                                                </span>
+                                                <span class="o_kensei_test_result_date" t-out="result.create_date"/>
+                                            </div>
+                                            <div class="o_kensei_test_result_counts">
+                                                <span class="o_kensei_test_count_pass" t-att-title="result.tests_passed + ' passed'">
+                                                    <t t-out="result.tests_passed"/>
+                                                </span>
+                                                <span class="o_kensei_test_count_sep">/</span>
+                                                <span class="o_kensei_test_count_total" t-att-title="result.tests_total + ' total'">
+                                                    <t t-out="result.tests_total"/>
+                                                </span>
+                                            </div>
+                                            <t t-if="result.tests_failed > 0">
+                                                <span class="o_kensei_test_fail_pill">
+                                                    <t t-out="result.tests_failed"/> fail
+                                                </span>
+                                            </t>
+                                            <t t-if="result.tests_errored > 0">
+                                                <span class="o_kensei_test_error_pill">
+                                                    <t t-out="result.tests_errored"/> err
+                                                </span>
+                                            </t>
+                                            <span class="o_kensei_test_result_duration" t-att-title="'Exec: ' + (result.duration_execution_ms || 0) + 'ms'">
+                                                <i class="fa fa-clock-o me-1"/>
+                                                <t t-out="Math.round((result.duration_execution_ms || 0) / 1000 * 10) / 10"/>s
+                                            </span>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+                        </div>
+                    </t>
+
                     <!-- Trajectory List -->
                     <t t-if="state.activeTab === tab.type">
                         <div class="o_kensei_trajectory_list">
                             <div class="o_kensei_trajectory_header">
                                 <span class="o_kensei_trajectory_title">
-                                    Trajectories
+                                    <i class="fa fa-route me-2"/>Trajectories
                                 </span>
-                                <span class="o_kensei_trajectory_counter badge text-bg-secondary">
+                                <span class="o_kensei_trajectory_counter">
                                     <t t-out="this.trajectoryCount"/> / <t t-out="this.maxTrajectories"/>
                                 </span>
                             </div>
                             <t t-if="this.trajectoryCount === 0">
                                 <div class="o_kensei_trajectory_empty text-muted">
+                                    <i class="fa fa-info-circle me-1"/>
                                     No trajectories yet. Start the sandbox and press Stop to create one.
                                 </div>
                             </t>
                             <t t-else="">
                                 <!-- Pass@8 Section (trajectories 1-8) -->
                                 <div class="o_kensei_trajectory_section">
-                                    <div class="o_kensei_trajectory_section_label">
-                                        Pass@8
-                                        <span class="badge text-bg-info ms-1">
+                                    <div class="o_kensei_trajectory_section_header">
+                                        <span class="o_kensei_trajectory_section_label">Pass@8</span>
+                                        <span class="o_kensei_trajectory_section_count">
                                             <t t-out="Math.min(this.trajectoryCount, 8)"/> / 8
                                         </span>
+                                        <div class="o_kensei_progress_bar">
+                                            <div class="o_kensei_progress_fill" t-attf-style="width: #{Math.min(this.trajectoryCount, 8) / 8 * 100}%"/>
+                                        </div>
                                     </div>
                                     <div class="o_kensei_trajectory_items">
                                         <t t-foreach="this.trajectoryEntries.slice(0, 8)" t-as="entry" t-key="entry.session_id || entry_index">
@@ -99,11 +195,23 @@
                                                     <t t-out="(entry.tokens_in || 0).toLocaleString()"/> in /
                                                     <t t-out="(entry.tokens_out || 0).toLocaleString()"/> out
                                                 </span>
-                                                <span t-if="entry.task_description_status === 'done'" class="badge text-bg-success ms-auto">
-                                                    <i class="fa fa-check me-1"/>QC
+                                                <!-- Test results for this trajectory -->
+                                                <t t-set="trajTests" t-value="this.getTestResultsForTrajectory(entry_index + 1)"/>
+                                                <t t-if="trajTests.length > 0">
+                                                    <span t-foreach="trajTests" t-as="tResult" t-key="tResult.id"
+                                                          t-attf-class="o_kensei_traj_test_inline o_kensei_traj_test_inline_#{tResult.status}">
+                                                        <i t-if="tResult.status === 'passed'" class="fa fa-check"/>
+                                                        <i t-elif="tResult.status === 'failed'" class="fa fa-times"/>
+                                                        <i t-elif="tResult.status === 'error'" class="fa fa-exclamation"/>
+                                                        <i t-else="" class="fa fa-spinner fa-spin"/>
+                                                        <span><t t-out="tResult.tests_passed"/>/<t t-out="tResult.tests_total"/></span>
+                                                    </span>
+                                                </t>
+                                                <span t-if="entry.task_description_status === 'done'" class="o_kensei_qc_badge o_kensei_qc_done ms-auto">
+                                                    <i class="fa fa-check"/>QC
                                                 </span>
-                                                <span t-elif="entry.task_description_status === 'pending'" class="badge text-bg-warning ms-auto">
-                                                    <i class="fa fa-clock-o me-1"/>Processing
+                                                <span t-elif="entry.task_description_status === 'pending'" class="o_kensei_qc_badge o_kensei_qc_pending ms-auto">
+                                                    <i class="fa fa-clock-o"/>Processing
                                                 </span>
                                             </div>
                                         </t>
@@ -112,11 +220,14 @@
 
                                 <!-- Pass@4 Section (trajectories 9-12) -->
                                 <div class="o_kensei_trajectory_section">
-                                    <div class="o_kensei_trajectory_section_label">
-                                        Pass@4
-                                        <span class="badge text-bg-info ms-1">
+                                    <div class="o_kensei_trajectory_section_header">
+                                        <span class="o_kensei_trajectory_section_label">Pass@4</span>
+                                        <span class="o_kensei_trajectory_section_count">
                                             <t t-out="Math.max(0, this.trajectoryCount - 8)"/> / 4
                                         </span>
+                                        <div class="o_kensei_progress_bar">
+                                            <div class="o_kensei_progress_fill" t-attf-style="width: #{Math.max(0, this.trajectoryCount - 8) / 4 * 100}%"/>
+                                        </div>
                                     </div>
                                     <div class="o_kensei_trajectory_items">
                                         <t t-if="this.trajectoryCount > 8">
@@ -133,11 +244,22 @@
                                                         <t t-out="(entry.tokens_in || 0).toLocaleString()"/> in /
                                                         <t t-out="(entry.tokens_out || 0).toLocaleString()"/> out
                                                     </span>
-                                                    <span t-if="entry.task_description_status === 'done'" class="badge text-bg-success ms-auto">
-                                                        <i class="fa fa-check me-1"/>QC
+                                                    <t t-set="trajTests" t-value="this.getTestResultsForTrajectory(entry_index + 9)"/>
+                                                    <t t-if="trajTests.length > 0">
+                                                        <span t-foreach="trajTests" t-as="tResult" t-key="tResult.id"
+                                                              t-attf-class="o_kensei_traj_test_inline o_kensei_traj_test_inline_#{tResult.status}">
+                                                            <i t-if="tResult.status === 'passed'" class="fa fa-check"/>
+                                                            <i t-elif="tResult.status === 'failed'" class="fa fa-times"/>
+                                                            <i t-elif="tResult.status === 'error'" class="fa fa-exclamation"/>
+                                                            <i t-else="" class="fa fa-spinner fa-spin"/>
+                                                            <span><t t-out="tResult.tests_passed"/>/<t t-out="tResult.tests_total"/></span>
+                                                        </span>
+                                                    </t>
+                                                    <span t-if="entry.task_description_status === 'done'" class="o_kensei_qc_badge o_kensei_qc_done ms-auto">
+                                                        <i class="fa fa-check"/>QC
                                                     </span>
-                                                    <span t-elif="entry.task_description_status === 'pending'" class="badge text-bg-warning ms-auto">
-                                                        <i class="fa fa-clock-o me-1"/>Processing
+                                                    <span t-elif="entry.task_description_status === 'pending'" class="o_kensei_qc_badge o_kensei_qc_pending ms-auto">
+                                                        <i class="fa fa-clock-o"/>Processing
                                                     </span>
                                                 </div>
                                             </t>
@@ -154,8 +276,9 @@
                     </t>
 
                     </t>
-                    <div t-else="" class="p-4 text-muted text-center">
-                        Save the task first to enable sandboxes.
+                    <div t-else="" class="o_kensei_empty_state">
+                        <i class="fa fa-save"/>
+                        <p>Save the task first to enable sandboxes.</p>
                     </div>
                 </div>
             </t>
@@ -170,8 +293,10 @@
             <!-- Rubrics Section -->
             <div class="o_kensei_rubrics_section">
                 <div class="o_kensei_rubrics_header">
-                    <span class="o_kensei_rubrics_title">Rubrics</span>
-                    <span class="badge text-bg-secondary ms-2">
+                    <span class="o_kensei_rubrics_title">
+                        <i class="fa fa-list-ul me-2"/>Rubrics
+                    </span>
+                    <span class="o_kensei_rubrics_count">
                         <t t-out="state.rubrics.length"/> rubric(s)
                     </span>
                 </div>
@@ -180,7 +305,7 @@
                     <div class="o_kensei_rubric_card">
                         <div class="o_kensei_rubric_card_header">
                             <span class="o_kensei_rubric_card_label"><t t-out="rubric.label"/></span>
-                            <button class="btn btn-sm btn-link text-danger p-0"
+                            <button class="o_kensei_btn_icon_danger"
                                     t-on-click="() => this.onRemoveRubric(rubric_index)"
                                     title="Remove rubric">
                                 <i class="fa fa-trash-o"/>
@@ -189,57 +314,135 @@
 
                         <div class="o_kensei_rubric_ratings">
                             <div class="o_kensei_rubric_model_block">
-                                <div class="o_kensei_rubric_model_label">Claude Opus 4.7</div>
-                                <div class="o_kensei_rubric_toggles">
-                                    <t t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11]" t-as="si" t-key="'c'+si">
-                                        <button class="o_kensei_rubric_toggle"
-                                                t-att-class="{'o_kensei_toggle_pass': rubric.claude[si] === 'pass', 'o_kensei_toggle_fail': rubric.claude[si] === 'fail'}"
-                                                t-on-click="() => this.onToggleRubricResult(rubric_index, 'claude', si)"
-                                                t-att-title="'Trajectory ' + (si + 1)">
-                                            <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
-                                            <span class="o_kensei_toggle_val">
-                                                <t t-if="rubric.claude[si] === 'pass'">P</t>
-                                                <t t-elif="rubric.claude[si] === 'fail'">F</t>
-                                                <t t-else="">—</t>
-                                            </span>
-                                        </button>
-                                    </t>
+                                <div class="o_kensei_rubric_model_label">
+                                    <span class="o_kensei_model_dot" style="background: #c084fc;"/>
+                                    Claude Opus 4.7
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@8</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[0,1,2,3,4,5,6,7]" t-as="si" t-key="'c'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('claude') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.claude[si] === 'pass', 'o_kensei_toggle_fail': rubric.claude[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'claude', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('claude')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.claude[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.claude[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@4</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[8,9,10,11]" t-as="si" t-key="'c'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('claude') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.claude[si] === 'pass', 'o_kensei_toggle_fail': rubric.claude[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'claude', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('claude')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.claude[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.claude[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
                                 </div>
                             </div>
                             <div class="o_kensei_rubric_model_block">
-                                <div class="o_kensei_rubric_model_label">Kimi K2.6</div>
-                                <div class="o_kensei_rubric_toggles">
-                                    <t t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11]" t-as="si" t-key="'k'+si">
-                                        <button class="o_kensei_rubric_toggle"
-                                                t-att-class="{'o_kensei_toggle_pass': rubric.glm[si] === 'pass', 'o_kensei_toggle_fail': rubric.glm[si] === 'fail'}"
-                                                t-on-click="() => this.onToggleRubricResult(rubric_index, 'glm', si)"
-                                                t-att-title="'Trajectory ' + (si + 1)">
-                                            <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
-                                            <span class="o_kensei_toggle_val">
-                                                <t t-if="rubric.glm[si] === 'pass'">P</t>
-                                                <t t-elif="rubric.glm[si] === 'fail'">F</t>
-                                                <t t-else="">—</t>
-                                            </span>
-                                        </button>
-                                    </t>
+                                <div class="o_kensei_rubric_model_label">
+                                    <span class="o_kensei_model_dot" style="background: #60a5fa;"/>
+                                    Kimi K2.6
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@8</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[0,1,2,3,4,5,6,7]" t-as="si" t-key="'k'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('glm') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.glm[si] === 'pass', 'o_kensei_toggle_fail': rubric.glm[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'glm', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('glm')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.glm[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.glm[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@4</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[8,9,10,11]" t-as="si" t-key="'k'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('glm') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.glm[si] === 'pass', 'o_kensei_toggle_fail': rubric.glm[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'glm', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('glm')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.glm[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.glm[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
                                 </div>
                             </div>
                             <div class="o_kensei_rubric_model_block">
-                                <div class="o_kensei_rubric_model_label">GPT-5.5</div>
-                                <div class="o_kensei_rubric_toggles">
-                                    <t t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11]" t-as="si" t-key="'g'+si">
-                                        <button class="o_kensei_rubric_toggle"
-                                                t-att-class="{'o_kensei_toggle_pass': rubric.gpt[si] === 'pass', 'o_kensei_toggle_fail': rubric.gpt[si] === 'fail'}"
-                                                t-on-click="() => this.onToggleRubricResult(rubric_index, 'gpt', si)"
-                                                t-att-title="'Trajectory ' + (si + 1)">
-                                            <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
-                                            <span class="o_kensei_toggle_val">
-                                                <t t-if="rubric.gpt[si] === 'pass'">P</t>
-                                                <t t-elif="rubric.gpt[si] === 'fail'">F</t>
-                                                <t t-else="">—</t>
-                                            </span>
-                                        </button>
-                                    </t>
+                                <div class="o_kensei_rubric_model_label">
+                                    <span class="o_kensei_model_dot" style="background: #34d399;"/>
+                                    GPT-5.5
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@8</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[0,1,2,3,4,5,6,7]" t-as="si" t-key="'g'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('gpt') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.gpt[si] === 'pass', 'o_kensei_toggle_fail': rubric.gpt[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'gpt', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('gpt')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.gpt[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.gpt[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
+                                </div>
+                                <div class="o_kensei_rubric_pass_section">
+                                    <span class="o_kensei_rubric_pass_label">Pass@4</span>
+                                    <div class="o_kensei_rubric_toggles">
+                                        <t t-foreach="[8,9,10,11]" t-as="si" t-key="'g'+si">
+                                            <button t-attf-class="o_kensei_rubric_toggle #{si >= this.getModelTrajectoryCount('gpt') ? 'o_kensei_toggle_disabled' : ''}"
+                                                    t-att-class="{'o_kensei_toggle_pass': rubric.gpt[si] === 'pass', 'o_kensei_toggle_fail': rubric.gpt[si] === 'fail'}"
+                                                    t-on-click="() => this.onToggleRubricResult(rubric_index, 'gpt', si)"
+                                                    t-att-disabled="si >= this.getModelTrajectoryCount('gpt')"
+                                                    t-att-title="'Trajectory ' + (si + 1)">
+                                                <span class="o_kensei_toggle_num"><t t-out="si + 1"/></span>
+                                                <span class="o_kensei_toggle_val">
+                                                    <t t-if="rubric.gpt[si] === 'pass'">P</t>
+                                                    <t t-elif="rubric.gpt[si] === 'fail'">F</t>
+                                                    <t t-else="">—</t>
+                                                </span>
+                                            </button>
+                                        </t>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -295,12 +498,12 @@
                            t-att-value="state.newRubricLabel"
                            t-on-input="onRubricLabelInput"
                            t-on-keydown="onRubricKeydown"/>
-                    <button class="btn btn-sm btn-primary" t-on-click="onAddRubric"
+                    <button class="o_kensei_btn_primary_sm" t-on-click="onAddRubric"
                             t-att-disabled="!state.newRubricLabel.trim()">
                         <i class="fa fa-plus me-1"/>Add
                     </button>
                 </div>
-                <div t-if="state.rubricError" class="o_kensei_rubric_error text-danger mt-1">
+                <div t-if="state.rubricError" class="o_kensei_rubric_error">
                     <i class="fa fa-exclamation-circle me-1"/>
                     <t t-out="state.rubricError"/>
                 </div>

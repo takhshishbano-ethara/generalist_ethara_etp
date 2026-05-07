@@ -2951,12 +2951,28 @@ class KenseiSandbox(models.Model):
         model_label = model_label_map.get(self.model_type, self.model_type)
 
         TestResult = self.env["kensei.test.result"].sudo()
+        traj_field_map = {
+            "claude": "claude_trajectory",
+            "glm": "glm_trajectory",
+            "gpt": "gpt_trajectory",
+        }
+        traj_field = traj_field_map.get(self.model_type, "")
+        current_traj_index = 0
+        if traj_field and self.kensei_id:
+            raw = getattr(self.kensei_id, traj_field, "") or ""
+            if raw.strip():
+                try:
+                    entries = json.loads(raw)
+                    current_traj_index = len(entries) if isinstance(entries, list) else 0
+                except (json.JSONDecodeError, TypeError):
+                    pass
         result_record = TestResult.create({
             "sandbox_id": self.id,
             "model_type": model_label,
             "session_index": session_index,
             "model_used": "sonnet-4.6",
             "status": "generating",
+            "trajectory_index": current_traj_index + 1,
         })
 
         try:

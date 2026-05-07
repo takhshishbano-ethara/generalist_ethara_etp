@@ -42,6 +42,7 @@ export class TaskDashboard extends Component {
             rubrics: [],
             newRubricLabel: "",
             rubricError: "",
+            testResults: {},
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -56,6 +57,7 @@ export class TaskDashboard extends Component {
             this._loadSandboxes();
             this._checkGogAuthStatus();
             this._loadRubrics();
+            this._loadTestResults();
         });
         onWillUnmount(() => {
             this._stopPolling();
@@ -70,6 +72,7 @@ export class TaskDashboard extends Component {
         const sandboxId = payload.sandbox_id;
         delete this.state.loadingSandbox[sandboxId];
         await this._loadSandboxes();
+        await this._loadTestResults();
         await this.props.record.load();
 
         const status = payload.docker_status || payload.status;
@@ -308,6 +311,7 @@ export class TaskDashboard extends Component {
             await clearChatSession(sandboxId);
             await this.orm.call("kensei.sandbox", "action_stop_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
+            await this._loadTestResults();
             await this.props.record.load();
             await this._autoTriggerTaskDescription(modelType);
         } catch (e) {
@@ -446,6 +450,19 @@ export class TaskDashboard extends Component {
         return 12;
     }
 
+    getModelTrajectoryCount(modelType) {
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return 0;
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return 0;
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.length : 0;
+        } catch (_e) {
+            return 0;
+        }
+    }
+
     _loadRubrics() {
         const raw = this.props.record.data.rubrics;
         if (!raw || !raw.trim()) {
@@ -474,6 +491,56 @@ export class TaskDashboard extends Component {
         } catch (_e) {
             this.state.rubrics = [];
         }
+    }
+
+    async _loadTestResults() {
+        if (!this.taskId) return;
+        try {
+            const results = await this.orm.searchRead(
+                "kensei.test.result",
+                [["kensei_id", "=", this.taskId]],
+                [
+                    "id", "sandbox_id", "model_type", "model_used", "status",
+                    "tests_total", "tests_passed", "tests_failed", "tests_errored",
+                    "duration_generation_ms", "duration_execution_ms", "create_date",
+                    "trajectory_index",
+                ],
+                { order: "create_date desc", limit: 50 },
+            );
+            const grouped = {};
+            for (const r of results) {
+                const modelType = r.model_type || "unknown";
+                if (!grouped[modelType]) grouped[modelType] = [];
+                grouped[modelType].push(r);
+            }
+            this.state.testResults = grouped;
+        } catch (e) {
+            console.warn("[kensei-dashboard] Failed to load test results:", e);
+        }
+    }
+
+    get activeTestResults() {
+        return this.state.testResults[this.state.activeTab] || [];
+    }
+
+    getTestResultsForTrajectory(trajIndex) {
+        return this.activeTestResults.filter(r => r.trajectory_index === trajIndex);
+    }
+
+    get latestTestResult() {
+        const results = this.activeTestResults;
+        return results.length > 0 ? results[0] : null;
+    }
+
+    get testResultsSummary() {
+        const results = this.activeTestResults;
+        if (results.length === 0) return null;
+        const total = results.length;
+        const passed = results.filter(r => r.status === "passed").length;
+        const failed = results.filter(r => r.status === "failed").length;
+        const errored = results.filter(r => r.status === "error").length;
+        const running = results.filter(r => r.status === "running" || r.status === "generating").length;
+        return { total, passed, failed, errored, running };
     }
 
     async _saveRubrics() {
