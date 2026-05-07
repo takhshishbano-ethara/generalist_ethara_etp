@@ -613,9 +613,10 @@
 
                 <!-- Justification -->
                 <div class="assessment-card">
-                    <h5 class="mb-3">Justification</h5>
-                    <textarea name="justification" class="form-control" rows="4"
-                              placeholder="Explain your reasoning for the ratings above..."></textarea>
+                    <h5 class="mb-3">Justification <span style="color: #dc3545;">*</span></h5>
+                    <textarea name="justification" class="form-control" rows="4" required="required"
+                              placeholder="Explain your reasoning for the ratings above..." minlength="10"></textarea>
+                    <small class="text-muted">Required — minimum 10 characters.</small>
                 </div>
 
                 <!-- Submit Button -->

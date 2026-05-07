@@ -191,10 +191,13 @@ class EtpAssessmentPortal(http.Controller):
             return request.redirect(f"/assessment/{token}")
 
         question_id = int(kw.get("question_id", 0))
-        justification = kw.get("justification", "")
+        justification = kw.get("justification", "").strip()
 
         if not question_id:
             return request.redirect(f"/assessment/{token}")
+
+        if not justification:
+            return request.redirect(f"/assessment/{token}?error=justification_required")
 
         question = (
             request.env["etp.assessment.question"].sudo().browse(question_id)
