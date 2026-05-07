@@ -170,7 +170,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         cur.execute(
             "SELECT dataset_file, patch_file, repo_dir, workdir, output_dir, "
             "force_build, max_workers_build, max_workers_run, docker_platform, "
-            "instance_limit, specific_prs "
+            "instance_limit, specific_prs, pipeline_id "
             "FROM aurora_evaluation WHERE id = %s",
             (rec_id,),
         )
@@ -189,6 +189,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "docker_platform": row[8] or None,
         "instance_limit": row[9] or 0,
         "specific_prs": row[10] or "",
+        "pipeline_id": row[11],
     }
 
 
@@ -289,6 +290,7 @@ def run_evaluation(db_name: str, rec_id: int):
 
     tokens = None
     git_askpass_script = None
+    pipeline_id = None
 
     try:
         _heartbeat(conn, rec_id, "Initializing evaluation worker")
@@ -309,7 +311,12 @@ def run_evaluation(db_name: str, rec_id: int):
                 Path(cfg[dir_key]).mkdir(parents=True, exist_ok=True)
 
         # Lease tokens from the pool (same lifecycle as Phase 1 worker)
-        tokens = _lease_tokens(db_name, rec_id, count=1)
+        # Use pipeline_id as the lease key (FK references aurora_pipeline)
+        pipeline_id = cfg.get("pipeline_id")
+        if not pipeline_id:
+            _fail_eval(conn, rec_id, "Evaluation has no linked pipeline_id; cannot lease tokens.")
+            return
+        tokens = _lease_tokens(db_name, pipeline_id, count=1)
         if not tokens:
             _fail_eval(conn, rec_id, "No GitHub tokens available in the pool.")
             return
@@ -525,7 +532,7 @@ def run_evaluation(db_name: str, rec_id: int):
         heartbeat_stop.set()
         _cleanup_git_auth(git_askpass_script)
         if tokens:
-            _release_tokens(db_name, rec_id)
+            _release_tokens(db_name, pipeline_id)
         try:
             conn.close()
         except Exception:
