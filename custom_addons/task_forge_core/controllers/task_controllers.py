@@ -543,6 +543,7 @@ class TaskForgeTaskController(http.Controller):
                         continue
                     config_id = item.get('config_id')
                     value = item.get('value', '')
+                    response_url = item.get('response_url', '')
                     if not config_id:
                         continue
                     rec = Response.search([
@@ -550,7 +551,10 @@ class TaskForgeTaskController(http.Controller):
                         ('config_id', '=', int(config_id)),
                     ], limit=1)
                     if rec:
-                        rec.write({'value': value})
+                        write_vals = {'value': value}
+                        if response_url:
+                            write_vals['response_url'] = response_url
+                        rec.write(write_vals)
 
                 task.invalidate_recordset(['response_ids'])
 
@@ -600,6 +604,7 @@ class TaskForgeTaskController(http.Controller):
                     return return_Response(message="Each response must be an object", status=400)
                 config_id = item.get('config_id')
                 value = item.get('value', '')
+                response_url = item.get('response_url', '')
                 if not config_id:
                     return return_Response(message="config_id is required in each response", status=400)
 
@@ -612,7 +617,10 @@ class TaskForgeTaskController(http.Controller):
                         message=f"Response config {config_id} not found for this task",
                         status=404,
                     )
-                rec.value = value or ''
+                write_vals = {'value': value or ''}
+                if response_url:
+                    write_vals['response_url'] = response_url
+                rec.write(write_vals)
 
             task.invalidate_recordset(['response_ids', 'response_completed'])
 
@@ -812,6 +820,7 @@ class TaskForgeTaskController(http.Controller):
                 'label': r.label or '',
                 'sequence': r.sequence or 0,
                 'value': r.value or '',
+                'response_url': r.response_url or '',
             } for r in task.response_ids.sorted('sequence')],
             'response_completed': task.response_completed or False,
             'is_timer_enabled': task.project_id.is_timer_enabled if task.project_id else False,
@@ -999,7 +1008,7 @@ class TaskForgeTaskController(http.Controller):
             _logger.error('Grammar check failed: %s', str(e))
             return return_Response(message=str(e), status=400)
 
-    @http.route('/api/v2/taskforge/tasks/<int:task_id>/rubric_ratings', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @http.route('/api/v2/taskforge/tasks/<int:task_id>/rubric_ratings', methods=['GET','POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def get_task_rubric_ratings(self, task_id, **kwargs):
         try:
@@ -1087,6 +1096,7 @@ class TaskForgeTaskController(http.Controller):
                     'label': r.label or '',
                     'sequence': r.sequence or 0,
                     'value': r.value or '',
+                    'response_url': r.response_url or '',
                 } for r in task.response_ids.sorted('sequence')],
                 'response_completed': task.response_completed or False,
                 'chain_of_thought': task.chain_of_thought or '',

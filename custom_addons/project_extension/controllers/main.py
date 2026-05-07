@@ -423,11 +423,15 @@ class ProjectController(http.Controller):
                 "slack_channel_name": "slack_channel_name",
             }
 
+            date_fields = {'date_start', 'date'}
             for kwarg_key, odoo_field in field_mapping.items():
                 if kwarg_key in kwargs:
                     val = kwargs.get(kwarg_key)
                     if odoo_field == 'sample_task_number':
                         vals[odoo_field] = int(val) if val else 0
+                    elif odoo_field in date_fields:
+                        if val:
+                            vals[odoo_field] = val
                     else:
                         vals[odoo_field] = val
 

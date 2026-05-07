@@ -229,6 +229,7 @@ class EtpAssessment(models.Model):
         total_responses = Response.search_count([])
         responses_submitted = Response.search_count([("state", "=", "submitted")])
         responses_draft = Response.search_count([("state", "=", "draft")])
+        total_violators = Evaluator.search_count([("is_violated", "=", True)])
 
         question_type_data = []
         for qtype in ["image_comparison", "text", "coding", "image_text", "video"]:
@@ -317,6 +318,7 @@ class EtpAssessment(models.Model):
                 "responses_submitted": responses_submitted,
                 "responses_draft": responses_draft,
                 "completion_rate": completion_rate,
+                "total_violators": total_violators,
             },
             "question_types": question_type_data,
             "categories": category_data,
@@ -428,7 +430,7 @@ class EtpAssessment(models.Model):
             except Exception as e:
                 _logger.error(
                     "Failed to send assessment email to %s: %s",
-                    work_email, str(e)
+                    recipient_email, str(e)
                 )
 
 
@@ -471,6 +473,9 @@ class EtpAssessmentEvaluator(models.Model):
         "etp.assessment.response", "assessment_evaluator_id", string="Responses"
     )
     is_locked = fields.Boolean(default=False, string="Locked")
+    violation_reason = fields.Char(string="Violation Reason", readonly=True)
+    violation_datetime = fields.Datetime(string="Violation Time", readonly=True)
+    is_violated = fields.Boolean(default=False, string="Violated", readonly=True)
 
     @api.depends("response_ids", "response_ids.state", "response_ids.score")
     def _compute_progress(self):

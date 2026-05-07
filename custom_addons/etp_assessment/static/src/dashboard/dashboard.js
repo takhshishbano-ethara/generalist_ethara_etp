@@ -228,6 +228,17 @@ export class EtpAssessmentDashboard extends Component {
         });
     }
 
+    openViolators() {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Violations",
+            res_model: "etp.assessment.evaluator",
+            view_mode: "list,form",
+            views: [[false, "list"], [false, "form"]],
+            domain: [["is_violated", "=", true]],
+        });
+    }
+
     openAssessmentRecord(id) {
         this.action.doAction({
             type: "ir.actions.act_window",

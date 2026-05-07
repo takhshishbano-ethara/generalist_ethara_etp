@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="drengr_showcase_url_action" model="ir.actions.act_url">
+        <field name="name">Drengr Dashboard</field>
+        <field name="url">/drengr</field>
+        <field name="target">self</field>
+    </record>
+
+    <menuitem id="drengr_showcase_menu_root"
+              name="Drengr Dashboard"
+              action="drengr_showcase_url_action"
+              sequence="203"/>
+</odoo>
