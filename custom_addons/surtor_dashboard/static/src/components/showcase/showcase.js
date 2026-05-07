@@ -1,0 +1,34 @@
+import { Component, onWillStart, useState } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
+
+class SurtorShowcase extends Component {
+    static template = "surtor_dashboard.Showcase";
+    static props = ["*"];
+
+    setup() {
+        this.orm = useService("orm");
+        this.state = useState({
+            trajectories_url: "https://github.com/AstorYH/PASB",
+            dataset_url: "https://huggingface.co/datasets/ethara/Surtor",
+        });
+
+        onWillStart(async () => {
+            const params = await this.orm.call(
+                "ir.config_parameter",
+                "get_param",
+                ["surtor_dashboard.trajectories_url"],
+            );
+            if (params) this.state.trajectories_url = params;
+
+            const dsUrl = await this.orm.call(
+                "ir.config_parameter",
+                "get_param",
+                ["surtor_dashboard.dataset_url"],
+            );
+            if (dsUrl) this.state.dataset_url = dsUrl;
+        });
+    }
+}
+
+registry.category("actions").add("surtor_dashboard.showcase", SurtorShowcase);

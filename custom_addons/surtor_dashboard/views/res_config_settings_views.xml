@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_surtor" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.surtor.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Surtor Dashboard" string="Surtor Dashboard" name="surtor_dashboard">
+                    <block title="Surtor Dashboard Settings">
+                        <setting string="Trajectories URL"
+                                 help="URL pointing to the PASB trajectories repository on GitHub">
+                            <field name="surtor_trajectories_url"/>
+                        </setting>
+                        <setting string="Dataset URL"
+                                 help="URL pointing to the PASB dataset on HuggingFace">
+                            <field name="surtor_dataset_url"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>
