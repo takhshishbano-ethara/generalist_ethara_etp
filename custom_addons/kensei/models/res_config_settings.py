@@ -136,6 +136,17 @@ class KenseiConfigSettings(models.TransientModel):
         default="latest",
         help="Docker image tag for mock API containers (e.g. 'latest', git SHA).",
     )
+    kensei_test_gen_enabled = fields.Boolean(
+        string="Enable Test Generation",
+        config_parameter="kensei.test_gen_enabled",
+        default=True,
+        help="Auto-generate pytest test cases from mock API audit logs on sandbox stop.",
+    )
+    kensei_test_gen_inference_arn = fields.Char(
+        string="Test Gen Inference ARN",
+        config_parameter="kensei.test_gen_inference_arn",
+        help="Bedrock inference ARN for test generation (Sonnet 4.6). Falls back to main ARN if empty.",
+    )
 
     @api.depends_context("uid")
     def _compute_kensei_docker_available(self):

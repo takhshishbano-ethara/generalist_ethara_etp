@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+
+    <record id="view_kensei_test_result_list" model="ir.ui.view">
+        <field name="name">kensei.test.result.list</field>
+        <field name="model">kensei.test.result</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="task_id" optional="show" />
+                <field name="model_used" />
+                <field name="status" widget="badge"
+                    decoration-success="status == 'passed'"
+                    decoration-danger="status in ('failed', 'error')"
+                    decoration-info="status in ('generating', 'running')" />
+                <field name="tests_total" />
+                <field name="tests_passed" />
+                <field name="tests_failed" />
+                <field name="tests_errored" />
+                <field name="duration_generation_ms" string="Gen (ms)" />
+                <field name="duration_execution_ms" string="Exec (ms)" />
+                <field name="create_date" />
+                <field name="sandbox_id" optional="hide" />
+                <field name="kensei_id" optional="hide" />
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kensei_test_result_form" model="ir.ui.view">
+        <field name="name">kensei.test.result.form</field>
+        <field name="model">kensei.test.result</field>
+        <field name="arch" type="xml">
+            <form create="false">
+                <header>
+                    <field name="status" widget="statusbar"
+                        statusbar_visible="generating,running,passed,failed" />
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="task_id" />
+                            <field name="sandbox_id" />
+                            <field name="model_used" />
+                            <field name="create_date" />
+                        </group>
+                        <group>
+                            <field name="tests_total" />
+                            <field name="tests_passed" />
+                            <field name="tests_failed" />
+                            <field name="tests_errored" />
+                            <field name="duration_generation_ms" />
+                            <field name="duration_execution_ms" />
+                            <field name="generation_tokens_in" />
+                            <field name="generation_tokens_out" />
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Test Code">
+                            <field name="test_code" widget="text" readonly="1" />
+                        </page>
+                        <page string="Execution Output">
+                            <field name="test_output" widget="text" readonly="1" />
+                        </page>
+                        <page string="Generation Prompt">
+                            <field name="generation_prompt" widget="text" readonly="1" />
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_kensei_test_result_search" model="ir.ui.view">
+        <field name="name">kensei.test.result.search</field>
+        <field name="model">kensei.test.result</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="task_id" />
+                <field name="sandbox_id" />
+                <field name="model_used" />
+                <filter name="passed" string="Passed" domain="[('status', '=', 'passed')]" />
+                <filter name="failed" string="Failed" domain="[('status', '=', 'failed')]" />
+                <filter name="error" string="Error" domain="[('status', '=', 'error')]" />
+                <group>
+                    <filter name="group_task" string="Task ID" context="{'group_by': 'task_id'}" />
+                    <filter name="group_status" string="Status" context="{'group_by': 'status'}" />
+                    <filter name="group_model" string="Model" context="{'group_by': 'model_used'}" />
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_kensei_test_results" model="ir.actions.act_window">
+        <field name="name">Test Results</field>
+        <field name="res_model">kensei.test.result</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_kensei_test_result_search" />
+    </record>
+
+</odoo>

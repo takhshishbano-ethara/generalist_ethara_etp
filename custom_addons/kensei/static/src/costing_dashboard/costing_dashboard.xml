@@ -21,11 +21,12 @@
                 <div class="o_kensei_summary_card">
                     <div class="o_kensei_summary_icon"><i class="fa fa-comments"/></div>
                     <div class="o_kensei_summary_label">Sandbox</div>
-                    <div class="o_kensei_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/>
+                    <div class="o_kensei_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/>
                     <div class="o_kensei_summary_sub">
                         <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
                         <span>Kimi: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
                         <span>1P: <strong t-out="formatNumber(state.totals.oneP_total)"/></span>
+                        <span>GPT: <strong t-out="formatNumber(state.totals.gpt_total)"/></span>
                     </div>
                     <div class="o_kensei_summary_badge trajectory">Trajectory</div>
                 </div>
@@ -74,7 +75,7 @@
                     <div class="o_kensei_summary_label">Total Tokens</div>
                     <div class="o_kensei_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
                     <div class="o_kensei_summary_sub">
-                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/></span>
+                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/></span>
                         <span>Bedrock: <strong t-out="formatNumber((state.totals.bedrock_total || 0) + (state.totals.traj_qc_total || 0) + (state.totals.taskdesc_total || 0) + (state.totals.golden_total || 0))"/></span>
                     </div>
                 </div>
@@ -99,6 +100,7 @@
                             <th class="col-group-header col-group-claude" colspan="3">Claude</th>
                             <th class="col-group-header col-group-glm" colspan="3">Kimi</th>
                             <th class="col-group-header col-group-oneP" colspan="3">1P</th>
+                            <th class="col-group-header col-group-gpt" colspan="3">GPT</th>
                             <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
                             <th class="col-group-header col-group-traj-qc" colspan="3">Traj QC</th>
                             <th class="col-group-header col-group-taskdesc" colspan="3">Task Desc</th>
@@ -119,6 +121,10 @@
                             <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_input')">In</th>
                             <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_output')">Out</th>
                             <th class="col-num col-oneP col-subtotal" t-on-click="() => this.onSort('oneP_total')">Σ</th>
+
+                            <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_input')">In</th>
+                            <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_output')">Out</th>
+                            <th class="col-num col-gpt col-subtotal" t-on-click="() => this.onSort('gpt_total')">Σ</th>
 
                             <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_input')">In</th>
                             <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_output')">Out</th>
@@ -160,6 +166,10 @@
                                 <td class="col-num col-oneP" t-out="formatNumber(row.oneP_output)"/>
                                 <td class="col-num col-oneP col-subtotal" t-out="formatNumber(row.oneP_total)"/>
 
+                                <td class="col-num col-gpt" t-out="formatNumber(row.gpt_input)"/>
+                                <td class="col-num col-gpt" t-out="formatNumber(row.gpt_output)"/>
+                                <td class="col-num col-gpt col-subtotal" t-out="formatNumber(row.gpt_total)"/>
+
                                 <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_input)"/>
                                 <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_output)"/>
                                 <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.bedrock_total)"/>
@@ -199,6 +209,10 @@
                                         <td class="col-num col-oneP" t-out="formatNumber(task.oneP_output)"/>
                                         <td class="col-num col-oneP col-subtotal" t-out="formatNumber(task.oneP_total)"/>
 
+                                        <td class="col-num col-gpt" t-out="formatNumber(task.gpt_input)"/>
+                                        <td class="col-num col-gpt" t-out="formatNumber(task.gpt_output)"/>
+                                        <td class="col-num col-gpt col-subtotal" t-out="formatNumber(task.gpt_total)"/>
+
                                         <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_input)"/>
                                         <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_output)"/>
                                         <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(task.bedrock_total)"/>
@@ -235,6 +249,10 @@
                             <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_input)"/>
                             <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_output)"/>
                             <td class="col-num col-oneP col-subtotal" t-out="formatNumber(state.totals.oneP_total)"/>
+
+                            <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_input)"/>
+                            <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_output)"/>
+                            <td class="col-num col-gpt col-subtotal" t-out="formatNumber(state.totals.gpt_total)"/>
 
                             <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_input)"/>
                             <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_output)"/>

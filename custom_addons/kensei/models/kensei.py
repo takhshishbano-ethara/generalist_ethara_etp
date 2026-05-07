@@ -676,6 +676,14 @@ model_list:
       api_key: os.environ/LLAMA_API_KEY
       drop_params: true
 
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: os.environ/OPENAI_API_KEY
+      reasoning_effort: high
+      input_cost_per_token: 0.000005
+      output_cost_per_token: 0.00003
+
 litellm_settings:
   drop_params: true
   modify_params: true
@@ -876,6 +884,9 @@ class Kensei(models.Model):
     glm_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="GLM Sandbox"
     )
+    gpt_sandbox_id = fields.Many2one(
+        "kensei.sandbox", compute="_compute_sandbox_ids", string="GPT Sandbox"
+    )
     oneP_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="1P Sandbox"
     )
@@ -894,12 +905,15 @@ class Kensei(models.Model):
 
     claude_status = fields.Selection(related="claude_sandbox_id.docker_status")
     glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
+    gpt_status = fields.Selection(related="gpt_sandbox_id.docker_status")
 
     claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
+    gpt_session_status = fields.Selection(related="gpt_sandbox_id.session_status")
 
     claude_trajectory = fields.Text(string="Claude 4.7 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
+    gpt_trajectory = fields.Text(string="GPT-5.5 Trajectory")
     onePA_trajectory = fields.Text(string="1PA Trajectory")
     onePB_trajectory = fields.Text(string="1PB Trajectory")
     onePC_trajectory = fields.Text(string="1PC Trajectory")
@@ -938,6 +952,8 @@ class Kensei(models.Model):
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
+    gpt_input_tokens = fields.Integer(string="GPT Input Tokens", default=0)
+    gpt_output_tokens = fields.Integer(string="GPT Output Tokens", default=0)
     oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
     oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
     onePA_input_tokens = fields.Integer(string="1PA Input Tokens", default=0)
@@ -987,6 +1003,7 @@ class Kensei(models.Model):
             for mtype, field in [
                 ("claude", "claude_sandbox_id"),
                 ("glm", "glm_sandbox_id"),
+                ("gpt", "gpt_sandbox_id"),
                 ("1p", "oneP_sandbox_id"),
                 ("1pa", "onePA_sandbox_id"),
                 ("1pb", "onePB_sandbox_id"),
@@ -1050,6 +1067,7 @@ class Kensei(models.Model):
         valid_fields = {
             "claude_trajectory",
             "glm_trajectory",
+            "gpt_trajectory",
             "onePA_trajectory",
             "onePB_trajectory",
             "onePC_trajectory",
@@ -1105,6 +1123,7 @@ class Kensei(models.Model):
         trajectory_field_map = {
             "claude": "claude_trajectory",
             "glm": "glm_trajectory",
+            "gpt": "gpt_trajectory",
             "1pa": "onePA_trajectory",
             "1pb": "onePB_trajectory",
             "1pc": "onePC_trajectory",
@@ -1114,6 +1133,7 @@ class Kensei(models.Model):
         token_fields_map = {
             "claude": ("claude_input_tokens", "claude_output_tokens"),
             "glm": ("glm_input_tokens", "glm_output_tokens"),
+            "gpt": ("gpt_input_tokens", "gpt_output_tokens"),
             "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
             "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
             "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
@@ -1162,6 +1182,7 @@ class Kensei(models.Model):
         field_to_model = {
             "claude_trajectory": "claude",
             "glm_trajectory": "glm",
+            "gpt_trajectory": "gpt",
             "onePA_trajectory": "1pa",
             "onePB_trajectory": "1pb",
             "onePC_trajectory": "1pc",
@@ -1205,9 +1226,9 @@ class Kensei(models.Model):
 
     def action_generate_golden_trajectory(self):
         self.ensure_one()
-        if not self.claude_trajectory and not self.glm_trajectory:
+        if not self.claude_trajectory and not self.glm_trajectory and not self.gpt_trajectory:
             raise UserError(
-                "At least one of Claude or Kimi trajectory is required. "
+                "At least one of Claude, Kimi, or GPT trajectory is required. "
                 "Stop the corresponding sandbox first to capture its trajectory."
             )
         if not self.persona_id:
@@ -1241,7 +1262,7 @@ class Kensei(models.Model):
 
     def action_generate_task_description(self):
         self.ensure_one()
-        has_any = self.claude_trajectory or self.glm_trajectory or self.oneP_trajectory
+        has_any = self.claude_trajectory or self.glm_trajectory or self.gpt_trajectory or self.oneP_trajectory
         if not has_any:
             raise UserError(
                 "At least one model trajectory is required to generate a task description."

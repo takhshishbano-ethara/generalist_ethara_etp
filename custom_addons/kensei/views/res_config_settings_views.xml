@@ -187,6 +187,23 @@
                             />
                         </setting>
                     </block>
+                    <block title="Test Generation">
+                        <setting
+                            string="Enable Test Generation"
+                            help="Auto-generate pytest test cases from mock API audit logs when a sandbox stops."
+                        >
+                            <field
+                                name="kensei_test_gen_enabled"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Test Gen Inference ARN"
+                            help="Bedrock inference ARN for test generation (Sonnet 4.6). Falls back to the main Bedrock ARN if empty."
+                        >
+                            <field name="kensei_test_gen_inference_arn" />
+                        </setting>
+                    </block>
                     <block title="S3 Storage (Attachments)">
                         <setting
                             string="S3 Bucket"

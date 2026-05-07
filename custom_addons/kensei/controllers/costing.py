@@ -18,6 +18,8 @@ def _task_row(task):
     go = task.glm_output_tokens or 0
     oi = task.oneP_input_tokens or 0
     oo = task.oneP_output_tokens or 0
+    gpi = task.gpt_input_tokens or 0
+    gpo = task.gpt_output_tokens or 0
     tqi = task.traj_qc_input_tokens or 0
     tqo = task.traj_qc_output_tokens or 0
     tdi = task.taskdesc_input_tokens or 0
@@ -29,6 +31,7 @@ def _task_row(task):
     ct = ci + co
     gt = gi + go
     ot = oi + oo
+    gpt = gpi + gpo
     tqt = tqi + tqo
     tdt = tdi + tdo
     gdt = gdi + gdo
@@ -48,6 +51,9 @@ def _task_row(task):
         "oneP_input": oi,
         "oneP_output": oo,
         "oneP_total": ot,
+        "gpt_input": gpi,
+        "gpt_output": gpo,
+        "gpt_total": gpt,
         "traj_qc_input": tqi,
         "traj_qc_output": tqo,
         "traj_qc_total": tqt,
@@ -57,7 +63,7 @@ def _task_row(task):
         "golden_input": gdi,
         "golden_output": gdo,
         "golden_total": gdt,
-        "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+        "grand_total": bt + ct + gt + ot + gpt + tqt + tdt + gdt,
     }
 
 
@@ -100,6 +106,8 @@ class KenseiCostingController(http.Controller):
                     "glm_output": 0,
                     "oneP_input": 0,
                     "oneP_output": 0,
+                    "gpt_input": 0,
+                    "gpt_output": 0,
                     "traj_qc_input": 0,
                     "traj_qc_output": 0,
                     "taskdesc_input": 0,
@@ -116,6 +124,8 @@ class KenseiCostingController(http.Controller):
             emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
             emp_map[eid]["oneP_input"] += task.oneP_input_tokens or 0
             emp_map[eid]["oneP_output"] += task.oneP_output_tokens or 0
+            emp_map[eid]["gpt_input"] += task.gpt_input_tokens or 0
+            emp_map[eid]["gpt_output"] += task.gpt_output_tokens or 0
             emp_map[eid]["traj_qc_input"] += task.traj_qc_input_tokens or 0
             emp_map[eid]["traj_qc_output"] += task.traj_qc_output_tokens or 0
             emp_map[eid]["taskdesc_input"] += task.taskdesc_input_tokens or 0
@@ -130,6 +140,7 @@ class KenseiCostingController(http.Controller):
             "claude_input", "claude_output", "claude_total",
             "glm_input", "glm_output", "glm_total",
             "oneP_input", "oneP_output", "oneP_total",
+            "gpt_input", "gpt_output", "gpt_total",
             "traj_qc_input", "traj_qc_output", "traj_qc_total",
             "taskdesc_input", "taskdesc_output", "taskdesc_total",
             "golden_input", "golden_output", "golden_total",
@@ -142,6 +153,7 @@ class KenseiCostingController(http.Controller):
             ct = data["claude_input"] + data["claude_output"]
             gt = data["glm_input"] + data["glm_output"]
             ot = data["oneP_input"] + data["oneP_output"]
+            gpt = data["gpt_input"] + data["gpt_output"]
             tqt = data["traj_qc_input"] + data["traj_qc_output"]
             tdt = data["taskdesc_input"] + data["taskdesc_output"]
             gdt = data["golden_input"] + data["golden_output"]
@@ -165,6 +177,9 @@ class KenseiCostingController(http.Controller):
                 "oneP_input": data["oneP_input"],
                 "oneP_output": data["oneP_output"],
                 "oneP_total": ot,
+                "gpt_input": data["gpt_input"],
+                "gpt_output": data["gpt_output"],
+                "gpt_total": gpt,
                 "traj_qc_input": data["traj_qc_input"],
                 "traj_qc_output": data["traj_qc_output"],
                 "traj_qc_total": tqt,
@@ -174,7 +189,7 @@ class KenseiCostingController(http.Controller):
                 "golden_input": data["golden_input"],
                 "golden_output": data["golden_output"],
                 "golden_total": gdt,
-                "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+                "grand_total": bt + ct + gt + ot + gpt + tqt + tdt + gdt,
                 "tasks": tasks_sorted,
             }
             rows.append(row)

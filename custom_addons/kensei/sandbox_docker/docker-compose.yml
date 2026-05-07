@@ -78,6 +78,7 @@ services:
       AWS_REGION: ${KENSEI_AWS_REGION:-${AWS_REGION:-ap-south-1}}
       LLAMA_API_KEY: ${KENSEI_LLAMA_API_KEY:-${LLAMA_API_KEY}}
       MOONSHOT_API_KEY: ${KENSEI_MOONSHOT_API_KEY:-${MOONSHOT_API_KEY}}
+      OPENAI_API_KEY: ${KENSEI_OPENAI_API_KEY:-${OPENAI_API_KEY}}
       STORE_MODEL_IN_DB: "True"
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro

@@ -11,11 +11,13 @@ import { rpc } from "@web/core/network/rpc";
 const MODEL_TABS = [
     { type: "claude", label: "Claude Opus 4.7", icon: "fa-microchip" },
     { type: "glm", label: "Kimi K2.6", icon: "fa-cube" },
+    { type: "gpt", label: "GPT-5.5", icon: "fa-bolt" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
     claude: "claude_trajectory",
     glm: "glm_trajectory",
+    gpt: "gpt_trajectory",
 };
 
 const STATUS_POLL_INTERVAL_MS = 5000;
@@ -456,13 +458,14 @@ export class TaskDashboard extends Component {
                 // Legacy format: plain array — add justification to each if missing
                 this.state.rubrics = parsed.map(r => ({
                     ...r,
-                    justification: r.justification || { claude: "", glm: "" },
+                    gpt: r.gpt || Array(12).fill(null),
+                    justification: r.justification || { claude: "", glm: "", gpt: "" },
                 }));
             } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
-                // Wrapped format migration — move global justification into each rubric
-                const globalJ = parsed.justification || { claude: "", glm: "" };
+                const globalJ = parsed.justification || { claude: "", glm: "", gpt: "" };
                 this.state.rubrics = parsed.rubrics.map(r => ({
                     ...r,
+                    gpt: r.gpt || Array(12).fill(null),
                     justification: r.justification || { ...globalJ },
                 }));
             } else {
@@ -487,7 +490,7 @@ export class TaskDashboard extends Component {
         const label = this.state.newRubricLabel.trim();
         if (!label) return;
         const hasEmpty = this.state.rubrics.some(r =>
-            r.claude.some(v => v === null) || r.glm.some(v => v === null)
+            r.claude.some(v => v === null) || r.glm.some(v => v === null) || r.gpt.some(v => v === null)
         );
         if (hasEmpty) {
             this.state.rubricError = "Complete all Pass/Fail ratings on existing rubrics before adding a new one.";
@@ -498,7 +501,8 @@ export class TaskDashboard extends Component {
             label,
             claude: Array(12).fill(null),
             glm: Array(12).fill(null),
-            justification: { claude: "", glm: "" },
+            gpt: Array(12).fill(null),
+            justification: { claude: "", glm: "", gpt: "" },
         });
         this.state.newRubricLabel = "";
         await this._saveRubrics();
@@ -531,7 +535,7 @@ export class TaskDashboard extends Component {
     rubricNeedsJustification(rubricIndex, model) {
         const rubric = this.state.rubrics[rubricIndex];
         if (!rubric) return false;
-        const modelKey = model === "claude" ? "claude" : "glm";
+        const modelKey = model;
         const pass8 = rubric[modelKey].slice(0, 8);
         return pass8.every(v => v === "fail");
     }
@@ -539,7 +543,7 @@ export class TaskDashboard extends Component {
     onJustificationInput(rubricIndex, model, ev) {
         const rubric = this.state.rubrics[rubricIndex];
         if (!rubric) return;
-        if (!rubric.justification) rubric.justification = { claude: "", glm: "" };
+        if (!rubric.justification) rubric.justification = { claude: "", glm: "", gpt: "" };
         rubric.justification[model] = ev.target.value;
     }
 
