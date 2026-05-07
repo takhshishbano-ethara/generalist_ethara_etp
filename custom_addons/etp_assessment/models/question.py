@@ -33,8 +33,8 @@ class EtpAssessmentQuestion(models.Model):
         string="Dimensions",
     )
 
-    image_a = fields.Binary(string="Response Image A")
-    image_b = fields.Binary(string="Response Image B")
+    image_a = fields.Binary(string="Response Image A", attachment=True)
+    image_b = fields.Binary(string="Response Image B", attachment=True)
     image_a_url = fields.Char(string="Response A URL")
     image_b_url = fields.Char(string="Response B URL")
 
