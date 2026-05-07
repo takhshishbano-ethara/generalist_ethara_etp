@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="vesta_showcase_url_action" model="ir.actions.act_url">
+        <field name="name">Vesta Dashboard</field>
+        <field name="url">/vesta</field>
+        <field name="target">self</field>
+    </record>
+
+    <menuitem id="vesta_showcase_menu_root"
+              name="Vesta Dashboard"
+              action="vesta_showcase_url_action"
+              sequence="203"/>
+</odoo>
