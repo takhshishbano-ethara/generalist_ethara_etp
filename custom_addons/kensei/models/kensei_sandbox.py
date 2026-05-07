@@ -2488,6 +2488,7 @@ class KenseiSandbox(models.Model):
             "server {\n"
             "    listen 80;\n"
             "    server_name _;\n"
+            "    client_max_body_size 100m;\n"
             "    proxy_buffering off;\n"
             "    location /browser-api/ {\n"
             "        proxy_pass http://openclaw:18791/;\n"
