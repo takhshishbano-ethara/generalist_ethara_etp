@@ -86,6 +86,7 @@ def _try_parse_options_line(line):
 def match_and_create_rubric(env, project, parsed_categories):
     Dimension = env['rubric.dimension'].sudo()
     Option = env['rubric.category.option'].sudo()
+    Category = env['rubric.category'].sudo()
 
     result = {'dimensions': [], 'options': []}
 
@@ -105,7 +106,13 @@ def match_and_create_rubric(env, project, parsed_categories):
         elif first_category:
             category = first_category
         else:
-            continue
+            category = Category.create({
+                'name': cat_name,
+                'project_id': project.id,
+            })
+            project.is_rubrics_required = True
+            existing_categories[cat_key] = category
+            first_category = category
 
         existing_dimensions = {
             dim.name.strip().lower(): dim

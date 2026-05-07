@@ -1,0 +1,8 @@
+id,user_id,media_type,media_url,timestamp,expiring_at,caption,link,poll_question,poll_options
+17950001001,17841400123456789,IMAGE,https://instagram.mock/stories/17950001001.jpg,2026-05-05T07:00:00,2026-05-06T07:00:00,"Morning prep \u2615 First batch going in!",,,
+17950001002,17841400123456789,IMAGE,https://instagram.mock/stories/17950001002.jpg,2026-05-05T09:30:00,2026-05-06T09:30:00,"Which drink should we feature this weekend?",,"Weekend feature?","Honey Lavender Latte|Strawberry Matcha|Meyer Lemon Cold Brew|Classic Cortado"
+17950001003,17841400123456789,VIDEO,https://instagram.mock/stories/17950001003.mp4,2026-05-05T12:00:00,2026-05-06T12:00:00,"Lunch rush vibes \ud83c\udfb6",,,
+17950001004,17841400123456789,IMAGE,https://instagram.mock/stories/17950001004.jpg,2026-05-05T14:30:00,2026-05-06T14:30:00,"NEW: Fresh batch of Guatemala Huehuetenango just finished cooling \ud83c\udf1f",https://brewedawakening.co/shop/guatemala-huehuetenango,,
+17950001005,17841400123456789,IMAGE,https://instagram.mock/stories/17950001005.jpg,2026-05-05T16:00:00,2026-05-06T16:00:00,"What\u2019s your go-to afternoon pick-me-up?",,"Afternoon order?","Espresso shot|Iced latte|Cold brew|Matcha"
+17950001006,17841400123456789,VIDEO,https://instagram.mock/stories/17950001006.mp4,2026-05-05T17:30:00,2026-05-06T17:30:00,"Golden hour at the shop \u2728 Open til 6!",,,
+17950001007,17841400123456789,IMAGE,https://instagram.mock/stories/17950001007.jpg,2026-05-06T06:30:00,2026-05-07T06:30:00,"Good morning Portland! Doors open in 30 mins \ud83d\udeaa",,,

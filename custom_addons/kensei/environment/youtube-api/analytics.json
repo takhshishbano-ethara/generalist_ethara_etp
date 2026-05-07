@@ -1,0 +1,41 @@
+{
+  "channel": {
+    "period": "last28Days",
+    "views": 487234,
+    "estimatedMinutesWatched": 1245678,
+    "averageViewDuration": 456,
+    "subscribersGained": 3245,
+    "subscribersLost": 187,
+    "likes": 24567,
+    "dislikes": 456,
+    "comments": 3890,
+    "shares": 8901
+  },
+  "videos": [
+    {"videoId": "vid_001", "views": 142567, "estimatedMinutesWatched": 356890, "averageViewDuration": 1245, "likes": 8234, "dislikes": 45, "comments": 567, "shares": 2345, "averageViewPercentage": 55.2},
+    {"videoId": "vid_002", "views": 89234, "estimatedMinutesWatched": 412567, "averageViewDuration": 2890, "likes": 5678, "dislikes": 23, "comments": 890, "shares": 1234, "averageViewPercentage": 70.5},
+    {"videoId": "vid_003", "views": 56789, "estimatedMinutesWatched": 89012, "averageViewDuration": 987, "likes": 3456, "dislikes": 34, "comments": 456, "shares": 890, "averageViewPercentage": 62.1},
+    {"videoId": "vid_004", "views": 134567, "estimatedMinutesWatched": 298765, "averageViewDuration": 1567, "likes": 7890, "dislikes": 56, "comments": 789, "shares": 3456, "averageViewPercentage": 60.3},
+    {"videoId": "vid_005", "views": 34567, "estimatedMinutesWatched": 34567, "averageViewDuration": 623, "likes": 2345, "dislikes": 12, "comments": 234, "shares": 567, "averageViewPercentage": 63.5},
+    {"videoId": "vid_006", "views": 23456, "estimatedMinutesWatched": 56789, "averageViewDuration": 1456, "likes": 1234, "dislikes": 8, "comments": 178, "shares": 345, "averageViewPercentage": 74.2},
+    {"videoId": "vid_007", "views": 78234, "estimatedMinutesWatched": 5678, "averageViewDuration": 42, "likes": 4567, "dislikes": 23, "comments": 89, "shares": 1234, "averageViewPercentage": 82.4},
+    {"videoId": "vid_008", "views": 98765, "estimatedMinutesWatched": 198765, "averageViewDuration": 1234, "likes": 6789, "dislikes": 45, "comments": 1234, "shares": 2345, "averageViewPercentage": 71.0},
+    {"videoId": "vid_009", "views": 19876, "estimatedMinutesWatched": 67890, "averageViewDuration": 2345, "likes": 987, "dislikes": 5, "comments": 234, "shares": 234, "averageViewPercentage": 66.8},
+    {"videoId": "vid_010", "views": 12345, "estimatedMinutesWatched": 23456, "averageViewDuration": 1123, "likes": 678, "dislikes": 3, "comments": 156, "shares": 123, "averageViewPercentage": 66.3},
+    {"videoId": "vid_011", "views": 56234, "estimatedMinutesWatched": 4567, "averageViewDuration": 48, "likes": 3456, "dislikes": 12, "comments": 67, "shares": 890, "averageViewPercentage": 85.1},
+    {"videoId": "vid_012", "views": 8765, "estimatedMinutesWatched": 45678, "averageViewDuration": 3456, "likes": 567, "dislikes": 2, "comments": 123, "shares": 89, "averageViewPercentage": 37.5},
+    {"videoId": "vid_013", "views": 45678, "estimatedMinutesWatched": 89012, "averageViewDuration": 1234, "likes": 2890, "dislikes": 67, "comments": 345, "shares": 678, "averageViewPercentage": 71.8},
+    {"videoId": "vid_014", "views": 28765, "estimatedMinutesWatched": 45678, "averageViewDuration": 987, "likes": 1567, "dislikes": 12, "comments": 234, "shares": 345, "averageViewPercentage": 67.9},
+    {"videoId": "vid_015", "views": 16789, "estimatedMinutesWatched": 19876, "averageViewDuration": 789, "likes": 987, "dislikes": 8, "comments": 123, "shares": 234, "averageViewPercentage": 70.1},
+    {"videoId": "vid_016", "views": 89234, "estimatedMinutesWatched": 178456, "averageViewDuration": 1345, "likes": 5678, "dislikes": 56, "comments": 678, "shares": 1890, "averageViewPercentage": 67.1},
+    {"videoId": "vid_017", "views": 67890, "estimatedMinutesWatched": 4234, "averageViewDuration": 38, "likes": 3890, "dislikes": 15, "comments": 56, "shares": 1023, "averageViewPercentage": 80.9},
+    {"videoId": "vid_018", "views": 6789, "estimatedMinutesWatched": 19876, "averageViewDuration": 1890, "likes": 456, "dislikes": 2, "comments": 89, "shares": 67, "averageViewPercentage": 65.2},
+    {"videoId": "vid_019", "views": 178234, "estimatedMinutesWatched": 289012, "averageViewDuration": 1123, "likes": 12345, "dislikes": 234, "comments": 1567, "shares": 4567, "averageViewPercentage": 66.5},
+    {"videoId": "vid_020", "views": 9876, "estimatedMinutesWatched": 23456, "averageViewDuration": 1567, "likes": 567, "dislikes": 3, "comments": 123, "shares": 89, "averageViewPercentage": 62.1},
+    {"videoId": "vid_021", "views": 67890, "estimatedMinutesWatched": 112345, "averageViewDuration": 1023, "likes": 3890, "dislikes": 23, "comments": 456, "shares": 890, "averageViewPercentage": 64.0},
+    {"videoId": "vid_022", "views": 45678, "estimatedMinutesWatched": 2890, "averageViewDuration": 37, "likes": 2345, "dislikes": 8, "comments": 45, "shares": 678, "averageViewPercentage": 86.0},
+    {"videoId": "vid_023", "views": 23456, "estimatedMinutesWatched": 45678, "averageViewDuration": 1234, "likes": 1345, "dislikes": 10, "comments": 213, "shares": 345, "averageViewPercentage": 72.4},
+    {"videoId": "vid_024", "views": 34567, "estimatedMinutesWatched": 45678, "averageViewDuration": 789, "likes": 2123, "dislikes": 12, "comments": 167, "shares": 456, "averageViewPercentage": 69.7},
+    {"videoId": "vid_025", "views": 12345, "estimatedMinutesWatched": 23456, "averageViewDuration": 1123, "likes": 789, "dislikes": 3, "comments": 123, "shares": 167, "averageViewPercentage": 70.5}
+  ]
+}

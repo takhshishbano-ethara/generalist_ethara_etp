@@ -1,0 +1,16 @@
+[
+  {"id": "1", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Film & Animation", "assignable": true}},
+  {"id": "2", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Autos & Vehicles", "assignable": true}},
+  {"id": "10", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Music", "assignable": true}},
+  {"id": "15", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Pets & Animals", "assignable": true}},
+  {"id": "17", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Sports", "assignable": true}},
+  {"id": "20", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Gaming", "assignable": true}},
+  {"id": "22", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "People & Blogs", "assignable": true}},
+  {"id": "23", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Comedy", "assignable": true}},
+  {"id": "24", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Entertainment", "assignable": true}},
+  {"id": "25", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "News & Politics", "assignable": true}},
+  {"id": "26", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Howto & Style", "assignable": true}},
+  {"id": "27", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Education", "assignable": true}},
+  {"id": "28", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Science & Technology", "assignable": true}},
+  {"id": "29", "snippet": {"channelId": "UC_TechCraftAcademy", "title": "Nonprofits & Activism", "assignable": true}}
+]

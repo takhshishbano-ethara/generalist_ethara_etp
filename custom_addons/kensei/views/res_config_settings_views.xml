@@ -87,6 +87,18 @@
                         >
                             <field name="kensei_ws_router_host" />
                         </setting>
+                        <setting
+                            string="ECR Registry"
+                            help="AWS ECR registry prefix for mock API images (e.g. 426628337772.dkr.ecr.ap-south-1.amazonaws.com)."
+                        >
+                            <field name="kensei_ecr_registry" />
+                        </setting>
+                        <setting
+                            string="Mock Image Tag"
+                            help="Docker image tag for mock API containers (e.g. latest, v1.0.0, git SHA)."
+                        >
+                            <field name="kensei_mock_image_tag" />
+                        </setting>
                     </block>
                     <block title="AWS &amp; Provider Credentials">
                         <setting

@@ -54,6 +54,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     libgdk-pixbuf-2.0-0 \
     ca-certificates \
+    curl \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+       > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -69,7 +76,9 @@ RUN chmod +x /opt/odoo/odoo-bin 2>/dev/null || true
 RUN useradd -r -m -d /opt/odoo -s /usr/sbin/nologin odoo \
     && chown -R odoo:odoo /opt/odoo \
     && mkdir -p /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data \
-    && chown -R odoo:odoo /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data
+       /opt/multi-swe-bench/multi_swe_bench/harness/repos \
+    && chown -R odoo:odoo /tmp/repo_cache /tmp/aurora_output /tmp/odoo-data \
+       /opt/multi-swe-bench
 
 USER odoo
 

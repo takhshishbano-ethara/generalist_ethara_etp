@@ -1,0 +1,11 @@
+Id,Name,Description,Type,UnitPrice,IncomeAccountRef_value,IncomeAccountRef_name,Active,Taxable
+1,Weekly Lawn Mowing,Standard residential lawn mowing service including edging and blowing,Service,75.00,1,Landscaping Services Revenue,true,false
+2,Garden Design Consultation,On-site garden design consultation (per hour),Service,95.00,1,Landscaping Services Revenue,true,false
+3,Tree Trimming,Tree trimming and pruning service (per hour),Service,120.00,1,Landscaping Services Revenue,true,false
+4,Spring Cleanup,Full spring yard cleanup including debris removal and bed preparation,Service,250.00,1,Landscaping Services Revenue,true,false
+5,Mulch Installation,Mulch delivery and installation (per cubic yard),Service,85.00,1,Landscaping Services Revenue,true,false
+6,Irrigation System Install,Irrigation system design and installation (base price),Service,2500.00,1,Landscaping Services Revenue,true,false
+7,Hardscaping - Patio/Walkway,Paver patio or walkway installation (per sq ft),Service,18.00,1,Landscaping Services Revenue,true,false
+8,Seasonal Cleanup,End-of-season cleanup including leaf removal and winterization,Service,200.00,1,Landscaping Services Revenue,true,false
+9,Shrub & Hedge Trimming,Shrub and hedge trimming service (per visit),Service,65.00,1,Landscaping Services Revenue,true,false
+10,Landscape Design Plan,Full landscape design plan with 3D rendering,Service,450.00,1,Landscaping Services Revenue,true,false

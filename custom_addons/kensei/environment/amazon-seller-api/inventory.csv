@@ -1,0 +1,19 @@
+fnSku,sellerSku,asin,productName,condition,fulfillmentChannel,totalQuantity,inStockSupplyQuantity,inboundWorkingQuantity,inboundShippedQuantity,inboundReceivingQuantity,reservedQuantity,unfulfillableQuantity,lastUpdatedTime
+X001EXAMPLE1,VE-CASE-IP15,B0EXAMPLE01,VoltEdge Slim Armor Case for iPhone 15 - Matte Black,NewItem,AFN,142,130,0,0,0,8,4,2026-04-28T10:00:00Z
+X001EXAMPLE2,VE-CASE-IP15P,B0EXAMPLE02,VoltEdge Slim Armor Case for iPhone 15 Pro - Navy Blue,NewItem,AFN,89,82,0,0,0,5,2,2026-04-28T10:00:00Z
+X001EXAMPLE3,VE-SCRN-IP15,B0EXAMPLE03,VoltEdge Tempered Glass Screen Protector for iPhone 15 (3-Pack),NewItem,AFN,234,220,0,0,0,12,2,2026-04-28T10:00:00Z
+X001EXAMPLE4,VE-CHRG-USB3,B0EXAMPLE04,VoltEdge 6ft USB-C to USB-C Fast Charging Cable (2-Pack),NewItem,AFN,18,14,0,50,0,3,1,2026-04-28T10:00:00Z
+X001EXAMPLE5,VE-CHRG-LTN,B0EXAMPLE05,VoltEdge 3ft MFi Certified Lightning Cable - White,NewItem,MFN,67,67,0,0,0,0,0,2026-04-27T14:00:00Z
+X001EXAMPLE6,VE-EARBUD-PRO,B0EXAMPLE06,VoltEdge AirPulse Pro Wireless Earbuds - Active Noise Cancelling,NewItem,AFN,45,38,0,0,0,5,2,2026-04-28T10:00:00Z
+X001EXAMPLE7,VE-EARBUD-SPT,B0EXAMPLE07,VoltEdge FitPulse Sport Wireless Earbuds - IPX7,NewItem,AFN,31,28,0,0,0,2,1,2026-04-28T10:00:00Z
+X001EXAMPLE8,VE-STAND-LSA,B0EXAMPLE08,VoltEdge ErgoRise Adjustable Laptop Stand - Silver Aluminum,NewItem,MFN,56,56,0,0,0,0,0,2026-04-26T09:00:00Z
+X001EXAMPLE9,VE-STAND-LSB,B0EXAMPLE09,VoltEdge ErgoRise Pro Laptop Stand with Cooling Fan - Black,NewItem,MFN,22,22,0,0,0,0,0,2026-04-26T09:00:00Z
+X001EXAMPLE10,VE-USBHUB-7P,B0EXAMPLE10,VoltEdge 7-in-1 USB-C Hub - HDMI 4K SD Card Reader,NewItem,AFN,0,0,0,0,0,0,0,2026-04-25T09:15:00Z
+X001EXAMPLE11,VE-PWR-10K,B0EXAMPLE11,VoltEdge PowerVault 10000mAh Portable Charger - USB-C PD 20W,NewItem,AFN,78,70,0,0,0,6,2,2026-04-28T10:00:00Z
+X001EXAMPLE12,VE-PWR-20K,B0EXAMPLE12,VoltEdge PowerVault Pro 20000mAh with 65W USB-C,NewItem,AFN,35,30,0,0,0,4,1,2026-04-28T10:00:00Z
+X001EXAMPLE13,VE-CHRG-WALL,B0EXAMPLE13,VoltEdge 65W GaN USB-C Wall Charger - Dual Port,NewItem,AFN,92,85,0,0,0,5,2,2026-04-28T10:00:00Z
+X001EXAMPLE14,VE-SCRN-S24U,B0EXAMPLE14,VoltEdge Tempered Glass for Samsung Galaxy S24 Ultra (2-Pack),NewItem,AFN,156,148,0,0,0,6,2,2026-04-28T10:00:00Z
+X001EXAMPLE15,VE-CASE-S24U,B0EXAMPLE15,VoltEdge Clear Hybrid Case for Samsung Galaxy S24 Ultra,NewItem,AFN,108,100,0,0,0,6,2,2026-04-28T10:00:00Z
+X001EXAMPLE16,VE-CHRG-MAG,B0EXAMPLE16,VoltEdge MagSnap 15W Wireless Charger Pad - Black,NewItem,AFN,64,58,0,0,0,4,2,2026-04-28T10:00:00Z
+X001EXAMPLE17,VE-CHRG-CAR,B0EXAMPLE17,VoltEdge 45W Dual USB-C Car Charger with LED,NewItem,MFN,43,43,0,0,0,0,0,2026-04-27T14:00:00Z
+X001EXAMPLE18,VE-CABLE-MAG,B0EXAMPLE18,VoltEdge Magnetic USB-C Charging Cable 6ft - 100W PD,NewItem,MFN,29,29,0,0,0,0,0,2026-04-27T14:00:00Z

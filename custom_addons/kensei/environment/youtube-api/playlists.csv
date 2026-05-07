@@ -1,0 +1,11 @@
+playlist_id,channelId,title,description,publishedAt,privacyStatus,itemCount
+PL_001,UC_TechCraftAcademy,Python for Beginners,Complete Python course from zero to confident programmer. Follow along in order!,2022-03-15T10:00:00Z,public,12
+PL_002,UC_TechCraftAcademy,Web Dev 2025,Frontend and backend web development tutorials for the modern stack.,2023-01-10T10:00:00Z,public,15
+PL_003,UC_TechCraftAcademy,Career Advice for Developers,Job search strategies and career growth tips for software engineers.,2022-06-20T10:00:00Z,public,8
+PL_004,UC_TechCraftAcademy,Code Reviews,Reviewing subscriber code and open source projects. Learn from real code!,2023-05-01T10:00:00Z,public,6
+PL_005,UC_TechCraftAcademy,Tool Reviews & Comparisons,Honest reviews of developer tools IDEs and frameworks.,2022-09-12T10:00:00Z,public,10
+PL_006,UC_TechCraftAcademy,Live Coding Sessions,Recorded live streams building real projects from scratch.,2023-08-01T10:00:00Z,public,5
+PL_007,UC_TechCraftAcademy,System Design,System design interview prep and architecture deep dives.,2024-01-15T10:00:00Z,public,7
+PL_008,UC_TechCraftAcademy,Shorts & Quick Tips,Bite-sized coding tips and explanations under 60 seconds.,2023-03-01T10:00:00Z,public,12
+PL_009,UC_TechCraftAcademy,DevOps for Developers,Docker Kubernetes and CI/CD for application developers.,2024-06-01T10:00:00Z,public,5
+PL_010,UC_TechCraftAcademy,TypeScript Deep Dive,Advanced TypeScript patterns and best practices.,2024-03-01T10:00:00Z,public,4

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "section_001",
+    "snippet": {
+      "type": "singlePlaylist",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "Python for Beginners",
+      "position": 0
+    },
+    "contentDetails": {
+      "playlists": ["PL_001"]
+    }
+  },
+  {
+    "id": "section_002",
+    "snippet": {
+      "type": "singlePlaylist",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "Web Dev 2025",
+      "position": 1
+    },
+    "contentDetails": {
+      "playlists": ["PL_002"]
+    }
+  },
+  {
+    "id": "section_003",
+    "snippet": {
+      "type": "singlePlaylist",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "Career Advice",
+      "position": 2
+    },
+    "contentDetails": {
+      "playlists": ["PL_003"]
+    }
+  },
+  {
+    "id": "section_004",
+    "snippet": {
+      "type": "popularUploads",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "Popular Uploads",
+      "position": 3
+    },
+    "contentDetails": {
+      "playlists": []
+    }
+  },
+  {
+    "id": "section_005",
+    "snippet": {
+      "type": "singlePlaylist",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "System Design",
+      "position": 4
+    },
+    "contentDetails": {
+      "playlists": ["PL_007"]
+    }
+  },
+  {
+    "id": "section_006",
+    "snippet": {
+      "type": "singlePlaylist",
+      "channelId": "UC_TechCraftAcademy",
+      "title": "Shorts & Quick Tips",
+      "position": 5
+    },
+    "contentDetails": {
+      "playlists": ["PL_008"]
+    }
+  }
+]

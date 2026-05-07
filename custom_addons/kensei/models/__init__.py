@@ -1,6 +1,7 @@
 from . import (
     res_config_settings,
     kensei,
+    kensei_api_request,
     kensei_domain,
     kensei_persona,
     kensei_sandbox,

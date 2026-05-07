@@ -26,4 +26,7 @@
     <menuitem name="Sandboxes" id="kensei.menu_kensei_sandboxes" parent="kensei.menu_kensei_root"
               action="kensei_sandbox_action_window" sequence="35"
               groups="kensei.group_kensei_ql"/>
+    <menuitem name="API Logs" id="kensei.menu_kensei_api_requests" parent="kensei.menu_kensei_root"
+              action="action_kensei_api_request" sequence="40"
+              groups="kensei.group_kensei_pl"/>
 </odoo>

@@ -1,0 +1,26 @@
+playlist_item_id,playlistId,videoId,channelId,title,position,publishedAt
+PLI_001,PL_001,vid_002,UC_TechCraftAcademy,Python for Beginners - Complete Course 2025,0,2025-02-27T14:00:00Z
+PLI_002,PL_001,vid_009,UC_TechCraftAcademy,Building a REST API with FastAPI - Full Tutorial,1,2025-02-27T14:00:00Z
+PLI_003,PL_002,vid_003,UC_TechCraftAcademy,React vs Vue in 2025 - Which Should You Learn?,0,2025-03-11T14:00:00Z
+PLI_004,PL_002,vid_025,UC_TechCraftAcademy,Advanced React Patterns - Compound Components,1,2025-01-28T14:00:00Z
+PLI_005,PL_002,vid_029,UC_TechCraftAcademy,Web Dev Roadmap 2025 - Don't Waste Your Time,2,2025-01-18T14:00:00Z
+PLI_006,PL_002,vid_012,UC_TechCraftAcademy,Live Coding: Building a Twitter Clone with Next.js,3,2025-02-22T18:00:00Z
+PLI_007,PL_003,vid_001,UC_TechCraftAcademy,5 Projects That Got Me Hired as a Developer,0,2025-03-15T14:00:00Z
+PLI_008,PL_003,vid_008,UC_TechCraftAcademy,How I'd Learn to Code in 2025 (If I Could Start Over),1,2025-03-01T14:00:00Z
+PLI_009,PL_003,vid_013,UC_TechCraftAcademy,The Truth About Coding Bootcamps in 2025,2,2025-02-20T14:00:00Z
+PLI_010,PL_003,vid_016,UC_TechCraftAcademy,I Mass Applied to 200 Developer Jobs - The Results,3,2025-02-13T14:00:00Z
+PLI_011,PL_003,vid_019,UC_TechCraftAcademy,Why I Left My $200K FAANG Job,4,2025-02-08T14:00:00Z
+PLI_012,PL_004,vid_010,UC_TechCraftAcademy,Code Review: Subscriber's React Project (It's Actually Good!),0,2025-02-25T14:00:00Z
+PLI_013,PL_005,vid_005,UC_TechCraftAcademy,Why Senior Devs Use These 7 VS Code Extensions,0,2025-03-06T14:00:00Z
+PLI_014,PL_005,vid_018,UC_TechCraftAcademy,Neovim Setup for 2025 - Full Walkthrough,1,2025-02-11T14:00:00Z
+PLI_015,PL_005,vid_023,UC_TechCraftAcademy,PostgreSQL vs MongoDB - Choose the Right Database,2,2025-02-01T14:00:00Z
+PLI_016,PL_005,vid_030,UC_TechCraftAcademy,Pair Programming with AI - Is GitHub Copilot Worth It?,3,2025-01-15T14:00:00Z
+PLI_017,PL_006,vid_012,UC_TechCraftAcademy,Live Coding: Building a Twitter Clone with Next.js,0,2025-02-22T18:00:00Z
+PLI_018,PL_007,vid_006,UC_TechCraftAcademy,System Design Interview: Design a URL Shortener,0,2025-03-04T14:00:00Z
+PLI_019,PL_008,vid_007,UC_TechCraftAcademy,JavaScript Array Methods You NEED to Know #shorts,0,2025-03-03T16:00:00Z
+PLI_020,PL_008,vid_011,UC_TechCraftAcademy,Docker Explained in 100 Seconds #shorts,1,2025-02-24T16:00:00Z
+PLI_021,PL_008,vid_017,UC_TechCraftAcademy,Async/Await Explained in 60 Seconds #shorts,2,2025-02-12T16:00:00Z
+PLI_022,PL_008,vid_022,UC_TechCraftAcademy,CSS Grid in 45 Seconds #shorts,3,2025-02-03T16:00:00Z
+PLI_023,PL_009,vid_026,UC_TechCraftAcademy,Kubernetes for Developers - NOT DevOps,0,2025-01-25T14:00:00Z
+PLI_024,PL_010,vid_014,UC_TechCraftAcademy,TypeScript Generics Are NOT That Hard,0,2025-02-18T14:00:00Z
+PLI_025,PL_003,vid_024,UC_TechCraftAcademy,My Morning Routine as a Remote Developer,5,2025-01-30T14:00:00Z

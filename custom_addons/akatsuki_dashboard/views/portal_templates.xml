@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_showcase" name="Akatsuki Showcase">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Akatsuki &#xB7; Ethara AI</title>
+      <meta name="description" content="Akatsuki benchmark dashboard by Ethara AI."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('akatsuki:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
+              document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <link rel="stylesheet" href="/akatsuki_dashboard/static/src/portal/css/akatsuki_portal.css"/>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+      <div class="scroll-progress" aria-hidden="true"></div>
+
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">AKATSUKI</h1>
+      <span class="badge">BENCHMARK</span>
+    </div>
+    <hr class="rule" />
+    <p class="thesis">AI Benchmark Dashboard</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+  </header>
+
+  <main id="main">
+
+  <section class="section" id="overview" aria-labelledby="overview-label">
+    <p class="section-label" id="overview-label">&#xA7;01 &#xB7; Overview</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>TODO: Add project overview description here.</p>
+      </div>
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>0</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>0</b></dd></div>
+          <div class="glance-row"><dt>Languages</dt><dd><b>0</b></dd></div>
+          <div class="glance-row"><dt>Stages</dt><dd><b>0</b></dd></div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section" id="scale" aria-labelledby="scale-label">
+    <p class="section-label" id="scale-label">&#xA7;02 &#xB7; Key Metrics</p>
+    <p class="section-desc">TODO: Add key metrics description.</p>
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <p class="kpi-label">Metric 1</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub mono">Description</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Metric 2</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub mono">Description</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Metric 3</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub mono">Description</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Metric 4</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="0">0</span></span></p>
+        <p class="kpi-sub mono">Description</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
+    <p class="section-label" id="pipeline-label">&#xA7;03 &#xB7; Pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">TODO: Pipeline description.</h2>
+        <p class="pipeline-sub">TODO: Pipeline subtitle.</p>
+      </div>
+      <div class="pipeline pipeline-a">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">Step 1</h4>
+          <ul class="phase-body">
+            <li>TODO: Step 1 details</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">Step 2</h4>
+          <ul class="phase-body">
+            <li>TODO: Step 2 details</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">Step 3</h4>
+          <ul class="phase-body">
+            <li>TODO: Step 3 details</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-reveal" id="results" aria-labelledby="results-label">
+    <p class="section-label" id="results-label">&#xA7;04 &#xB7; Results</p>
+    <div class="reveal">
+      <p class="reveal-line">TODO: Add results description.</p>
+    </div>
+    <div class="charts">
+    </div>
+  </section>
+
+  <section class="section" id="instances" aria-labelledby="instances-label">
+    <p class="section-label" id="instances-label">&#xA7;05 &#xB7; Dataset Viewer</p>
+    <p class="section-desc">Browse instances in the Akatsuki dataset. Click any row to expand full details.</p>
+
+    <div class="viewer-controls">
+      <div class="viewer-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="viewer-search" placeholder="Search instances..." autocomplete="off"/>
+      </div>
+      <div class="viewer-filters">
+        <select id="viewer-difficulty">
+          <option value="">All Difficulties</option>
+          <option value="Easy">Easy</option>
+          <option value="Medium">Medium</option>
+          <option value="Hard">Hard</option>
+        </select>
+        <select id="viewer-sort">
+          <option value="instance_id">Name (A-Z)</option>
+          <option value="difficulty">Difficulty</option>
+        </select>
+      </div>
+      <div class="viewer-meta">
+        <span id="viewer-count">Loading...</span>
+      </div>
+    </div>
+
+    <div class="matrix-wrap">
+      <table class="viewer-table" id="viewer-table">
+        <thead>
+          <tr>
+            <th class="th-instance">Instance</th>
+            <th class="th-diff">Difficulty</th>
+            <th class="th-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="viewer-tbody"></tbody>
+      </table>
+    </div>
+    <div class="viewer-pagination" id="viewer-pagination"></div>
+  </section>
+
+  <section class="section" id="resources" aria-labelledby="resources-label">
+    <p class="section-label" id="resources-label">&#xA7;06 &#xB7; Resources</p>
+    <div class="resources">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
+        <p class="res-url mono">github.com/Ethara-Ai/akatsuki</p>
+        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+      </a>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Akatsuki</p>
+        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono"><a href="https://www.ethara.ai">Ethara AI</a> &#xB7; Project Akatsuki</p>
+    </div>
+  </footer>
+
+</div>
+
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">&#xD7;</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"/>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

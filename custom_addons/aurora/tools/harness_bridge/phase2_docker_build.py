@@ -26,8 +26,7 @@ _REGISTRY_PATH_PREFIX = "multi_swe_bench/harness/repos"
 
 def _get_github_repo(token: str):
     from github import Auth, Github
-    effective_token = os.environ.get("AURORA_HARNESS_GIT_TOKEN", "") or token
-    g = Github(auth=Auth.Token(effective_token))
+    g = Github(auth=Auth.Token(token))
     return g.get_repo(_GITHUB_REPO)
 
 

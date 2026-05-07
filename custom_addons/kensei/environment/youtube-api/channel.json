@@ -1,0 +1,39 @@
+{
+  "id": "UC_TechCraftAcademy",
+  "snippet": {
+    "title": "TechCraft Academy",
+    "description": "Learn programming, master new tools, and level up your developer career. New tutorials every Tuesday, Thursday & Saturday!\n\nTopics: Python, JavaScript, React, System Design, Career Advice, Code Reviews, and more.\n\nBusiness inquiries: techcraftacademy@gmail.com",
+    "customUrl": "@techcraftacademy",
+    "publishedAt": "2022-01-10T15:30:00Z",
+    "thumbnails": {
+      "default": {"url": "https://yt3.ggpht.com/ytc/techcraft_default.jpg", "width": 88, "height": 88},
+      "medium": {"url": "https://yt3.ggpht.com/ytc/techcraft_medium.jpg", "width": 240, "height": 240},
+      "high": {"url": "https://yt3.ggpht.com/ytc/techcraft_high.jpg", "width": 800, "height": 800}
+    },
+    "country": "US"
+  },
+  "statistics": {
+    "viewCount": "22145830",
+    "subscriberCount": "145000",
+    "hiddenSubscriberCount": false,
+    "videoCount": "380"
+  },
+  "contentDetails": {
+    "relatedPlaylists": {
+      "likes": "LL_TechCraftAcademy",
+      "uploads": "UU_TechCraftAcademy"
+    }
+  },
+  "brandingSettings": {
+    "channel": {
+      "title": "TechCraft Academy",
+      "description": "Learn programming, master new tools, and level up your developer career.",
+      "keywords": "programming tutorials coding python javascript react career advice developer",
+      "unsubscribedTrailer": "vid_001",
+      "country": "US"
+    },
+    "image": {
+      "bannerExternalUrl": "https://yt3.googleusercontent.com/techcraft_banner.jpg"
+    }
+  }
+}

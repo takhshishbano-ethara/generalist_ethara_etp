@@ -225,14 +225,16 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
     Lookup order per (org, repo): staging overlay (already loaded before this
     call in _load_staging_for_eval) > in-process registry (vendored tree that
     may have been imported earlier) > remote GitHub sync from the harness
-    registry repo (env: AURORA_HARNESS_GIT_TOKEN, AURORA_HARNESS_GIT_REPO).
+    registry repo using a token from the pool.
+
+    AURORA_HARNESS_GIT_TOKEN is reserved exclusively for *pushing* to
+    multi-swe-bench.  All read operations (registry sync) use the token pool.
 
     Anything still missing after this step surfaces in the downstream
     'missing registries' error branch with actionable guidance.
     """
     from ..tools.harness.instance import Instance
 
-    token = os.environ.get("AURORA_HARNESS_GIT_TOKEN", "").strip()
     pairs: set[tuple[str, str, str]] = set()
     for pr in eval_config.dataset.values():
         pairs.add((pr.org, pr.repo, getattr(pr, "lang", "") or "python"))
@@ -244,14 +246,20 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
     if not needing_sync:
         return
 
-    if not token:
+    # Lease a single token from the pool for read-only registry sync.
+    from .github_token import AuroraGithubToken
+
+    tokens = AuroraGithubToken.lease_tokens(cr, rec_id, count=1)
+    cr.commit()
+    if not tokens:
         _append_log(
             cr, rec_id,
             f"{len(needing_sync)} repo(s) missing from local registry and "
-            f"AURORA_HARNESS_GIT_TOKEN is unset. Skipping dynamic registry "
+            f"no tokens available in the pool. Skipping dynamic registry "
             f"sync; evaluation will fail unless a staging upload is present.",
         )
         return
+    token = tokens[0]
 
     try:
         from ..tools.harness_bridge.phase2_docker_build import (
@@ -260,22 +268,27 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config) -> None:
         )
     except Exception as exc:
         _logger.warning("harness_bridge not importable: %s", exc, exc_info=True)
+        AuroraGithubToken.release_tokens(cr, rec_id)
+        cr.commit()
         return
 
     synced_count = 0
     failed: list[str] = []
-    for org, repo, lang in needing_sync:
-        try:
-            if check_instance_registry(org, repo, lang, github_token=token):
-                _import_all_repo_modules(org, repo, lang)
-                synced_count += 1
-                _append_log(cr, rec_id, f"Synced harness registry for {org}/{repo} (lang={lang}) from GitHub.")
-            else:
+    try:
+        for org, repo, lang in needing_sync:
+            try:
+                if check_instance_registry(org, repo, lang, github_token=token):
+                    _import_all_repo_modules(org, repo, lang)
+                    synced_count += 1
+                    _append_log(cr, rec_id, f"Synced harness registry for {org}/{repo} (lang={lang}) from GitHub.")
+                else:
+                    failed.append(f"{org}/{repo}")
+            except Exception as exc:
+                _logger.exception("Registry sync failed for %s/%s", org, repo)
                 failed.append(f"{org}/{repo}")
-        except Exception as exc:
-            _logger.exception("Registry sync failed for %s/%s", org, repo)
-            failed.append(f"{org}/{repo}")
-            _append_log(cr, rec_id, f"Registry sync failed for {org}/{repo}: {exc}")
+                _append_log(cr, rec_id, f"Registry sync failed for {org}/{repo}: {exc}")
+    finally:
+        AuroraGithubToken.release_tokens(cr, rec_id)
 
     if synced_count:
         cr.commit()

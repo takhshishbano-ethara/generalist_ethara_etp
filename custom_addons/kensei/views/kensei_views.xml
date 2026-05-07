@@ -330,6 +330,20 @@ for user in records:
               <field name="docker_ws_url" widget="url"/>
               <field name="docker_gateway_token"/>
             </group>
+            <notebook invisible="not context.get('uid')">
+              <page string="API Request Logs" groups="kensei.group_kensei_pl">
+                <field name="api_request_ids" nolabel="1" readonly="1">
+                  <list default_order="request_time desc">
+                    <field name="request_time"/>
+                    <field name="service_name"/>
+                    <field name="method"/>
+                    <field name="path"/>
+                    <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
+                    <field name="duration_ms"/>
+                  </list>
+                </field>
+              </page>
+            </notebook>
           </sheet>
         </form>
       </field>
