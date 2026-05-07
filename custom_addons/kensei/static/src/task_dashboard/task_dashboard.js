@@ -11,11 +11,13 @@ import { rpc } from "@web/core/network/rpc";
 const MODEL_TABS = [
     { type: "claude", label: "Claude Opus 4.7", icon: "fa-microchip" },
     { type: "glm", label: "Kimi K2.6", icon: "fa-cube" },
+    { type: "gpt", label: "GPT-5.5", icon: "fa-bolt" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
     claude: "claude_trajectory",
     glm: "glm_trajectory",
+    gpt: "gpt_trajectory",
 };
 
 const STATUS_POLL_INTERVAL_MS = 5000;
@@ -40,6 +42,7 @@ export class TaskDashboard extends Component {
             rubrics: [],
             newRubricLabel: "",
             rubricError: "",
+            testResults: {},
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -54,6 +57,7 @@ export class TaskDashboard extends Component {
             this._loadSandboxes();
             this._checkGogAuthStatus();
             this._loadRubrics();
+            this._loadTestResults();
         });
         onWillUnmount(() => {
             this._stopPolling();
@@ -68,6 +72,7 @@ export class TaskDashboard extends Component {
         const sandboxId = payload.sandbox_id;
         delete this.state.loadingSandbox[sandboxId];
         await this._loadSandboxes();
+        await this._loadTestResults();
         await this.props.record.load();
 
         const status = payload.docker_status || payload.status;
@@ -306,6 +311,7 @@ export class TaskDashboard extends Component {
             await clearChatSession(sandboxId);
             await this.orm.call("kensei.sandbox", "action_stop_sandbox", [[sandboxId]]);
             await this._loadSandboxes();
+            await this._loadTestResults();
             await this.props.record.load();
             await this._autoTriggerTaskDescription(modelType);
         } catch (e) {
@@ -444,6 +450,19 @@ export class TaskDashboard extends Component {
         return 12;
     }
 
+    getModelTrajectoryCount(modelType) {
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return 0;
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return 0;
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.length : 0;
+        } catch (_e) {
+            return 0;
+        }
+    }
+
     _loadRubrics() {
         const raw = this.props.record.data.rubrics;
         if (!raw || !raw.trim()) {
@@ -456,13 +475,14 @@ export class TaskDashboard extends Component {
                 // Legacy format: plain array — add justification to each if missing
                 this.state.rubrics = parsed.map(r => ({
                     ...r,
-                    justification: r.justification || { claude: "", glm: "" },
+                    gpt: r.gpt || Array(12).fill(null),
+                    justification: r.justification || { claude: "", glm: "", gpt: "" },
                 }));
             } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
-                // Wrapped format migration — move global justification into each rubric
-                const globalJ = parsed.justification || { claude: "", glm: "" };
+                const globalJ = parsed.justification || { claude: "", glm: "", gpt: "" };
                 this.state.rubrics = parsed.rubrics.map(r => ({
                     ...r,
+                    gpt: r.gpt || Array(12).fill(null),
                     justification: r.justification || { ...globalJ },
                 }));
             } else {
@@ -471,6 +491,56 @@ export class TaskDashboard extends Component {
         } catch (_e) {
             this.state.rubrics = [];
         }
+    }
+
+    async _loadTestResults() {
+        if (!this.taskId) return;
+        try {
+            const results = await this.orm.searchRead(
+                "kensei.test.result",
+                [["kensei_id", "=", this.taskId]],
+                [
+                    "id", "sandbox_id", "model_type", "model_used", "status",
+                    "tests_total", "tests_passed", "tests_failed", "tests_errored",
+                    "duration_generation_ms", "duration_execution_ms", "create_date",
+                    "trajectory_index",
+                ],
+                { order: "create_date desc", limit: 50 },
+            );
+            const grouped = {};
+            for (const r of results) {
+                const modelType = r.model_type || "unknown";
+                if (!grouped[modelType]) grouped[modelType] = [];
+                grouped[modelType].push(r);
+            }
+            this.state.testResults = grouped;
+        } catch (e) {
+            console.warn("[kensei-dashboard] Failed to load test results:", e);
+        }
+    }
+
+    get activeTestResults() {
+        return this.state.testResults[this.state.activeTab] || [];
+    }
+
+    getTestResultsForTrajectory(trajIndex) {
+        return this.activeTestResults.filter(r => r.trajectory_index === trajIndex);
+    }
+
+    get latestTestResult() {
+        const results = this.activeTestResults;
+        return results.length > 0 ? results[0] : null;
+    }
+
+    get testResultsSummary() {
+        const results = this.activeTestResults;
+        if (results.length === 0) return null;
+        const total = results.length;
+        const passed = results.filter(r => r.status === "passed").length;
+        const failed = results.filter(r => r.status === "failed").length;
+        const errored = results.filter(r => r.status === "error").length;
+        const running = results.filter(r => r.status === "running" || r.status === "generating").length;
+        return { total, passed, failed, errored, running };
     }
 
     async _saveRubrics() {
@@ -487,7 +557,7 @@ export class TaskDashboard extends Component {
         const label = this.state.newRubricLabel.trim();
         if (!label) return;
         const hasEmpty = this.state.rubrics.some(r =>
-            r.claude.some(v => v === null) || r.glm.some(v => v === null)
+            r.claude.some(v => v === null) || r.glm.some(v => v === null) || r.gpt.some(v => v === null)
         );
         if (hasEmpty) {
             this.state.rubricError = "Complete all Pass/Fail ratings on existing rubrics before adding a new one.";
@@ -498,7 +568,8 @@ export class TaskDashboard extends Component {
             label,
             claude: Array(12).fill(null),
             glm: Array(12).fill(null),
-            justification: { claude: "", glm: "" },
+            gpt: Array(12).fill(null),
+            justification: { claude: "", glm: "", gpt: "" },
         });
         this.state.newRubricLabel = "";
         await this._saveRubrics();
@@ -531,7 +602,7 @@ export class TaskDashboard extends Component {
     rubricNeedsJustification(rubricIndex, model) {
         const rubric = this.state.rubrics[rubricIndex];
         if (!rubric) return false;
-        const modelKey = model === "claude" ? "claude" : "glm";
+        const modelKey = model;
         const pass8 = rubric[modelKey].slice(0, 8);
         return pass8.every(v => v === "fail");
     }
@@ -539,7 +610,7 @@ export class TaskDashboard extends Component {
     onJustificationInput(rubricIndex, model, ev) {
         const rubric = this.state.rubrics[rubricIndex];
         if (!rubric) return;
-        if (!rubric.justification) rubric.justification = { claude: "", glm: "" };
+        if (!rubric.justification) rubric.justification = { claude: "", glm: "", gpt: "" };
         rubric.justification[model] = ev.target.value;
     }
 

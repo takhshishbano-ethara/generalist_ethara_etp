@@ -46,6 +46,11 @@
                       string="Generate Golden"
                       invisible="not is_ql_or_pl"
                       confirm="This will call the LLM to generate golden trajectories. Continue?"/>
+              <button class="oe_stat_button" name="action_export_to_harbor"
+                      type="object" icon="fa-cloud-upload"
+                      string="Export to S3"
+                      invisible="not is_ql_or_pl"
+                      confirm="Export this task in Harbor format to S3? This will upload instruction, metadata, and environment files."/>
             </div>
             <group>
               <group string="Task Details">
@@ -125,6 +130,10 @@
               <field name="claude_trajectory" widget="kensei_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
               <separator string="Kimi K2.6 Trajectory" colspan="2"/>
               <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.6 Trajectory" colspan="2"/>
+              <separator string="GPT-5.5 Trajectory" colspan="2"/>
+              <field name="gpt_trajectory" widget="kensei_json" nolabel="1" placeholder="GPT-5.5 Trajectory" colspan="2"/>
+              <separator string="Golden Trajectory" colspan="2"/>
+              <field name="golden_trajectory" widget="text" nolabel="1" placeholder="Paste or generate golden trajectory JSON here..." colspan="2"/>
             </group>
             <field name="onePA_trajectory" invisible="1"/>
             <field name="onePB_trajectory" invisible="1"/>
@@ -133,7 +142,6 @@
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>
             <field name="golden_started_at" invisible="1"/>
-            <field name="golden_trajectory" invisible="1"/>
             <field name="rubrics" invisible="1"/>
           </sheet>
         </form>
@@ -152,11 +160,33 @@
     <record model="ir.actions.server" id="kensei_action_auto_process">
       <field name="name">Auto Process Selected</field>
       <field name="model_id" ref="model_kensei_kensei"/>
-      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" eval="False"/>
       <field name="binding_view_types">list</field>
       <field name="state">code</field>
       <field name="code">
 action = records.action_publish_auto_process()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei_action_export_harbor">
+      <field name="name">Export to S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+records.action_mass_export_to_harbor()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei_action_download_harbor">
+      <field name="name">Download All from S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records[0].action_download_harbor_bundle() if records else env["kensei.kensei"].action_download_harbor_bundle()
       </field>
     </record>
 
@@ -211,11 +241,12 @@ for user in records:
           <field name="model_name"/>
           <field name="tool_names"/>
           <field name="tool_calls" optional="hide" widget="text"/>
-          <field name="qc_severity" optional="show" widget="badge"
+          <field name="qc_severity" optional="hide" widget="badge"
                  decoration-danger="qc_severity == 'critical'"
                  decoration-warning="qc_severity in ('high', 'medium')"
-                 decoration-success="qc_severity == 'low'"/>
-          <field name="qc_dismiss_reason" optional="hide"/>
+                 decoration-success="qc_severity == 'low'"
+                 invisible="1"/>
+          <field name="qc_dismiss_reason" optional="hide" invisible="1"/>
         </list>
       </field>
     </record>
@@ -257,7 +288,7 @@ for user in records:
               <page string="Trajectory">
                 <field name="trajectory_messages" nolabel="1" widget="text"/>
               </page>
-              <page string="QC">
+              <page string="QC" invisible="1">
                 <group>
                   <field name="qc_severity"/>
                   <field name="qc_dismiss_reason"/>
@@ -340,6 +371,22 @@ for user in records:
                     <field name="path"/>
                     <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
                     <field name="duration_ms"/>
+                  </list>
+                </field>
+              </page>
+              <page string="Test Results">
+                <field name="test_result_ids" nolabel="1" readonly="1">
+                  <list default_order="create_date desc">
+                    <field name="model_used"/>
+                    <field name="status" widget="badge"
+                      decoration-success="status == 'passed'"
+                      decoration-danger="status in ('failed', 'error')"
+                      decoration-info="status in ('generating', 'running')"/>
+                    <field name="tests_total"/>
+                    <field name="tests_passed"/>
+                    <field name="tests_failed"/>
+                    <field name="tests_errored"/>
+                    <field name="create_date"/>
                   </list>
                 </field>
               </page>

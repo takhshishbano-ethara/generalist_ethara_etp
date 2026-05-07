@@ -22,6 +22,7 @@
         "views/persona_views.xml",
         "views/kensei_views.xml",
         "views/api_request_views.xml",
+        "views/test_result_views.xml",
         "views/menuitems.xml",
     ],
     "installable": True,

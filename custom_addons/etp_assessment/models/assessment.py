@@ -351,21 +351,21 @@ class EtpAssessment(models.Model):
                     f"{len(available_questions)} available in this category."
                 )
 
-            selected = random.sample(available_questions.ids, limit)
+            all_question_ids = available_questions.ids
             rec.write({
-                "question_ids": [(6, 0, selected)],
+                "question_ids": [(6, 0, all_question_ids)],
                 "state": "in_progress",
                 "start_date": rec.start_date or fields.Datetime.now(),
             })
 
             for evaluator in rec.evaluator_ids:
-                shuffled_order = selected[:]
-                random.shuffle(shuffled_order)
+                candidate_questions = random.sample(all_question_ids, limit)
+                random.shuffle(candidate_questions)
                 self.env["etp.assessment.evaluator"].create({
                     "assessment_id": rec.id,
                     "employee_id": evaluator.id,
-                    "question_order": json.dumps(shuffled_order),
-                    "total_questions": len(shuffled_order),
+                    "question_order": json.dumps(candidate_questions),
+                    "total_questions": len(candidate_questions),
                     "access_token": str(uuid.uuid4()),
                 })
 

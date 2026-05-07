@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_surtor_showcase" model="ir.actions.client">
+        <field name="name">Surtor Dashboard</field>
+        <field name="tag">surtor_dashboard.showcase</field>
+    </record>
+
+    <menuitem id="menu_surtor_dashboard"
+              name="Surtor"
+              action="action_surtor_showcase"
+              sequence="204"/>
+</odoo>

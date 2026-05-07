@@ -34,6 +34,7 @@ export class CostingDashboard extends Component {
             sortField: "grand_total",
             sortAsc: false,
             expanded: {},
+            expandedTasks: {},
         });
 
         onMounted(() => this._loadData());
@@ -78,6 +79,33 @@ export class CostingDashboard extends Component {
 
     isExpanded(employeeId) {
         return !!this.state.expanded[employeeId];
+    }
+
+    onToggleTask(taskId) {
+        this.state.expandedTasks = {
+            ...this.state.expandedTasks,
+            [taskId]: !this.state.expandedTasks[taskId],
+        };
+    }
+
+    isTaskExpanded(taskId) {
+        return !!this.state.expandedTasks[taskId];
+    }
+
+    getTrajectoryBarWidth(tokensTotal, task) {
+        if (!task.trajectories || task.trajectories.length === 0) return 0;
+        const maxTokens = Math.max(...task.trajectories.map(t => t.tokens_total));
+        if (maxTokens === 0) return 0;
+        return Math.round((tokensTotal / maxTokens) * 100);
+    }
+
+    getModelColor(model) {
+        const colors = {
+            claude: "#d97706",
+            glm: "#7c3aed",
+            gpt: "#059669",
+        };
+        return colors[model] || "#6b7280";
     }
 
     get sortedRows() {

@@ -1547,11 +1547,12 @@ export class KenseiChatWidget extends Component {
         await this._fetchTrajectory(turnId);
 
         if (turnId && this._session.wsConnected) {
-            if (this.state.autoHintIteration < this.state.autoHintMaxRetries) {
-                this._triggerAutoHintEval(turnId);
-            } else if (this.state.autoHintActive) {
-                this._endAutoHintLoop("max_retries");
-            }
+            // Auto-hint eval disabled
+            // if (this.state.autoHintIteration < this.state.autoHintMaxRetries) {
+            //     this._triggerAutoHintEval(turnId);
+            // } else if (this.state.autoHintActive) {
+            //     this._endAutoHintLoop("max_retries");
+            // }
         }
     }
 

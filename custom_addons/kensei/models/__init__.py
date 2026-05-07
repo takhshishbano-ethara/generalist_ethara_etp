@@ -6,4 +6,5 @@ from . import (
     kensei_persona,
     kensei_sandbox,
     kensei_sandbox_k8s,
+    kensei_test_result,
 )

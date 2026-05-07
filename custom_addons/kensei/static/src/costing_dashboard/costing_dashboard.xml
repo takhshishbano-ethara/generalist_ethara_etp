@@ -21,11 +21,12 @@
                 <div class="o_kensei_summary_card">
                     <div class="o_kensei_summary_icon"><i class="fa fa-comments"/></div>
                     <div class="o_kensei_summary_label">Sandbox</div>
-                    <div class="o_kensei_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/>
+                    <div class="o_kensei_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/>
                     <div class="o_kensei_summary_sub">
                         <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
                         <span>Kimi: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
                         <span>1P: <strong t-out="formatNumber(state.totals.oneP_total)"/></span>
+                        <span>GPT: <strong t-out="formatNumber(state.totals.gpt_total)"/></span>
                     </div>
                     <div class="o_kensei_summary_badge trajectory">Trajectory</div>
                 </div>
@@ -74,7 +75,7 @@
                     <div class="o_kensei_summary_label">Total Tokens</div>
                     <div class="o_kensei_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
                     <div class="o_kensei_summary_sub">
-                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/></span>
+                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/></span>
                         <span>Bedrock: <strong t-out="formatNumber((state.totals.bedrock_total || 0) + (state.totals.traj_qc_total || 0) + (state.totals.taskdesc_total || 0) + (state.totals.golden_total || 0))"/></span>
                     </div>
                 </div>
@@ -99,10 +100,12 @@
                             <th class="col-group-header col-group-claude" colspan="3">Claude</th>
                             <th class="col-group-header col-group-glm" colspan="3">Kimi</th>
                             <th class="col-group-header col-group-oneP" colspan="3">1P</th>
+                            <th class="col-group-header col-group-gpt" colspan="3">GPT</th>
                             <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
                             <th class="col-group-header col-group-traj-qc" colspan="3">Traj QC</th>
                             <th class="col-group-header col-group-taskdesc" colspan="3">Task Desc</th>
                             <th class="col-group-header col-group-golden" colspan="3">Golden</th>
+                            <th class="col-group-header col-group-tests" colspan="3">Tests</th>
                             <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
                                 Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
                             </th>
@@ -120,6 +123,10 @@
                             <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_output')">Out</th>
                             <th class="col-num col-oneP col-subtotal" t-on-click="() => this.onSort('oneP_total')">Σ</th>
 
+                            <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_input')">In</th>
+                            <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_output')">Out</th>
+                            <th class="col-num col-gpt col-subtotal" t-on-click="() => this.onSort('gpt_total')">Σ</th>
+
                             <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_input')">In</th>
                             <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_output')">Out</th>
                             <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('bedrock_total')">Σ</th>
@@ -135,6 +142,10 @@
                             <th class="col-num col-golden" t-on-click="() => this.onSort('golden_input')">In</th>
                             <th class="col-num col-golden" t-on-click="() => this.onSort('golden_output')">Out</th>
                             <th class="col-num col-golden col-subtotal" t-on-click="() => this.onSort('golden_total')">Σ</th>
+
+                            <th class="col-num col-tests">Total</th>
+                            <th class="col-num col-tests">Pass</th>
+                            <th class="col-num col-tests col-subtotal">Fail</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -160,6 +171,10 @@
                                 <td class="col-num col-oneP" t-out="formatNumber(row.oneP_output)"/>
                                 <td class="col-num col-oneP col-subtotal" t-out="formatNumber(row.oneP_total)"/>
 
+                                <td class="col-num col-gpt" t-out="formatNumber(row.gpt_input)"/>
+                                <td class="col-num col-gpt" t-out="formatNumber(row.gpt_output)"/>
+                                <td class="col-num col-gpt col-subtotal" t-out="formatNumber(row.gpt_total)"/>
+
                                 <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_input)"/>
                                 <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_output)"/>
                                 <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.bedrock_total)"/>
@@ -176,16 +191,24 @@
                                 <td class="col-num col-golden" t-out="formatNumber(row.golden_output)"/>
                                 <td class="col-num col-golden col-subtotal" t-out="formatNumber(row.golden_total)"/>
 
+                                <td class="col-num col-tests" t-out="formatNumber(row.tests_total || 0)"/>
+                                <td class="col-num col-tests" t-out="formatNumber(row.tests_passed || 0)"/>
+                                <td class="col-num col-tests col-subtotal" t-out="formatNumber(row.tests_failed || 0)"/>
+
                                 <td class="col-num col-grand" t-out="formatNumber(row.grand_total)"/>
                             </tr>
                             <t t-if="isExpanded(row.employee_id)">
                                 <t t-foreach="row.tasks" t-as="task" t-key="task.task_id">
-                                    <tr class="o_kensei_task_row">
+                                    <tr class="o_kensei_task_row" t-on-click="() => this.onToggleTask(task.task_id)">
                                         <td class="col-employee o_kensei_task_cell">
                                             <span class="o_kensei_task_indent"/>
+                                            <i t-attf-class="fa #{this.isTaskExpanded(task.task_id) ? 'fa-caret-down' : 'fa-caret-right'} me-2 o_kensei_caret"/>
                                             <i class="fa fa-file-text-o me-2 text-muted"/>
                                             <t t-out="task.task_name"/>
                                             <span class="ms-2 text-muted small">#<t t-out="task.task_id"/></span>
+                                            <span t-if="task.trajectories and task.trajectories.length" class="ms-2 o_kensei_traj_pill">
+                                                <t t-out="task.trajectories.length"/> traj
+                                            </span>
                                         </td>
                                         <td class="col-num col-claude" t-out="formatNumber(task.claude_input)"/>
                                         <td class="col-num col-claude" t-out="formatNumber(task.claude_output)"/>
@@ -198,6 +221,10 @@
                                         <td class="col-num col-oneP" t-out="formatNumber(task.oneP_input)"/>
                                         <td class="col-num col-oneP" t-out="formatNumber(task.oneP_output)"/>
                                         <td class="col-num col-oneP col-subtotal" t-out="formatNumber(task.oneP_total)"/>
+
+                                        <td class="col-num col-gpt" t-out="formatNumber(task.gpt_input)"/>
+                                        <td class="col-num col-gpt" t-out="formatNumber(task.gpt_output)"/>
+                                        <td class="col-num col-gpt col-subtotal" t-out="formatNumber(task.gpt_total)"/>
 
                                         <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_input)"/>
                                         <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_output)"/>
@@ -215,8 +242,91 @@
                                         <td class="col-num col-golden" t-out="formatNumber(task.golden_output)"/>
                                         <td class="col-num col-golden col-subtotal" t-out="formatNumber(task.golden_total)"/>
 
+                                        <td class="col-num col-tests" t-out="formatNumber(task.tests_total || 0)"/>
+                                        <td class="col-num col-tests" t-out="formatNumber(task.tests_passed || 0)"/>
+                                        <td class="col-num col-tests col-subtotal" t-out="formatNumber(task.tests_failed || 0)"/>
+
                                         <td class="col-num col-grand" t-out="formatNumber(task.grand_total)"/>
                                     </tr>
+                                    <!-- Trajectory Breakdown Bars -->
+                                    <t t-if="this.isTaskExpanded(task.task_id) and task.trajectories and task.trajectories.length">
+                                        <tr class="o_kensei_traj_header_row">
+                                            <td colspan="29" class="o_kensei_traj_container">
+                                                <div class="o_kensei_traj_breakdown">
+                                                    <!-- Left: Trajectory Bars -->
+                                                    <div class="o_kensei_traj_bars">
+                                                        <div class="o_kensei_traj_breakdown_title">
+                                                            Per-Trajectory Token Usage
+                                                        </div>
+                                                        <t t-foreach="task.trajectories" t-as="traj" t-key="traj.model + '_' + traj.index">
+                                                            <div class="o_kensei_traj_bar_row">
+                                                                <div class="o_kensei_traj_bar_label">
+                                                                    <span class="o_kensei_traj_bar_dot" t-attf-style="background: #{this.getModelColor(traj.model)}"/>
+                                                                    <span class="o_kensei_traj_bar_model"><t t-out="traj.model"/></span>
+                                                                    <span class="o_kensei_traj_bar_index">#<t t-out="traj.index"/></span>
+                                                                </div>
+                                                                <div class="o_kensei_traj_bar_track">
+                                                                    <div class="o_kensei_traj_bar_fill" t-attf-style="width: #{this.getTrajectoryBarWidth(traj.tokens_total, task)}%; background: #{this.getModelColor(traj.model)}"/>
+                                                                </div>
+                                                                <div class="o_kensei_traj_bar_values">
+                                                                    <span class="o_kensei_traj_bar_in"><t t-out="formatNumber(traj.tokens_in)"/> in</span>
+                                                                    <span class="o_kensei_traj_bar_out"><t t-out="formatNumber(traj.tokens_out)"/> out</span>
+                                                                    <span class="o_kensei_traj_bar_total"><t t-out="formatNumber(traj.tokens_total)"/></span>
+                                                                </div>
+                                                            </div>
+                                                        </t>
+                                                    </div>
+
+                                                    <!-- Right: Test Results side-by-side -->
+                                                    <t t-if="task.test_results and Object.keys(task.test_results).length > 0">
+                                                        <div class="o_kensei_traj_test_section">
+                                                            <div class="o_kensei_traj_breakdown_title">
+                                                                Test Cases Generated
+                                                            </div>
+                                                            <div class="o_kensei_traj_test_models">
+                                                                <t t-foreach="Object.keys(task.test_results)" t-as="modelKey" t-key="modelKey">
+                                                                    <div class="o_kensei_traj_test_model_group">
+                                                                        <div class="o_kensei_traj_test_model_label">
+                                                                            <span class="o_kensei_traj_bar_dot" t-attf-style="background: #{this.getModelColor(modelKey)}"/>
+                                                                            <span><t t-out="modelKey"/></span>
+                                                                            <span class="o_kensei_traj_test_model_count">
+                                                                                <t t-out="task.test_results[modelKey].length"/> run(s)
+                                                                            </span>
+                                                                        </div>
+                                                                        <div class="o_kensei_traj_test_items">
+                                                                            <t t-foreach="task.test_results[modelKey]" t-as="tr" t-key="tr.id">
+                                                                                <div class="o_kensei_traj_test_item">
+                                                                                    <span t-attf-class="o_kensei_traj_test_status o_kensei_traj_test_status_#{tr.status}">
+                                                                                        <t t-if="tr.status === 'passed'"><i class="fa fa-check"/></t>
+                                                                                        <t t-elif="tr.status === 'failed'"><i class="fa fa-times"/></t>
+                                                                                        <t t-elif="tr.status === 'error'"><i class="fa fa-exclamation"/></t>
+                                                                                        <t t-else=""><i class="fa fa-spinner fa-spin"/></t>
+                                                                                    </span>
+                                                                                    <span class="o_kensei_traj_test_name" t-out="tr.model_used || 'Test'"/>
+                                                                                    <span class="o_kensei_traj_test_counts">
+                                                                                        <span class="o_kensei_traj_tc_pass"><t t-out="tr.tests_passed"/></span>/<span class="o_kensei_traj_tc_total"><t t-out="tr.tests_total"/></span>
+                                                                                    </span>
+                                                                                    <span t-if="tr.tests_failed > 0" class="o_kensei_traj_tc_fail_badge">
+                                                                                        <t t-out="tr.tests_failed"/> fail
+                                                                                    </span>
+                                                                                    <span t-if="tr.tests_errored > 0" class="o_kensei_traj_tc_error_badge">
+                                                                                        <t t-out="tr.tests_errored"/> err
+                                                                                    </span>
+                                                                                    <span class="o_kensei_traj_test_time">
+                                                                                        <t t-out="Math.round(tr.duration_exec_ms / 1000 * 10) / 10"/>s
+                                                                                    </span>
+                                                                                </div>
+                                                                            </t>
+                                                                        </div>
+                                                                    </div>
+                                                                </t>
+                                                            </div>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </t>
                                 </t>
                             </t>
                         </t>
@@ -236,6 +346,10 @@
                             <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_output)"/>
                             <td class="col-num col-oneP col-subtotal" t-out="formatNumber(state.totals.oneP_total)"/>
 
+                            <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_input)"/>
+                            <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_output)"/>
+                            <td class="col-num col-gpt col-subtotal" t-out="formatNumber(state.totals.gpt_total)"/>
+
                             <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_input)"/>
                             <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_output)"/>
                             <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.bedrock_total)"/>
@@ -251,6 +365,10 @@
                             <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_input)"/>
                             <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_output)"/>
                             <td class="col-num col-golden col-subtotal" t-out="formatNumber(state.totals.golden_total)"/>
+
+                            <td class="col-num col-tests" t-out="formatNumber(state.totals.tests_total || 0)"/>
+                            <td class="col-num col-tests" t-out="formatNumber(state.totals.tests_passed || 0)"/>
+                            <td class="col-num col-tests col-subtotal" t-out="formatNumber(state.totals.tests_failed || 0)"/>
 
                             <td class="col-num col-grand" t-out="formatNumber(state.totals.grand_total)"/>
                         </tr>

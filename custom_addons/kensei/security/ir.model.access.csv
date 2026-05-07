@@ -14,3 +14,6 @@ access_kensei_persona_pl,kensei.persona.pl,model_kensei_persona,group_kensei_pl,
 access_kensei_taxonomy_pl,kensei.taxonomy.pl,model_kensei_taxonomy,group_kensei_pl,1,1,1,1
 access_kensei_domain_pl,kensei.domain.pl,model_kensei_domain,group_kensei_pl,1,1,1,1
 access_kensei_api_request_pl,kensei.api.request.pl,model_kensei_api_request,group_kensei_pl,1,1,1,1
+access_kensei_test_result_tasker,kensei.test.result.tasker,model_kensei_test_result,group_kensei_tasker,1,0,0,0
+access_kensei_test_result_ql,kensei.test.result.ql,model_kensei_test_result,group_kensei_ql,1,0,0,0
+access_kensei_test_result_pl,kensei.test.result.pl,model_kensei_test_result,group_kensei_pl,1,1,1,1

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -7,6 +8,66 @@ from odoo.exceptions import AccessError
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
+
+
+def _parse_trajectories(task):
+    """Extract per-trajectory token data from the task's JSON trajectory fields."""
+    trajectories = []
+    field_map = {
+        "claude": "claude_trajectory",
+        "glm": "glm_trajectory",
+        "gpt": "gpt_trajectory",
+    }
+    for model_key, field_name in field_map.items():
+        raw = getattr(task, field_name, None) or ""
+        if not raw.strip():
+            continue
+        try:
+            parsed = json.loads(raw)
+            entries = parsed if isinstance(parsed, list) else [parsed]
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for idx, entry in enumerate(entries):
+            t_in = int(entry.get("tokens_in", 0) or 0)
+            t_out = int(entry.get("tokens_out", 0) or 0)
+            trajectories.append({
+                "model": model_key,
+                "index": idx + 1,
+                "tokens_in": t_in,
+                "tokens_out": t_out,
+                "tokens_total": t_in + t_out,
+                "timestamp": entry.get("timestamp", ""),
+            })
+    return trajectories
+
+
+def _get_test_results_for_task(task):
+    TestResult = task.env["kensei.test.result"].sudo()
+    results = TestResult.search(
+        [("kensei_id", "=", task.id)],
+        order="create_date desc",
+        limit=20,
+    )
+    grouped = {}
+    for r in results:
+        sb = r.sandbox_id
+        model_type = sb.model_type if sb else "unknown"
+        if model_type not in grouped:
+            grouped[model_type] = []
+        grouped[model_type].append({
+            "id": r.id,
+            "model_used": r.model_used or "",
+            "status": r.status or "",
+            "tests_total": r.tests_total,
+            "tests_passed": r.tests_passed,
+            "tests_failed": r.tests_failed,
+            "tests_errored": r.tests_errored,
+            "trajectory_index": r.trajectory_index or 0,
+            "duration_exec_ms": r.duration_execution_ms or 0,
+            "duration_gen_ms": r.duration_generation_ms or 0,
+            "create_date": str(r.create_date) if r.create_date else "",
+        })
+    return grouped
 
 
 def _task_row(task):
@@ -18,6 +79,8 @@ def _task_row(task):
     go = task.glm_output_tokens or 0
     oi = task.oneP_input_tokens or 0
     oo = task.oneP_output_tokens or 0
+    gpi = task.gpt_input_tokens or 0
+    gpo = task.gpt_output_tokens or 0
     tqi = task.traj_qc_input_tokens or 0
     tqo = task.traj_qc_output_tokens or 0
     tdi = task.taskdesc_input_tokens or 0
@@ -29,6 +92,7 @@ def _task_row(task):
     ct = ci + co
     gt = gi + go
     ot = oi + oo
+    gpt = gpi + gpo
     tqt = tqi + tqo
     tdt = tdi + tdo
     gdt = gdi + gdo
@@ -48,6 +112,9 @@ def _task_row(task):
         "oneP_input": oi,
         "oneP_output": oo,
         "oneP_total": ot,
+        "gpt_input": gpi,
+        "gpt_output": gpo,
+        "gpt_total": gpt,
         "traj_qc_input": tqi,
         "traj_qc_output": tqo,
         "traj_qc_total": tqt,
@@ -57,8 +124,23 @@ def _task_row(task):
         "golden_input": gdi,
         "golden_output": gdo,
         "golden_total": gdt,
-        "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+        "grand_total": bt + ct + gt + ot + gpt + tqt + tdt + gdt,
+        "trajectories": _parse_trajectories(task),
+        "test_results": _get_test_results_for_task(task),
     }
+    test_data = row["test_results"]
+    tests_total = 0
+    tests_passed = 0
+    tests_failed = 0
+    for model_results in test_data.values():
+        for r in model_results:
+            tests_total += r.get("tests_total", 0)
+            tests_passed += r.get("tests_passed", 0)
+            tests_failed += r.get("tests_failed", 0)
+    row["tests_total"] = tests_total
+    row["tests_passed"] = tests_passed
+    row["tests_failed"] = tests_failed
+    return row
 
 
 class KenseiCostingController(http.Controller):
@@ -100,6 +182,8 @@ class KenseiCostingController(http.Controller):
                     "glm_output": 0,
                     "oneP_input": 0,
                     "oneP_output": 0,
+                    "gpt_input": 0,
+                    "gpt_output": 0,
                     "traj_qc_input": 0,
                     "traj_qc_output": 0,
                     "taskdesc_input": 0,
@@ -116,6 +200,8 @@ class KenseiCostingController(http.Controller):
             emp_map[eid]["glm_output"] += task.glm_output_tokens or 0
             emp_map[eid]["oneP_input"] += task.oneP_input_tokens or 0
             emp_map[eid]["oneP_output"] += task.oneP_output_tokens or 0
+            emp_map[eid]["gpt_input"] += task.gpt_input_tokens or 0
+            emp_map[eid]["gpt_output"] += task.gpt_output_tokens or 0
             emp_map[eid]["traj_qc_input"] += task.traj_qc_input_tokens or 0
             emp_map[eid]["traj_qc_output"] += task.traj_qc_output_tokens or 0
             emp_map[eid]["taskdesc_input"] += task.taskdesc_input_tokens or 0
@@ -130,6 +216,7 @@ class KenseiCostingController(http.Controller):
             "claude_input", "claude_output", "claude_total",
             "glm_input", "glm_output", "glm_total",
             "oneP_input", "oneP_output", "oneP_total",
+            "gpt_input", "gpt_output", "gpt_total",
             "traj_qc_input", "traj_qc_output", "traj_qc_total",
             "taskdesc_input", "taskdesc_output", "taskdesc_total",
             "golden_input", "golden_output", "golden_total",
@@ -142,6 +229,7 @@ class KenseiCostingController(http.Controller):
             ct = data["claude_input"] + data["claude_output"]
             gt = data["glm_input"] + data["glm_output"]
             ot = data["oneP_input"] + data["oneP_output"]
+            gpt = data["gpt_input"] + data["gpt_output"]
             tqt = data["traj_qc_input"] + data["traj_qc_output"]
             tdt = data["taskdesc_input"] + data["taskdesc_output"]
             gdt = data["golden_input"] + data["golden_output"]
@@ -165,6 +253,9 @@ class KenseiCostingController(http.Controller):
                 "oneP_input": data["oneP_input"],
                 "oneP_output": data["oneP_output"],
                 "oneP_total": ot,
+                "gpt_input": data["gpt_input"],
+                "gpt_output": data["gpt_output"],
+                "gpt_total": gpt,
                 "traj_qc_input": data["traj_qc_input"],
                 "traj_qc_output": data["traj_qc_output"],
                 "traj_qc_total": tqt,
@@ -174,7 +265,10 @@ class KenseiCostingController(http.Controller):
                 "golden_input": data["golden_input"],
                 "golden_output": data["golden_output"],
                 "golden_total": gdt,
-                "grand_total": bt + ct + gt + ot + tqt + tdt + gdt,
+                "grand_total": bt + ct + gt + ot + gpt + tqt + tdt + gdt,
+                "tests_total": sum(t.get("tests_total", 0) for t in tasks_sorted),
+                "tests_passed": sum(t.get("tests_passed", 0) for t in tasks_sorted),
+                "tests_failed": sum(t.get("tests_failed", 0) for t in tasks_sorted),
                 "tasks": tasks_sorted,
             }
             rows.append(row)
@@ -183,6 +277,12 @@ class KenseiCostingController(http.Controller):
                     totals[k] += row[k]
                 elif k in row:
                     totals[k] += row[k]
+            totals.setdefault("tests_total", 0)
+            totals.setdefault("tests_passed", 0)
+            totals.setdefault("tests_failed", 0)
+            totals["tests_total"] += row["tests_total"]
+            totals["tests_passed"] += row["tests_passed"]
+            totals["tests_failed"] += row["tests_failed"]
 
         return {
             "period": period,

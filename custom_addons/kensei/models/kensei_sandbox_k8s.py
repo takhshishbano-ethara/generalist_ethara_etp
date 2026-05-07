@@ -257,6 +257,15 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 "contextWindow": 131072,
                 "maxTokens": 32768,
             },
+            {
+                "id": "gpt-5.5",
+                "name": "gpt-5.5",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "contextWindow": 1050000,
+                "maxTokens": 128000,
+            },
         ],
     }
     config_dict["agents"] = {
@@ -309,6 +318,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             litellm_db_password = secrets.token_hex(16)
         llama_api_key = (env.get("KENSEI_LLAMA_API_KEY") or env.get("LLAMA_API_KEY", "")).strip()
         moonshot_api_key = (env.get("KENSEI_MOONSHOT_API_KEY") or env.get("MOONSHOT_API_KEY", "")).strip()
+        openai_api_key = (env.get("KENSEI_OPENAI_API_KEY") or env.get("OPENAI_API_KEY", "")).strip()
 
         openclaw_image = self._get_config_param(
             "kensei.openclaw_image",
@@ -336,6 +346,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             aws_bearer=aws_bearer,
             llama_api_key=llama_api_key,
             moonshot_api_key=moonshot_api_key,
+            openai_api_key=openai_api_key,
         )
 
         self._create_persona_configmap(
@@ -417,6 +428,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         aws_bearer,
         llama_api_key="",
         moonshot_api_key="",
+        openai_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
@@ -433,6 +445,7 @@ class KenseiSandboxK8s(models.AbstractModel):
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
                 "LLAMA_API_KEY": llama_api_key,
                 "MOONSHOT_API_KEY": moonshot_api_key,
+                "OPENAI_API_KEY": openai_api_key,
             },
         )
         try:
@@ -1192,6 +1205,15 @@ class KenseiSandboxK8s(models.AbstractModel):
                         secret_key_ref=client.V1SecretKeySelector(
                             name=secret_name,
                             key="MOONSHOT_API_KEY",
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="OPENAI_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="OPENAI_API_KEY",
                         ),
                     ),
                 ),

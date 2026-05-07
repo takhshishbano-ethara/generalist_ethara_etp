@@ -180,11 +180,29 @@
                         <setting
                             string="Disable Auto-Hint"
                             help="Skip automated hint evaluation and generation. Enable this for testing and debugging only."
+                            invisible="1"
                         >
                             <field
                                 name="kensei_disable_auto_hint"
                                 widget="boolean_toggle"
                             />
+                        </setting>
+                    </block>
+                    <block title="Test Generation">
+                        <setting
+                            string="Enable Test Generation"
+                            help="Auto-generate pytest test cases from mock API audit logs when a sandbox stops."
+                        >
+                            <field
+                                name="kensei_test_gen_enabled"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Test Gen Inference ARN"
+                            help="Bedrock inference ARN for test generation (Sonnet 4.6). Falls back to the main Bedrock ARN if empty."
+                        >
+                            <field name="kensei_test_gen_inference_arn" />
                         </setting>
                     </block>
                     <block title="S3 Storage (Attachments)">

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import logging
 
@@ -365,3 +366,52 @@ class EtpAssessmentPortal(http.Controller):
 
         evaluator.write({"state": "submitted", "is_locked": True})
         self._check_assessment_complete(evaluator)
+
+    @http.route(
+        "/assessment/<string:token>/image/<int:question_id>/<string:field>",
+        type="http",
+        auth="public",
+        website=False,
+        csrf=False,
+    )
+    def assessment_image(self, token, question_id, field, **kw):
+        """Serve question images via token - no login required."""
+        evaluator = self._get_evaluator_from_token(token)
+        if not evaluator:
+            return request.not_found()
+
+        if field not in ("image_a", "image_b"):
+            return request.not_found()
+
+        question = (
+            request.env["etp.assessment.question"].sudo().browse(question_id)
+        )
+        if not question.exists():
+            return request.not_found()
+
+        question_order = json.loads(evaluator.question_order or "[]")
+        if question_id not in question_order:
+            return request.not_found()
+
+        image_data = question[field]
+        if not image_data:
+            return request.not_found()
+
+        image_bytes = base64.b64decode(image_data)
+
+        content_type = "image/png"
+        if image_bytes[:3] == b"\xff\xd8\xff":
+            content_type = "image/jpeg"
+        elif image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+            content_type = "image/webp"
+        elif image_bytes[:3] == b"GIF":
+            content_type = "image/gif"
+
+        return request.make_response(
+            image_bytes,
+            headers=[
+                ("Content-Type", content_type),
+                ("Cache-Control", "private, max-age=3600"),
+                ("Content-Length", str(len(image_bytes))),
+            ],
+        )

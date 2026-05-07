@@ -283,6 +283,9 @@ class KenseiChatController(http.Controller):
                 elif model_type == "glm":
                     vals["glm_input_tokens"] = token_usage["input_tokens"]
                     vals["glm_output_tokens"] = token_usage["output_tokens"]
+                elif model_type == "gpt":
+                    vals["gpt_input_tokens"] = token_usage["input_tokens"]
+                    vals["gpt_output_tokens"] = token_usage["output_tokens"]
                 else:
                     vals["trajectory_input_tokens"] = token_usage["input_tokens"]
                     vals["trajectory_output_tokens"] = token_usage["output_tokens"]

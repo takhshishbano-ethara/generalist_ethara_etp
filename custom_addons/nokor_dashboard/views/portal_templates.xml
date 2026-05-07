@@ -2,7 +2,7 @@
 <odoo>
 
   <!--
-    Nokor Dashboard — public single-page editorial view.
+    Nokor Dashboard. Public single-page editorial view.
 
     Mounted at /nokor by controllers/main.py (NokorShowcaseController).
     The controller passes config URLs which the client-side JS
@@ -10,7 +10,7 @@
 
     Layout: standalone HTML (no portal.portal_layout). Mirrors
     Tesseract's editorial section-numbered design with Nokor's
-    GAIA benchmark content and all DOM IDs preserved for JS hooks.
+    GAIA RL environment content and all DOM IDs preserved for JS hooks.
   -->
 
   <template id="portal_showcase" name="Nokor Dashboard">
@@ -18,8 +18,8 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>NOKOR — General AI Assistant Benchmark · ETHARA AI</title>
-      <meta name="description" content="Nokor evaluates AI assistants on multi-modal reasoning and tool-use tasks across PDF, Web, Image, Video, and Reasoning modalities using the GAIA framework."/>
+      <title>NOKOR · RL Environment for General AI Assistants</title>
+      <meta name="description" content="NOKOR is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks across PDF, Web, Image, Video, and Reasoning categories using the GAIA methodology."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
@@ -88,27 +88,27 @@
   <header class="masthead">
     <div class="mast-top">
       <h1 class="wordmark">NOKOR</h1>
-      <span class="badge mono">GENERAL AI ASSISTANT BENCHMARK</span>
+      <span class="badge mono">RL ENVIRONMENT FOR GENERAL AI ASSISTANTS</span>
     </div>
     <hr class="rule"/>
-    <p class="thesis">Multi-Modal Reasoning and Tool-Use Evaluation — GAIA Framework</p>
+    <p class="thesis">Multi-Step, Multi-Category Training for General AI Assistants. GAIA Methodology.</p>
   </header>
 
   <main id="main">
 
   <!-- ================= §01 THE BENCHMARK ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
-    <p class="section-label" id="overview-label">§01 · The benchmark</p>
+    <p class="section-label" id="overview-label">§01 · The environment</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>NOKOR evaluates frontier AI assistants on multi-modal reasoning and tool-use tasks derived from the GAIA (General AI Assistant) framework. Given real-world documents, images, videos, and web-accessible information, models must decompose complex questions into multi-step reasoning chains, select appropriate tools, and synthesize precise answers. Unlike single-modality benchmarks, Nokor requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning — mirroring the complexity of real-world information work.</p>
+        <p>NOKOR is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks following the GAIA methodology. Given real-world documents, images, videos, and web-accessible information, agents must decompose complex questions into multi-step reasoning chains, select appropriate tools, and produce precise answers. Nokor requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning. This mirrors the complexity of real-world information work.</p>
         <ul class="capabilities">
-          <li>Multi-modal evaluation across 5 modalities: PDF, Web, Image, Video, Reasoning</li>
-          <li>Tool-use assessment: PDF reader, Web search, Calculator, Image/Video analysis</li>
-          <li>Three difficulty tiers: Hard, Very Hard, Expert</li>
+          <li>Multi-modal tasks across 5 categories: Web Browsing, File Reading, Multi-Modality, Calculation, Self-Contained</li>
+          <li>Tool-use challenges: PDF reader, Web search, Calculator, Image/Video analysis</li>
+          <li>Three difficulty levels following GAIA (Level 1, Level 2, Level 3)</li>
           <li>Exact-match scoring with deterministic ground truth answers</li>
           <li>Cost and latency tracking per model per instance</li>
-          <li>GAIA methodology for reproducible multi-step evaluation</li>
+          <li>GAIA methodology for reproducible multi-step training</li>
         </ul>
       </div>
 
@@ -116,8 +116,8 @@
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
-          <div class="glance-row"><dt>Documents</dt><dd><b>2,400+</b></dd></div>
-          <div class="glance-row"><dt>Modalities</dt><dd><b>5</b></dd></div>
+          <div class="glance-row"><dt>File Attachments</dt><dd><b>2,400+</b></dd></div>
+          <div class="glance-row"><dt>Categories</dt><dd><b>5</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Methodology</dt><dd>GAIA Framework</dd></div>
           <div class="glance-row"><dt>Difficulty</dt><dd><b>3</b> levels</dd></div>
@@ -129,27 +129,27 @@
   <!-- ================= §02 THE FUNNEL ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
     <p class="section-label" id="scale-label">§02 · The scale</p>
-    <p class="section-desc">Ten thousand curated instances. Two frontier models. Five modalities.</p>
-    <div class="funnel" aria-label="Funnel from 10,000 instances to 2 models evaluated">
+    <p class="section-desc">Ten thousand curated instances. Five categories. Three difficulty levels.</p>
+    <div class="funnel" aria-label="Funnel from 10,000 instances to 5 categories">
       <div class="funnel-step">
         <span class="funnel-num" data-target="10000" aria-hidden="true">0</span>
         <span class="sr-only">10,000</span>
         <span class="funnel-unit">Instances curated</span>
-        <span class="funnel-sub">across 5 modalities</span>
+        <span class="funnel-sub">across 5 categories</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step">
-        <span class="funnel-num" data-target="2" aria-hidden="true">0</span>
-        <span class="sr-only">2</span>
-        <span class="funnel-unit">Models evaluated</span>
-        <span class="funnel-sub">Kimi 2.5 · Nova-2-Lite</span>
+        <span class="funnel-num" data-target="2400" aria-hidden="true">0</span>
+        <span class="sr-only">2,400+</span>
+        <span class="funnel-unit">Real-world files</span>
+        <span class="funnel-sub">PDFs, images, audio, video</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step funnel-step--final">
-        <span class="funnel-num" data-target="20000" aria-hidden="true">0</span>
-        <span class="sr-only">20,000</span>
-        <span class="funnel-unit">Evaluations completed</span>
-        <span class="funnel-sub">2 models × 10,000 instances</span>
+        <span class="funnel-num" data-target="3" aria-hidden="true">0</span>
+        <span class="sr-only">3</span>
+        <span class="funnel-unit">Difficulty levels</span>
+        <span class="funnel-sub">Level 1 · Level 2 · Level 3</span>
       </div>
     </div>
   </section>
@@ -160,7 +160,7 @@
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
-        <h2 class="pipeline-title">Three phases turn raw documents into scored evaluations.</h2>
+        <h2 class="pipeline-title">Three phases turn raw documents into a training environment.</h2>
       </div>
 
       <div class="pipeline">
@@ -171,7 +171,7 @@
             <li>Collect real-world documents: PDFs, images, videos, web pages</li>
             <li>Design multi-step questions requiring cross-modal reasoning</li>
             <li>Establish deterministic ground truth answers</li>
-            <li>Assign difficulty levels (Hard, Very Hard, Expert)</li>
+            <li>Assign difficulty levels (Level 1, Level 2, Level 3)</li>
           </ul>
         </article>
         <article class="phase">
@@ -181,17 +181,17 @@
             <li>Deploy AI agents with access to tools (PDF reader, web search, calculator)</li>
             <li>Agents decompose questions into multi-step reasoning chains</li>
             <li>Track tool selection, execution time, and API costs</li>
-            <li>Record complete interaction trajectories</li>
+            <li>Record complete interaction traces for analysis</li>
           </ul>
         </article>
         <article class="phase">
           <p class="phase-label">Phase 03</p>
-          <h4 class="phase-title">Scoring</h4>
+          <h4 class="phase-title">Reward Signal</h4>
           <ul class="phase-body">
-            <li>Compare agent answers against ground truth (exact match)</li>
+            <li>Compare agent answers against ground truth via exact match</li>
+            <li>Binary reward: correct or incorrect, no partial credit</li>
             <li>Compute per-model accuracy across difficulty levels</li>
-            <li>Analyze cost-efficiency and latency trade-offs</li>
-            <li>Generate per-modality and per-difficulty breakdowns</li>
+            <li>Generate per-category and per-difficulty breakdowns</li>
           </ul>
         </article>
       </div>
@@ -200,20 +200,20 @@
 
   <!-- ================= §04 RESULTS ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
-    <p class="section-label" id="results-label">§04 · The results</p>
+    <p class="section-label" id="results-label">§04 · Baseline validation</p>
 
     <div class="reveal">
       <p class="reveal-line">
-        Overall accuracy for two frontier models (Kimi 2.5 at 75%, Nova-2-Lite at 20%).
+        We validated difficulty calibration using two frontier models on a pilot set (n=20).
       </p>
       <p class="reveal-line reveal-kicker">
-        Kimi 2.5 dominates across all difficulty levels but at 12× the cost of Nova-2-Lite.
+        Kimi K2.5 dominates across all difficulty levels but at 12× the cost of Nova-2-Lite.
       </p>
     </div>
 
     <div class="results-summary">
       <div class="result-card result-card--primary">
-        <span class="result-model mono">Kimi 2.5</span>
+        <span class="result-model mono">Kimi K2.5</span>
         <span class="result-score">75<small>%</small></span>
         <span class="result-detail mono">15/20 pass · $0.36/instance · 420s avg</span>
       </div>
@@ -223,17 +223,28 @@
         <span class="result-detail mono">4/20 pass · $0.03/instance · 280s avg</span>
       </div>
     </div>
+
+    <div class="charts">
+      <figure class="chart chart--hero">
+        <button type="button" class="chart-trigger" aria-label="Preview GAIA Performance chart full size">
+          <img class="nk-chart-light" src="/nokor_dashboard/static/src/portal/img/gaia_performance_light.png" alt="GAIA Performance. Model accuracy across difficulty levels"/>
+          <img class="nk-chart-dark" src="/nokor_dashboard/static/src/portal/img/gaia_performance_dark.png" alt="GAIA Performance. Model accuracy across difficulty levels"/>
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1. GAIA performance comparison across difficulty levels (Kimi K2.5 vs Nova-2-Lite)</figcaption>
+      </figure>
+    </div>
   </section>
 
   <!-- ================= §05 MODEL COMPARISON ================= -->
   <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
     <p class="section-label" id="comparison-label">§05 · Model comparison</p>
-    <p class="section-desc">Side-by-side performance breakdown across difficulty tiers and modalities.</p>
+    <p class="section-desc">Side-by-side performance breakdown across difficulty levels and categories (pilot data, n=20).</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
         <span class="nk-quality-num" data-target="75">75</span>
-        <span class="quality-label">Kimi 2.5 Accuracy</span>
+        <span class="quality-label">Kimi K2.5 Accuracy</span>
         <span class="quality-pct mono">15/20 PASS</span>
       </div>
       <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
@@ -262,32 +273,32 @@
   <!-- ================= §06 DIFFICULTY DISTRIBUTION ================= -->
   <section class="section" id="difficulty" aria-labelledby="difficulty-label" data-animate="fade-up">
     <p class="section-label" id="difficulty-label">§06 · Difficulty distribution</p>
-    <p class="section-desc">Task breakdown by difficulty level and modality coverage.</p>
+    <p class="section-desc">Task breakdown by difficulty level and category coverage.</p>
 
     <div class="distribution-grid">
       <div class="dist-card" data-animate="fade-up" data-delay="0">
         <span class="dist-pct mono">25%</span>
-        <span class="dist-label">Hard</span>
+        <span class="dist-label">Level 1</span>
         <span class="dist-badge dist-badge--hard">5 instances</span>
       </div>
       <div class="dist-card" data-animate="fade-up" data-delay="1">
         <span class="dist-pct mono">40%</span>
-        <span class="dist-label">Very Hard</span>
+        <span class="dist-label">Level 2</span>
         <span class="dist-badge dist-badge--vhard">8 instances</span>
       </div>
       <div class="dist-card" data-animate="fade-up" data-delay="2">
         <span class="dist-pct mono">35%</span>
-        <span class="dist-label">Expert</span>
+        <span class="dist-label">Level 3</span>
         <span class="dist-badge dist-badge--expert">7 instances</span>
       </div>
     </div>
 
     <div class="modality-strip" data-animate="fade-up">
-      <div class="mod-item"><span class="mod-pct">34%</span><span class="mod-name mono">PDF</span></div>
-      <div class="mod-item"><span class="mod-pct">38%</span><span class="mod-name mono">Web</span></div>
-      <div class="mod-item"><span class="mod-pct">15%</span><span class="mod-name mono">Image</span></div>
-      <div class="mod-item"><span class="mod-pct">8%</span><span class="mod-name mono">Video</span></div>
-      <div class="mod-item"><span class="mod-pct">5%</span><span class="mod-name mono">Reasoning</span></div>
+      <div class="mod-item"><span class="mod-pct">38%</span><span class="mod-name mono">Web Browsing</span></div>
+      <div class="mod-item"><span class="mod-pct">34%</span><span class="mod-name mono">File Reading</span></div>
+      <div class="mod-item"><span class="mod-pct">15%</span><span class="mod-name mono">Multi-Modality</span></div>
+      <div class="mod-item"><span class="mod-pct">8%</span><span class="mod-name mono">Calculation</span></div>
+      <div class="mod-item"><span class="mod-pct">5%</span><span class="mod-name mono">Self-Contained</span></div>
     </div>
   </section>
 
@@ -295,25 +306,6 @@
   <section class="section" id="nk-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
     <p class="section-label" id="viewer-label">§07 · Dataset viewer</p>
 
-    <!-- KPI row -->
-    <div class="kpi-row" aria-label="Headline statistics for the evaluation">
-      <div class="kpi-card">
-        <p class="kpi-label">Total Instances</p>
-        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">Models</p>
-        <p class="kpi-value"><span class="kpi-big">2</span></p>
-      </div>
-      <div class="kpi-card">
-        <p class="kpi-label">Modalities</p>
-        <p class="kpi-value"><span class="kpi-big">5</span></p>
-      </div>
-      <div class="kpi-card kpi-card--accent">
-        <p class="kpi-label">Kimi 2.5 Accuracy</p>
-        <p class="kpi-value"><span class="kpi-big">75<small>%</small></span></p>
-      </div>
-    </div>
 
     <!-- Controls -->
     <div class="eval-controls">
@@ -324,15 +316,15 @@
       <div class="eval-filters">
         <select id="nk-eval-difficulty">
           <option value="">All Difficulties</option>
-          <option value="Hard">Hard</option>
-          <option value="Very Hard">Very Hard</option>
-          <option value="Expert">Expert</option>
+          <option value="Level 1">Level 1</option>
+          <option value="Level 2">Level 2</option>
+          <option value="Level 3">Level 3</option>
         </select>
         <select id="nk-eval-sort">
           <option value="instance_id">Instance (A-Z)</option>
           <option value="level">Difficulty</option>
-          <option value="modality">Modality</option>
-          <option value="kimi_pass" selected="selected">Kimi 2.5</option>
+          <option value="modality">Category</option>
+          <option value="kimi_pass" selected="selected">Kimi K2.5</option>
           <option value="nova_pass">Nova-2-Lite</option>
         </select>
         <button type="button" id="nk-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
@@ -349,8 +341,8 @@
           <tr>
             <th class="eth-instance">Instance</th>
             <th class="eth-level">Difficulty</th>
-            <th class="eth-modality">Modality</th>
-            <th class="eth-kimi">Kimi 2.5</th>
+            <th class="eth-modality">Category</th>
+            <th class="eth-kimi">Kimi K2.5</th>
             <th class="eth-nova">Nova-2-Lite</th>
             <th class="eth-tools">Tools</th>
             <th class="eth-expand"></th>
@@ -365,13 +357,13 @@
   <!-- ================= §08 METHODOLOGY ================= -->
   <section class="section" id="methodology" aria-labelledby="methodology-label" data-animate="fade-up">
     <p class="section-label" id="methodology-label">§08 · Methodology</p>
-    <p class="section-desc">Four scoring principles ensure fair and reproducible evaluation.</p>
+    <p class="section-desc">Four scoring principles ensure fair and reproducible results.</p>
 
     <div class="methodology-grid">
       <div class="meth-card" data-animate="fade-up" data-delay="0">
         <span class="meth-num mono">01</span>
         <h4 class="meth-title">Exact Match</h4>
-        <p class="meth-desc">Answers must match ground truth exactly — no partial credit, no fuzzy matching.</p>
+        <p class="meth-desc">Answers must match ground truth exactly. No partial credit, no fuzzy matching.</p>
       </div>
       <div class="meth-card" data-animate="fade-up" data-delay="1">
         <span class="meth-num mono">02</span>
@@ -386,7 +378,7 @@
       <div class="meth-card" data-animate="fade-up" data-delay="3">
         <span class="meth-num mono">04</span>
         <h4 class="meth-title">Reproducibility</h4>
-        <p class="meth-desc">Fixed seeds, deterministic scoring, published trajectories for independent verification.</p>
+        <p class="meth-desc">Fixed seeds, deterministic scoring, published solution traces for independent verification.</p>
       </div>
     </div>
   </section>

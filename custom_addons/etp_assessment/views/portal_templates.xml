@@ -69,7 +69,6 @@
                     (function() {
                         var form = document.querySelector("form");
                         var violated = false;
-                        var blurTimeout = null;
 
                         /* ===== WATERMARK OVERLAY ===== */
                         function createWatermark() {
@@ -125,33 +124,13 @@
 
 
                         /* ===== CONTENT BLUR ON FOCUS LOSS ===== */
-                        document.addEventListener("visibilitychange", function() {
-                            if (document.hidden &amp;&amp; form &amp;&amp; !violated) {
-                                document.body.classList.add("content-blurred");
-                                triggerViolation("You switched away from the assessment tab");
-                            }
-                        });
-
                         window.addEventListener("blur", function() {
                             if (form &amp;&amp; !violated) {
-                                /* Blur content INSTANTLY so any screenshot captures blurred content */
                                 document.body.classList.add("content-blurred");
-                                /* Give 200ms grace period for false positives (e.g. clicking browser chrome) */
-                                blurTimeout = setTimeout(function() {
-                                    if (!violated) {
-                                        triggerViolation("You switched away from the assessment window");
-                                    }
-                                }, 200);
                             }
                         });
 
                         window.addEventListener("focus", function() {
-                            /* Clear blur timeout if focus returns quickly (false positive) */
-                            if (blurTimeout) {
-                                clearTimeout(blurTimeout);
-                                blurTimeout = null;
-                            }
-                            /* Unblur if not violated */
                             if (!violated) {
                                 document.body.classList.remove("content-blurred");
                             }
@@ -343,7 +322,7 @@
                     <h6 style="color: #dc3545; margin-bottom: 12px; font-weight: 700;">⚠️ Important Rules</h6>
                     <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px;">
                         <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
-                            <li><strong>Do NOT switch tabs or windows</strong> — Your assessment will be auto-submitted immediately.</li>
+                            <li><strong>Do NOT switch tabs or windows</strong> — Content will be blurred while you are away.</li>
                             <li><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will auto-submit your assessment. Content blurs instantly on any attempt.</li>
                             <li><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
                             <li><strong>Do NOT open Developer Tools</strong> — Opening browser dev tools will auto-submit your assessment.</li>
@@ -447,7 +426,7 @@
                         <div>
                             <h6 class="text-center mb-2">Response A</h6>
                             <t t-if="question.image_a">
-                                <img t-att-src="'/web/image/etp.assessment.question/' + str(question.id) + '/image_a'" alt="Response A"/>
+                                <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Response A"/>
                             </t>
                             <t t-elif="question.image_a_url">
                                 <img t-att-src="question.image_a_url" alt="Response A"/>
@@ -456,7 +435,7 @@
                         <div>
                             <h6 class="text-center mb-2">Response B</h6>
                             <t t-if="question.image_b">
-                                <img t-att-src="'/web/image/etp.assessment.question/' + str(question.id) + '/image_b'" alt="Response B"/>
+                                <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_b'" alt="Response B"/>
                             </t>
                             <t t-elif="question.image_b_url">
                                 <img t-att-src="question.image_b_url" alt="Response B"/>
@@ -469,7 +448,7 @@
                 <t t-if="question.question_type == 'image_text'">
                     <div class="mb-4 text-center">
                         <t t-if="question.image_a">
-                            <img t-att-src="'/web/image/etp.assessment.question/' + str(question.id) + '/image_a'" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
+                            <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
                         </t>
                         <t t-elif="question.image_a_url">
                             <img t-att-src="question.image_a_url" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>

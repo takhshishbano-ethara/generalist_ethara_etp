@@ -2,13 +2,13 @@
     "name": "Nokor Dashboard",
     "version": "19.0.1.0.0",
     "category": "Productivity",
-    "summary": "Dashboard page for the Nokor AI assistant benchmark",
+    "summary": "Dashboard page for the Nokor RL environment for general AI assistants",
     "description": """
 Nokor Dashboard
 ===============
 A single-page dashboard displaying the Nokor multi-modal reasoning and
-tool-use evaluation benchmark — evaluating AI assistants across PDF, Web,
-Image, Video, and Reasoning modalities using the GAIA framework. Available
+tool-use RL environment. Trains AI assistants across Web Browsing, File Reading,
+Image, Video, and Reasoning categories using the GAIA methodology. Available
 as both a backend client action and a public portal page at /nokor.
     """,
     "author": "Ethara",

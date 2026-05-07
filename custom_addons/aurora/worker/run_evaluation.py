@@ -170,7 +170,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         cur.execute(
             "SELECT dataset_file, patch_file, repo_dir, workdir, output_dir, "
             "force_build, max_workers_build, max_workers_run, docker_platform, "
-            "instance_limit, specific_prs "
+            "instance_limit, specific_prs, pipeline_id "
             "FROM aurora_evaluation WHERE id = %s",
             (rec_id,),
         )
@@ -189,6 +189,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "docker_platform": row[8] or None,
         "instance_limit": row[9] or 0,
         "specific_prs": row[10] or "",
+        "pipeline_id": row[11],
     }
 
 
@@ -217,6 +218,56 @@ def _release_tokens(db_name: str, rec_id: int) -> None:
         _logger.exception("Failed to release tokens for eval=%s", rec_id)
     finally:
         conn.close()
+
+
+def _resolve_entry_number(entry: dict) -> int | None:
+    """Extract PR number from a dataset entry (mirrors evaluation.py logic)."""
+    if "number" in entry:
+        val = entry["number"]
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str) and val.isdigit():
+            return int(val)
+        if isinstance(val, str) and "-" in val:
+            head = val.split("-", 1)[0]
+            if head.isdigit():
+                return int(head)
+    pr_numbers = entry.get("pr_numbers") or []
+    if isinstance(pr_numbers, list) and pr_numbers:
+        try:
+            return int(pr_numbers[0])
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _generate_patch_file(dataset_path: str, output_path: str) -> str:
+    """Regenerate patches.jsonl from dataset file.
+
+    The Odoo server generates this file locally but it's not available
+    inside the K8s pod. We regenerate it from the already-resolved dataset.
+    Returns the output path.
+    """
+    import json as _json
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(dataset_path, "r", encoding="utf-8") as f_in, \
+         open(output_path, "w", encoding="utf-8") as f_out:
+        for line in f_in:
+            line = line.strip()
+            if not line:
+                continue
+            entry = _json.loads(line)
+            number = _resolve_entry_number(entry)
+            if number is None:
+                continue
+            patch_entry = {
+                "org": entry["org"],
+                "repo": entry["repo"],
+                "number": number,
+                "fix_patch": entry.get("fix_patch", ""),
+            }
+            f_out.write(_json.dumps(patch_entry, ensure_ascii=False) + "\n")
+    return output_path
 
 
 def _setup_git_auth(token: str) -> Optional[str]:
@@ -289,6 +340,7 @@ def run_evaluation(db_name: str, rec_id: int):
 
     tokens = None
     git_askpass_script = None
+    pipeline_id = None
 
     try:
         _heartbeat(conn, rec_id, "Initializing evaluation worker")
@@ -309,7 +361,12 @@ def run_evaluation(db_name: str, rec_id: int):
                 Path(cfg[dir_key]).mkdir(parents=True, exist_ok=True)
 
         # Lease tokens from the pool (same lifecycle as Phase 1 worker)
-        tokens = _lease_tokens(db_name, rec_id, count=1)
+        # Use pipeline_id as the lease key (FK references aurora_pipeline)
+        pipeline_id = cfg.get("pipeline_id")
+        if not pipeline_id:
+            _fail_eval(conn, rec_id, "Evaluation has no linked pipeline_id; cannot lease tokens.")
+            return
+        tokens = _lease_tokens(db_name, pipeline_id, count=1)
         if not tokens:
             _fail_eval(conn, rec_id, "No GitHub tokens available in the pool.")
             return
@@ -326,8 +383,33 @@ def run_evaluation(db_name: str, rec_id: int):
             _append_log(conn, rec_id, f"Downloading remote dataset: {dataset_file}")
             dataset_file = dataset_resolver.resolve_to_local(conn, dataset_file)
             _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+        elif not os.path.isfile(dataset_file):
+            # Local path from server doesn't exist in pod — fetch original S3 URL from pipeline
+            original_url = None
+            if pipeline_id:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
+                        (pipeline_id,),
+                    )
+                    prow = cur.fetchone()
+                    if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
+                        original_url = prow[0]
+            if original_url:
+                _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
+                dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
+                _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+            else:
+                _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
+                return
 
+        # Regenerate patch file locally (server-generated file isn't in the pod)
         patch_file = cfg["patch_file"]
+        if patch_file and not os.path.isfile(patch_file):
+            _append_log(conn, rec_id, f"Patch file not found locally, regenerating from dataset...")
+            _generate_patch_file(dataset_file, patch_file)
+            _append_log(conn, rec_id, f"Patch file regenerated: {patch_file}")
+
         log_dir = Path(cfg["output_dir"]) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -525,7 +607,7 @@ def run_evaluation(db_name: str, rec_id: int):
         heartbeat_stop.set()
         _cleanup_git_auth(git_askpass_script)
         if tokens:
-            _release_tokens(db_name, rec_id)
+            _release_tokens(db_name, pipeline_id)
         try:
             conn.close()
         except Exception:

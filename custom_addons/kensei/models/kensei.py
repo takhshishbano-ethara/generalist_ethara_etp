@@ -676,6 +676,14 @@ model_list:
       api_key: os.environ/LLAMA_API_KEY
       drop_params: true
 
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: os.environ/OPENAI_API_KEY
+      reasoning_effort: high
+      input_cost_per_token: 0.000005
+      output_cost_per_token: 0.00003
+
 litellm_settings:
   drop_params: true
   modify_params: true
@@ -876,6 +884,9 @@ class Kensei(models.Model):
     glm_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="GLM Sandbox"
     )
+    gpt_sandbox_id = fields.Many2one(
+        "kensei.sandbox", compute="_compute_sandbox_ids", string="GPT Sandbox"
+    )
     oneP_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="1P Sandbox"
     )
@@ -894,12 +905,15 @@ class Kensei(models.Model):
 
     claude_status = fields.Selection(related="claude_sandbox_id.docker_status")
     glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
+    gpt_status = fields.Selection(related="gpt_sandbox_id.docker_status")
 
     claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
     glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
+    gpt_session_status = fields.Selection(related="gpt_sandbox_id.session_status")
 
     claude_trajectory = fields.Text(string="Claude 4.7 Trajectory")
     glm_trajectory = fields.Text(string="GLM 5 Trajectory")
+    gpt_trajectory = fields.Text(string="GPT-5.5 Trajectory")
     onePA_trajectory = fields.Text(string="1PA Trajectory")
     onePB_trajectory = fields.Text(string="1PB Trajectory")
     onePC_trajectory = fields.Text(string="1PC Trajectory")
@@ -938,6 +952,8 @@ class Kensei(models.Model):
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
     glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
     glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
+    gpt_input_tokens = fields.Integer(string="GPT Input Tokens", default=0)
+    gpt_output_tokens = fields.Integer(string="GPT Output Tokens", default=0)
     oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
     oneP_output_tokens = fields.Integer(string="1P Output Tokens", default=0)
     onePA_input_tokens = fields.Integer(string="1PA Input Tokens", default=0)
@@ -987,6 +1003,7 @@ class Kensei(models.Model):
             for mtype, field in [
                 ("claude", "claude_sandbox_id"),
                 ("glm", "glm_sandbox_id"),
+                ("gpt", "gpt_sandbox_id"),
                 ("1p", "oneP_sandbox_id"),
                 ("1pa", "onePA_sandbox_id"),
                 ("1pb", "onePB_sandbox_id"),
@@ -1050,6 +1067,7 @@ class Kensei(models.Model):
         valid_fields = {
             "claude_trajectory",
             "glm_trajectory",
+            "gpt_trajectory",
             "onePA_trajectory",
             "onePB_trajectory",
             "onePC_trajectory",
@@ -1105,6 +1123,7 @@ class Kensei(models.Model):
         trajectory_field_map = {
             "claude": "claude_trajectory",
             "glm": "glm_trajectory",
+            "gpt": "gpt_trajectory",
             "1pa": "onePA_trajectory",
             "1pb": "onePB_trajectory",
             "1pc": "onePC_trajectory",
@@ -1114,6 +1133,7 @@ class Kensei(models.Model):
         token_fields_map = {
             "claude": ("claude_input_tokens", "claude_output_tokens"),
             "glm": ("glm_input_tokens", "glm_output_tokens"),
+            "gpt": ("gpt_input_tokens", "gpt_output_tokens"),
             "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
             "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
             "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
@@ -1162,6 +1182,7 @@ class Kensei(models.Model):
         field_to_model = {
             "claude_trajectory": "claude",
             "glm_trajectory": "glm",
+            "gpt_trajectory": "gpt",
             "onePA_trajectory": "1pa",
             "onePB_trajectory": "1pb",
             "onePC_trajectory": "1pc",
@@ -1205,9 +1226,9 @@ class Kensei(models.Model):
 
     def action_generate_golden_trajectory(self):
         self.ensure_one()
-        if not self.claude_trajectory and not self.glm_trajectory:
+        if not self.claude_trajectory and not self.glm_trajectory and not self.gpt_trajectory:
             raise UserError(
-                "At least one of Claude or Kimi trajectory is required. "
+                "At least one of Claude, Kimi, or GPT trajectory is required. "
                 "Stop the corresponding sandbox first to capture its trajectory."
             )
         if not self.persona_id:
@@ -1241,7 +1262,7 @@ class Kensei(models.Model):
 
     def action_generate_task_description(self):
         self.ensure_one()
-        has_any = self.claude_trajectory or self.glm_trajectory or self.oneP_trajectory
+        has_any = self.claude_trajectory or self.glm_trajectory or self.gpt_trajectory or self.oneP_trajectory
         if not has_any:
             raise UserError(
                 "At least one model trajectory is required to generate a task description."
@@ -1436,6 +1457,679 @@ class Kensei(models.Model):
                     )
                 artifacts.append(entry)
         return artifacts
+
+    def action_download_harbor_bundle(self):
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/kensei/harbor/download",
+            "target": "self",
+        }
+
+    def action_mass_export_to_harbor(self):
+        import threading
+        from odoo.modules.module import get_module_path
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Kensei.")
+
+        skipped = []
+        all_uploads = []
+
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        env_files = []
+        if os.path.isdir(env_dir):
+            for dirpath, _dirnames, filenames in os.walk(env_dir):
+                for fname in filenames:
+                    if fname.startswith(".") or fname == "__pycache__":
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    rel_path = os.path.relpath(full_path, env_dir)
+                    try:
+                        with open(full_path, "rb") as f:
+                            data = f.read()
+                    except (IOError, OSError):
+                        continue
+                    content_type = "application/octet-stream"
+                    if fname.endswith((".py", ".toml", ".txt", ".sh", ".csv", ".md")):
+                        content_type = "text/plain"
+                    elif fname.endswith(".json"):
+                        content_type = "application/json"
+                    elif fname.endswith((".yaml", ".yml")):
+                        content_type = "text/yaml"
+                    env_files.append({
+                        "rel": rel_path,
+                        "data": data,
+                        "content_type": content_type,
+                    })
+
+        for rec in self:
+            if not rec.initial_prompt:
+                skipped.append(rec.task_id or str(rec.id))
+                continue
+
+            task_id = rec.task_id or str(rec.id)
+            s3_task_prefix = "%s/harbor/%s" % (prefix, task_id)
+            files = []
+
+            files.append({
+                "key": "instruction.md",
+                "data": (rec.initial_prompt or "").encode("utf-8"),
+                "content_type": "text/markdown",
+            })
+
+            task_toml = rec._build_harbor_task_toml()
+            files.append({
+                "key": "task.toml",
+                "data": task_toml.encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+            for ef in env_files:
+                files.append({
+                    "key": "environment/%s" % ef["rel"],
+                    "data": ef["data"],
+                    "content_type": ef["content_type"],
+                })
+
+            files.append({
+                "key": "environment/Dockerfile",
+                "data": rec._generate_harbor_dockerfile(env_dir).encode("utf-8"),
+                "content_type": "text/plain",
+            })
+            files.append({
+                "key": "environment/docker-compose.yaml",
+                "data": rec._generate_harbor_docker_compose(env_dir).encode("utf-8"),
+                "content_type": "text/yaml",
+            })
+
+            test_code = rec._get_best_test_code()
+            if test_code:
+                files.append({
+                    "key": "tests/test.sh",
+                    "data": rec._generate_harbor_test_sh().encode("utf-8"),
+                    "content_type": "text/plain",
+                })
+                files.append({
+                    "key": "tests/test_outputs.py",
+                    "data": test_code.encode("utf-8"),
+                    "content_type": "text/plain",
+                })
+
+            if rec.rubrics:
+                files.append({
+                    "key": "rubrics.json",
+                    "data": rec.rubrics.encode("utf-8"),
+                    "content_type": "application/json",
+                })
+
+            trajectory_fields = {
+                "claude": "claude_trajectory",
+                "kimi": "glm_trajectory",
+                "gpt": "gpt_trajectory",
+                "golden": "golden_trajectory",
+            }
+            for traj_name, field_name in trajectory_fields.items():
+                traj_data = getattr(rec, field_name, None)
+                if not traj_data:
+                    continue
+                try:
+                    sessions = json.loads(traj_data)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(sessions, list):
+                    sessions = [sessions]
+                for idx, session_entry in enumerate(sessions, start=1):
+                    session_json = json.dumps(session_entry, indent=2, ensure_ascii=False)
+                    files.append({
+                        "key": "trajectories/%s/session_%02d.json" % (traj_name, idx),
+                        "data": session_json.encode("utf-8"),
+                        "content_type": "application/json",
+                    })
+
+            test_results = self.env["kensei.test.result"].sudo().search([
+                ("kensei_id", "=", rec.id),
+                ("model_type", "!=", False),
+                ("session_index", ">", 0),
+            ])
+            for tr in test_results:
+                test_data = {
+                    "model_type": tr.model_type,
+                    "session_index": tr.session_index,
+                    "status": tr.status,
+                    "tests_total": tr.tests_total,
+                    "tests_passed": tr.tests_passed,
+                    "tests_failed": tr.tests_failed,
+                    "tests_errored": tr.tests_errored,
+                    "test_code": tr.test_code or "",
+                    "test_output": tr.test_output or "",
+                    "duration_generation_ms": tr.duration_generation_ms,
+                    "duration_execution_ms": tr.duration_execution_ms,
+                    "model_used": tr.model_used or "",
+                    "created_at": tr.create_date.isoformat() if tr.create_date else "",
+                }
+                files.append({
+                    "key": "trajectories/%s/session_%02d_test.json" % (
+                        tr.model_type, tr.session_index
+                    ),
+                    "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
+                    "content_type": "application/json",
+                })
+
+            all_uploads.append((s3_task_prefix, files))
+
+        if not all_uploads:
+            raise UserError(
+                "No exportable tasks. All selected tasks are missing Initial Prompt."
+            )
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload_batch(bkt, rgn, uploads, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                total = 0
+                for pfx, files in uploads:
+                    for fm in files:
+                        key = "%s/%s" % (pfx, fm["key"])
+                        s3.put_object(
+                            Bucket=bkt,
+                            Key=key,
+                            Body=fm["data"],
+                            ContentType=fm["content_type"],
+                        )
+                    total += 1
+                _logger.info("Harbor mass export: %d tasks uploaded to s3://%s/", total, bkt)
+            except Exception:
+                _logger.exception("Harbor mass export failed")
+
+        thread = threading.Thread(
+            target=_upload_batch,
+            args=(bucket, region, all_uploads, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        msg = "Exporting %d task(s) to S3." % len(all_uploads)
+        if skipped:
+            msg += " Skipped %d (no instruction): %s" % (len(skipped), ", ".join(skipped[:5]))
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Mass Export Started",
+                "message": msg,
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def action_export_to_harbor(self):
+        self.ensure_one()
+        import threading
+        from odoo.modules.module import get_module_path
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        if not self.initial_prompt:
+            raise UserError("Cannot export: Initial Prompt (instruction) is empty.")
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Kensei.")
+
+        task_id = self.task_id or str(self.id)
+        s3_task_prefix = "%s/harbor/%s" % (prefix, task_id)
+
+        files_to_upload = []
+
+        files_to_upload.append({
+            "key": "instruction.md",
+            "data": (self.initial_prompt or "").encode("utf-8"),
+            "content_type": "text/markdown",
+        })
+
+        task_toml = self._build_harbor_task_toml()
+        files_to_upload.append({
+            "key": "task.toml",
+            "data": task_toml.encode("utf-8"),
+            "content_type": "text/plain",
+        })
+
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        if os.path.isdir(env_dir):
+            for dirpath, _dirnames, filenames in os.walk(env_dir):
+                for fname in filenames:
+                    if fname.startswith(".") or fname == "__pycache__":
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    rel_path = os.path.relpath(full_path, env_dir)
+                    try:
+                        with open(full_path, "rb") as f:
+                            data = f.read()
+                    except (IOError, OSError):
+                        continue
+                    content_type = "application/octet-stream"
+                    if fname.endswith((".py", ".toml", ".txt", ".sh", ".csv", ".md")):
+                        content_type = "text/plain"
+                    elif fname.endswith(".json"):
+                        content_type = "application/json"
+                    elif fname.endswith(".yaml") or fname.endswith(".yml"):
+                        content_type = "text/yaml"
+                    files_to_upload.append({
+                        "key": "environment/%s" % rel_path,
+                        "data": data,
+                        "content_type": content_type,
+                    })
+
+        files_to_upload.append({
+            "key": "environment/Dockerfile",
+            "data": self._generate_harbor_dockerfile(env_dir).encode("utf-8"),
+            "content_type": "text/plain",
+        })
+        files_to_upload.append({
+            "key": "environment/docker-compose.yaml",
+            "data": self._generate_harbor_docker_compose(env_dir).encode("utf-8"),
+            "content_type": "text/yaml",
+        })
+
+        test_code = self._get_best_test_code()
+        if test_code:
+            files_to_upload.append({
+                "key": "tests/test.sh",
+                "data": self._generate_harbor_test_sh().encode("utf-8"),
+                "content_type": "text/plain",
+            })
+            files_to_upload.append({
+                "key": "tests/test_outputs.py",
+                "data": test_code.encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+        if self.rubrics:
+            files_to_upload.append({
+                "key": "rubrics.json",
+                "data": self.rubrics.encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+        # Trajectories — per-model folder with separate JSON per session
+        trajectory_fields = {
+            "claude": "claude_trajectory",
+            "kimi": "glm_trajectory",
+            "gpt": "gpt_trajectory",
+            "golden": "golden_trajectory",
+        }
+        for traj_name, field_name in trajectory_fields.items():
+            traj_data = getattr(self, field_name, None)
+            if not traj_data:
+                continue
+            try:
+                sessions = json.loads(traj_data)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(sessions, list):
+                sessions = [sessions]
+            for idx, session_entry in enumerate(sessions, start=1):
+                session_json = json.dumps(session_entry, indent=2, ensure_ascii=False)
+                files_to_upload.append({
+                    "key": "trajectories/%s/session_%02d.json" % (traj_name, idx),
+                    "data": session_json.encode("utf-8"),
+                    "content_type": "application/json",
+                })
+
+        test_results = self.env["kensei.test.result"].sudo().search([
+            ("kensei_id", "=", self.id),
+            ("model_type", "!=", False),
+            ("session_index", ">", 0),
+        ])
+        for tr in test_results:
+            test_data = {
+                "model_type": tr.model_type,
+                "session_index": tr.session_index,
+                "status": tr.status,
+                "tests_total": tr.tests_total,
+                "tests_passed": tr.tests_passed,
+                "tests_failed": tr.tests_failed,
+                "tests_errored": tr.tests_errored,
+                "test_code": tr.test_code or "",
+                "test_output": tr.test_output or "",
+                "duration_generation_ms": tr.duration_generation_ms,
+                "duration_execution_ms": tr.duration_execution_ms,
+                "model_used": tr.model_used or "",
+                "created_at": tr.create_date.isoformat() if tr.create_date else "",
+            }
+            files_to_upload.append({
+                "key": "trajectories/%s/session_%02d_test.json" % (
+                    tr.model_type, tr.session_index
+                ),
+                "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload(bkt, rgn, pfx, files, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                for fm in files:
+                    key = "%s/%s" % (pfx, fm["key"])
+                    s3.put_object(
+                        Bucket=bkt,
+                        Key=key,
+                        Body=fm["data"],
+                        ContentType=fm["content_type"],
+                    )
+                _logger.info(
+                    "Harbor export complete: s3://%s/%s/ (%d files)",
+                    bkt, pfx, len(files),
+                )
+            except Exception:
+                _logger.exception("Harbor export failed for task %s", pfx)
+
+        thread = threading.Thread(
+            target=_upload,
+            args=(bucket, region, s3_task_prefix, files_to_upload, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Export Started",
+                "message": "Exporting task to s3://%s/%s/ (%d files)" % (
+                    bucket, s3_task_prefix, len(files_to_upload)
+                ),
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def _build_harbor_task_toml(self):
+        from odoo.modules.module import get_module_path
+
+        lines = ['schema_version = "1.1"', ""]
+
+        lines.append("[task]")
+        task_name = self.task_id or "kensei/%s" % self.id
+        lines.append('name = "%s"' % task_name)
+        if self.seed_prompt:
+            desc = self.seed_prompt.replace('"', '\\"').replace("\n", " ")[:200]
+            lines.append('description = "%s"' % desc)
+        if self.employee_id:
+            lines.append(
+                'authors = [{ name = "%s" }]' % (self.employee_id.name or "").replace('"', '\\"')
+            )
+        keywords = []
+        if self.task_type:
+            keywords.append(self.task_type)
+        if self.difficulty:
+            keywords.append(self.difficulty)
+        if keywords:
+            lines.append("keywords = [%s]" % ", ".join('"%s"' % k for k in keywords))
+        lines.append("")
+
+        lines.append("[metadata]")
+        if self.task_type:
+            lines.append('category = "%s"' % self.task_type)
+        if self.difficulty:
+            lines.append('difficulty = "%s"' % self.difficulty)
+        if self.trajectory_modifier:
+            lines.append('trajectory_modifier = "%s"' % self.trajectory_modifier)
+        if self.safety_critical and self.safety_critical != "N/A":
+            lines.append('safety_critical = "%s"' % self.safety_critical)
+
+        required_skills, distractor_skills = self._collect_harbor_skills()
+        if required_skills:
+            lines.append("required_skills = [%s]" % ", ".join('"%s"' % s for s in required_skills))
+        if distractor_skills:
+            lines.append("distractor_skills = [%s]" % ", ".join('"%s"' % s for s in distractor_skills))
+        lines.append("")
+
+        lines.append("[verifier]")
+        lines.append("timeout_sec = 600.0")
+        lines.append("")
+
+        env_vars = self._collect_harbor_env_vars()
+
+        if env_vars:
+            lines.append("[verifier.env]")
+            for k, v in env_vars.items():
+                lines.append('%s = "%s"' % (k, v))
+            lines.append("")
+
+        lines.append("[agent]")
+        lines.append("timeout_sec = 900.0")
+        lines.append("")
+
+        lines.append("[environment]")
+        lines.append("build_timeout_sec = 600.0")
+        lines.append("cpus = 1")
+        lines.append("memory_mb = 4096")
+        lines.append("storage_mb = 10240")
+        lines.append("allow_internet = true")
+        lines.append('skills_dir = "skills"')
+        lines.append("")
+
+        if env_vars:
+            lines.append("[environment.env]")
+            for k, v in env_vars.items():
+                lines.append('%s = "%s"' % (k, v))
+            lines.append("")
+
+        lines.append("[environment.healthcheck]")
+        lines.append('command = "curl -f http://localhost:8000/health"')
+        lines.append("interval_sec = 5.0")
+        lines.append("timeout_sec = 30.0")
+        lines.append("retries = 3")
+        lines.append("")
+
+        return "\n".join(lines) + "\n"
+
+    def _collect_harbor_skills(self):
+        from odoo.modules.module import get_module_path
+
+        required = []
+        distractors = []
+        module_path = get_module_path("kensei")
+        skills_dir = os.path.join(module_path, "environment", "skills")
+        if not os.path.isdir(skills_dir):
+            return required, distractors
+
+        env_dir = os.path.join(module_path, "environment")
+        service_names = set()
+        for entry in os.listdir(env_dir):
+            if os.path.isfile(os.path.join(env_dir, entry, "service.toml")):
+                service_names.add(entry)
+
+        for skill_name in sorted(os.listdir(skills_dir)):
+            skill_path = os.path.join(skills_dir, skill_name)
+            if not os.path.isdir(skill_path):
+                continue
+            base = skill_name.replace("-connector", "")
+            if base in service_names:
+                required.append(skill_name)
+            else:
+                distractors.append(skill_name)
+        return required, distractors
+
+    def _generate_harbor_dockerfile(self, env_dir):
+        skills_dir = os.path.join(env_dir, "skills")
+        skill_dirs = []
+        if os.path.isdir(skills_dir):
+            skill_dirs = [
+                d for d in sorted(os.listdir(skills_dir))
+                if os.path.isdir(os.path.join(skills_dir, d))
+            ]
+
+        lines = [
+            "FROM ubuntu:24.04",
+            "",
+            "RUN apt-get update && apt-get install -y \\",
+            "    curl jq python3 python3-pip \\",
+            "    && rm -rf /var/lib/apt/lists/*",
+            "",
+            "WORKDIR /app",
+            "",
+        ]
+        if skill_dirs:
+            agent_dirs = [
+                "/root/.claude/skills",
+                "/root/.codex/skills",
+                "/root/.opencode/skills",
+                "/root/.goose/skills",
+                "/root/.factory/skills",
+                "/root/.agents/skills",
+                "/root/.gemini/skills",
+                "/root/.cursor/skills",
+            ]
+            for ad in agent_dirs:
+                lines.append("COPY skills %s" % ad)
+        return "\n".join(lines) + "\n"
+
+    def _generate_harbor_docker_compose(self, env_dir):
+        services = []
+        for entry in sorted(os.listdir(env_dir)):
+            toml_path = os.path.join(env_dir, entry, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            try:
+                svc = self.env["kensei.sandbox"]._parse_service_toml(toml_path)
+            except Exception:
+                continue
+            services.append(svc)
+
+        lines = ["services:"]
+
+        lines.append("  main:")
+        lines.append("    build:")
+        lines.append("      context: .")
+        lines.append("      dockerfile: Dockerfile")
+        lines.append('    command: ["sh", "-c", "sleep infinity"]')
+        if services:
+            lines.append("    depends_on:")
+            for svc in services:
+                lines.append("      %s:" % svc["name"])
+                lines.append("        condition: service_healthy")
+        lines.append("    environment:")
+        for svc in services:
+            lines.append("      - %s=http://%s:%s" % (
+                svc["env_var_name"], svc["name"], svc["port"]
+            ))
+        lines.append("    deploy:")
+        lines.append("      resources:")
+        lines.append("        limits:")
+        lines.append("          cpus: ${CPUS:-1}")
+        lines.append("          memory: ${MEMORY:-4096M}")
+        lines.append("")
+
+        for svc in services:
+            lines.append("  %s:" % svc["name"])
+            lines.append("    build:")
+            lines.append("      context: ./%s" % svc["name"])
+            lines.append("    expose:")
+            lines.append('      - "%s"' % svc["port"])
+            lines.append("    healthcheck:")
+            lines.append(
+                "      test: [\"CMD\", \"python3\", \"-c\", "
+                "\"import urllib.request; urllib.request.urlopen('http://localhost:%s%s')\"]"
+                % (svc["port"], svc.get("healthcheck_path", "/health"))
+            )
+            lines.append("      interval: 2s")
+            lines.append("      timeout: 5s")
+            lines.append("      retries: 15")
+            lines.append("      start_period: 5s")
+            lines.append("")
+
+        return "\n".join(lines) + "\n"
+
+    def _generate_harbor_test_sh(self):
+        return (
+            "#!/bin/bash\n"
+            "\n"
+            "apt-get update && apt-get install -y curl\n"
+            "curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh\n"
+            "source $HOME/.local/bin/env\n"
+            "\n"
+            "uvx --with pytest==8.4.1 pytest /tests/test_outputs.py -rA\n"
+            "\n"
+            "if [ $? -eq 0 ]; then\n"
+            "  echo 1 > /logs/verifier/reward.txt\n"
+            "else\n"
+            "  echo 0 > /logs/verifier/reward.txt\n"
+            "fi\n"
+        )
+
+    def _get_best_test_code(self):
+        results = self.env["kensei.test.result"].sudo().search([
+            ("kensei_id", "=", self.id),
+            ("status", "=", "passed"),
+            ("test_code", "!=", False),
+        ], order="create_date desc", limit=1)
+        if results:
+            return results[0].test_code
+        results = self.env["kensei.test.result"].sudo().search([
+            ("kensei_id", "=", self.id),
+            ("test_code", "!=", False),
+        ], order="tests_passed desc, create_date desc", limit=1)
+        return results[0].test_code if results else ""
+
+    def _collect_harbor_env_vars(self):
+        from odoo.modules.module import get_module_path
+
+        env_vars = {}
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        if not os.path.isdir(env_dir):
+            return env_vars
+
+        for entry in sorted(os.listdir(env_dir)):
+            toml_path = os.path.join(env_dir, entry, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            try:
+                svc = self.env["kensei.sandbox"]._parse_service_toml(toml_path)
+            except Exception:
+                continue
+            env_var = svc.get("env_var_name")
+            port = svc.get("port")
+            name = svc.get("name", entry)
+            if env_var and port:
+                env_vars[env_var] = "http://%s:%s" % (name, port)
+        return env_vars
 
     def build_trajectory_json(self):
         self.ensure_one()
