@@ -46,6 +46,11 @@
                       string="Generate Golden"
                       invisible="not is_ql_or_pl"
                       confirm="This will call the LLM to generate golden trajectories. Continue?"/>
+              <button class="oe_stat_button" name="action_export_to_harbor"
+                      type="object" icon="fa-cloud-upload"
+                      string="Export to S3"
+                      invisible="not is_ql_or_pl"
+                      confirm="Export this task in Harbor format to S3? This will upload instruction, metadata, and environment files."/>
             </div>
             <group>
               <group string="Task Details">
@@ -154,11 +159,33 @@
     <record model="ir.actions.server" id="kensei_action_auto_process">
       <field name="name">Auto Process Selected</field>
       <field name="model_id" ref="model_kensei_kensei"/>
-      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" eval="False"/>
       <field name="binding_view_types">list</field>
       <field name="state">code</field>
       <field name="code">
 action = records.action_publish_auto_process()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei_action_export_harbor">
+      <field name="name">Export to S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+records.action_mass_export_to_harbor()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei_action_download_harbor">
+      <field name="name">Download All from S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei_kensei"/>
+      <field name="binding_model_id" ref="model_kensei_kensei"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records[0].action_download_harbor_bundle() if records else env["kensei.kensei"].action_download_harbor_bundle()
       </field>
     </record>
 
@@ -213,11 +240,12 @@ for user in records:
           <field name="model_name"/>
           <field name="tool_names"/>
           <field name="tool_calls" optional="hide" widget="text"/>
-          <field name="qc_severity" optional="show" widget="badge"
+          <field name="qc_severity" optional="hide" widget="badge"
                  decoration-danger="qc_severity == 'critical'"
                  decoration-warning="qc_severity in ('high', 'medium')"
-                 decoration-success="qc_severity == 'low'"/>
-          <field name="qc_dismiss_reason" optional="hide"/>
+                 decoration-success="qc_severity == 'low'"
+                 invisible="1"/>
+          <field name="qc_dismiss_reason" optional="hide" invisible="1"/>
         </list>
       </field>
     </record>
@@ -259,7 +287,7 @@ for user in records:
               <page string="Trajectory">
                 <field name="trajectory_messages" nolabel="1" widget="text"/>
               </page>
-              <page string="QC">
+              <page string="QC" invisible="1">
                 <group>
                   <field name="qc_severity"/>
                   <field name="qc_dismiss_reason"/>

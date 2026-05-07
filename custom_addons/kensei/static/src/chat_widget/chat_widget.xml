@@ -175,7 +175,8 @@
                                             </t>
                                         </div>
                                     </t>
-                                    <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
+                                    <!-- Satisfied/Unsatisfied feedback hidden -->
+                                    <t t-if="false">
                                         <div class="o_kensei_feedback_row">
                                             <t t-if="msg.feedback === 'satisfied'">
                                                 <span class="o_kensei_feedback_tag o_kensei_feedback_satisfied active">
@@ -340,7 +341,8 @@
                     </div>
                 </t>
 
-                <t t-if="state.hintPopupVisible">
+                <!-- Hint popup hidden -->
+                <t t-if="false">
                     <div class="o_kensei_hint_overlay" t-on-click="onHintOverlayClick">
                         <div class="o_kensei_hint_popup" t-on-click.stop="">
                             <div class="o_kensei_hint_header">
@@ -378,7 +380,8 @@
                     </div>
                 </t>
 
-                <t t-if="state.autoHintActive">
+                <!-- Auto-hint banner hidden -->
+                <t t-if="false">
                     <div class="o_kensei_auto_hint_banner">
                         <i class="fa fa-spinner fa-spin me-2"/>
                         <span t-if="state.autoHintStatus === 'evaluating'">
@@ -443,7 +446,7 @@
                             t-on-input="onMainTextareaInput"
                             t-on-paste="onPaste"
                             placeholder="Type a message..."
-                            t-att-disabled="state.sending or state.streaming or state.qcPending or state.autoHintActive"
+                            t-att-disabled="state.sending or state.streaming or state.qcPending"
                             rows="1"
                             class="o_kensei_chat_textarea"
                             t-ref="mainTextarea"
@@ -457,7 +460,7 @@
                         <t t-else="">
                             <button class="btn btn-primary btn-sm o_kensei_btn"
                                     t-on-click="onSend"
-                                    t-att-disabled="state.sending or (!state.inputText.trim() and !state.pendingAttachments.length) or state.qcPending or state.autoHintActive">
+                                    t-att-disabled="state.sending or (!state.inputText.trim() and !state.pendingAttachments.length) or state.qcPending">
                                 <i class="fa fa-paper-plane"/>
                             </button>
                         </t>

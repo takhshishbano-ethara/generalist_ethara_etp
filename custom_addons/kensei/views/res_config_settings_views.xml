@@ -180,6 +180,7 @@
                         <setting
                             string="Disable Auto-Hint"
                             help="Skip automated hint evaluation and generation. Enable this for testing and debugging only."
+                            invisible="1"
                         >
                             <field
                                 name="kensei_disable_auto_hint"

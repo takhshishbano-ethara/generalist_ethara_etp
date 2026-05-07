@@ -1458,6 +1458,336 @@ class Kensei(models.Model):
                 artifacts.append(entry)
         return artifacts
 
+    def action_download_harbor_bundle(self):
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/kensei/harbor/download",
+            "target": "self",
+        }
+
+    def action_mass_export_to_harbor(self):
+        import threading
+        from odoo.modules.module import get_module_path
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Kensei.")
+
+        skipped = []
+        all_uploads = []
+
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        env_files = []
+        if os.path.isdir(env_dir):
+            for dirpath, _dirnames, filenames in os.walk(env_dir):
+                for fname in filenames:
+                    if fname.startswith(".") or fname == "__pycache__":
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    rel_path = os.path.relpath(full_path, env_dir)
+                    try:
+                        with open(full_path, "rb") as f:
+                            data = f.read()
+                    except (IOError, OSError):
+                        continue
+                    content_type = "application/octet-stream"
+                    if fname.endswith((".py", ".toml", ".txt", ".sh", ".csv", ".md")):
+                        content_type = "text/plain"
+                    elif fname.endswith(".json"):
+                        content_type = "application/json"
+                    elif fname.endswith((".yaml", ".yml")):
+                        content_type = "text/yaml"
+                    env_files.append({
+                        "rel": rel_path,
+                        "data": data,
+                        "content_type": content_type,
+                    })
+
+        for rec in self:
+            if not rec.initial_prompt:
+                skipped.append(rec.task_id or str(rec.id))
+                continue
+
+            task_id = rec.task_id or str(rec.id)
+            s3_task_prefix = "%s/harbor/%s" % (prefix, task_id)
+            files = []
+
+            files.append({
+                "key": "instruction.md",
+                "data": (rec.initial_prompt or "").encode("utf-8"),
+                "content_type": "text/markdown",
+            })
+
+            task_toml = rec._build_harbor_task_toml()
+            files.append({
+                "key": "task.toml",
+                "data": task_toml.encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+            for ef in env_files:
+                files.append({
+                    "key": "environment/%s" % ef["rel"],
+                    "data": ef["data"],
+                    "content_type": ef["content_type"],
+                })
+
+            all_uploads.append((s3_task_prefix, files))
+
+        if not all_uploads:
+            raise UserError(
+                "No exportable tasks. All selected tasks are missing Initial Prompt."
+            )
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload_batch(bkt, rgn, uploads, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                total = 0
+                for pfx, files in uploads:
+                    for fm in files:
+                        key = "%s/%s" % (pfx, fm["key"])
+                        s3.put_object(
+                            Bucket=bkt,
+                            Key=key,
+                            Body=fm["data"],
+                            ContentType=fm["content_type"],
+                        )
+                    total += 1
+                _logger.info("Harbor mass export: %d tasks uploaded to s3://%s/", total, bkt)
+            except Exception:
+                _logger.exception("Harbor mass export failed")
+
+        thread = threading.Thread(
+            target=_upload_batch,
+            args=(bucket, region, all_uploads, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        msg = "Exporting %d task(s) to S3." % len(all_uploads)
+        if skipped:
+            msg += " Skipped %d (no instruction): %s" % (len(skipped), ", ".join(skipped[:5]))
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Mass Export Started",
+                "message": msg,
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def action_export_to_harbor(self):
+        self.ensure_one()
+        import threading
+        from odoo.modules.module import get_module_path
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        if not self.initial_prompt:
+            raise UserError("Cannot export: Initial Prompt (instruction) is empty.")
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Kensei.")
+
+        task_id = self.task_id or str(self.id)
+        s3_task_prefix = "%s/harbor/%s" % (prefix, task_id)
+
+        files_to_upload = []
+
+        files_to_upload.append({
+            "key": "instruction.md",
+            "data": (self.initial_prompt or "").encode("utf-8"),
+            "content_type": "text/markdown",
+        })
+
+        task_toml = self._build_harbor_task_toml()
+        files_to_upload.append({
+            "key": "task.toml",
+            "data": task_toml.encode("utf-8"),
+            "content_type": "text/plain",
+        })
+
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        if os.path.isdir(env_dir):
+            for dirpath, _dirnames, filenames in os.walk(env_dir):
+                for fname in filenames:
+                    if fname.startswith(".") or fname == "__pycache__":
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    rel_path = os.path.relpath(full_path, env_dir)
+                    try:
+                        with open(full_path, "rb") as f:
+                            data = f.read()
+                    except (IOError, OSError):
+                        continue
+                    content_type = "application/octet-stream"
+                    if fname.endswith((".py", ".toml", ".txt", ".sh", ".csv", ".md")):
+                        content_type = "text/plain"
+                    elif fname.endswith(".json"):
+                        content_type = "application/json"
+                    elif fname.endswith(".yaml") or fname.endswith(".yml"):
+                        content_type = "text/yaml"
+                    files_to_upload.append({
+                        "key": "environment/%s" % rel_path,
+                        "data": data,
+                        "content_type": content_type,
+                    })
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload(bkt, rgn, pfx, files, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                for fm in files:
+                    key = "%s/%s" % (pfx, fm["key"])
+                    s3.put_object(
+                        Bucket=bkt,
+                        Key=key,
+                        Body=fm["data"],
+                        ContentType=fm["content_type"],
+                    )
+                _logger.info(
+                    "Harbor export complete: s3://%s/%s/ (%d files)",
+                    bkt, pfx, len(files),
+                )
+            except Exception:
+                _logger.exception("Harbor export failed for task %s", pfx)
+
+        thread = threading.Thread(
+            target=_upload,
+            args=(bucket, region, s3_task_prefix, files_to_upload, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Export Started",
+                "message": "Exporting task to s3://%s/%s/ (%d files)" % (
+                    bucket, s3_task_prefix, len(files_to_upload)
+                ),
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def _build_harbor_task_toml(self):
+        lines = ['schema_version = "1.1"', ""]
+
+        lines.append("[task]")
+        task_name = self.task_id or "kensei/%s" % self.id
+        lines.append('name = "%s"' % task_name)
+        if self.seed_prompt:
+            desc = self.seed_prompt.replace('"', '\\"').replace("\n", " ")[:200]
+            lines.append('description = "%s"' % desc)
+        if self.employee_id:
+            lines.append(
+                'authors = [{ name = "%s" }]' % (self.employee_id.name or "").replace('"', '\\"')
+            )
+        keywords = []
+        if self.task_type:
+            keywords.append(self.task_type)
+        if self.difficulty:
+            keywords.append(self.difficulty)
+        if keywords:
+            lines.append("keywords = [%s]" % ", ".join('"%s"' % k for k in keywords))
+        lines.append("")
+
+        lines.append("[metadata]")
+        if self.task_type:
+            lines.append('category = "%s"' % self.task_type)
+        if self.difficulty:
+            lines.append('difficulty = "%s"' % self.difficulty)
+        if self.trajectory_modifier:
+            lines.append('trajectory_modifier = "%s"' % self.trajectory_modifier)
+        if self.safety_critical and self.safety_critical != "N/A":
+            lines.append('safety_critical = "%s"' % self.safety_critical)
+        lines.append("")
+
+        lines.append("[agent]")
+        lines.append("timeout_sec = 900.0")
+        lines.append("")
+
+        lines.append("[environment]")
+        lines.append("build_timeout_sec = 600.0")
+        lines.append("cpus = 1")
+        lines.append("memory_mb = 4096")
+        lines.append("storage_mb = 10240")
+        lines.append("allow_internet = true")
+        lines.append('skills_dir = "skills"')
+        lines.append("")
+
+        env_vars = self._collect_harbor_env_vars()
+        if env_vars:
+            lines.append("[environment.env]")
+            for k, v in env_vars.items():
+                lines.append('%s = "%s"' % (k, v))
+            lines.append("")
+
+        return "\n".join(lines) + "\n"
+
+    def _collect_harbor_env_vars(self):
+        from odoo.modules.module import get_module_path
+
+        env_vars = {}
+        module_path = get_module_path("kensei")
+        env_dir = os.path.join(module_path, "environment")
+        if not os.path.isdir(env_dir):
+            return env_vars
+
+        for entry in sorted(os.listdir(env_dir)):
+            toml_path = os.path.join(env_dir, entry, "service.toml")
+            if not os.path.isfile(toml_path):
+                continue
+            try:
+                svc = self.env["kensei.sandbox"]._parse_service_toml(toml_path)
+            except Exception:
+                continue
+            env_var = svc.get("env_var_name")
+            port = svc.get("port")
+            name = svc.get("name", entry)
+            if env_var and port:
+                env_vars[env_var] = "http://%s:%s" % (name, port)
+        return env_vars
+
     def build_trajectory_json(self):
         self.ensure_one()
         all_turns = self._get_all_turns().sorted("turn_number")
