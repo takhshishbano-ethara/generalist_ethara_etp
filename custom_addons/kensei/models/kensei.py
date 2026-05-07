@@ -1592,7 +1592,7 @@ class Kensei(models.Model):
             if rec.rubrics:
                 files.append({
                     "key": "rubrics.json",
-                    "data": rec.rubrics.encode("utf-8"),
+                    "data": self._transform_rubrics_for_export(rec.rubrics).encode("utf-8"),
                     "content_type": "application/json",
                 })
 
@@ -1797,7 +1797,7 @@ class Kensei(models.Model):
         if self.rubrics:
             files_to_upload.append({
                 "key": "rubrics.json",
-                "data": self.rubrics.encode("utf-8"),
+                "data": self._transform_rubrics_for_export(self.rubrics).encode("utf-8"),
                 "content_type": "application/json",
             })
 
@@ -2135,6 +2135,20 @@ class Kensei(models.Model):
             ("test_code", "!=", False),
         ], order="tests_passed desc, create_date desc", limit=1)
         return results[0].test_code if results else ""
+
+    def _transform_rubrics_for_export(self, raw_json):
+        """Transform internal rubric keys for external export (glm -> kimi)."""
+        try:
+            data = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError):
+            return raw_json
+        if isinstance(data, list):
+            for rubric in data:
+                if "glm" in rubric:
+                    rubric["kimi"] = rubric.pop("glm")
+                if isinstance(rubric.get("justification"), dict) and "glm" in rubric["justification"]:
+                    rubric["justification"]["kimi"] = rubric["justification"].pop("glm")
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
     def _collect_harbor_env_vars(self):
         from odoo.modules.module import get_module_path

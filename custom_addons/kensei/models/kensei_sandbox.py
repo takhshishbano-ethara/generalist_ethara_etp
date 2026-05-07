@@ -2737,10 +2737,10 @@ class KenseiSandbox(models.Model):
 
         mode = self._deployment_mode()
         if mode == "k8s":
-            # Use _load_environment_services from K8s mixin (has dynamic image resolution)
             services = self.env['kensei.sandbox.k8s']._load_environment_services()
-            if services:
-                self._collect_audit_k8s(services)
+            deployed = [s for s in services if s.get("k8s_image")]
+            if deployed:
+                self._collect_audit_k8s(deployed)
         else:
             from odoo.modules.module import get_module_path
 
@@ -2837,11 +2837,17 @@ class KenseiSandbox(models.Model):
                 namespace=namespace, label_selector=pod_label
             )
             if not pods.items:
+                _logger.warning("No pod found for K8s audit (sandbox=%s, label=%s)", self.id, pod_label)
                 return
             pod_name = pods.items[0].metadata.name
         except Exception as e:
             _logger.warning("Could not find K8s pod for sandbox %s: %s", self.id, e)
             return
+
+        _logger.info(
+            "K8s audit collection: pod=%s, services=%d (sandbox=%s)",
+            pod_name, len(services), self.id,
+        )
 
         for svc in services:
             try:
@@ -2855,7 +2861,7 @@ class KenseiSandbox(models.Model):
                     core_v1.connect_get_namespaced_pod_exec,
                     pod_name,
                     namespace,
-                    container=svc["name"],
+                    container="openclaw",
                     command=fetch_cmd,
                     stderr=True,
                     stdin=False,
