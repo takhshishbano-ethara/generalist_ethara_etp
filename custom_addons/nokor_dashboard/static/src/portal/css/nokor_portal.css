@@ -1077,9 +1077,9 @@ hr.rule {
   text-transform: uppercase;
   border: 1px solid currentColor;
 }
-.diff-badge--hard      { color: var(--nk-hard); background: #E5EDFB; border-color: var(--nk-hard); }
-.diff-badge--very-hard { color: var(--nk-vhard); background: var(--tier-fixable-s); border-color: var(--nk-vhard); }
-.diff-badge--expert    { color: var(--nk-expert); background: var(--fail-surface); border-color: var(--nk-expert); }
+.diff-badge--level-1   { color: var(--nk-hard); background: #E5EDFB; border-color: var(--nk-hard); }
+.diff-badge--level-2   { color: var(--nk-vhard); background: var(--tier-fixable-s); border-color: var(--nk-vhard); }
+.diff-badge--level-3   { color: var(--nk-expert); background: var(--fail-surface); border-color: var(--nk-expert); }
 
 /* ── Expand button ───────────────────────────────────────── */
 .expand-btn {
@@ -1585,12 +1585,23 @@ hr.rule {
   pointer-events: none;
 }
 .chart-trigger:hover .chart-zoom-hint { opacity: 1; }
+.chart figcaption {
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--s-ui);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
 
 /* Theme-aware chart images */
-.nk-chart-light { display: block; }
-.nk-chart-dark  { display: none; }
-:root[data-theme="dark"] .nk-chart-light { display: none; }
-:root[data-theme="dark"] .nk-chart-dark  { display: block; }
+.chart-trigger img.nk-chart-light { display: block; }
+.chart-trigger img.nk-chart-dark  { display: none; }
+:root[data-theme="dark"] .chart-trigger img.nk-chart-light { display: none; }
+:root[data-theme="dark"] .chart-trigger img.nk-chart-dark  { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .chart-trigger img.nk-chart-light { display: none; }
+  :root:not([data-theme]) .chart-trigger img.nk-chart-dark  { display: block; }
+}
 
 /* ── Thesis word split ───────────────────────────────────── */
 .thesis-word {
@@ -1765,9 +1776,9 @@ body:has(.nk-portal):root[data-theme="dark"],
 }
 
 /* Dark difficulty badges */
-:root[data-theme="dark"] .diff-badge--hard      { background: rgba(137,181,255,0.14); color: #89B5FF; border-color: rgba(137,181,255,0.4); }
-:root[data-theme="dark"] .diff-badge--very-hard { background: rgba(251,191,36,0.12); color: #FBBF24; border-color: rgba(251,191,36,0.4); }
-:root[data-theme="dark"] .diff-badge--expert    { background: rgba(255,143,143,0.12); color: #FF8F8F; border-color: rgba(255,143,143,0.4); }
+:root[data-theme="dark"] .diff-badge--level-1   { background: rgba(137,181,255,0.14); color: #89B5FF; border-color: rgba(137,181,255,0.4); }
+:root[data-theme="dark"] .diff-badge--level-2   { background: rgba(251,191,36,0.12); color: #FBBF24; border-color: rgba(251,191,36,0.4); }
+:root[data-theme="dark"] .diff-badge--level-3   { background: rgba(255,143,143,0.12); color: #FF8F8F; border-color: rgba(255,143,143,0.4); }
 
 /* Dark dist badges */
 :root[data-theme="dark"] .dist-badge--hard  { background: rgba(137,181,255,0.14); color: #89B5FF; border-color: rgba(137,181,255,0.4); }
