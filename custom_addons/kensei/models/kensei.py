@@ -1538,6 +1538,25 @@ class Kensei(models.Model):
                     "content_type": ef["content_type"],
                 })
 
+            trajectory_fields = {
+                "claude": "claude_trajectory",
+                "glm": "glm_trajectory",
+                "gpt": "gpt_trajectory",
+                "onePA": "onePA_trajectory",
+                "onePB": "onePB_trajectory",
+                "onePC": "onePC_trajectory",
+                "onePD": "onePD_trajectory",
+                "golden": "golden_trajectory",
+            }
+            for traj_name, field_name in trajectory_fields.items():
+                traj_data = getattr(rec, field_name, None)
+                if traj_data:
+                    files.append({
+                        "key": "trajectories/%s.json" % traj_name,
+                        "data": traj_data.encode("utf-8"),
+                        "content_type": "application/json",
+                    })
+
             all_uploads.append((s3_task_prefix, files))
 
         if not all_uploads:
@@ -1658,6 +1677,26 @@ class Kensei(models.Model):
                         "data": data,
                         "content_type": content_type,
                     })
+
+        # Trajectories — each non-empty trajectory as a separate JSON file
+        trajectory_fields = {
+            "claude": "claude_trajectory",
+            "glm": "glm_trajectory",
+            "gpt": "gpt_trajectory",
+            "onePA": "onePA_trajectory",
+            "onePB": "onePB_trajectory",
+            "onePC": "onePC_trajectory",
+            "onePD": "onePD_trajectory",
+            "golden": "golden_trajectory",
+        }
+        for traj_name, field_name in trajectory_fields.items():
+            traj_data = getattr(self, field_name, None)
+            if traj_data:
+                files_to_upload.append({
+                    "key": "trajectories/%s.json" % traj_name,
+                    "data": traj_data.encode("utf-8"),
+                    "content_type": "application/json",
+                })
 
         access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
         secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
