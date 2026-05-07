@@ -1,0 +1,18 @@
+"name","question_type","prompt","description","category_id/id","image_a_url","image_b_url","code_snippet","code_language","video_url","sequence","active"
+"Image Generation: Sunset Beach","image_comparison","Compare the two AI-generated beach sunset images. Evaluate which response better follows the instruction: 'Generate a photorealistic sunset on a tropical beach with palm trees.'","","etp_assessment.demo_category_image_eval","https://example.com/image_a.png","https://example.com/image_b.png","","","","1","True"
+"Writing Quality: Blog Post","text","Evaluate the AI-generated blog introduction below for engagement, clarity, and tone.","Context: Write an engaging introduction for a tech blog post about machine learning in healthcare.
+
+AI Response: Imagine a world where your doctor can predict illness before symptoms appear. That world is not science fiction — it is the reality being built by machine learning engineers working at the intersection of AI and healthcare.","etp_assessment.demo_category_text_eval","","","","","","2","True"
+"Code Review: Python Function","coding","Evaluate the quality and correctness of this Python function that implements binary search.","","etp_assessment.demo_category_text_eval","","","def binary_search(arr, target):
+    left, right = 0, len(arr) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1","python","","3","True"
+"Diagram Analysis: Architecture","image_text","Analyze the system architecture diagram and evaluate whether it follows microservices best practices.","The diagram shows a distributed system with 4 services communicating via REST APIs. Evaluate the separation of concerns, data flow, and potential bottlenecks.","etp_assessment.demo_category_text_eval","https://example.com/architecture_diagram.png","","","","","4","True"
+"Video Explanation: React Hooks","video","Watch the video explanation of React hooks and evaluate the accuracy and teaching effectiveness.","","etp_assessment.demo_category_text_eval","","","","","https://www.youtube.com/watch?v=example","5","True"

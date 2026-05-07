@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="etp_assessment_question_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.question.tree</field>
+        <field name="model">etp.assessment.question</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="question_type"/>
+                <field name="category_id"/>
+                <field name="prompt" optional="hide"/>
+                <field name="active" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_question_form" model="ir.ui.view">
+        <field name="name">etp.assessment.question.form</field>
+        <field name="model">etp.assessment.question</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Question Title"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="question_type"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="category_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Content">
+                            <group>
+                                <field name="prompt" nolabel="1" placeholder="Enter the prompt text..."/>
+                            </group>
+                            <group invisible="question_type not in ('text', 'image_text')">
+                                <field name="description" placeholder="Additional description or context"/>
+                            </group>
+                        </page>
+                        <page string="Images" invisible="question_type not in ('image_comparison', 'image_text')">
+                            <group invisible="question_type != 'image_comparison'">
+                                <group string="Response A">
+                                    <field name="image_a" widget="image"/>
+                                    <field name="image_a_url" placeholder="https://..."/>
+                                </group>
+                                <group string="Response B">
+                                    <field name="image_b" widget="image"/>
+                                    <field name="image_b_url" placeholder="https://..."/>
+                                </group>
+                            </group>
+                            <group invisible="question_type != 'image_text'">
+                                <group string="Image">
+                                    <field name="image_a" widget="image" string="Image"/>
+                                    <field name="image_a_url" string="Image URL" placeholder="https://..."/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Code" invisible="question_type != 'coding'">
+                            <group>
+                                <field name="code_language"/>
+                            </group>
+                            <field name="code_snippet" placeholder="Paste the code snippet here..."/>
+                        </page>
+                        <page string="Video" invisible="question_type != 'video'">
+                            <group>
+                                <field name="video_url" placeholder="https://youtube.com/... or video URL"/>
+                            </group>
+                        </page>
+                        <page string="Dimensions">
+                            <field name="question_dimension_ids">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="dimension_id"/>
+                                </list>
+                                <form>
+                                    <group>
+                                        <field name="dimension_id"/>
+                                        <field name="sequence"/>
+                                    </group>
+                                    <label for="option_line_ids"/>
+                                    <field name="option_line_ids">
+                                        <list editable="bottom">
+                                            <field name="sequence" widget="handle"/>
+                                            <field name="name" readonly="1"/>
+                                            <field name="is_correct"/>
+                                            <field name="score" readonly="1"/>
+                                            <field name="master_option_id" column_invisible="1"/>
+                                        </list>
+                                    </field>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_question_search" model="ir.ui.view">
+        <field name="name">etp.assessment.question.search</field>
+        <field name="model">etp.assessment.question</field>
+        <field name="arch" type="xml">
+            <search string="Question Bank">
+                <field name="name"/>
+                <field name="category_id"/>
+                <field name="question_type"/>
+                <separator/>
+                <filter string="Image Comparison" name="filter_image_comparison" domain="[('question_type', '=', 'image_comparison')]"/>
+                <filter string="Text" name="filter_text" domain="[('question_type', '=', 'text')]"/>
+                <filter string="Coding" name="filter_coding" domain="[('question_type', '=', 'coding')]"/>
+                <filter string="Image + Text" name="filter_image_text" domain="[('question_type', '=', 'image_text')]"/>
+                <filter string="Video" name="filter_video" domain="[('question_type', '=', 'video')]"/>
+                <group>
+                    <filter string="Question Type" name="groupby_type" context="{'group_by': 'question_type'}"/>
+                    <filter string="Category" name="groupby_category" context="{'group_by': 'category_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_question" model="ir.actions.act_window">
+        <field name="name">Question Bank</field>
+        <field name="res_model">etp.assessment.question</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_question_search"/>
+    </record>
+</odoo>

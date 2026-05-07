@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="etp_assessment_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.tree</field>
+        <field name="model">etp.assessment</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="category_id"/>
+                <field name="question_limit"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'done'" decoration-warning="state == 'in_progress'" decoration-danger="state == 'cancelled'"/>
+                <field name="response_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_form" model="ir.ui.view">
+        <field name="name">etp.assessment.form</field>
+        <field name="model">etp.assessment</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_start" string="Start Assessment" type="object" class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_done" string="Mark Done" type="object" class="oe_highlight" invisible="state != 'in_progress'"/>
+                    <button name="action_cancel" string="Cancel" type="object" invisible="state in ('done', 'cancelled')"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state not in ('cancelled',)"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,in_progress,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Assessment Name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Configuration">
+                            <field name="category_id" readonly="state != 'draft'"/>
+                            <field name="question_limit" readonly="state != 'draft'"/>
+                            <field name="total_questions_available"/>
+                            <field name="duration_minutes" readonly="state != 'draft'"/>
+                        </group>
+                        <group string="Schedule">
+                            <field name="start_date" readonly="state != 'draft'"/>
+                            <field name="end_date" readonly="state != 'draft'"/>
+                            <field name="deadline"/>
+                            <field name="response_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Candidates" invisible="state == 'draft'">
+                            <field name="assessment_evaluator_ids" readonly="1">
+                                <list>
+                                    <field name="employee_id"/>
+                                    <field name="state" widget="badge" decoration-info="state == 'pending'" decoration-warning="state == 'in_progress'" decoration-success="state == 'submitted'"/>
+                                    <field name="started_at"/>
+                                    <field name="deadline_datetime"/>
+                                    <field name="answered_count"/>
+                                    <field name="total_questions"/>
+                                    <field name="total_score"/>
+                                    <field name="max_possible_score"/>
+                                    <field name="is_locked"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Assign Candidates" invisible="state != 'draft'">
+                            <group string="Manual Assignment">
+                                <field name="evaluator_ids" widget="many2many_tags" nolabel="1"/>
+                            </group>
+                            <group string="Import from CSV">
+                                <group>
+                                    <field name="candidate_csv_file" filename="candidate_csv_filename"/>
+                                    <field name="candidate_csv_filename" invisible="1"/>
+                                </group>
+                                <group>
+                                    <button name="action_import_candidates_csv" string="Import Candidates" type="object" class="oe_highlight" icon="fa-upload"/>
+                                    <button name="action_download_candidate_template" string="Download Template" type="object" icon="fa-download"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Selected Questions" invisible="state == 'draft'">
+                            <field name="question_ids" readonly="1">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="prompt"/>
+                                    <field name="category_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Responses">
+                            <field name="response_ids" readonly="1">
+                                <list>
+                                    <field name="evaluator_id"/>
+                                    <field name="question_id"/>
+                                    <field name="score"/>
+                                    <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'submitted'"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment" model="ir.actions.act_window">
+        <field name="name">Assessments</field>
+        <field name="res_model">etp.assessment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Assessment Evaluator Views -->
+    <record id="etp_assessment_evaluator_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.evaluator.tree</field>
+        <field name="model">etp.assessment.evaluator</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="assessment_id"/>
+                <field name="employee_id"/>
+                <field name="state" widget="badge" decoration-info="state == 'pending'" decoration-warning="state == 'in_progress'" decoration-success="state == 'submitted'"/>
+                <field name="answered_count"/>
+                <field name="total_questions"/>
+                <field name="total_score"/>
+                <field name="is_locked"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_evaluator_form" model="ir.ui.view">
+        <field name="name">etp.assessment.evaluator.form</field>
+        <field name="model">etp.assessment.evaluator</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="pending,in_progress,submitted"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="assessment_id"/>
+                            <field name="employee_id"/>
+                        </group>
+                        <group>
+                            <field name="total_questions"/>
+                            <field name="answered_count"/>
+                            <field name="total_score"/>
+                            <field name="max_possible_score"/>
+                            <field name="is_locked"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Responses">
+                            <field name="response_ids">
+                                <list>
+                                    <field name="question_id"/>
+                                    <field name="score"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_evaluator" model="ir.actions.act_window">
+        <field name="name">Candidate Assignments</field>
+        <field name="res_model">etp.assessment.evaluator</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Response Views -->
+    <record id="etp_assessment_response_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.response.tree</field>
+        <field name="model">etp.assessment.response</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="assessment_id"/>
+                <field name="evaluator_id"/>
+                <field name="question_id"/>
+                <field name="score"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'submitted'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_response_form" model="ir.ui.view">
+        <field name="name">etp.assessment.response.form</field>
+        <field name="model">etp.assessment.response</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_submit" string="Submit" type="object" class="oe_highlight" invisible="state != 'draft'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="assessment_id" readonly="1"/>
+                            <field name="evaluator_id" readonly="1"/>
+                            <field name="question_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="score"/>
+                            <field name="max_score"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Dimension Answers">
+                            <field name="line_ids" readonly="state == 'submitted'">
+                                <list editable="bottom">
+                                    <field name="dimension_id"/>
+                                    <field name="selected_option_id" domain="[('dimension_id', '=', dimension_id)]"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Justification">
+                            <field name="justification" nolabel="1" placeholder="Provide your justification..." readonly="state == 'submitted'"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_response" model="ir.actions.act_window">
+        <field name="name">Responses</field>
+        <field name="res_model">etp.assessment.response</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>
