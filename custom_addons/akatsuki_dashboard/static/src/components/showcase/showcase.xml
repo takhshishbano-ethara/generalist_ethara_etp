@@ -4,7 +4,7 @@
         <div class="ak-showcase">
             <header class="ak-showcase-header">
                 <span class="ak-tag">BENCHMARK</span>
-                <h1 class="ak-title">AKATSUKI</h1>
+                <h1 class="ak-title">JANUS</h1>
                 <p class="ak-subtitle">
                     AI Benchmark Dashboard
                 </p>
@@ -17,7 +17,7 @@
             <section class="ak-section ak-description">
                 <p>
                     TODO: Add project description here. This section should explain what
-                    Akatsuki evaluates and how it works.
+                    Janus evaluates and how it works.
                 </p>
             </section>
 

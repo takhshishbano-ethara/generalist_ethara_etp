@@ -15,7 +15,7 @@ _DATA_PATH = os.path.join(
 
 class AkatsukiShowcaseController(http.Controller):
 
-    @http.route("/akatsuki", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/Janus", type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
         try:
@@ -29,15 +29,15 @@ class AkatsukiShowcaseController(http.Controller):
         values = {
             "trajectories_url": ICP.get_param(
                 "akatsuki_dashboard.trajectories_url", ""
-            ) or "https://github.com/Ethara-Ai/akatsuki",
+            ) or "https://github.com/Ethara-Ai/Janus",
             "dataset_url": ICP.get_param(
                 "akatsuki_dashboard.dataset_url", ""
-            ) or "https://huggingface.co/datasets/ethara/Akatsuki",
+            ) or "https://huggingface.co/datasets/ethara/Janus",
             "instances_json": instances_json,
         }
         return request.render("akatsuki_dashboard.portal_showcase", values)
 
-    @http.route("/akatsuki/api/instances", type="http", auth="public", cors="*")
+    @http.route("/Janus/api/instances", type="http", auth="public", cors="*")
     def api_instances(self, **kw):
         try:
             with open(_DATA_PATH, "r") as f:

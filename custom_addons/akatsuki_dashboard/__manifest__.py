@@ -1,13 +1,13 @@
 {
-    "name": "Akatsuki Dashboard",
+    "name": "Janus Dashboard",
     "version": "19.0.1.0.0",
     "category": "Productivity",
-    "summary": "Showcase page for the Akatsuki benchmark dataset",
+    "summary": "Showcase page for the Janus benchmark dataset",
     "description": """
-Akatsuki Dashboard
+Janus Dashboard
 ==================
-A single-page showcase displaying the Akatsuki AI benchmark dataset.
-Available as both a backend client action and a public portal page at /akatsuki.
+A single-page showcase displaying the Janus AI benchmark dataset.
+Available as both a backend client action and a public portal page at /Janus.
     """,
     "author": "Ethara",
     "license": "LGPL-3",

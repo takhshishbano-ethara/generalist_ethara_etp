@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-  <template id="portal_showcase" name="Akatsuki Showcase">
+  <template id="portal_showcase" name="Janus Showcase">
     <html lang="en">
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Akatsuki &#xB7; Multimodal Agentic Capabilities &#xB7; Ethara AI</title>
-      <meta name="description" content="Akatsuki evaluates AI agents on their ability to manipulate images and search the web to solve complex visual reasoning tasks."/>
+      <title>Janus &#xB7; Multimodal Agentic Capabilities &#xB7; Ethara AI</title>
+      <meta name="description" content="Janus evaluates AI agents on their ability to manipulate images and search the web to solve complex visual reasoning tasks."/>
       <meta name="theme-color" content="#F5F3F8" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
       <script>
         (function(){
           try {
-            var saved = localStorage.getItem('akatsuki:theme');
+            var saved = localStorage.getItem('janus:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
             }
@@ -30,7 +30,7 @@
 
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=3" defer="defer"/>
+      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=5" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -61,7 +61,7 @@
 
   <header class="masthead">
     <div class="mast-top">
-      <h1 class="wordmark">AKATSUKI</h1>
+      <h1 class="wordmark">JANUS</h1>
       <span class="badge">MULTIMODAL AGENTIC CAPABILITIES</span>
     </div>
     <hr class="rule" />
@@ -87,7 +87,7 @@
           <div class="glance-row"><dt>Domains</dt><dd><b>60</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Methodology</dt><dd><b>Agentic-MME</b></dd></div>
-          <div class="glance-row"><dt>Difficulty levels</dt><dd><b>L2</b></dd></div>
+          <div class="glance-row"><dt>Difficulty levels</dt><dd><b>L1, L2, L3</b></dd></div>
         </dl>
       </aside>
     </div>
@@ -96,7 +96,7 @@
   <!-- &#xA7;02 KEY METRICS -->
   <section class="section" id="scale" aria-labelledby="scale-label">
     <p class="section-label" id="scale-label">&#xA7;02 &#xB7; Key metrics</p>
-    <p class="section-desc">Core statistics of the Akatsuki benchmark at scale.</p>
+    <p class="section-desc">Core statistics of the Janus benchmark at scale.</p>
     <div class="kpi-row" aria-label="Key metrics">
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Instances</p>
@@ -171,11 +171,11 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">10 of 20</b>.
-        <span class="tok-nova">Nova-2-Lite</span> resolves <b class="reveal-big">4 of 20</b>.
+        <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">14 of 20</b>.
+        <span class="tok-nova">Nova-2-Lite</span> resolves <b class="reveal-big">5 of 20</b>.
       </p>
       <p class="reveal-cost mono">
-        Kimi is <b>2.5&#xD7; more accurate</b> but Nova uses <b>~70% more tool calls</b> per instance (9.95 vs 5.85 avg).
+        Kimi is <b>2.8&#xD7; more accurate</b> but Nova uses <b>~2&#xD7; more tool calls</b> per instance (13.1 vs 6.2 avg).
       </p>
     </div>
 
@@ -194,24 +194,25 @@
   <!-- &#xA7;05 DATASET VIEWER -->
   <section class="section" id="instances" aria-labelledby="instances-label">
     <p class="section-label" id="instances-label">&#xA7;05 &#xB7; Dataset Viewer</p>
-    <p class="section-desc">20 Level-2 instances across 9 domains. Click any row for full run metadata.</p>
+    <p class="section-desc">20 instances across 3 difficulty levels (L1, L2, L3). Click any row for full run metadata.</p>
 
     <div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap;">
       <input type="text" id="ak-search" placeholder="Search instances..." aria-label="Search instances" style="flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);"/>
       <select id="ak-filter" aria-label="Filter by domain" style="padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);">
         <option value="">All Domains</option>
-        <option value="Numismatics">Numismatics</option>
-        <option value="Electronics">Electronics</option>
-        <option value="Retail">Retail</option>
-        <option value="Telecom">Telecom</option>
-        <option value="Document">Document</option>
-        <option value="Visual Puzzle">Visual Puzzle</option>
+        <option value="Aviation">Aviation</option>
         <option value="Automotive">Automotive</option>
-        <option value="Sports">Sports</option>
+        <option value="Document">Document</option>
+        <option value="Electronics">Electronics</option>
         <option value="Entertainment">Entertainment</option>
         <option value="General">General</option>
-        <option value="Data Interp.">Data Interp.</option>
+        <option value="Numismatics">Numismatics</option>
+        <option value="Retail">Retail</option>
+        <option value="Sports">Sports</option>
+        <option value="Technology">Technology</option>
+        <option value="Telecom">Telecom</option>
         <option value="Urban">Urban</option>
+        <option value="Visual Puzzle">Visual Puzzle</option>
       </select>
     </div>
 
@@ -255,23 +256,23 @@
       <div class="kpi-card" style="min-height: auto;">
         <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
-          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>20%</b> (4/20)</dd></div>
-          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.525</b></dd></div>
-          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.0</b></dd></div>
-          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>4.42</b></dd></div>
-          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>9.95</b></dd></div>
-          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.02</b></dd></div>
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>25%</b> (5/20)</dd></div>
+          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.244</b></dd></div>
+          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.417</b></dd></div>
+          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>4.79</b></dd></div>
+          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>13.1</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.12</b></dd></div>
         </dl>
       </div>
       <div class="kpi-card" style="min-height: auto;">
         <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
-          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>50%</b> (10/20)</dd></div>
-          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.617</b></dd></div>
-          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.778</b></dd></div>
-          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>2.58</b></dd></div>
-          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>5.85</b></dd></div>
-          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.04</b></dd></div>
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>70%</b> (14/20)</dd></div>
+          <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.572</b></dd></div>
+          <div class="glance-row"><dt>S-axis Score</dt><dd><b>0.694</b></dd></div>
+          <div class="glance-row"><dt>Overthink Ratio</dt><dd><b>2.23</b></dd></div>
+          <div class="glance-row"><dt>Avg Tool Calls</dt><dd><b>6.2</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.06</b></dd></div>
         </dl>
       </div>
     </div>
@@ -280,7 +281,7 @@
   <!-- &#xA7;07 METHODOLOGY -->
   <section class="section" id="methodology" aria-labelledby="method-label">
     <p class="section-label" id="method-label">&#xA7;07 &#xB7; Methodology</p>
-    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Akatsuki scoring system.</p>
+    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Janus scoring system.</p>
 
     <div class="pipeline-frame">
       <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
@@ -329,16 +330,16 @@
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">&#xA7;08 &#xB7; Resources</p>
     <div class="resources" style="grid-template-columns: repeat(3, 1fr);">
-      <a class="resource" href="https://github.com/Ethara-Ai/Akatsuki" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/Ethara-Ai/Janus" target="_blank" rel="noopener">
         <p class="res-label mono">Code</p>
         <p class="res-title">GitHub Repository</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Akatsuki</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Janus</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
-      <a class="resource" href="https://huggingface.co/datasets/ethara/Akatsuki" target="_blank" rel="noopener">
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Janus" target="_blank" rel="noopener">
         <p class="res-label mono">Data</p>
         <p class="res-title">Dataset on HuggingFace</p>
-        <p class="res-url mono">huggingface.co/datasets/ethara/Akatsuki</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Janus</p>
         <span class="res-arrow" aria-hidden="true">&#x2197;</span>
       </a>
       <a class="resource" href="https://arxiv.org/abs/2604.03016" target="_blank" rel="noopener">
@@ -354,7 +355,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> &#xB7; project akatsuki</p>
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> &#xB7; project janus</p>
     </div>
   </footer>
 

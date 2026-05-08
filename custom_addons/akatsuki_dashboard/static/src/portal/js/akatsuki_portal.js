@@ -2,7 +2,7 @@
   "use strict";
 
   const root = document.documentElement;
-  const STORAGE_KEY = "akatsuki:theme";
+  const STORAGE_KEY = "janus:theme";
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 
   const currentTheme = () => {
@@ -193,6 +193,7 @@
         + item("Domain", esc(inst.domain))
         + item("Task", esc(inst.task))
         + item("Golden Answer", '<b>' + esc(inst.golden_answer) + '</b>')
+        + (inst.image_url ? '<div style="margin-top:12px;"><button type="button" class="view-image-btn" data-img="' + esc(inst.image_url) + '" data-alt="' + esc(inst.task) + '" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-family:var(--font-mono);font-size:var(--s-ui);letter-spacing:0.04em;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;transition:background 0.15s,color 0.15s;">View Image</button></div>' : '')
       + '</div>'
       + modelBlock("Nova-2-Lite", inst.runs["Nova-2-Lite"], "tok-nova")
       + modelBlock("Kimi K2.5", inst.runs["Kimi K2.5"], "tok-kimi")
@@ -275,6 +276,21 @@
   renderDataset();
 
   document.addEventListener("click", (e) => {
+    const imgBtn = e.target.closest(".view-image-btn");
+    if (imgBtn) {
+      e.stopPropagation();
+      const src = imgBtn.dataset.img;
+      const alt = imgBtn.dataset.alt || "";
+      if (!src || !lightbox) return;
+      lightboxImg.src = src;
+      lightboxImg.alt = alt;
+      lightboxCaption.textContent = alt;
+      lightbox.hidden = false;
+      requestAnimationFrame(() => lightbox.setAttribute("data-open", "true"));
+      lightbox.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+      return;
+    }
     const row = e.target.closest("#matrix tr[data-id]");
     if (!row) return;
     if (e.target.closest("a")) return;
