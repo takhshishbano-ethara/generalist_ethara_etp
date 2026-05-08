@@ -1,12 +1,16 @@
 """AWS Bedrock Converse API client for PRD generation.
 
-Uses boto3 with SigV4 authentication (IAM credentials from environment/instance profile).
-Compatible with EKS pod IAM roles (IRSA) — no static API keys needed.
+Supports two authentication modes:
+1. Bearer token (ABSK format) — for application inference profiles
+2. SigV4 (IAM credentials) — standard boto3 auth (instance profile/IRSA/explicit keys)
 """
 
+import json
 import logging
+from typing import Optional
 
 import boto3
+import httpx
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError, ReadTimeoutError
 
@@ -17,8 +21,81 @@ DEFAULT_TIMEOUT = 300
 DEFAULT_TEMPERATURE = 0.7
 
 
+def _is_bearer_token(access_key_id: str) -> bool:
+    """Check if the provided key is a Bedrock bearer token (ABSK format)."""
+    return bool(access_key_id and access_key_id.startswith("ABSK"))
+
+
+def _call_bedrock_bearer(
+    inference_arn: str,
+    region: str,
+    bearer_token: str,
+    system_prompt: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Call Bedrock Converse API using bearer token authentication."""
+    import urllib.parse
+
+    model_id = urllib.parse.quote(inference_arn, safe="")
+    endpoint = f"https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
+
+    bedrock_messages = []
+    for msg in messages:
+        bedrock_messages.append({
+            "role": msg["role"],
+            "content": [{"text": msg["content"]}],
+        })
+
+    payload = {
+        "system": [{"text": system_prompt}],
+        "messages": bedrock_messages,
+        "inferenceConfig": {
+            "maxTokens": max_tokens,
+            "temperature": temperature,
+        },
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+    }
+
+    _logger.info(
+        "Calling Bedrock Converse (bearer): model=%s, region=%s, messages=%d, max_tokens=%d",
+        inference_arn,
+        region,
+        len(messages),
+        max_tokens,
+    )
+
+    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+        resp = client.post(endpoint, json=payload, headers=headers)
+
+    if resp.status_code != 200:
+        error_body = resp.text
+        _logger.error(
+            "Bedrock bearer API error [%d]: %s", resp.status_code, error_body
+        )
+        raise RuntimeError(
+            f"Bedrock API error [{resp.status_code}]: {error_body}"
+        )
+
+    data = resp.json()
+
+    _logger.info(
+        "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+        data.get("usage", {}).get("inputTokens", 0),
+        data.get("usage", {}).get("outputTokens", 0),
+        data.get("stopReason", "unknown"),
+    )
+
+    return data["output"]["message"]["content"][0]["text"]
+
+
 def _get_bedrock_client(region: str, access_key_id: str = "", secret_access_key: str = ""):
-    """Create boto3 bedrock-runtime client.
+    """Create boto3 bedrock-runtime client (SigV4 auth).
     If access_key_id/secret_access_key are provided, uses explicit credentials.
     Otherwise falls back to instance profile / IRSA (EKS pod role).
     """
@@ -51,19 +128,28 @@ def generate_prd(
     """Generate PRD text via AWS Bedrock Converse API.
 
     Args:
-        inference_arn: Model inference profile ARN (e.g., arn:aws:bedrock:us-east-1:...).
+        inference_arn: Model inference profile ARN.
         region: AWS region.
         system_prompt: System prompt (prd_agent_spec.md content).
         messages: Conversation messages [{"role": "user"/"assistant", "content": "..."}].
         max_tokens: Max response tokens.
         temperature: Sampling temperature.
-        access_key_id: Optional explicit AWS access key (empty = use instance profile/IRSA).
-        secret_access_key: Optional explicit AWS secret key.
+        access_key_id: Bearer token (ABSK...) or AWS access key ID.
+        secret_access_key: AWS secret key (empty for bearer token mode).
     Returns:
         Generated PRD text string.
     Raises:
         RuntimeError: If API call fails.
     """
+    # Bearer token mode (ABSK format)
+    if _is_bearer_token(access_key_id):
+        _logger.info("Using bearer token authentication for Bedrock")
+        return _call_bedrock_bearer(
+            inference_arn, region, access_key_id,
+            system_prompt, messages, max_tokens, temperature,
+        )
+
+    # Standard SigV4 mode (boto3)
     client = _get_bedrock_client(region, access_key_id, secret_access_key)
 
     bedrock_messages = []
