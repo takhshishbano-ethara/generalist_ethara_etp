@@ -1535,11 +1535,6 @@ class KenseiSandbox(models.Model):
             len(self.api_request_ids), self.id,
         )
 
-        try:
-            self._generate_and_run_tests()
-        except Exception as e:
-            _logger.warning("Test generation failed (sandbox=%s): %s", self.id, e)
-
         self._export_trajectory_to_task()
 
         mode = self._deployment_mode()
@@ -1547,6 +1542,15 @@ class KenseiSandbox(models.Model):
             self._stop_k8s()
         else:
             self._stop_local()
+
+    def action_generate_tests(self):
+        """Manually trigger test generation from mock API audit logs."""
+        self.ensure_one()
+        try:
+            self._generate_and_run_tests()
+        except Exception as e:
+            _logger.warning("Test generation failed (sandbox=%s): %s", self.id, e)
+            raise UserError("Test generation failed: %s" % e)
 
     @staticmethod
     def _count_thinking_blocks(trajectory):

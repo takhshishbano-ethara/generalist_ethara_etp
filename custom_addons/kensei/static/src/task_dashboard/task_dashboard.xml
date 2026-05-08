@@ -59,8 +59,11 @@
                         dockerError="sbProps.dockerError"
                         disabled="sbProps.disabled"
                         loading="sbProps.loading"
+                        generatingTests="sbProps.generatingTests"
+                        testsGenerated="sbProps.testsGenerated"
                         onStart.bind="onStartSandbox"
                         onStop.bind="onStopSandbox"
+                        onGenerateTests.bind="onGenerateTests"
                     />
 
                     <!-- Test Results Summary (inline, no scroll needed) -->

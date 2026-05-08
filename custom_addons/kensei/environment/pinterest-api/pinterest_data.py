@@ -140,9 +140,18 @@ _ad_accounts_store = deepcopy(_ad_accounts)
 _campaigns_store = deepcopy(_campaigns)
 _user_account_store = deepcopy(_user_account)
 
-_next_board_id = max(int(b["board_id"].replace("board_", "")) for b in _boards_store) + 1
-_next_section_id = max(int(s["section_id"].replace("section_", "")) for s in _board_sections_store) + 1
-_next_pin_id = max(int(p["pin_id"].replace("pin_", "")) for p in _pins_store) + 1
+def _extract_numeric_id(id_str, prefix):
+    """Extract numeric suffix from IDs like 'board_1001'. Returns 0 for non-numeric IDs."""
+    stripped = id_str.replace(prefix, "", 1)
+    try:
+        return int(stripped)
+    except (ValueError, TypeError):
+        return 0
+
+
+_next_board_id = max(_extract_numeric_id(b["board_id"], "board_") for b in _boards_store) + 1
+_next_section_id = max(_extract_numeric_id(s["section_id"], "section_") for s in _board_sections_store) + 1
+_next_pin_id = max(_extract_numeric_id(p["pin_id"], "pin_") for p in _pins_store) + 1
 
 
 # ---------------------------------------------------------------------------

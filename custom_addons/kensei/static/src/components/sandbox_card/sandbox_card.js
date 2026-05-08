@@ -18,8 +18,11 @@ export class SandboxCard extends Component {
         dockerError: { type: [String, Boolean], optional: true },
         disabled: Boolean,
         loading: Boolean,
+        generatingTests: { type: Boolean, optional: true },
+        testsGenerated: { type: Boolean, optional: true },
         onStart: Function,
         onStop: Function,
+        onGenerateTests: Function,
     };
 
     get isRunning() {
@@ -50,6 +53,10 @@ export class SandboxCard extends Component {
 
     onStopClick() {
         this.props.onStop(this.props.sandboxId);
+    }
+
+    onGenerateTestsClick() {
+        this.props.onGenerateTests(this.props.sandboxId);
     }
 
     onExportClick() {

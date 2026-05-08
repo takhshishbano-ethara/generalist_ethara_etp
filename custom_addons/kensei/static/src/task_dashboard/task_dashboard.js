@@ -46,6 +46,8 @@ export class TaskDashboard extends Component {
             expandedTestIds: {},
             testWeightsStatus: "idle",
             testWeightsError: "",
+            generatingTests: {},
+            testsGenerated: {},
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -245,6 +247,8 @@ export class TaskDashboard extends Component {
                 dockerError: false,
                 disabled: false,
                 loading: false,
+                generatingTests: false,
+                testsGenerated: false,
             };
         }
 
@@ -261,6 +265,8 @@ export class TaskDashboard extends Component {
             dockerError: sb.docker_error || false,
             disabled: false,
             loading: !!this.state.loadingSandbox[sb.id],
+            generatingTests: !!this.state.generatingTests[sb.id],
+            testsGenerated: !!this.state.testsGenerated[sb.id],
         };
     }
 
@@ -307,6 +313,14 @@ export class TaskDashboard extends Component {
 
     async onStopSandbox(sandboxId) {
         if (!sandboxId) return;
+
+        if (!this.state.testsGenerated[sandboxId]) {
+            const confirmed = window.confirm(
+                "Tests have not been generated for this session. Are you sure you want to stop the sandbox without generating tests?"
+            );
+            if (!confirmed) return;
+        }
+
         this.state.loadingSandbox[sandboxId] = true;
 
         const sandbox = Object.values(this.state.sandboxes).find((sb) => sb.id === sandboxId);
@@ -326,6 +340,25 @@ export class TaskDashboard extends Component {
             );
         } finally {
             delete this.state.loadingSandbox[sandboxId];
+            delete this.state.testsGenerated[sandboxId];
+        }
+    }
+
+    async onGenerateTests(sandboxId) {
+        if (!sandboxId) return;
+        this.state.generatingTests[sandboxId] = true;
+        try {
+            await this.orm.call("kensei.sandbox", "action_generate_tests", [[sandboxId]]);
+            this.state.testsGenerated[sandboxId] = true;
+            await this._loadTestResults();
+            this.notification.add("Tests generated successfully.", { type: "success" });
+        } catch (e) {
+            this.notification.add(
+                e.data?.message || e.message || "Failed to generate tests",
+                { type: "danger" }
+            );
+        } finally {
+            delete this.state.generatingTests[sandboxId];
         }
     }
 

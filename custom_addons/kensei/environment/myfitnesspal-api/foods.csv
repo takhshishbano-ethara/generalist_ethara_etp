@@ -44,3 +44,11 @@ food_id,food_name,brand,serving_size,serving_unit,calories,total_fat_g,saturated
 43,Rotisserie Chicken Thigh (skin removed),,1,thigh (95g),170,8,2.3,95,75,0,0,0,23,220,true
 44,Clif Bar (Chocolate Chip),"Clif Bar",1,bar (68g),250,5,1.5,0,150,44,5,21,10,210,true
 45,Steamed Vegetables (mixed),,1,cup,45,0.3,0.1,0,30,9,3.5,3.5,2.5,250,true
+46,Kulukki Sarbath (Nannari Lemonade),,1,glass (350ml),162,0.2,0,0,12,42,0.5,40,0.3,85,true
+47,Idli (steamed rice cake),,2,pieces (60g each),130,0.4,0.1,0,15,28,1.2,0.5,3.8,45,true
+48,Puttu (steamed rice log),,1,cylinder (150g),218,1.5,0.8,0,8,46,2.0,1.2,4.5,62,true
+49,Kerala Parotta,,1,parotta (80g),260,8.5,3.2,5,320,40,1.5,2.0,5.2,78,true
+50,Sambar (lentil vegetable stew),,1,cup (240ml),135,4.2,0.6,0,580,18,4.5,3.8,6.5,420,true
+51,Coconut Chutney,,2,tbsp (30g),52,4.5,3.8,0,85,2.5,1.0,1.2,0.8,65,true
+52,Avial (mixed vegetable coconut),,1,cup (200g),145,8.2,5.5,0,290,14,4.8,3.5,3.2,380,true
+53,Palada Payasam (rice dessert),,1,cup (200ml),285,9.5,6.2,25,68,44,0.5,38,5.8,145,true

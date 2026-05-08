@@ -341,6 +341,13 @@ for user in records:
       <field name="model">kensei.sandbox</field>
       <field name="arch" type="xml">
         <form>
+          <header>
+            <button name="action_generate_tests" type="object"
+                    string="Generate Tests" icon="fa-flask"
+                    class="oe_highlight"
+                    invisible="docker_status != 'running'"
+                    confirm="Generate pytest tests from mock API audit logs?"/>
+          </header>
           <sheet>
             <group>
               <group string="Sandbox Info">

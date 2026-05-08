@@ -23,6 +23,16 @@
                         </button>
                     </t>
                     <t t-elif="isRunning or isStarting">
+                        <button t-if="isRunning" class="o_kensei_btn_test"
+                                t-on-click="onGenerateTestsClick"
+                                t-att-disabled="props.generatingTests">
+                            <t t-if="props.generatingTests">
+                                <i class="fa fa-spinner fa-spin me-1"/> Generating…
+                            </t>
+                            <t t-else="">
+                                <i class="fa fa-flask me-1"/> Generate Tests
+                            </t>
+                        </button>
                         <button class="o_kensei_btn_stop" t-on-click="onStopClick">
                             <i class="fa fa-stop me-1"/> Stop
                         </button>
