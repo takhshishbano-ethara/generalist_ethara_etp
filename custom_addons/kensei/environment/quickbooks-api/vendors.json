@@ -1,0 +1,90 @@
+{
+  "QueryResponse": {
+    "Vendor": [
+      {
+        "Id": "1",
+        "DisplayName": "Westbrook Property Management",
+        "PrimaryEmailAddr": { "Address": "leasing@westbrookpm.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0291" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Landlord - 4827 SW Cedar Hills Blvd. Lease renewed Jan 2026. Current rent $700/mo."
+      },
+      {
+        "Id": "2",
+        "DisplayName": "Pacific Northwest Insurance Group",
+        "PrimaryEmailAddr": { "Address": "commercial@pnwig.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0188" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "General liability + property. Policy #PNW-2026-04471. Annual $3,600 paid quarterly ($900/qtr)."
+      },
+      {
+        "Id": "3",
+        "DisplayName": "Portland General Electric",
+        "PrimaryEmailAddr": { "Address": "business@portlandgeneral.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0100" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Electric utility. Acct #8827-4401-55."
+      },
+      {
+        "Id": "4",
+        "DisplayName": "Beaverton Water District",
+        "PrimaryEmailAddr": { "Address": "billing@beavertonwater.gov" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0076" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Water/sewer. Acct #WS-91204."
+      },
+      {
+        "Id": "5",
+        "DisplayName": "Bushido Supply Co.",
+        "PrimaryEmailAddr": { "Address": "orders@bushidosupply.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(971) 555-0342" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Shinai, bokken, gi, belts, mat cleaner. Net-30 terms."
+      },
+      {
+        "Id": "6",
+        "DisplayName": "Raj Patel (Instructor Pay)",
+        "PrimaryEmailAddr": { "Address": "raj.patel@cedarridgemartialarts.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0264" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Co-owner 60%. Monthly instructor draw $1,200. Judo T/Th + Sat."
+      },
+      {
+        "Id": "7",
+        "DisplayName": "Willamette Cleaning Services",
+        "PrimaryEmailAddr": { "Address": "schedule@willametteclean.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0419" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Bi-weekly deep clean. $150/visit."
+      },
+      {
+        "Id": "8",
+        "DisplayName": "Pacific Mat Rentals",
+        "PrimaryEmailAddr": { "Address": "rentals@pacificmats.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(971) 555-0188" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Extra judo mats for spring tournament. One-time rental Apr 2026."
+      },
+      {
+        "Id": "9",
+        "DisplayName": "Columbia Trophy & Awards",
+        "PrimaryEmailAddr": { "Address": "info@columbiatrophy.com" },
+        "PrimaryPhone": { "FreeFormNumber": "(503) 555-0527" },
+        "Balance": 0,
+        "Active": true,
+        "Notes": "Medals and trophies for spring tournament Apr 2026."
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 50,
+    "totalCount": 9
+  }
+}

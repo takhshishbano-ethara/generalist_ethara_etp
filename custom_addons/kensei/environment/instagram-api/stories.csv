@@ -6,3 +6,13 @@ id,user_id,media_type,media_url,timestamp,expiring_at,caption,link,poll_question
 17950001005,17841400123456789,IMAGE,https://instagram.mock/stories/17950001005.jpg,2026-05-05T16:00:00,2026-05-06T16:00:00,"What\u2019s your go-to afternoon pick-me-up?",,"Afternoon order?","Espresso shot|Iced latte|Cold brew|Matcha"
 17950001006,17841400123456789,VIDEO,https://instagram.mock/stories/17950001006.mp4,2026-05-05T17:30:00,2026-05-06T17:30:00,"Golden hour at the shop \u2728 Open til 6!",,,
 17950001007,17841400123456789,IMAGE,https://instagram.mock/stories/17950001007.jpg,2026-05-06T06:30:00,2026-05-07T06:30:00,"Good morning Portland! Doors open in 30 mins \ud83d\udeaa",,,
+17950001001,17841400123456789,IMAGE,https://instagram.mock/stories/story1.jpg,2026-05-07T05:00:00,2026-05-08T05:00:00,"Wholesale packed ✔️",,,
+17950001002,17841400123456789,IMAGE,https://instagram.mock/stories/story2.jpg,2026-05-07T09:00:00,2026-05-08T09:00:00,"Boardwalk sunrise before class.",,,
+17950001003,17841400123456789,IMAGE,https://instagram.mock/stories/story3.jpg,2026-05-07T14:00:00,2026-05-08T14:00:00,"Next week special?",,"Peach cobbler or banana pudding?","Peach Cobbler|Banana Pudding"
+17950001004,17841400123456789,VIDEO,https://instagram.mock/stories/story4.mp4,2026-05-07T06:20:00,2026-05-08T06:20:00,"Croissants heading into the oven.",,,
+17950001005,17841400123456789,IMAGE,https://instagram.mock/stories/story5.jpg,2026-05-06T05:10:00,2026-05-07T05:10:00,"Butter delivery finally arrived.",,,
+17950001006,17841400123456789,IMAGE,https://instagram.mock/stories/story6.jpg,2026-05-06T07:15:00,2026-05-07T07:15:00,"Cooling rack situation this morning.",,,
+17950001007,17841400123456789,VIDEO,https://instagram.mock/stories/story7.mp4,2026-05-06T16:30:00,2026-05-07T16:30:00,"Advanced class rehearsal tonight.",,,
+17950001008,17841400123456789,IMAGE,https://instagram.mock/stories/story8.jpg,2026-05-05T12:00:00,2026-05-06T12:00:00,"Testing strawberry tart filling.",,,
+17950001009,17841400123456789,IMAGE,https://instagram.mock/stories/story9.jpg,2026-05-05T18:00:00,2026-05-06T18:00:00,"Kitchen finally clean again.",,,
+17950001010,17841400123456789,IMAGE,https://instagram.mock/stories/story10.jpg,2026-05-04T08:30:00,2026-05-05T08:30:00,"Coffee and pralines before rehearsal planning.",,,

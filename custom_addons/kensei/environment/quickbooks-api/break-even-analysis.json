@@ -1,0 +1,69 @@
+{
+  "BreakEvenAnalysis": {
+    "PreparedBy": "Aaron Delgado",
+    "PreparedDate": "2026-01-15",
+    "Context": "Allison suggested running break-even scenarios after hearing Westbrook might raise rent. Based on 2025 actuals.",
+    "CurrentState": {
+      "MonthlyRevenue": {
+        "MembershipDues": { "Members": 60, "Rate": 95, "Total": 5700 },
+        "DropIns": { "AvgMonthly": 120 },
+        "EquipmentSales": { "AvgMonthly": 85 },
+        "TotalMonthlyRevenue": 5905
+      },
+      "MonthlyExpenses": {
+        "Rent": 700,
+        "Utilities": { "Electric": 180, "Water": 60, "Total": 240 },
+        "Insurance": { "Quarterly": 900, "Monthly": 300 },
+        "InstructorPay_Raj": 1200,
+        "Cleaning": { "BiWeekly": 150, "Monthly": 300 },
+        "Supplies": { "AvgMonthly": 125 },
+        "Marketing": { "AvgMonthly": 50 },
+        "TotalMonthlyExpenses": 2915
+      },
+      "MonthlyNetIncome": 2990,
+      "AaronDrawFromNet": 800,
+      "RetainedForReserves": 2190,
+      "Note": "Aaron's draw is informal - not a fixed obligation. Raj's $1200 is contractual."
+    },
+    "Scenarios": {
+      "Scenario_A_RentTo850": {
+        "Label": "Rent increases to $850/mo (Westbrook hint)",
+        "NewRent": 850,
+        "RentIncrease": 150,
+        "NewTotalExpenses": 3065,
+        "NewNetIncome": 2840,
+        "BreakEvenMembers": 33,
+        "BreakEvenCalculation": "Fixed costs $2,915 + $150 increase = $3,065. At $95/member, need $3,065 / $95 = 32.3 → 33 members minimum (assuming no other revenue). With drop-ins + equipment, effective break-even ~30 members.",
+        "Impact": "Net income drops $150/mo. Still very healthy at 60 members. Concern is psychological - sets precedent for future increases."
+      },
+      "Scenario_B_RentTo1000": {
+        "Label": "Worst case - rent to $1,000/mo",
+        "NewRent": 1000,
+        "RentIncrease": 300,
+        "NewTotalExpenses": 3215,
+        "NewNetIncome": 2690,
+        "BreakEvenMembers": 34,
+        "Impact": "Manageable. Would need to reassess if combined with other cost increases."
+      },
+      "Scenario_C_MembershipDropPlus RentIncrease": {
+        "Label": "Rent to $850 AND membership drops to 50 students",
+        "NewRent": 850,
+        "RevisedMembers": 50,
+        "RevisedMembershipRevenue": 4750,
+        "RevisedTotalRevenue": 4955,
+        "NewTotalExpenses": 3065,
+        "NewNetIncome": 1890,
+        "BreakEvenMembers": 33,
+        "Impact": "Still profitable but Aaron's draw becomes tight. Would need 33 members just to cover costs. Below 40 members = red flag for sustainability."
+      }
+    },
+    "KeyInsight": "Break-even is ~33 members at current cost structure, ~34 with $850 rent. Current 60 members provides 82% buffer above break-even. Real risk isn't the rent increase alone - it's rent increase + seasonal membership dip (historically Dec-Feb lowest at ~55 members).",
+    "ActionItems": [
+      "Monitor Q1 retention - if below 55, flag early",
+      "Negotiate with Westbrook before June lease review",
+      "Consider modest dues increase to $100 (last raised 2024) - adds $300/mo at 60 members",
+      "Allison to model tax impact of different scenarios at Feb meeting"
+    ],
+    "AllisonNote": "Don't forget the $900 quarterly insurance is effectively $300/mo when budgeting. Also the spring and fall tournaments are lumpy - great months but don't average them into monthly planning."
+  }
+}

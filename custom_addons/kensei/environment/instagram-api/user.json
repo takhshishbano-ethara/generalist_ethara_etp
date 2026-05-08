@@ -1,14 +1,30 @@
-{
-  "id": "17841400123456789",
-  "username": "brewedawakening_",
-  "name": "Brewed Awakening \u2615",
-  "biography": "Specialty coffee roasters & cafe \ud83c\udf3f Portland, OR\nSingle-origin beans \u2022 Latte art \u2022 Brewing tutorials\nOnline shop \u2b07\ufe0f Fresh roasts shipped weekly",
-  "website": "https://brewedawakening.co",
-  "followers_count": 28500,
-  "follows_count": 890,
-  "media_count": 847,
-  "profile_picture_url": "https://instagram.mock/profiles/brewedawakening_/avatar_hd.jpg",
-  "ig_id": 5214783690,
-  "account_type": "BUSINESS",
-  "category": "Coffee Shop"
-}
+[
+  {
+    "id": "17841400123456789",
+    "username": "brewedawakening_",
+    "name": "Brewed Awakening ☕",
+    "biography": "Specialty coffee roasters & cafe 🌿 Portland, OR\nSingle-origin beans • Latte art • Brewing tutorials\nOnline shop ⬇️ Fresh roasts shipped weekly",
+    "website": "https://brewedawakening.co",
+    "followers_count": 28500,
+    "follows_count": 890,
+    "media_count": 847,
+    "profile_picture_url": "https://instagram.mock/profiles/brewedawakening_/avatar_hd.jpg",
+    "ig_id": 5214783690,
+    "account_type": "BUSINESS",
+    "category": "Coffee Shop"
+  },
+  {
+    "id": "17841400987654321",
+    "username": "russells_pastries",
+    "name": "Russell's Pastries",
+    "biography": "Southern pastries & French pâtisserie baked before sunrise ✨\nBrighton Beach, Brooklyn\nSweet potato pie • Croissants • Custom cakes\nWholesale + custom orders ⬇️",
+    "website": "https://russellspastries.mock",
+    "followers_count": 12400,
+    "follows_count": 612,
+    "media_count": 534,
+    "profile_picture_url": "https://instagram.mock/profiles/russells_pastries/avatar_hd.jpg",
+    "ig_id": 5214783691,
+    "account_type": "BUSINESS",
+    "category": "Bakery"
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "QueryResponse": {
+    "Account": [
+      { "Id": "1", "Name": "Operating Checking", "AccountType": "Bank", "AccountSubType": "Checking", "CurrentBalance": 5842.50, "Active": true, "Description": "Primary operating account - OnPoint Credit Union" },
+      { "Id": "2", "Name": "Tournament Reserve", "AccountType": "Bank", "AccountSubType": "Savings", "CurrentBalance": 1450.00, "Active": true, "Description": "Set aside for tournament expenses and equipment replacement" },
+      { "Id": "3", "Name": "Membership Income", "AccountType": "Income", "AccountSubType": "ServiceFeeIncome", "CurrentBalance": 0, "Active": true, "Description": "Monthly membership dues - $95/member" },
+      { "Id": "4", "Name": "Drop-in Fees", "AccountType": "Income", "AccountSubType": "ServiceFeeIncome", "CurrentBalance": 0, "Active": true, "Description": "Walk-in class fees - $20/session" },
+      { "Id": "5", "Name": "Tournament Revenue", "AccountType": "Income", "AccountSubType": "ServiceFeeIncome", "CurrentBalance": 0, "Active": true, "Description": "Registration fees and spectator entry for tournaments" },
+      { "Id": "6", "Name": "Equipment Sales", "AccountType": "Income", "AccountSubType": "SalesOfProductIncome", "CurrentBalance": 0, "Active": true, "Description": "Gi, shinai, bokken sales to students" },
+      { "Id": "7", "Name": "Rent Expense", "AccountType": "Expense", "AccountSubType": "RentOrLeaseOfBuildings", "CurrentBalance": 0, "Active": true, "Description": "Monthly lease - Westbrook Property Mgmt" },
+      { "Id": "8", "Name": "Utilities", "AccountType": "Expense", "AccountSubType": "Utilities", "CurrentBalance": 0, "Active": true, "Description": "Electric + water/sewer" },
+      { "Id": "9", "Name": "Insurance", "AccountType": "Expense", "AccountSubType": "Insurance", "CurrentBalance": 0, "Active": true, "Description": "General liability + property - quarterly" },
+      { "Id": "10", "Name": "Instructor Pay", "AccountType": "Expense", "AccountSubType": "PayrollExpenses", "CurrentBalance": 0, "Active": true, "Description": "Raj Patel monthly draw" },
+      { "Id": "11", "Name": "Supplies & Equipment", "AccountType": "Expense", "AccountSubType": "SuppliesMaterials", "CurrentBalance": 0, "Active": true, "Description": "Training equipment, cleaning supplies, mat maintenance" },
+      { "Id": "12", "Name": "Cleaning Services", "AccountType": "Expense", "AccountSubType": "RepairMaintenance", "CurrentBalance": 0, "Active": true, "Description": "Willamette Cleaning - bi-weekly" },
+      { "Id": "13", "Name": "Tournament Expenses", "AccountType": "Expense", "AccountSubType": "EntertainmentMeals", "CurrentBalance": 0, "Active": true, "Description": "Mats rental, trophies, referee fees, event costs" },
+      { "Id": "14", "Name": "Marketing & Advertising", "AccountType": "Expense", "AccountSubType": "Advertising", "CurrentBalance": 0, "Active": true, "Description": "Flyers, social media ads, community board postings" }
+    ],
+    "startPosition": 1,
+    "maxResults": 50,
+    "totalCount": 14
+  }
+}

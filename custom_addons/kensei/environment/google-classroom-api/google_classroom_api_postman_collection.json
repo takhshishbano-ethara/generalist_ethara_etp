@@ -39,6 +39,13 @@
           }
         },
         {
+          "name": "Get Course (Intertidal Lab)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005"]}
+          }
+        },
+        {
           "name": "List Archived Courses",
           "request": {
             "method": "GET",
@@ -94,6 +101,13 @@
           "request": {
             "method": "GET",
             "url": {"raw": "{{base_url}}/v1/courses/course_001/courseWork", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_001", "courseWork"]}
+          }
+        },
+        {
+          "name": "List CourseWork (Intertidal Lab)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005/courseWork", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005", "courseWork"]}
           }
         },
         {
@@ -178,6 +192,13 @@
           }
         },
         {
+          "name": "List Topics (Intertidal Lab)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005/topics", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005", "topics"]}
+          }
+        },
+        {
           "name": "Get Topic (Valid)",
           "request": {
             "method": "GET",
@@ -226,6 +247,13 @@
           "request": {
             "method": "GET",
             "url": {"raw": "{{base_url}}/v1/courses/course_001/courseWork/cw_101/studentSubmissions", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_001", "courseWork", "cw_101", "studentSubmissions"]}
+          }
+        },
+        {
+          "name": "List Submissions (Intertidal Lab - Kelp Upload)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005/courseWork/cw_501/studentSubmissions", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005", "courseWork", "cw_501", "studentSubmissions"]}
           }
         },
         {
@@ -296,6 +324,13 @@
           "request": {
             "method": "GET",
             "url": {"raw": "{{base_url}}/v1/courses/course_001/students", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_001", "students"]}
+          }
+        },
+        {
+          "name": "List Students (Intertidal Lab)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005/students", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005", "students"]}
           }
         },
         {
@@ -452,6 +487,15 @@
             "url": {"raw": "{{base_url}}/v1/courses/course_001/courseWorkMaterials", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_001", "courseWorkMaterials"]},
             "header": [{"key": "Content-Type", "value": "application/json"}],
             "body": {"mode": "raw", "raw": "{\"title\": \"ArrayList Tutorial Video\", \"description\": \"Comprehensive video tutorial on Java ArrayList operations\", \"topicId\": \"topic_107\", \"materials\": [{\"link\": {\"url\": \"https://www.youtube.com/watch?v=example\", \"title\": \"ArrayList Tutorial\"}}]}"}
+          }
+        },
+        {
+          "name": "Create Material (Intertidal Lab - Evidence Plates)",
+          "request": {
+            "method": "POST",
+            "url": {"raw": "{{base_url}}/v1/courses/course_005/courseWorkMaterials", "host": ["{{base_url}}"], "path": ["v1", "courses", "course_005", "courseWorkMaterials"]},
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\"title\": \"Survey Evidence Plates - May 2025\", \"description\": \"Photographic evidence plates from Mackworth Island intertidal survey\", \"topicId\": \"topic_501\", \"materials\": [{\"link\": {\"url\": \"https://drive.google.com/file/d/evidence_plates_may2025\", \"title\": \"Evidence Plates\"}}]}"}
           }
         },
         {
