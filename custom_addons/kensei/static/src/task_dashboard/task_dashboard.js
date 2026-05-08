@@ -273,17 +273,7 @@ export class TaskDashboard extends Component {
             this.notification.add("Sandbox not found. Save the task first.", { type: "warning" });
             return;
         }
-        const activeSandbox = Object.values(this.state.sandboxes).find(
-            (sb) => sb.id !== sandboxId && (sb.docker_status === "running" || sb.docker_status === "starting")
-        );
-        if (activeSandbox) {
-            const activeLabel = MODEL_TABS.find((t) => t.type === activeSandbox.model_type)?.label || activeSandbox.model_type;
-            this.notification.add(
-                `Cannot start: ${activeLabel} sandbox is already ${activeSandbox.docker_status}. Stop it first.`,
-                { type: "warning" },
-            );
-            return;
-        }
+
         this.state.loadingSandbox[sandboxId] = true;
         this._setSandboxStatus(sandboxId, "starting");
         this._startPolling();
