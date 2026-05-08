@@ -7,7 +7,6 @@ class ResConfigSettings(models.TransientModel):
     kimi_aws_region = fields.Char(
         string='AWS Region',
         config_parameter='task_forge_core.kimi_aws_region',
-        default='us-east-1',
     )
     kimi_api_key = fields.Char(
         string='Bedrock API Key',

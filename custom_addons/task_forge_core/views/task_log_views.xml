@@ -57,6 +57,9 @@
                     <notebook>
                         <page string="Details">
                             <group>
+                                <field name="prompt_text"/>
+                                <field name="justification_text"/>
+                                <field name="chain_of_thought"/>
                                 <field name="blocker_reason"/>
                                 <field name="prompt_justification"/>
                                 <field name="feedback_note"/>
@@ -98,13 +101,63 @@
                             </group>
                             <button name="action_parse_rubric_text" type="object" string="Parse Rubric Text" class="btn-primary mb-3" icon="fa-cogs"/>
                             <separator string="Rubric Ratings"/>
-                            <field name="rubric_rating_ids" readonly="1">
-                                <list>
+                            <field name="rubric_rating_ids">
+                                <list editable="bottom">
+                                    <field name="dimension_id"/>
+                                    <field name="option_id"/>
                                     <field name="dimension_name_snapshot" string="Dimension"/>
                                     <field name="option_name_snapshot" string="Option"/>
                                     <field name="option_value_snapshot" string="Score"/>
                                 </list>
                             </field>
+                        </page>
+                        <page string="QC Review" name="qc_review_page">
+                            <group>
+                                <group string="Task Input">
+                                    <field name="prompt_text" string="Prompt"/>
+                                    <field name="justification_text" string="Justification"/>
+                                    <field name="chain_of_thought"/>
+                                </group>
+                                <group string="QC Assessment">
+                                    <field name="qc_llm_score" readonly="1"/>
+                                    <field name="qc_llm_flag" readonly="1"/>
+                                    <field name="reviewed_by_id"/>
+                                    <field name="review_date"/>
+                                </group>
+                            </group>
+                            <separator string="Responses"/>
+                            <field name="response_ids">
+                                <list editable="bottom">
+                                    <field name="sequence"/>
+                                    <field name="label"/>
+                                    <field name="value"/>
+                                    <field name="response_url" widget="url"/>
+                                </list>
+                            </field>
+                            <separator string="Dimensions (Rubric Ratings)"/>
+                            <field name="rubric_rating_ids">
+                                <list>
+                                    <field name="dimension_id" string="Dimension"/>
+                                    <field name="option_id" string="Option"/>
+                                    <field name="option_value_snapshot" string="Score"/>
+                                </list>
+                            </field>
+                            <separator/>
+                            <button name="action_qc_with_llm" type="object" string="Run QC Review" class="btn-warning mb-3" icon="fa-magic"/>
+                            <separator string="QC Results"/>
+                            <group>
+                                <field name="qc_llm_feedback" readonly="1" string="Feedback"/>
+                            </group>
+                            <group>
+                                <field name="qc_llm_raw_response" readonly="1" widget="text" string="Raw LLM Response"/>
+                            </group>
+                            <separator string="Token Consumption"/>
+                            <group>
+                                <group>
+                                    <field name="qc_llm_input_tokens" readonly="1"/>
+                                    <field name="qc_llm_output_tokens" readonly="1"/>
+                                </group>
+                            </group>
                         </page>
                         <page string="Grammar Check" name="grammar_check">
                             <group>

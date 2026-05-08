@@ -16,7 +16,29 @@ def _get_config(key, default=''):
         return default
 
 
-def call_kimi(system_prompt, user_content, temperature=0.1):
+def _detect_media_type(url, content_bytes=None):
+    url_lower = url.lower()
+    if '.png' in url_lower:
+        return 'image/png'
+    if '.webp' in url_lower:
+        return 'image/webp'
+    if '.gif' in url_lower:
+        return 'image/gif'
+    return 'image/jpeg'
+
+
+def fetch_image_as_base64(url):
+    import base64
+    resp = requests.get(url, timeout=30)
+    if resp.status_code != 200:
+        _logger.warning('Failed to fetch image from %s (HTTP %d)', url, resp.status_code)
+        return None, None
+    media_type = _detect_media_type(url)
+    b64 = base64.b64encode(resp.content).decode('utf-8')
+    return b64, media_type
+
+
+def call_kimi(system_prompt, user_content, temperature=0.1, images=None):
     api_key = _get_config('task_forge_core.kimi_api_key')
     arn = _get_config('task_forge_core.kimi_model_arn')
     region = _get_config('task_forge_core.kimi_aws_region', 'us-east-1')
@@ -36,9 +58,19 @@ def call_kimi(system_prompt, user_content, temperature=0.1):
         'Authorization': 'Bearer %s' % api_key,
     }
 
+    content_blocks = [{'text': user_content}]
+    if images:
+        for img in images:
+            content_blocks.append({
+                'image': {
+                    'format': img['format'],
+                    'source': {'bytes': img['base64']},
+                }
+            })
+
     payload = {
         'messages': [
-            {'role': 'user', 'content': [{'text': user_content}]},
+            {'role': 'user', 'content': content_blocks},
         ],
         'system': [
             {'text': system_prompt},
@@ -80,7 +112,6 @@ def parse_json_response(text):
         return {}
     text = text.strip()
 
-    # Strip markdown code fences
     if '```' in text:
         if '```json' in text:
             text = text.split('```json')[-1].split('```')[0]
@@ -91,13 +122,11 @@ def parse_json_response(text):
 
     text = text.strip()
 
-    # Try direct parse
     try:
         return json.loads(text)
     except (json.JSONDecodeError, IndexError):
         pass
 
-    # Fallback: find first { ... } block
     import re
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
