@@ -10,7 +10,7 @@ import httpx
 
 _logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 900  # Lambda extraction can take up to 15 min
 
 _ALLOWED_SCHEMES = {"http", "https"}
 

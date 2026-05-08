@@ -426,7 +426,8 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _mark_failed(self, error_msg):
-        self._write_with_retry({
+        """Mark job as failed. Safe to call from cron/controller contexts."""
+        self.write({
             "state": "failed",
             "error_message": error_msg,
             "completed_at": fields.Datetime.now(),
@@ -434,7 +435,7 @@ class LeviathanJob(models.Model):
         self._log_pipeline_event(f"❌ Pipeline failed: {error_msg[:200]}")
 
     def _mark_done(self, started, duration):
-        self._write_with_retry({
+        self.write({
             "state": "done",
             "started_at": started,
             "completed_at": fields.Datetime.now(),
@@ -506,38 +507,58 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_extraction_bg(self, db_name, record_id):
-        """Background: call extraction service API."""
+        """Background: call extraction service API.
+
+        Architecture: read config (short cursor) → call Lambda (no cursor) → write result (short cursor).
+        This avoids holding a DB cursor open during the HTTP call and prevents
+        serialization conflicts with mail.thread tracking.
+        """
+        from ..services.extraction_service import trigger_extraction
+
         try:
+            # === PHASE 1: Read config and set state (short cursor) ===
             with Registry(db_name).cursor() as cr:
-                env = self.env(cr=cr)
+                env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
                 if not record.exists():
                     return
 
-                from ..services.extraction_service import trigger_extraction
-
                 ICP = env["ir.config_parameter"].sudo()
-                service_url = ICP.get_param("leviathan.extraction_service_url")
-                access_key_id = ICP.get_param("leviathan.extraction_access_key_id")
-                secret_access_key = ICP.get_param(
-                    "leviathan.extraction_secret_access_key"
-                )
+                config = {
+                    "service_url": ICP.get_param("leviathan.extraction_service_url"),
+                    "access_key_id": ICP.get_param("leviathan.extraction_access_key_id"),
+                    "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key"),
+                }
+                job_data = {
+                    "url": record.url,
+                    "callback_url": record._get_webhook_url(),
+                }
 
                 record.write({"state": "extracting"})
+                cr.commit()
 
-                result = trigger_extraction(
-                    url=record.url,
-                    job_id=record_id,
-                    callback_url=record._get_webhook_url(),
-                    service_url=service_url,
-                    access_key_id=access_key_id,
-                    secret_access_key=secret_access_key,
-                )
+            # === PHASE 2: Call Lambda (NO cursor held) ===
+            result = trigger_extraction(
+                url=job_data["url"],
+                job_id=record_id,
+                callback_url=job_data["callback_url"],
+                service_url=config["service_url"],
+                access_key_id=config["access_key_id"],
+                secret_access_key=config["secret_access_key"],
+            )
 
-                if not result.get("success"):
-                    record._mark_failed(
-                        result.get("error", "Extraction service call failed")
-                    )
+            # === PHASE 3: Handle failure (short cursor) ===
+            if not result.get("success"):
+                error_msg = result.get("error", "Extraction service call failed")
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if record.exists():
+                        record.write({
+                            "state": "failed",
+                            "error_message": error_msg,
+                            "completed_at": fields.Datetime.now(),
+                        })
 
         except Exception as exc:
             _logger.exception(
@@ -545,10 +566,14 @@ class LeviathanJob(models.Model):
             )
             try:
                 with Registry(db_name).cursor() as cr:
-                    env = self.env(cr=cr)
+                    env = api.Environment(cr, SUPERUSER_ID, {})
                     record = env[self._name].browse(record_id)
                     if record.exists():
-                        record._mark_failed(str(exc))
+                        record.write({
+                            "state": "failed",
+                            "error_message": str(exc),
+                            "completed_at": fields.Datetime.now(),
+                        })
             except Exception:
                 _logger.error("Failed to mark job %s as failed", record_id)
 
@@ -599,10 +624,18 @@ class LeviathanJob(models.Model):
                 }
 
                 if not config["inference_arn"]:
-                    record._mark_failed("Bedrock inference ARN not configured")
+                    record.write({
+                        "state": "failed",
+                        "error_message": "Bedrock inference ARN not configured",
+                        "completed_at": fields.Datetime.now(),
+                    })
                     return
                 if not job_data["prd_prompt"]:
-                    record._mark_failed("No extraction data available for PRD generation")
+                    record.write({
+                        "state": "failed",
+                        "error_message": "No extraction data available for PRD generation",
+                        "completed_at": fields.Datetime.now(),
+                    })
                     return
 
                 record.write({"state": "generating"})

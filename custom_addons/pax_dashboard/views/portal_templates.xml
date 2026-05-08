@@ -206,6 +206,14 @@
         </button>
         <figcaption>Fig. 3 — Tool Calls Analysis</figcaption>
       </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 — Cumulative Attack Success as Cases Accumulate full size">
+          <img class="chart-light" src="/pax_dashboard/static/src/portal/img/14_cumulative_compromise_line.png" alt="Cumulative Attack Success as Cases Accumulate" loading="lazy" />
+          <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/14_cumulative_compromise_line_dark.png" alt="Cumulative Attack Success as Cases Accumulate" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 4 — Cumulative Attack Success as Cases Accumulate</figcaption>
+      </figure>
     </div>
   </section>
 
