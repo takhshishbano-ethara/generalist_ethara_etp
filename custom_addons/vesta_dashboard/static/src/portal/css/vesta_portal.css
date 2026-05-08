@@ -1,5 +1,5 @@
 /* ============================================================
-   Vesta — editorial research page (v1, light-first)
+   Vesta - editorial research page (v1, light-first)
    Adapted from Kaiju portal CSS with safety-themed accent colors.
    Light palette is default; dark OS preference via media query.
    ============================================================ */
@@ -25,7 +25,7 @@
 
   --card-shadow: 0 1px 2px rgba(15,20,35,0.05), 0 1px 1px rgba(15,20,35,0.03);
 
-  /* accent — matching kaiju magenta theme */
+  /* accent - matching kaiju magenta theme */
   --accent:        #CC00CC;
   --accent-2:      #AA00AA;
   --accent-bright: #EE00EE;
@@ -153,7 +153,7 @@ hr.rule { border: 0; height: 2px; background: linear-gradient(90deg, var(--accen
 .section-desc b { color: var(--ink); }
 
 /* ---------- §01 overview -------------------------------- */
-.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 48px; align-items: start; }
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start; }
 @media (max-width: 900px) { .overview-grid { grid-template-columns: 1fr; gap: 28px; } }
 .prose { max-width: var(--max-prose); font-size: 17px; line-height: 1.65; color: var(--ink-2); }
 .prose p + p { margin-top: 1em; }
@@ -162,23 +162,23 @@ hr.rule { border: 0; height: 2px; background: linear-gradient(90deg, var(--accen
 .glance::before { content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: var(--accent); }
 .glance-label { font-size: var(--s-ui); letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--ink-3); padding-bottom: 14px; margin-bottom: 16px; border-bottom: var(--hairline); }
 .glance-list { display: grid; gap: 10px; margin: 0; }
-.glance-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-family: var(--font-mono); }
-.glance-row dt { font-size: 13px; color: var(--ink-3); letter-spacing: 0.02em; }
-.glance-row dd { margin: 0; font-size: 13px; color: var(--ink-2); text-align: right; }
+.glance-row { display: flex !important; flex-direction: row !important; justify-content: space-between; align-items: baseline; gap: 12px; font-family: var(--font-mono); white-space: nowrap; flex-wrap: nowrap; }
+.glance-row dt { display: inline !important; float: none !important; width: auto !important; font-size: 13px; color: var(--ink-3); letter-spacing: 0.02em; }
+.glance-row dd { display: inline !important; float: none !important; width: auto !important; margin: 0; font-size: 13px; color: var(--ink-2); text-align: right; }
 .glance-row dd b { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---------- §02 KPI cards ------------------------------- */
-.kpi-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 28px; }
-.kpi-card { border: var(--hairline); background: var(--bg-2); padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 6px; min-height: 110px; transition: border-color var(--dur-fast) var(--ease-ui), background var(--dur-fast) var(--ease-ui), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); box-shadow: var(--card-shadow); }
+.kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 28px; }
+.kpi-card { border: var(--hairline); background: var(--bg-2); padding: 16px 14px 14px; display: grid; grid-template-rows: auto 56px 1fr; min-height: 120px; overflow: hidden; transition: border-color var(--dur-fast) var(--ease-ui), background var(--dur-fast) var(--ease-ui), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); box-shadow: var(--card-shadow); }
 .kpi-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(15,20,35,0.12), 0 2px 6px rgba(15,20,35,0.08); transform: translateY(-2px); }
 .kpi-card--accent { border-left: 3px solid var(--accent-bright); background: linear-gradient(180deg, var(--accent-surface), color-mix(in oklab, var(--accent-surface) 30%, var(--bg-2))); }
-.kpi-label { font-family: var(--font-mono); font-size: var(--s-ui); letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--ink-3); }
-.kpi-value { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
-.kpi-big { font-family: var(--font-display); font-size: clamp(32px, 3.4vw, 44px); font-weight: 500; color: var(--ink); letter-spacing: var(--ls-tight); line-height: 1; font-variant-numeric: tabular-nums lining-nums; }
+.kpi-label { font-family: var(--font-mono); font-size: var(--s-ui); letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-value { display: flex; align-items: center; gap: 8px; }
+.kpi-big { font-family: var(--font-display); font-size: clamp(28px, 3vw, 40px); font-weight: 500; color: var(--ink); letter-spacing: var(--ls-tight); line-height: 1; font-variant-numeric: tabular-nums lining-nums; }
 .kpi-big small { font-size: 0.55em; font-weight: 500; color: var(--ink-2); margin-left: 1px; }
 .kpi-num { font-family: var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 .kpi-card--accent .kpi-big { color: var(--accent); }
-.kpi-sub { margin-top: auto; font-size: 11px; color: var(--muted); letter-spacing: 0.02em; line-height: 1.4; word-break: break-word; }
+.kpi-sub { align-self: end; font-size: 10px; color: var(--muted); letter-spacing: 0.02em; line-height: 1.35; word-break: break-word; }
 
 /* ---------- §03 Taxonomy table -------------------------- */
 .taxonomy-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: var(--s-mono); }
@@ -321,9 +321,10 @@ hr.rule { border: 0; height: 2px; background: linear-gradient(90deg, var(--accen
 .scenario-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .scenario-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .scenario-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 10px; display: inline-block; width: fit-content; }
+.scenario-badge--noadv { background: var(--purple-surface); color: var(--purple); }
 .scenario-badge--danger { background: var(--danger-surface); color: var(--danger); }
 .scenario-badge--warning { background: var(--warning-surface); color: var(--warning); }
-.scenario-badge--multi { background: var(--purple-surface); color: var(--purple); }
+.scenario-badge--multi { background: var(--danger-surface); color: var(--danger); }
 .scenario-title { font-size: var(--s-h3); font-weight: 600; color: var(--ink); }
 .scenario-body { font-size: var(--s-small); color: var(--ink-2); line-height: 1.6; margin-bottom: 12px; }
 .scenario-eval { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); line-height: 1.5; padding-top: 12px; border-top: var(--hairline); }
