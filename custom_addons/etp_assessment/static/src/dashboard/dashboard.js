@@ -21,6 +21,15 @@ export class EtpAssessmentDashboard extends Component {
             active_work: [],
             evaluator_performance: [],
             dimension_stats: [],
+            assessment_options: [],
+        });
+
+        this.filters = useState({
+            assessment_id: false,
+            state: "",
+            category_id: false,
+            date_from: "",
+            date_to: "",
         });
 
         this.questionTypeChart = useRef("questionTypeChart");
@@ -42,14 +51,68 @@ export class EtpAssessmentDashboard extends Component {
         });
     }
 
+    _getFilters() {
+        const f = {};
+        if (this.filters.assessment_id) f.assessment_id = this.filters.assessment_id;
+        if (this.filters.state) f.state = this.filters.state;
+        if (this.filters.category_id) f.category_id = this.filters.category_id;
+        if (this.filters.date_from) f.date_from = this.filters.date_from;
+        if (this.filters.date_to) f.date_to = this.filters.date_to;
+        return f;
+    }
+
     async _loadData() {
         try {
-            const data = await this.orm.call("etp.assessment", "get_dashboard_data", []);
+            const data = await this.orm.call("etp.assessment", "get_dashboard_data", [this._getFilters()]);
             Object.assign(this.state, data, { loaded: true });
             this._renderCharts();
         } catch {
             this.state.loaded = true;
         }
+    }
+
+    async applyFilters() {
+        await this._loadData();
+    }
+
+    clearFilters() {
+        this.filters.assessment_id = false;
+        this.filters.state = "";
+        this.filters.category_id = false;
+        this.filters.date_from = "";
+        this.filters.date_to = "";
+        this._loadData();
+    }
+
+    onAssessmentChange(ev) {
+        const val = ev.target.value;
+        this.filters.assessment_id = val ? parseInt(val) : false;
+        this._loadData();
+    }
+
+    onStateChange(state) {
+        this.filters.state = this.filters.state === state ? "" : state;
+        this._loadData();
+    }
+
+    onCategoryChange(ev) {
+        const val = ev.target.value;
+        this.filters.category_id = val ? parseInt(val) : false;
+        this._loadData();
+    }
+
+    onDateFromChange(ev) {
+        this.filters.date_from = ev.target.value;
+        if (this.filters.date_from && this.filters.date_to) this._loadData();
+    }
+
+    onDateToChange(ev) {
+        this.filters.date_to = ev.target.value;
+        if (this.filters.date_from && this.filters.date_to) this._loadData();
+    }
+
+    get hasActiveFilters() {
+        return this.filters.assessment_id || this.filters.state || this.filters.category_id || this.filters.date_from || this.filters.date_to;
     }
 
     _destroyCharts() {
