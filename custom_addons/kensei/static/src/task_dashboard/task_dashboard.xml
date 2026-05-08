@@ -382,7 +382,7 @@
                             <div class="o_kensei_rubric_meta_field">
                                 <label>Score</label>
                                 <select class="form-select form-select-sm"
-                                        t-att-value="String(rubric.score)"
+                                        t-att-value="'' + (rubric.score || 0)"
                                         t-on-change="(ev) => this.onRubricMetaChange(rubric_index, 'score', ev)">
                                     <option value="5" t-att-selected="rubric.score === 5">+5</option>
                                     <option value="3" t-att-selected="rubric.score === 3">+3</option>

@@ -1525,15 +1525,22 @@ class KenseiSandbox(models.Model):
             self.id, self.docker_status, self._deployment_mode(),
         )
 
-        self._export_trajectory_to_task()
-        self._collect_mock_api_audit()
+        try:
+            self._collect_mock_api_audit()
+        except Exception as e:
+            _logger.warning("API audit collection failed (sandbox=%s): %s", self.id, e)
 
         _logger.info(
             "action_stop_sandbox: audit done, api_request_ids=%d (sandbox=%s)",
             len(self.api_request_ids), self.id,
         )
 
-        self._generate_and_run_tests()
+        try:
+            self._generate_and_run_tests()
+        except Exception as e:
+            _logger.warning("Test generation failed (sandbox=%s): %s", self.id, e)
+
+        self._export_trajectory_to_task()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -3000,19 +3007,6 @@ class KenseiSandbox(models.Model):
             _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
             return
 
-        session_index = 1
-        traj_field = TRAJECTORY_FIELD_MAP.get(self.model_type)
-        if traj_field and self.kensei_id:
-            raw = self.kensei_id[traj_field] or ""
-            try:
-                entries = json.loads(raw) if raw.strip() else []
-                session_index = len(entries) if isinstance(entries, list) else 1
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        model_label_map = {"claude": "claude", "glm": "kimi", "gpt": "gpt"}
-        model_label = model_label_map.get(self.model_type, self.model_type)
-
         TestResult = self.env["kensei.test.result"].sudo()
         traj_field_map = {
             "claude": "claude_trajectory",
@@ -3031,8 +3025,6 @@ class KenseiSandbox(models.Model):
                     pass
         result_record = TestResult.create({
             "sandbox_id": self.id,
-            "model_type": model_label,
-            "session_index": session_index,
             "model_used": "sonnet-4.6",
             "status": "generating",
             "trajectory_index": current_traj_index + 1,
@@ -3222,8 +3214,11 @@ class KenseiSandbox(models.Model):
             )
 
         message_parts.append("\n## Environment Variables for API Base URLs\n")
+        message_parts.append("Use `os.environ['<ENV_VAR>']` to get the full base URL (e.g. `http://localhost:<port>`).\n\n")
         for svc_name, info in env_vars.items():
-            message_parts.append("- %s=%s (port %d)\n" % (info["env_var"], svc_name, info["port"]))
+            message_parts.append("- `%s` → service: %s (port %d, value will be like `http://localhost:%d`)\n" % (
+                info["env_var"], svc_name, info["port"], info["port"]
+            ))
 
         message_parts.append("\n## Mock API Documentation (GET endpoints for verification)\n")
         message_parts.append(api_docs)
@@ -3324,7 +3319,7 @@ class KenseiSandbox(models.Model):
         encoded = base64.b64encode(test_code.encode()).decode()
         write_cmd = _compose_exec("openclaw", [
             "sh", "-c",
-            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+            "printf '%%s' '%s' | base64 -d > /tmp/test_state.py" % encoded,
         ])
 
         result = subprocess.run(
@@ -3345,7 +3340,7 @@ class KenseiSandbox(models.Model):
         )
 
         run_cmd = _compose_exec("openclaw", [
-            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short",
+            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long",
         ])
 
         result = subprocess.run(
@@ -3389,7 +3384,7 @@ class KenseiSandbox(models.Model):
         encoded = base64.b64encode(test_code.encode()).decode()
         write_cmd = [
             "sh", "-c",
-            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+            "printf '%%s' '%s' | base64 -d > /tmp/test_state.py" % encoded,
         ]
         try:
             k8s_stream(
@@ -3420,14 +3415,14 @@ class KenseiSandbox(models.Model):
             pass
 
         try:
-            output = k8s_stream(
+            stdout = k8s_stream(
                 core_v1.connect_get_namespaced_pod_exec,
                 pod_name, namespace, container="openclaw",
-                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short"],
-                stderr=False, stdin=False, stdout=True, tty=False,
+                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long"],
+                stderr=True, stdin=False, stdout=True, tty=False,
                 _preload_content=True,
             )
-            return (output or "")[:50000]
+            return (stdout or "")[:50000]
         except Exception as e:
             return "ERROR running pytest: %s" % str(e)[:500]
 
