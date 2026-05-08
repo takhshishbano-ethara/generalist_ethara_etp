@@ -207,29 +207,48 @@ class EtpAssessment(models.Model):
         }
 
     @api.model
-    def get_dashboard_data(self):
+    def get_dashboard_data(self, filters=None):
+        filters = filters or {}
         Assessment = self.env["etp.assessment"]
         Evaluator = self.env["etp.assessment.evaluator"]
         Question = self.env["etp.assessment.question"]
         Response = self.env["etp.assessment.response"]
         Dimension = self.env["etp.assessment.dimension"]
 
-        total_assessments = Assessment.search_count([])
-        draft_count = Assessment.search_count([("state", "=", "draft")])
-        in_progress_count = Assessment.search_count([("state", "=", "in_progress")])
-        done_count = Assessment.search_count([("state", "=", "done")])
-        cancelled_count = Assessment.search_count([("state", "=", "cancelled")])
+        assessment_domain = []
+        if filters.get("assessment_id"):
+            assessment_domain.append(("id", "=", filters["assessment_id"]))
+        if filters.get("state"):
+            assessment_domain.append(("state", "=", filters["state"]))
+        if filters.get("date_from"):
+            assessment_domain.append(("start_date", ">=", filters["date_from"]))
+        if filters.get("date_to"):
+            assessment_domain.append(("end_date", "<=", filters["date_to"]))
+        if filters.get("category_id"):
+            assessment_domain.append(("category_id", "=", filters["category_id"]))
+
+        filtered_assessments = Assessment.search(assessment_domain)
+        filtered_ids = filtered_assessments.ids
+
+        ev_domain = [("assessment_id", "in", filtered_ids)] if filtered_ids else []
+
+        total_assessments = len(filtered_assessments)
+        draft_count = len(filtered_assessments.filtered(lambda a: a.state == "draft"))
+        in_progress_count = len(filtered_assessments.filtered(lambda a: a.state == "in_progress"))
+        done_count = len(filtered_assessments.filtered(lambda a: a.state == "done"))
+        cancelled_count = len(filtered_assessments.filtered(lambda a: a.state == "cancelled"))
 
         total_questions = Question.search_count([("active", "=", True)])
-        total_evaluators = Evaluator.search_count([])
-        evaluators_pending = Evaluator.search_count([("state", "=", "pending")])
-        evaluators_in_progress = Evaluator.search_count([("state", "=", "in_progress")])
-        evaluators_submitted = Evaluator.search_count([("state", "=", "submitted")])
+        total_evaluators = Evaluator.search_count(ev_domain)
+        evaluators_pending = Evaluator.search_count(ev_domain + [("state", "=", "pending")])
+        evaluators_in_progress = Evaluator.search_count(ev_domain + [("state", "=", "in_progress")])
+        evaluators_submitted = Evaluator.search_count(ev_domain + [("state", "=", "submitted")])
 
-        total_responses = Response.search_count([])
-        responses_submitted = Response.search_count([("state", "=", "submitted")])
-        responses_draft = Response.search_count([("state", "=", "draft")])
-        total_violators = Evaluator.search_count([("is_violated", "=", True)])
+        resp_domain = [("evaluator_id.assessment_id", "in", filtered_ids)] if filtered_ids else []
+        total_responses = Response.search_count(resp_domain)
+        responses_submitted = Response.search_count(resp_domain + [("state", "=", "submitted")])
+        responses_draft = Response.search_count(resp_domain + [("state", "=", "draft")])
+        total_violators = Evaluator.search_count(ev_domain + [("is_violated", "=", True)])
 
         question_type_data = []
         for qtype in ["image_comparison", "text", "coding", "image_text", "video"]:
@@ -240,11 +259,12 @@ class EtpAssessment(models.Model):
         categories = self.env["etp.assessment.category"].search([("active", "=", True)])
         for cat in categories:
             q_count = Question.search_count([("category_id", "=", cat.id), ("active", "=", True)])
-            category_data.append({"name": cat.name, "count": q_count})
+            category_data.append({"id": cat.id, "name": cat.name, "count": q_count})
 
-        active_assessments = Assessment.search(
-            [("state", "=", "in_progress")], limit=10, order="start_date desc"
-        )
+        active_domain = [("state", "=", "in_progress")]
+        if filtered_ids:
+            active_domain.append(("id", "in", filtered_ids))
+        active_assessments = Assessment.search(active_domain, limit=10, order="start_date desc")
         active_work = []
         for a in active_assessments:
             ev_count = Evaluator.search_count([("assessment_id", "=", a.id)])
@@ -258,9 +278,8 @@ class EtpAssessment(models.Model):
             })
 
         evaluator_perf = []
-        submitted_evaluators = Evaluator.search(
-            [("state", "=", "submitted")], limit=20, order="total_score desc"
-        )
+        ev_perf_domain = ev_domain + [("state", "=", "submitted")]
+        submitted_evaluators = Evaluator.search(ev_perf_domain, limit=20, order="total_score desc")
         for ev in submitted_evaluators:
             evaluator_perf.append({
                 "id": ev.id,
@@ -275,11 +294,14 @@ class EtpAssessment(models.Model):
         dimensions = Dimension.search([("active", "=", True)])
         QuestionDimOption = self.env["etp.assessment.question.dimension.option"]
         for dim in dimensions:
-            lines = self.env["etp.assessment.response.line"].search([
+            line_domain = [
                 ("dimension_id", "=", dim.id),
                 ("selected_option_id", "!=", False),
                 ("response_id.state", "=", "submitted"),
-            ])
+            ]
+            if filtered_ids:
+                line_domain.append(("response_id.evaluator_id.assessment_id", "in", filtered_ids))
+            lines = self.env["etp.assessment.response.line"].search(line_domain)
             if lines:
                 correct_count = 0
                 for line in lines:
@@ -301,6 +323,9 @@ class EtpAssessment(models.Model):
         completion_rate = 0
         if total_evaluators > 0:
             completion_rate = round((evaluators_submitted / total_evaluators) * 100, 1)
+
+        all_assessments = Assessment.search([], order="name")
+        assessment_options = [{"id": a.id, "name": a.name} for a in all_assessments]
 
         return {
             "kpis": {
@@ -325,6 +350,7 @@ class EtpAssessment(models.Model):
             "active_work": active_work,
             "evaluator_performance": evaluator_perf,
             "dimension_stats": dimension_stats,
+            "assessment_options": assessment_options,
         }
 
     def action_start(self):
