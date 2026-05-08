@@ -13,7 +13,7 @@ _DATA_PATH = os.path.join(
 
 class TerraShowcaseController(http.Controller):
 
-    @http.route("/nokor", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/terra", type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
         return self._get_showcase_response()
 
