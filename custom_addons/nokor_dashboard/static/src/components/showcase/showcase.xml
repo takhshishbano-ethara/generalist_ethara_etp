@@ -4,7 +4,7 @@
         <div class="nk-showcase">
             <header class="nk-showcase-header">
                 <span class="nk-tag">RL ENVIRONMENT FOR GENERAL AI ASSISTANTS</span>
-                <h1 class="nk-title">NOKOR</h1>
+                <h1 class="nk-title">TERRA</h1>
                 <p class="nk-subtitle">
                     Multi-Modal Reasoning and Tool-Use Training &#xB7; Built on GAIA Methodology
                 </p>
@@ -16,7 +16,7 @@
 
             <section class="nk-section nk-description">
                 <p>
-                    NOKOR is an RL environment that trains AI assistants on multi-modal
+                    TERRA is an RL environment that trains AI assistants on multi-modal
                     reasoning and tool-use tasks following the GAIA methodology. Given
                     real-world documents, images, videos, and web-accessible information,
                     agents must decompose complex questions into multi-step reasoning chains,
@@ -30,9 +30,8 @@
                 <ul class="nk-capabilities-list">
                     <li><span class="nk-cap-arrow">&#x2192;</span> Multi-modal tasks across 5 categories: Web Browsing, File Reading, Multi-Modality, Calculation, Self-Contained</li>
                     <li><span class="nk-cap-arrow">&#x2192;</span> Tool-use challenges: PDF reader, Web search, Calculator, Image/Video analysis</li>
-                    <li><span class="nk-cap-arrow">&#x2192;</span> Three difficulty levels following GAIA (Level 1, Level 2, Level 3)</li>
+                    <li><span class="nk-cap-arrow">&#x2192;</span> Three difficulty levels: Hard, Very Hard, Expert</li>
                     <li><span class="nk-cap-arrow">&#x2192;</span> Exact-match scoring with deterministic ground truth answers</li>
-                    <li><span class="nk-cap-arrow">&#x2192;</span> Cost and latency tracking per model per instance</li>
                     <li><span class="nk-cap-arrow">&#x2192;</span> GAIA methodology for reproducible multi-step training</li>
                 </ul>
             </section>
@@ -57,7 +56,7 @@
                     <div class="nk-metric-card">
                         <span class="nk-metric-value">3</span>
                         <span class="nk-metric-label">Difficulty Levels</span>
-                        <span class="nk-metric-detail">Level 1, Level 2, Level 3</span>
+                        <span class="nk-metric-detail">Hard, Very Hard, Expert</span>
                     </div>
                 </div>
             </section>
@@ -77,8 +76,8 @@
                         <div class="nk-phase-number">2</div>
                         <h3>Agent Execution</h3>
                         <p>
-                            Deploy AI agents with tools. Track tool selection,
-                            execution time, and API costs per instance.
+                            Deploy AI agents with tools. Track tool selection
+                            and execution traces per instance.
                         </p>
                     </div>
                     <div class="nk-phase-arrow">&#x2192;</div>

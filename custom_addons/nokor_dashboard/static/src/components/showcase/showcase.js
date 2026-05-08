@@ -4,10 +4,10 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
-const DEFAULT_GITHUB_URL = "https://github.com/Ethara-Ai/Nokor";
-const DEFAULT_DATASET_URL = "https://huggingface.co/datasets/ethara/Nokor";
+const DEFAULT_GITHUB_URL = "https://github.com/Ethara-Ai/terra";
+const DEFAULT_DATASET_URL = "https://huggingface.co/datasets/ethara/terra";
 
-export class NokorShowcase extends Component {
+export class TerraShowcase extends Component {
     static template = "nokor_dashboard.NokorShowcase";
     static props = ["*"];
 
@@ -39,4 +39,4 @@ export class NokorShowcase extends Component {
     }
 }
 
-registry.category("actions").add("nokor_dashboard.showcase", NokorShowcase);
+registry.category("actions").add("nokor_dashboard.showcase", TerraShowcase);

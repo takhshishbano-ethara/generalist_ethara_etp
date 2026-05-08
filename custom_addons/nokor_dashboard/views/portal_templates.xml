@@ -2,24 +2,24 @@
 <odoo>
 
   <!--
-    Nokor Dashboard. Public single-page editorial view.
+    Terra Dashboard. Public single-page editorial view.
 
-    Mounted at /nokor by controllers/main.py (NokorShowcaseController).
+    Mounted at /terra by controllers/main.py (TerraShowcaseController).
     The controller passes config URLs which the client-side JS
     consumes to render the dataset viewer table.
 
     Layout: standalone HTML (no portal.portal_layout). Mirrors
-    Tesseract's editorial section-numbered design with Nokor's
+    Tesseract's editorial section-numbered design with Terra's
     GAIA RL environment content and all DOM IDs preserved for JS hooks.
   -->
 
-  <template id="portal_showcase" name="Nokor Dashboard">
+  <template id="portal_showcase" name="Terra Dashboard">
     <html lang="en">
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>NOKOR · RL Environment for General AI Assistants</title>
-      <meta name="description" content="NOKOR is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks across PDF, Web, Image, Video, and Reasoning categories using the GAIA methodology."/>
+      <title>TERRA · RL Environment for General AI Assistants</title>
+      <meta name="description" content="TERRA is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks across PDF, Web, Image, Video, and Reasoning categories using the GAIA methodology."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
@@ -29,7 +29,7 @@
       <script>
         (function(){
           try {
-            var saved = localStorage.getItem('nokor:theme');
+            var saved = localStorage.getItem('terra:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
             }
@@ -41,14 +41,14 @@
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
 
-      <!-- Nokor editorial stylesheet served as a static asset
+      <!-- Terra editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/nokor_dashboard/static/src/portal/css/nokor_portal.css"/>
+      <link rel="stylesheet" href="/nokor_dashboard/static/src/portal/css/nokor_portal.css?v=11"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/nokor_dashboard/static/src/portal/js/nokor_portal.js" defer="defer"/>
+      <script src="/nokor_dashboard/static/src/portal/js/nokor_portal.js?v=11" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -87,7 +87,7 @@
   <!-- ================= MASTHEAD ================= -->
   <header class="masthead">
     <div class="mast-top">
-      <h1 class="wordmark">NOKOR</h1>
+      <h1 class="wordmark">TERRA</h1>
       <span class="badge mono">RL ENVIRONMENT FOR GENERAL AI ASSISTANTS</span>
     </div>
     <hr class="rule"/>
@@ -101,13 +101,12 @@
     <p class="section-label" id="overview-label">§01 · The environment</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>NOKOR is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks following the GAIA methodology. Given real-world documents, images, videos, and web-accessible information, agents must decompose complex questions into multi-step reasoning chains, select appropriate tools, and produce precise answers. Nokor requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning. This mirrors the complexity of real-world information work.</p>
+        <p>TERRA is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks following the GAIA methodology. Given real-world documents, images, videos, and web-accessible information, agents must decompose complex questions into multi-step reasoning chains, select appropriate tools, and produce precise answers. Terra requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning. This mirrors the complexity of real-world information work.</p>
         <ul class="capabilities">
           <li>Multi-modal tasks across 5 categories: Web Browsing, File Reading, Multi-Modality, Calculation, Self-Contained</li>
           <li>Tool-use challenges: PDF reader, Web search, Calculator, Image/Video analysis</li>
-          <li>Three difficulty levels following GAIA (Level 1, Level 2, Level 3)</li>
+          <li>Three difficulty levels: Hard, Very Hard, Expert</li>
           <li>Exact-match scoring with deterministic ground truth answers</li>
-          <li>Cost and latency tracking per model per instance</li>
           <li>GAIA methodology for reproducible multi-step training</li>
         </ul>
       </div>
@@ -115,8 +114,7 @@
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
-          <div class="glance-row"><dt>File Attachments</dt><dd><b>2,400+</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd id="nk-glance-instances"><b>—</b></dd></div>
           <div class="glance-row"><dt>Categories</dt><dd><b>5</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Methodology</dt><dd>GAIA Framework</dd></div>
@@ -129,27 +127,27 @@
   <!-- ================= §02 THE FUNNEL ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
     <p class="section-label" id="scale-label">§02 · The scale</p>
-    <p class="section-desc">Ten thousand curated instances. Five categories. Three difficulty levels.</p>
-    <div class="funnel" aria-label="Funnel from 10,000 instances to 5 categories">
+    <p class="section-desc">Curated instances. Five categories. Three difficulty levels.</p>
+    <div class="funnel" aria-label="Funnel from instances to categories">
       <div class="funnel-step">
-        <span class="funnel-num" data-target="10000" aria-hidden="true">0</span>
-        <span class="sr-only">10,000</span>
+        <span class="funnel-num" data-target="20" aria-hidden="true">0</span>
+        <span class="sr-only">20</span>
         <span class="funnel-unit">Instances curated</span>
         <span class="funnel-sub">across 5 categories</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step">
-        <span class="funnel-num" data-target="2400" aria-hidden="true">0</span>
-        <span class="sr-only">2,400+</span>
-        <span class="funnel-unit">Real-world files</span>
-        <span class="funnel-sub">PDFs, images, audio, video</span>
+        <span class="funnel-num" data-target="5" aria-hidden="true">0</span>
+        <span class="sr-only">5</span>
+        <span class="funnel-unit">Categories</span>
+        <span class="funnel-sub">calculation, multimodality, file reading, self-contained, web browsing</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step funnel-step--final">
         <span class="funnel-num" data-target="3" aria-hidden="true">0</span>
         <span class="sr-only">3</span>
         <span class="funnel-unit">Difficulty levels</span>
-        <span class="funnel-sub">Level 1 · Level 2 · Level 3</span>
+        <span class="funnel-sub">Hard · Very Hard · Expert</span>
       </div>
     </div>
   </section>
@@ -180,7 +178,7 @@
           <ul class="phase-body">
             <li>Deploy AI agents with access to tools (PDF reader, web search, calculator)</li>
             <li>Agents decompose questions into multi-step reasoning chains</li>
-            <li>Track tool selection, execution time, and API costs</li>
+            <li>Track tool selection and execution traces</li>
             <li>Record complete interaction traces for analysis</li>
           </ul>
         </article>
@@ -204,23 +202,23 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        We validated difficulty calibration using two frontier models on a pilot set (n=20).
+        We validated difficulty calibration using two frontier models on the dataset.
       </p>
       <p class="reveal-line reveal-kicker">
-        Kimi K2.5 dominates across all difficulty levels but at 12× the cost of Nova-2-Lite.
+        Results computed dynamically from the dataset below.
       </p>
     </div>
 
-    <div class="results-summary">
+    <div class="results-summary" id="nk-results-summary">
       <div class="result-card result-card--primary">
         <span class="result-model mono">Kimi K2.5</span>
-        <span class="result-score">75<small>%</small></span>
-        <span class="result-detail mono">15/20 pass · $0.36/instance · 420s avg</span>
+        <span class="result-score" id="nk-kimi-score">—</span>
+        <span class="result-detail mono" id="nk-kimi-detail">Loading...</span>
       </div>
       <div class="result-card">
         <span class="result-model mono">Nova-2-Lite</span>
-        <span class="result-score">20<small>%</small></span>
-        <span class="result-detail mono">4/20 pass · $0.03/instance · 280s avg</span>
+        <span class="result-score" id="nk-nova-score">—</span>
+        <span class="result-detail mono" id="nk-nova-detail">Loading...</span>
       </div>
     </div>
 
@@ -239,33 +237,28 @@
   <!-- ================= §05 MODEL COMPARISON ================= -->
   <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
     <p class="section-label" id="comparison-label">§05 · Model comparison</p>
-    <p class="section-desc">Side-by-side performance breakdown across difficulty levels and categories (pilot data, n=20).</p>
+    <p class="section-desc">Side-by-side performance breakdown across difficulty levels and categories.</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
-        <span class="nk-quality-num" data-target="75">75</span>
+        <span class="nk-quality-num" id="nk-kimi-acc">—</span>
         <span class="quality-label">Kimi K2.5 Accuracy</span>
-        <span class="quality-pct mono">15/20 PASS</span>
+        <span class="quality-pct mono" id="nk-kimi-pass-count">—</span>
       </div>
       <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
-        <span class="nk-quality-num" data-target="20">20</span>
+        <span class="nk-quality-num" id="nk-nova-acc">—</span>
         <span class="quality-label">Nova-2-Lite Accuracy</span>
-        <span class="quality-pct mono">4/20 PASS</span>
+        <span class="quality-pct mono" id="nk-nova-pass-count">—</span>
       </div>
       <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
-        <span class="nk-quality-num" data-target="12">12</span>
-        <span class="quality-label">Cost Ratio (Kimi/Nova)</span>
-        <span class="quality-pct mono">$0.36 vs $0.03</span>
-      </div>
-      <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
-        <span class="nk-quality-num" data-target="55">55</span>
+        <span class="nk-quality-num" id="nk-acc-gap">—</span>
         <span class="quality-label">Accuracy Gap</span>
         <span class="quality-pct mono">percentage points</span>
       </div>
     </div>
 
     <div class="confidence-strip" data-animate="fade-up">
-      <span class="nk-confidence-big">47.5%</span>
+      <span class="nk-confidence-big" id="nk-mean-acc">—</span>
       <span class="confidence-lbl mono">Mean Accuracy (both models)</span>
     </div>
   </section>
@@ -273,32 +266,84 @@
   <!-- ================= §06 DIFFICULTY DISTRIBUTION ================= -->
   <section class="section" id="difficulty" aria-labelledby="difficulty-label" data-animate="fade-up">
     <p class="section-label" id="difficulty-label">§06 · Difficulty distribution</p>
-    <p class="section-desc">Task breakdown by difficulty level and category coverage.</p>
+    <p class="section-desc">Pass score breakdown by difficulty level across both models.</p>
 
-    <div class="distribution-grid">
-      <div class="dist-card" data-animate="fade-up" data-delay="0">
-        <span class="dist-pct mono">25%</span>
-        <span class="dist-label">Level 1</span>
-        <span class="dist-badge dist-badge--hard">5 instances</span>
+    <div class="dist-kpi-grid">
+      <div class="dist-kpi-card dist-kpi--hard" data-animate="fade-up" data-delay="0">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Hard</span>
+          <span class="dist-kpi-count" id="nk-dist-hard-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-hard-kimi-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-kimi-pass">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-hard-nova-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-nova-pass">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-hard-combined-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-combined">—</span>
+            <span class="dist-kpi-lbl">Combined</span>
+          </div>
+        </div>
       </div>
-      <div class="dist-card" data-animate="fade-up" data-delay="1">
-        <span class="dist-pct mono">40%</span>
-        <span class="dist-label">Level 2</span>
-        <span class="dist-badge dist-badge--vhard">8 instances</span>
+      <div class="dist-kpi-card dist-kpi--vhard" data-animate="fade-up" data-delay="1">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Very Hard</span>
+          <span class="dist-kpi-count" id="nk-dist-vhard-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-vhard-kimi-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-kimi-pass">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-vhard-nova-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-nova-pass">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-vhard-combined-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-combined">—</span>
+            <span class="dist-kpi-lbl">Combined</span>
+          </div>
+        </div>
       </div>
-      <div class="dist-card" data-animate="fade-up" data-delay="2">
-        <span class="dist-pct mono">35%</span>
-        <span class="dist-label">Level 3</span>
-        <span class="dist-badge dist-badge--expert">7 instances</span>
+      <div class="dist-kpi-card dist-kpi--expert" data-animate="fade-up" data-delay="2">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Expert</span>
+          <span class="dist-kpi-count" id="nk-dist-expert-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-expert-kimi-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-kimi-pass">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-expert-nova-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-nova-pass">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-dist-expert-combined-pct">—</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-combined">—</span>
+            <span class="dist-kpi-lbl">Combined</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="modality-strip" data-animate="fade-up">
-      <div class="mod-item"><span class="mod-pct">38%</span><span class="mod-name mono">Web Browsing</span></div>
-      <div class="mod-item"><span class="mod-pct">34%</span><span class="mod-name mono">File Reading</span></div>
-      <div class="mod-item"><span class="mod-pct">15%</span><span class="mod-name mono">Multi-Modality</span></div>
-      <div class="mod-item"><span class="mod-pct">8%</span><span class="mod-name mono">Calculation</span></div>
-      <div class="mod-item"><span class="mod-pct">5%</span><span class="mod-name mono">Self-Contained</span></div>
+    <div class="modality-strip" id="nk-modality-strip" data-animate="fade-up">
     </div>
   </section>
 
@@ -306,6 +351,72 @@
   <section class="section" id="nk-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
     <p class="section-label" id="viewer-label">§07 · Dataset viewer</p>
 
+    <!-- Difficulty KPI Cards -->
+    <div class="dist-kpi-grid" id="nk-eval-kpi-grid">
+      <div class="dist-kpi-card dist-kpi--hard">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Hard</span>
+          <span class="dist-kpi-count" id="nk-kpi-hard-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-hard-kimi">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-hard-nova">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-hard-fail">—</span>
+            <span class="dist-kpi-lbl">Failure Rate</span>
+          </div>
+        </div>
+      </div>
+      <div class="dist-kpi-card dist-kpi--vhard">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Very Hard</span>
+          <span class="dist-kpi-count" id="nk-kpi-vhard-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-vhard-kimi">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-vhard-nova">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-vhard-fail">—</span>
+            <span class="dist-kpi-lbl">Failure Rate</span>
+          </div>
+        </div>
+      </div>
+      <div class="dist-kpi-card dist-kpi--expert">
+        <div class="dist-kpi-top">
+          <span class="dist-kpi-indicator"></span>
+          <span class="dist-kpi-level">Expert</span>
+          <span class="dist-kpi-count" id="nk-kpi-expert-count">—</span>
+        </div>
+        <div class="dist-kpi-body">
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-expert-kimi">—</span>
+            <span class="dist-kpi-lbl">Kimi K2.5</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num" id="nk-kpi-expert-nova">—</span>
+            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+          </div>
+          <div class="dist-kpi-metric">
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-expert-fail">—</span>
+            <span class="dist-kpi-lbl">Failure Rate</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Controls -->
     <div class="eval-controls">
@@ -316,14 +427,14 @@
       <div class="eval-filters">
         <select id="nk-eval-difficulty">
           <option value="">All Difficulties</option>
-          <option value="Level 1">Level 1</option>
-          <option value="Level 2">Level 2</option>
-          <option value="Level 3">Level 3</option>
+          <option value="Hard">Hard</option>
+          <option value="Very Hard">Very Hard</option>
+          <option value="Expert">Expert</option>
         </select>
         <select id="nk-eval-sort">
-          <option value="instance_id">Instance (A-Z)</option>
+          <option value="task_id">Task ID (A-Z)</option>
           <option value="level">Difficulty</option>
-          <option value="modality">Category</option>
+          <option value="category">Category</option>
           <option value="kimi_pass" selected="selected">Kimi K2.5</option>
           <option value="nova_pass">Nova-2-Lite</option>
         </select>
@@ -339,12 +450,11 @@
       <table class="eval-table">
         <thead>
           <tr>
-            <th class="eth-instance">Instance</th>
+            <th class="eth-instance">Task ID</th>
             <th class="eth-level">Difficulty</th>
             <th class="eth-modality">Category</th>
             <th class="eth-kimi">Kimi K2.5</th>
             <th class="eth-nova">Nova-2-Lite</th>
-            <th class="eth-tools">Tools</th>
             <th class="eth-expand"></th>
           </tr>
         </thead>
@@ -357,7 +467,7 @@
   <!-- ================= §08 METHODOLOGY ================= -->
   <section class="section" id="methodology" aria-labelledby="methodology-label" data-animate="fade-up">
     <p class="section-label" id="methodology-label">§08 · Methodology</p>
-    <p class="section-desc">Four scoring principles ensure fair and reproducible results.</p>
+    <p class="section-desc">Three scoring principles ensure fair and reproducible results.</p>
 
     <div class="methodology-grid">
       <div class="meth-card" data-animate="fade-up" data-delay="0">
@@ -372,11 +482,6 @@
       </div>
       <div class="meth-card" data-animate="fade-up" data-delay="2">
         <span class="meth-num mono">03</span>
-        <h4 class="meth-title">Cost Tracking</h4>
-        <p class="meth-desc">Every API call is costed. Accuracy must be weighed against economic viability.</p>
-      </div>
-      <div class="meth-card" data-animate="fade-up" data-delay="3">
-        <span class="meth-num mono">04</span>
         <h4 class="meth-title">Reproducibility</h4>
         <p class="meth-desc">Fixed seeds, deterministic scoring, published solution traces for independent verification.</p>
       </div>
@@ -390,13 +495,13 @@
       <a class="resource" t-att-href="github_url" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Code</p>
         <p class="res-title">Source on GitHub</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Nokor</p>
+        <p class="res-url mono">github.com/Ethara-Ai/terra</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Data</p>
         <p class="res-title">Dataset on HuggingFace</p>
-        <p class="res-url mono">huggingface.co/datasets/ethara/Nokor</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/terra</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
     </div>
@@ -406,7 +511,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"> Ethara AI Labs. Project Nokor.</p>
+      <p class="mono"> Ethara AI Labs. Project Terra.</p>
     </div>
   </footer>
 
