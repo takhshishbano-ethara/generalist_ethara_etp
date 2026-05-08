@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_leviathan" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.leviathan</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Leviathan" string="Leviathan" name="leviathan">
+                    <block title="Extraction Service">
+                        <setting string="Extraction Service URL">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_extraction_service_url" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_extraction_service_url" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Extraction AWS Credentials">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_extraction_access_key_id" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_extraction_access_key_id" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_extraction_secret_access_key" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_extraction_secret_access_key" class="oe_inline" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="AWS Bedrock (LLM)">
+                        <setting string="Bedrock Inference ARN">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_inference_arn" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_inference_arn" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_region" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_region" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_max_llm_attempts" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_max_llm_attempts" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Bedrock AWS Credentials">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_access_key_id" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_access_key_id" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_secret_access_key" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_secret_access_key" class="oe_inline" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="S3 Storage">
+                        <setting string="S3 Bucket">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_bucket" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_bucket" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_region" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_region" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_folder" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_folder" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_cdn_url" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_cdn_url" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="S3 AWS Credentials">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_access_key_id" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_access_key_id" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_s3_secret_access_key" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_s3_secret_access_key" class="oe_inline" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

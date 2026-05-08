@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_leviathan_job_user,leviathan.job.user,model_leviathan_job,group_leviathan_user,1,1,1,0
+access_leviathan_job_admin,leviathan.job.admin,model_leviathan_job,group_leviathan_admin,1,1,1,1
+access_leviathan_category_user,leviathan.category.user,model_leviathan_category,group_leviathan_user,1,0,0,0
+access_leviathan_category_admin,leviathan.category.admin,model_leviathan_category,group_leviathan_admin,1,1,1,1
