@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_pax" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.pax.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Pax Dashboard" string="Pax Dashboard" name="pax_dashboard">
+                    <block title="Pax Dashboard Settings">
+                        <setting string="Trajectories URL"
+                                 help="URL pointing to the Pax trajectories repository on GitHub">
+                            <field name="pax_trajectories_url"/>
+                        </setting>
+                        <setting string="Dataset URL"
+                                 help="URL pointing to the Pax dataset on HuggingFace">
+                            <field name="pax_dataset_url"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

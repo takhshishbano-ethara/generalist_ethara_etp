@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_pax_showcase" model="ir.actions.client">
+        <field name="name">Pax Dashboard</field>
+        <field name="tag">pax_dashboard.showcase</field>
+    </record>
+
+    <menuitem id="menu_pax_dashboard"
+              name="Pax"
+              action="action_pax_showcase"
+              sequence="204"/>
+</odoo>

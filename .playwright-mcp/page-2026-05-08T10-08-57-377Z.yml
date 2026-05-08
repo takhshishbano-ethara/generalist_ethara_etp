@@ -1,0 +1,403 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - button "Switch to dark mode" [ref=e3] [cursor=pointer]:
+    - img [ref=e4]
+  - generic [ref=e6]:
+    - banner [ref=e7]:
+      - generic [ref=e8]:
+        - heading "KRAKEN" [level=1] [ref=e9]
+        - generic [ref=e10]: PERFORMANCE METRICS
+      - separator [ref=e11]
+      - paragraph [ref=e12]:
+        - generic [ref=e14]: Can
+        - generic [ref=e16]: AI
+        - generic [ref=e18]: agents
+        - generic [ref=e20]: optimize
+        - generic [ref=e22]: code
+        - generic [ref=e24]: faster
+        - generic [ref=e26]: than
+        - generic [ref=e28]: experts?
+    - main [ref=e29]:
+      - region "§01 · The question" [ref=e30]:
+        - paragraph [ref=e31]: §01 · The question
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - paragraph [ref=e34]: Kraken evaluates AI coding agents on their ability to optimize real-world Python code for runtime performance. Using the SWE-fficiency methodology, agents must investigate repository-level codebases, localize performance bottlenecks, and produce patches that match or exceed expert-level speedup all while maintaining correctness through the project's test suite. Each instance reconstructs a production pull request from 3000 open-source Python repositories, with automated timing harnesses and gold-standard speedup baselines for reproducible evaluation.
+            - paragraph [ref=e35]:
+              - text: Keep scrolling. The answer is in
+              - link "§04" [ref=e36] [cursor=pointer]:
+                - /url: "#results"
+              - text: .
+          - complementary "At a glance" [ref=e37]:
+            - paragraph [ref=e38]: At a glance
+            - generic [ref=e39]:
+              - generic [ref=e40]:
+                - term [ref=e41]: Instances
+                - definition [ref=e42]: "10000"
+              - generic [ref=e43]:
+                - term [ref=e44]: Repositories
+                - definition [ref=e45]: "3000"
+              - generic [ref=e46]:
+                - term [ref=e47]: Language
+                - definition [ref=e48]: Python
+              - generic [ref=e49]:
+                - term [ref=e50]: Models evaluated
+                - definition [ref=e51]: "2"
+              - generic [ref=e52]:
+                - term [ref=e53]: Methodology
+                - definition [ref=e54]: SWE-fficiency
+              - generic [ref=e55]:
+                - term [ref=e56]: Difficulty levels
+                - definition [ref=e57]: "4"
+      - region "§02 · Key metrics" [ref=e58]:
+        - paragraph [ref=e59]: §02 · Key metrics
+        - generic "Key benchmark metrics" [ref=e60]:
+          - generic [ref=e61]:
+            - paragraph [ref=e62]: Instances
+            - paragraph [ref=e63]:
+              - generic [ref=e64]: "0"
+          - generic [ref=e65]:
+            - paragraph [ref=e66]: Models Evaluated
+            - paragraph [ref=e67]:
+              - generic [ref=e68]: "0"
+          - generic [ref=e69]:
+            - paragraph [ref=e70]: Max Gold Speedup
+            - paragraph [ref=e71]:
+              - generic [ref=e72]: 26.9×
+          - generic [ref=e73]:
+            - paragraph [ref=e74]: Best HSR (GLM-5)
+            - paragraph [ref=e75]:
+              - generic [ref=e76]: "0.313"
+          - generic [ref=e77]:
+            - paragraph [ref=e78]: Repos Covered
+            - paragraph [ref=e79]:
+              - generic [ref=e80]: "0"
+          - generic [ref=e81]:
+            - paragraph [ref=e82]: Difficulty Levels
+            - paragraph [ref=e83]:
+              - generic [ref=e84]: "0"
+      - region "§03 · Evaluation pipeline" [ref=e85]:
+        - paragraph [ref=e86]: §03 · Evaluation pipeline
+        - paragraph [ref=e87]: Three steps from repository to scored result.
+        - generic [ref=e88]:
+          - article [ref=e89]:
+            - paragraph [ref=e90]: Step 01
+            - heading "Investigate & Localize" [level=4] [ref=e91]
+            - list [ref=e92]:
+              - listitem [ref=e93]: · Agent receives a repository with a known performance bottleneck
+              - listitem [ref=e94]: · Must investigate the codebase, identify slow code paths
+              - listitem [ref=e95]: · Localize the optimization target
+          - article [ref=e96]:
+            - paragraph [ref=e97]: Step 02
+            - heading "Optimize & Patch" [level=4] [ref=e98]
+            - list [ref=e99]:
+              - listitem [ref=e100]: · Produce a code patch that improves runtime performance
+              - listitem [ref=e101]: · Measured against expert gold-standard speedup
+              - listitem [ref=e102]: · Scored via Speedup Ratio (SR) metric
+          - article [ref=e103]:
+            - paragraph [ref=e104]: Step 03
+            - heading "Verify Correctness" [level=4] [ref=e105]
+            - list [ref=e106]:
+              - listitem [ref=e107]: · Patched code must pass all covering correctness tests
+              - listitem [ref=e108]: "· Incorrect patches penalized: SR = 1/Gold_Speedup"
+              - listitem [ref=e109]: · Correctness is never sacrificed for speed
+      - region "§04 · Results" [ref=e110]:
+        - paragraph [ref=e111]: §04 · Results
+        - generic [ref=e112]:
+          - paragraph [ref=e113]: GLM-5 achieves HSR 0.313. Nova-2-Lite achieves HSR 0.268.
+          - paragraph [ref=e114]: GLM-5 passes 7 of 20 instances outright. Nova-2-Lite passes 2 of 20 but produces correct (slow) patches on 10 more.
+          - paragraph [ref=e115]: GLM-5 costs ~$2.14/instance avg. Nova-2-Lite costs ~$0.09/instance — 24× cheaper.
+        - generic [ref=e116]:
+          - figure "Fig. 1 — HSR Harmonic Mean" [ref=e117]:
+            - button "Preview Fig. 1 — HSR Harmonic Mean full size" [ref=e118]:
+              - img "HSR harmonic mean per model" [ref=e119]
+              - generic: Click to expand
+            - generic [ref=e120]: Fig. 1 — HSR Harmonic Mean
+          - figure "Fig. 2 — Outcome Distribution" [ref=e121]:
+            - button "Preview Fig. 2 — Outcome Distribution full size" [ref=e122]:
+              - img "Outcome distribution per model" [ref=e123]
+              - generic: Click to expand
+            - generic [ref=e124]: Fig. 2 — Outcome Distribution
+        - generic [ref=e125]:
+          - figure "Fig. 3 — HSR by Difficulty" [ref=e126]:
+            - button "Preview Fig. 3 — HSR by Difficulty full size" [ref=e127]:
+              - img "HSR grouped by difficulty level" [ref=e128]
+              - generic: Click to expand
+            - generic [ref=e129]: Fig. 3 — HSR by Difficulty
+          - figure "Fig. 4 — Cost vs. HSR" [ref=e130]:
+            - button "Preview Fig. 4 — Cost vs HSR full size" [ref=e131]:
+              - img "Cost versus HSR performance" [ref=e132]
+              - generic: Click to expand
+            - generic [ref=e133]: Fig. 4 — Cost vs. HSR
+        - figure "Fig. 5 — Per-Instance HSR" [ref=e135]:
+          - button "Preview Fig. 5 — Per-Instance HSR full size" [ref=e136]:
+            - img "Per-instance HSR comparison" [ref=e137]
+            - generic: Click to expand
+          - generic [ref=e138]: Fig. 5 — Per-Instance HSR
+        - paragraph [ref=e139]:
+          - text: HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), difficulty analysis (Fig. 3), cost-efficiency (Fig. 4), and per-instance detail (Fig. 5). See
+          - link "§05" [ref=e140] [cursor=pointer]:
+            - /url: "#instances"
+          - text: for per-instance receipts.
+      - region "§05 · Dataset Viewer" [ref=e141]:
+        - paragraph [ref=e142]: §05 · Dataset Viewer
+        - generic [ref=e143]:
+          - textbox "Search instances" [ref=e144]:
+            - /placeholder: Search instances...
+          - combobox "Filter by difficulty" [ref=e145]:
+            - option "All Difficulties" [selected]
+            - option "Easy"
+            - option "Medium"
+            - option "Hard"
+            - option "Expert"
+        - table "Dataset viewer for 20 instances evaluated against two models." [ref=e147]:
+          - caption [ref=e148]: Dataset viewer for 20 instances evaluated against two models.
+          - rowgroup [ref=e158]:
+            - row "Instance Difficulty Gold Speedup GLM-5 HSR Nova HSR GLM-5 Outcome Nova Outcome" [ref=e159]:
+              - columnheader "Instance" [ref=e160] [cursor=pointer]
+              - columnheader "Difficulty" [ref=e161] [cursor=pointer]
+              - columnheader "Gold Speedup" [ref=e162] [cursor=pointer]
+              - columnheader "GLM-5 HSR" [ref=e163] [cursor=pointer]
+              - columnheader "Nova HSR" [ref=e164] [cursor=pointer]
+              - columnheader "GLM-5 Outcome" [ref=e165] [cursor=pointer]
+              - columnheader "Nova Outcome" [ref=e166] [cursor=pointer]
+              - columnheader [ref=e167]
+          - rowgroup [ref=e168]:
+            - row "#01 encode__httpx-2423 Hard 26.92x 0.0371 0.0371 Fail Fail" [ref=e169] [cursor=pointer]:
+              - cell "#01 encode__httpx-2423" [ref=e170]
+              - cell "Hard" [ref=e171]:
+                - generic [ref=e172]: Hard
+              - cell "26.92x" [ref=e173]
+              - cell "0.0371" [ref=e174]
+              - cell "0.0371" [ref=e175]
+              - cell "Fail" [ref=e176]:
+                - generic [ref=e177]: Fail
+              - cell "Fail" [ref=e178]:
+                - generic [ref=e179]: Fail
+              - cell [ref=e180]:
+                - img [ref=e182]
+            - row "#02 fastapi__fastapi-15318 Hard 9.36x 0.1068 0.1068 Fail Fail" [ref=e184] [cursor=pointer]:
+              - cell "#02 fastapi__fastapi-15318" [ref=e185]
+              - cell "Hard" [ref=e186]:
+                - generic [ref=e187]: Hard
+              - cell "9.36x" [ref=e188]
+              - cell "0.1068" [ref=e189]
+              - cell "0.1068" [ref=e190]
+              - cell "Fail" [ref=e191]:
+                - generic [ref=e192]: Fail
+              - cell "Fail" [ref=e193]:
+                - generic [ref=e194]: Fail
+              - cell [ref=e195]:
+                - img [ref=e197]
+            - row "#03 fastapi__fastapi-15372 Hard 1.61x 0.6222 0.6222 Fail Fail" [ref=e199] [cursor=pointer]:
+              - cell "#03 fastapi__fastapi-15372" [ref=e200]
+              - cell "Hard" [ref=e201]:
+                - generic [ref=e202]: Hard
+              - cell "1.61x" [ref=e203]
+              - cell "0.6222" [ref=e204]
+              - cell "0.6222" [ref=e205]
+              - cell "Fail" [ref=e206]:
+                - generic [ref=e207]: Fail
+              - cell "Fail" [ref=e208]:
+                - generic [ref=e209]: Fail
+              - cell [ref=e210]:
+                - img [ref=e212]
+            - row "#04 networkx__networkx-6337 Medium 2.08x 0.8430 0.6306 Correct (Slow) Correct (Slow)" [ref=e214] [cursor=pointer]:
+              - cell "#04 networkx__networkx-6337" [ref=e215]
+              - cell "Medium" [ref=e216]:
+                - generic [ref=e217]: Medium
+              - cell "2.08x" [ref=e218]
+              - cell "0.8430" [ref=e219]
+              - cell "0.6306" [ref=e220]
+              - cell "Correct (Slow)" [ref=e221]:
+                - generic [ref=e222]: Correct (Slow)
+              - cell "Correct (Slow)" [ref=e223]:
+                - generic [ref=e224]: Correct (Slow)
+              - cell [ref=e225]:
+                - img [ref=e227]
+            - row "#05 networkx__networkx-7971 Easy 1.02x 0.9895 0.9880 Correct (Slow) Correct (Slow)" [ref=e229] [cursor=pointer]:
+              - cell "#05 networkx__networkx-7971" [ref=e230]
+              - cell "Easy" [ref=e231]:
+                - generic [ref=e232]: Easy
+              - cell "1.02x" [ref=e233]
+              - cell "0.9895" [ref=e234]
+              - cell "0.9880" [ref=e235]
+              - cell "Correct (Slow)" [ref=e236]:
+                - generic [ref=e237]: Correct (Slow)
+              - cell "Correct (Slow)" [ref=e238]:
+                - generic [ref=e239]: Correct (Slow)
+              - cell [ref=e240]:
+                - img [ref=e242]
+            - row "#06 networkx__networkx-8023 Hard 1.21x 5.2298 0.8316 Pass Correct (Slow)" [ref=e244] [cursor=pointer]:
+              - cell "#06 networkx__networkx-8023" [ref=e245]
+              - cell "Hard" [ref=e246]:
+                - generic [ref=e247]: Hard
+              - cell "1.21x" [ref=e248]
+              - cell "5.2298" [ref=e249]
+              - cell "0.8316" [ref=e250]
+              - cell "Pass" [ref=e251]:
+                - generic [ref=e252]: Pass
+              - cell "Correct (Slow)" [ref=e253]:
+                - generic [ref=e254]: Correct (Slow)
+              - cell [ref=e255]:
+                - img [ref=e257]
+            - row "#07 networkx__networkx-8056 Hard 13.09x 1.1087 0.2495 Pass Correct (Slow)" [ref=e259] [cursor=pointer]:
+              - cell "#07 networkx__networkx-8056" [ref=e260]
+              - cell "Hard" [ref=e261]:
+                - generic [ref=e262]: Hard
+              - cell "13.09x" [ref=e263]
+              - cell "1.1087" [ref=e264]
+              - cell "0.2495" [ref=e265]
+              - cell "Pass" [ref=e266]:
+                - generic [ref=e267]: Pass
+              - cell "Correct (Slow)" [ref=e268]:
+                - generic [ref=e269]: Correct (Slow)
+              - cell [ref=e270]:
+                - img [ref=e272]
+            - row "#08 networkx__networkx-8206 Hard 5.08x 1.4980 0.1968 Pass Fail" [ref=e274] [cursor=pointer]:
+              - cell "#08 networkx__networkx-8206" [ref=e275]
+              - cell "Hard" [ref=e276]:
+                - generic [ref=e277]: Hard
+              - cell "5.08x" [ref=e278]
+              - cell "1.4980" [ref=e279]
+              - cell "0.1968" [ref=e280]
+              - cell "Pass" [ref=e281]:
+                - generic [ref=e282]: Pass
+              - cell "Fail" [ref=e283]:
+                - generic [ref=e284]: Fail
+              - cell [ref=e285]:
+                - img [ref=e287]
+            - row "#09 networkx__networkx-8266 Easy 1.05x 1.0099 1.0109 Pass Pass" [ref=e289] [cursor=pointer]:
+              - cell "#09 networkx__networkx-8266" [ref=e290]
+              - cell "Easy" [ref=e291]:
+                - generic [ref=e292]: Easy
+              - cell "1.05x" [ref=e293]
+              - cell "1.0099" [ref=e294]
+              - cell "1.0109" [ref=e295]
+              - cell "Pass" [ref=e296]:
+                - generic [ref=e297]: Pass
+              - cell "Pass" [ref=e298]:
+                - generic [ref=e299]: Pass
+              - cell [ref=e300]:
+                - img [ref=e302]
+            - row "#10 networkx__networkx-8296 Easy 1.20x 0.9817 0.8324 Correct (Slow) Correct (Slow)" [ref=e304] [cursor=pointer]:
+              - cell "#10 networkx__networkx-8296" [ref=e305]
+              - cell "Easy" [ref=e306]:
+                - generic [ref=e307]: Easy
+              - cell "1.20x" [ref=e308]
+              - cell "0.9817" [ref=e309]
+              - cell "0.8324" [ref=e310]
+              - cell "Correct (Slow)" [ref=e311]:
+                - generic [ref=e312]: Correct (Slow)
+              - cell "Correct (Slow)" [ref=e313]:
+                - generic [ref=e314]: Correct (Slow)
+              - cell [ref=e315]:
+                - img [ref=e317]
+        - generic [ref=e319]:
+          - button "←" [disabled] [ref=e320] [cursor=pointer]
+          - button "1" [ref=e321] [cursor=pointer]
+          - button "2" [ref=e322] [cursor=pointer]
+          - button "→" [ref=e323] [cursor=pointer]
+      - region "§06 · Model comparison" [ref=e324]:
+        - paragraph [ref=e325]: §06 · Model comparison
+        - paragraph [ref=e326]: Head-to-head breakdown of both evaluated models on the Kraken dataset.
+        - generic [ref=e327]:
+          - generic "GLM-5 summary" [ref=e328]:
+            - paragraph [ref=e329]: GLM-5
+            - generic [ref=e330]:
+              - generic [ref=e331]:
+                - term [ref=e332]: HSR Harmonic Mean
+                - definition [ref=e333]: "0.313"
+              - generic [ref=e334]:
+                - term [ref=e335]: Correctness Rate
+                - definition [ref=e336]: 70%
+              - generic [ref=e337]:
+                - term [ref=e338]: Pass@1
+                - definition [ref=e339]: 7 / 20
+              - generic [ref=e340]:
+                - term [ref=e341]: Outcome Split
+                - definition [ref=e342]: 6 fail · 7 slow · 7 pass
+              - generic [ref=e343]:
+                - term [ref=e344]: Avg Cost
+                - definition [ref=e345]: $2.41
+          - generic "Nova-2-Lite summary" [ref=e346]:
+            - paragraph [ref=e347]: Nova-2-Lite
+            - generic [ref=e348]:
+              - generic [ref=e349]:
+                - term [ref=e350]: HSR Harmonic Mean
+                - definition [ref=e351]: "0.268"
+              - generic [ref=e352]:
+                - term [ref=e353]: Correctness Rate
+                - definition [ref=e354]: 60%
+              - generic [ref=e355]:
+                - term [ref=e356]: Pass@1
+                - definition [ref=e357]: 2 / 20
+              - generic [ref=e358]:
+                - term [ref=e359]: Outcome Split
+                - definition [ref=e360]: 8 fail · 10 slow · 2 pass
+              - generic [ref=e361]:
+                - term [ref=e362]: Avg Cost
+                - definition [ref=e363]: $0.27
+      - region "§07 · Methodology" [ref=e364]:
+        - paragraph [ref=e365]: §07 · Methodology
+        - paragraph [ref=e366]: How the metrics scores are computed.
+        - generic [ref=e367]:
+          - generic [ref=e368]:
+            - paragraph [ref=e369]: Scoring framework
+            - heading "Four principles govern the Kraken scoring system." [level=2] [ref=e370]
+          - generic [ref=e371]:
+            - article [ref=e372]:
+              - paragraph [ref=e373]: Principle 01
+              - heading "Speedup Ratio (SR)" [level=4] [ref=e374]
+              - list [ref=e375]:
+                - listitem [ref=e376]: · SR = Speedup_LM / Speedup_Gold
+                - listitem [ref=e377]: · A score of 1.0 means the agent matched the expert
+                - listitem [ref=e378]: · Values above 1.0 indicate the agent exceeded expert performance
+            - article [ref=e379]:
+              - paragraph [ref=e380]: Principle 02
+              - heading "Harmonic Mean" [level=4] [ref=e381]
+              - list [ref=e382]:
+                - listitem [ref=e383]: · Individual SR values aggregated via harmonic mean
+                - listitem [ref=e384]: · Penalizes inconsistency across instances
+                - listitem [ref=e385]: · Prevents a single outlier from inflating the score
+            - article [ref=e386]:
+              - paragraph [ref=e387]: Principle 03
+              - heading "Correctness Gating" [level=4] [ref=e388]
+              - list [ref=e389]:
+                - listitem [ref=e390]: · Patches must pass Covering Test Suite (CTS)
+                - listitem [ref=e391]: "· Failed patches penalized: SR = 1/Gold_Speedup"
+                - listitem [ref=e392]: · Correctness is never sacrificed for speed
+            - article [ref=e393]:
+              - paragraph [ref=e394]: Principle 04
+              - heading "Pass@1 Protocol" [level=4] [ref=e395]
+              - list [ref=e396]:
+                - listitem [ref=e397]: · Each model gets exactly one attempt per instance
+                - listitem [ref=e398]: · Mirrors real-world single-submission workflow
+                - listitem [ref=e399]: · No retry, no cherry-picking best runs
+      - region "§08 · Resources" [ref=e400]:
+        - paragraph [ref=e401]: §08 · Resources
+        - generic [ref=e402]:
+          - link "Code pasb_dashboard.showcase github.com/Ethara-Ai/Kraken-Dataset" [ref=e403] [cursor=pointer]:
+            - /url: https://github.com/Ethara-Ai/Kraken-Dataset
+            - paragraph [ref=e404]: Code
+            - paragraph [ref=e405]: pasb_dashboard.showcase
+            - paragraph [ref=e406]: github.com/Ethara-Ai/Kraken-Dataset
+            - generic [ref=e407]: "->"
+          - link "Data Dataset on HuggingFace huggingface.co/datasets/ethara/Kraken" [ref=e408] [cursor=pointer]:
+            - /url: https://huggingface.co/datasets/ethara/Kraken
+            - paragraph [ref=e409]: Data
+            - paragraph [ref=e410]: Dataset on HuggingFace
+            - paragraph [ref=e411]: huggingface.co/datasets/ethara/Kraken
+            - generic [ref=e412]: "->"
+          - link "Paper Research Paper arxiv.org/abs/2511.06090" [ref=e413] [cursor=pointer]:
+            - /url: https://arxiv.org/abs/2511.06090
+            - paragraph [ref=e414]: Paper
+            - paragraph [ref=e415]: Research Paper
+            - paragraph [ref=e416]: arxiv.org/abs/2511.06090
+            - generic [ref=e417]: "->"
+    - contentinfo [ref=e418]:
+      - paragraph [ref=e420]:
+        - link "ethara.ai" [ref=e421] [cursor=pointer]:
+          - /url: https://www.ethara.ai
+        - text: · project kraken
