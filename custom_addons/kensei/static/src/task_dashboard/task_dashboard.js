@@ -43,6 +43,7 @@ export class TaskDashboard extends Component {
             newRubricLabel: "",
             rubricError: "",
             testResults: {},
+            expandedTestIds: {},
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -53,8 +54,8 @@ export class TaskDashboard extends Component {
             this._onSandboxStatusChanged,
         );
 
-        onMounted(() => {
-            this._loadSandboxes();
+        onMounted(async () => {
+            await this._loadSandboxes();
             this._checkGogAuthStatus();
             this._loadRubrics();
             this._loadTestResults();
@@ -496,20 +497,33 @@ export class TaskDashboard extends Component {
     async _loadTestResults() {
         if (!this.taskId) return;
         try {
+            const sandboxIds = Object.values(this.state.sandboxes).map(sb => sb.id).filter(Boolean);
+            let domain;
+            if (sandboxIds.length > 0) {
+                domain = ["|", ["kensei_id", "=", this.taskId], ["sandbox_id", "in", sandboxIds]];
+            } else {
+                domain = [["kensei_id", "=", this.taskId]];
+            }
             const results = await this.orm.searchRead(
                 "kensei.test.result",
-                [["kensei_id", "=", this.taskId]],
+                domain,
                 [
                     "id", "sandbox_id", "model_type", "model_used", "status",
                     "tests_total", "tests_passed", "tests_failed", "tests_errored",
                     "duration_generation_ms", "duration_execution_ms", "create_date",
-                    "trajectory_index",
+                    "trajectory_index", "test_code", "test_output", "score", "test_scores",
                 ],
-                { order: "create_date desc", limit: 50 },
+                { order: "trajectory_index asc, create_date desc", limit: 50 },
             );
             const grouped = {};
             for (const r of results) {
-                const modelType = r.model_type || "unknown";
+                let modelType = r.model_type || "";
+                if (!modelType && r.sandbox_id) {
+                    const sbId = r.sandbox_id[0];
+                    const sb = Object.values(this.state.sandboxes).find(s => s.id === sbId);
+                    modelType = sb ? sb.model_type : "unknown";
+                }
+                if (!modelType) modelType = "unknown";
                 if (!grouped[modelType]) grouped[modelType] = [];
                 grouped[modelType].push(r);
             }
@@ -523,8 +537,126 @@ export class TaskDashboard extends Component {
         return this.state.testResults[this.state.activeTab] || [];
     }
 
+    get testResultsByTrajectory() {
+        const results = this.activeTestResults;
+        const grouped = {};
+        for (const r of results) {
+            const idx = r.trajectory_index || 0;
+            if (!grouped[idx]) grouped[idx] = [];
+            grouped[idx].push(r);
+        }
+        return Object.keys(grouped)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(idx => ({ index: Number(idx), results: grouped[idx] }));
+    }
+
     getTestResultsForTrajectory(trajIndex) {
         return this.activeTestResults.filter(r => r.trajectory_index === trajIndex);
+    }
+
+    onToggleTestDetail(resultId) {
+        this.state.expandedTestIds = {
+            ...this.state.expandedTestIds,
+            [resultId]: !this.state.expandedTestIds[resultId],
+        };
+    }
+
+    isTestExpanded(resultId) {
+        return !!this.state.expandedTestIds[resultId];
+    }
+
+    async onSetTestScore(resultId, score) {
+        try {
+            await this.orm.write("kensei.test.result", [resultId], { score });
+            const allResults = Object.values(this.state.testResults).flat();
+            const result = allResults.find(r => r.id === resultId);
+            if (result) result.score = score;
+        } catch (e) {
+            this.notification.add("Failed to save score", { type: "danger" });
+        }
+    }
+
+    async onSetFunctionScore(resultId, funcName, score) {
+        const allResults = Object.values(this.state.testResults).flat();
+        const result = allResults.find(r => r.id === resultId);
+        if (!result) return;
+        let scores = {};
+        try {
+            scores = JSON.parse(result.test_scores || "{}");
+        } catch (_e) {
+            scores = {};
+        }
+        scores[funcName] = score;
+        const value = JSON.stringify(scores);
+        try {
+            await this.orm.write("kensei.test.result", [resultId], { test_scores: value });
+            result.test_scores = value;
+        } catch (e) {
+            this.notification.add("Failed to save function score", { type: "danger" });
+        }
+    }
+
+    getFunctionScore(result, funcName) {
+        try {
+            const scores = JSON.parse(result.test_scores || "{}");
+            return scores[funcName] ?? null;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    getTestFunctions(result) {
+        if (!result.test_code) return [];
+        const regex = /^(?:def|async def)\s+(test_\w+)\s*\(/gm;
+        const funcs = [];
+        let match;
+        while ((match = regex.exec(result.test_code)) !== null) {
+            funcs.push(match[1]);
+        }
+        return funcs;
+    }
+
+    getFunctionStatus(result, funcName) {
+        if (!result.test_output) return "unknown";
+        if (result.test_output.includes(funcName + " PASSED")) return "passed";
+        if (result.test_output.includes(funcName + " FAILED")) return "failed";
+        if (result.test_output.includes(funcName + " ERROR")) return "error";
+        return "unknown";
+    }
+
+    getFunctionOutput(result, funcName) {
+        if (!result.test_output) return "";
+        const output = result.test_output;
+        const patterns = [
+            new RegExp(`_{2,}\\s*${funcName}\\s*_{2,}([\\s\\S]*?)(?=_{2,}\\s*\\w|={2,}|$)`, "m"),
+            new RegExp(`FAILED.*${funcName}[^\\n]*\\n([\\s\\S]*?)(?=FAILED|PASSED|ERROR|={2,}|$)`, "m"),
+            new RegExp(`(${funcName}[\\s\\S]*?)(?=\\n\\S+::\\w+|\\n={2,}|$)`, "m"),
+        ];
+        for (const pat of patterns) {
+            const match = output.match(pat);
+            if (match && match[1] && match[1].trim()) return match[1].trim();
+        }
+        const lines = output.split("\n");
+        const relevant = [];
+        let capturing = false;
+        for (const line of lines) {
+            if (line.includes(funcName)) {
+                capturing = true;
+                relevant.push(line);
+            } else if (capturing) {
+                if (line.match(/^(PASSED|FAILED|ERROR|_{2,}|={2,})/)) break;
+                relevant.push(line);
+            }
+        }
+        return relevant.join("\n").trim();
+    }
+
+    getFunctionCode(result, funcName) {
+        if (!result.test_code) return "";
+        const code = result.test_code;
+        const regex = new RegExp(`((?:def|async def)\\s+${funcName}\\s*\\([\\s\\S]*?)(?=\\n(?:def|async def|class)\\s|$)`, "m");
+        const match = code.match(regex);
+        return match ? match[1].trim() : "";
     }
 
     get latestTestResult() {
