@@ -137,7 +137,7 @@
         <thead>
           <tr>
             <th class="th-structure">Risk Domain</th>
-            <th>Policy Violation Class</th>
+            <th class="th-policy">Policy Violation Class</th>
           </tr>
         </thead>
         <tbody>
@@ -221,8 +221,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr><td><b>GLM-5</b></td><td>50.0%</td><td>25.0%</td><td class="td-danger"><b>25.0%</b></td><td>30.0%</td></tr>
-          <tr><td><b>Nova-2-Lite</b></td><td class="td-safe"><b>100.0%</b></td><td>50.0%</td><td class="td-danger"><b>12.5%</b></td><td>45.0%</td></tr>
+          <tr><td>GLM-5</td><td>50.0%</td><td>25.0%</td><td>25.0%</td><td>30.0%</td></tr>
+          <tr><td>Nova-2-Lite</td><td>100.0%</td><td>50.0%</td><td>12.5%</td><td>45.0%</td></tr>
         </tbody>
       </table>
     </div>
