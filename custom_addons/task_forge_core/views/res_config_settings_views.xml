@@ -10,27 +10,19 @@
             <xpath expr="//form" position="inside">
                 <app data-string="Task Forge" string="Task Forge" name="task_forge_core">
                     <block title="Kimi K2.5 Configuration" help="Configure AWS Bedrock credentials for Kimi K2.5 grammar analysis.">
-                        <setting string="AWS Region" help="The AWS region where Bedrock is configured.">
+                        <setting string="Bedrock Settings" help="AWS Bedrock connection settings for LLM operations.">
                             <div class="content-group">
                                 <div class="row mt8">
                                     <label for="kimi_aws_region" class="col-lg-3"/>
-                                    <field name="kimi_aws_region" class="col-lg-3"/>
+                                    <field name="kimi_aws_region" class="col-lg-3" placeholder="ap-south-1"/>
                                 </div>
-                            </div>
-                        </setting>
-                        <setting string="Bedrock API Key" help="Bearer token for Bedrock API authentication.">
-                            <div class="content-group">
                                 <div class="row mt8">
                                     <label for="kimi_api_key" class="col-lg-3"/>
                                     <field name="kimi_api_key" class="col-lg-6" password="True"/>
                                 </div>
-                            </div>
-                        </setting>
-                        <setting string="Bedrock Inference ARN" help="Full ARN of the Bedrock inference profile for Kimi K2.5.">
-                            <div class="content-group">
                                 <div class="row mt8">
                                     <label for="kimi_model_arn" class="col-lg-3"/>
-                                    <field name="kimi_model_arn" class="col-lg-6"/>
+                                    <field name="kimi_model_arn" class="col-lg-6" placeholder="arn:aws:bedrock:..."/>
                                 </div>
                             </div>
                         </setting>

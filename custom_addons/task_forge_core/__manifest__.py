@@ -1,6 +1,6 @@
 {
     'name': 'Task Forge Core',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.0.1',
     'category': 'Project',
     'summary': 'Task logging, blocker escalation, bug tracking, analytics for Task Forge',
     'description': """
