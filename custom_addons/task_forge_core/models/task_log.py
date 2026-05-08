@@ -179,7 +179,7 @@ class TaskForgeLog(models.Model):
 
     @api.depends(
         'project_id', 'project_id.is_response_required',
-        'project_id.response_config_ids',
+        'project_id.no_of_responses',
         'response_ids', 'response_ids.value',
     )
     def _compute_response_completed(self):
@@ -188,12 +188,12 @@ class TaskForgeLog(models.Model):
             if not project or not project.is_response_required:
                 rec.response_completed = True
                 continue
-            config_count = len(project.response_config_ids)
-            if not config_count:
+            required_count = project.no_of_responses or 0
+            if not required_count:
                 rec.response_completed = True
                 continue
             filled = rec.response_ids.filtered(lambda r: r.value)
-            rec.response_completed = len(filled) >= config_count
+            rec.response_completed = len(filled) >= required_count
 
     @api.model_create_multi
     def create(self, vals_list):

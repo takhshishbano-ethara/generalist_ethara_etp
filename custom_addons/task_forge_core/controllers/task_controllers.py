@@ -541,14 +541,14 @@ class TaskForgeTaskController(http.Controller):
                 for item in payload:
                     if not isinstance(item, dict):
                         continue
-                    config_id = item.get('config_id')
+                    sequence = item.get('sequence')
                     value = item.get('value', '')
                     response_url = item.get('response_url', '')
-                    if not config_id:
+                    if not sequence:
                         continue
                     rec = Response.search([
                         ('task_id', '=', task.id),
-                        ('config_id', '=', int(config_id)),
+                        ('sequence', '=', int(sequence)),
                     ], limit=1)
                     if rec:
                         write_vals = {'value': value}
@@ -602,19 +602,19 @@ class TaskForgeTaskController(http.Controller):
             for item in responses:
                 if not isinstance(item, dict):
                     return return_Response(message="Each response must be an object", status=400)
-                config_id = item.get('config_id')
+                sequence = item.get('sequence')
                 value = item.get('value', '')
                 response_url = item.get('response_url', '')
-                if not config_id:
-                    return return_Response(message="config_id is required in each response", status=400)
+                if not sequence:
+                    return return_Response(message="sequence is required in each response", status=400)
 
                 rec = Response.search([
                     ('task_id', '=', task.id),
-                    ('config_id', '=', int(config_id)),
+                    ('sequence', '=', int(sequence)),
                 ], limit=1)
                 if not rec:
                     return return_Response(
-                        message=f"Response config {config_id} not found for this task",
+                        message=f"Response with sequence {sequence} not found for this task",
                         status=404,
                     )
                 write_vals = {'value': value or ''}
@@ -816,7 +816,6 @@ class TaskForgeTaskController(http.Controller):
             'image_url_lines': [task.image_url for task in task.image_url_lines if task.image_url],
             'responses': [{
                 'id': r.id,
-                'config_id': r.config_id.id if r.config_id else 0,
                 'label': r.label or '',
                 'sequence': r.sequence or 0,
                 'value': r.value or '',
@@ -1085,14 +1084,8 @@ class TaskForgeTaskController(http.Controller):
                 'is_response_required': bool(project and project.is_response_required),
                 'no_of_responses': project.no_of_responses if project else 0,
                 'is_timer_enabled': bool(project and project.is_timer_enabled),
-                'response_configs': [{
-                    'id': cfg.id,
-                    'label': cfg.label or '',
-                    'sequence': cfg.sequence,
-                } for cfg in project.response_config_ids.sorted('sequence')] if project else [],
                 'responses': [{
                     'id': r.id,
-                    'config_id': r.config_id.id if r.config_id else 0,
                     'label': r.label or '',
                     'sequence': r.sequence or 0,
                     'value': r.value or '',
@@ -1328,12 +1321,12 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message=f"Cannot reject an approved {item_type}", status=400)
 
             record_name = record.name
-            record.unlink()
+            record.sudo().write({'active': False})
 
             return return_Response(
-                message=f"{item_type.capitalize()} '{record_name}' rejected and removed",
+                message=f"{item_type.capitalize()} '{record_name}' rejected and archived",
                 status=200,
-                data={'data': {'type': item_type, 'id': item_id, 'name': record_name, 'removed': True}}
+                data={'data': {'type': item_type, 'id': item_id, 'name': record_name, 'archived': True}}
             )
         except Exception as e:
             _logger.error('Reject temp rubric failed: %s', str(e))

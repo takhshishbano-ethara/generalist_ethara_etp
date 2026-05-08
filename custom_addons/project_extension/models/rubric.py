@@ -33,6 +33,7 @@ class RubricCategoryOption(models.Model):
     sequence = fields.Integer(default=10)
     category_id = fields.Many2one('rubric.category', string='Category', ondelete='cascade', required=True)
     is_temp = fields.Boolean(string='Temporary', default=False)
+    active = fields.Boolean(string='Active', default=True)
 
     def action_approve_temp(self):
         for rec in self:
@@ -41,7 +42,7 @@ class RubricCategoryOption(models.Model):
             rec.is_temp = False
 
     def action_reject_temp(self):
-        self.filtered('is_temp').unlink()
+        self.filtered('is_temp').write({'active': False})
 
     def write(self, vals):
         res = super().write(vals)
@@ -87,6 +88,7 @@ class RubricDimension(models.Model):
         string='Options',
     )
     is_temp = fields.Boolean(string='Temporary', default=False)
+    active = fields.Boolean(string='Active', default=True)
 
     def action_approve_temp(self):
         for rec in self:
@@ -95,7 +97,7 @@ class RubricDimension(models.Model):
             rec.is_temp = False
 
     def action_reject_temp(self):
-        self.filtered('is_temp').unlink()
+        self.filtered('is_temp').write({'active': False})
 
     def _sync_options_from_category(self):
         for dim in self:
