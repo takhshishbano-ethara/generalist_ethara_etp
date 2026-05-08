@@ -1,7 +1,7 @@
 /** @odoo-module */
 
 import { registry } from "@web/core/registry";
-import { Component, useState, onMounted, onWillUnmount, useRef } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount, useRef, onWillStart } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 const REFRESH_INTERVAL = 60000;
@@ -13,6 +13,7 @@ export class EtpAssessmentDashboard extends Component {
     setup() {
         this.action = useService("action");
         this.orm = useService("orm");
+
         this.state = useState({
             loaded: false,
             kpis: {},
@@ -20,28 +21,30 @@ export class EtpAssessmentDashboard extends Component {
             categories: [],
             active_work: [],
             evaluator_performance: [],
-            dimension_stats: [],
             assessment_options: [],
         });
 
         this.filters = useState({
-            assessment_id: false,
+            assessment_id: 0,
             state: "",
-            category_id: false,
+            category_id: 0,
             date_from: "",
             date_to: "",
         });
 
         this.questionTypeChart = useRef("questionTypeChart");
         this.categoryChart = useRef("categoryChart");
-        this.dimensionChart = useRef("dimensionChart");
         this.completionChart = useRef("completionChart");
 
         this._timer = null;
         this._charts = [];
 
-        onMounted(async () => {
+        onWillStart(async () => {
             await this._loadData();
+        });
+
+        onMounted(() => {
+            this._renderCharts();
             this._timer = setInterval(() => this._loadData(), REFRESH_INTERVAL);
         });
 
@@ -51,73 +54,85 @@ export class EtpAssessmentDashboard extends Component {
         });
     }
 
-    _getFilters() {
+    _buildFilters() {
         const f = {};
         if (this.filters.assessment_id) f.assessment_id = this.filters.assessment_id;
         if (this.filters.state) f.state = this.filters.state;
         if (this.filters.category_id) f.category_id = this.filters.category_id;
         if (this.filters.date_from) f.date_from = this.filters.date_from;
         if (this.filters.date_to) f.date_to = this.filters.date_to;
-        return f;
+        return Object.keys(f).length > 0 ? f : null;
     }
 
     async _loadData() {
         try {
-            const data = await this.orm.call("etp.assessment", "get_dashboard_data", [this._getFilters()]);
-            Object.assign(this.state, data, { loaded: true });
+            const filters = this._buildFilters();
+            const data = await this.orm.call(
+                "etp.assessment",
+                "get_dashboard_data",
+                [filters]
+            );
+            this.state.kpis = data.kpis || {};
+            this.state.question_types = data.question_types || [];
+            this.state.categories = data.categories || [];
+            this.state.active_work = data.active_work || [];
+            this.state.evaluator_performance = data.evaluator_performance || [];
+            this.state.assessment_options = data.assessment_options || [];
+            this.state.loaded = true;
             this._renderCharts();
-        } catch {
+        } catch (e) {
+            console.error("Dashboard load error:", e);
             this.state.loaded = true;
         }
     }
 
-    async applyFilters() {
-        await this._loadData();
+    onAssessmentFilter(ev) {
+        this.filters.assessment_id = parseInt(ev.target.value) || 0;
+        this._loadData();
     }
 
-    clearFilters() {
-        this.filters.assessment_id = false;
+    onCategoryFilter(ev) {
+        this.filters.category_id = parseInt(ev.target.value) || 0;
+        this._loadData();
+    }
+
+    onStateFilter(val) {
+        this.filters.state = this.filters.state === val ? "" : val;
+        this._loadData();
+    }
+
+    onDateFromFilter(ev) {
+        this.filters.date_from = ev.target.value || "";
+        this._loadData();
+    }
+
+    onDateToFilter(ev) {
+        this.filters.date_to = ev.target.value || "";
+        this._loadData();
+    }
+
+    onClearFilters() {
+        this.filters.assessment_id = 0;
         this.filters.state = "";
-        this.filters.category_id = false;
+        this.filters.category_id = 0;
         this.filters.date_from = "";
         this.filters.date_to = "";
         this._loadData();
     }
 
-    onAssessmentChange(ev) {
-        const val = ev.target.value;
-        this.filters.assessment_id = val ? parseInt(val) : false;
-        this._loadData();
-    }
-
-    onStateChange(state) {
-        this.filters.state = this.filters.state === state ? "" : state;
-        this._loadData();
-    }
-
-    onCategoryChange(ev) {
-        const val = ev.target.value;
-        this.filters.category_id = val ? parseInt(val) : false;
-        this._loadData();
-    }
-
-    onDateFromChange(ev) {
-        this.filters.date_from = ev.target.value;
-        if (this.filters.date_from && this.filters.date_to) this._loadData();
-    }
-
-    onDateToChange(ev) {
-        this.filters.date_to = ev.target.value;
-        if (this.filters.date_from && this.filters.date_to) this._loadData();
-    }
-
     get hasActiveFilters() {
-        return this.filters.assessment_id || this.filters.state || this.filters.category_id || this.filters.date_from || this.filters.date_to;
+        return !!(
+            this.filters.assessment_id ||
+            this.filters.state ||
+            this.filters.category_id ||
+            this.filters.date_from ||
+            this.filters.date_to
+        );
     }
 
     _destroyCharts() {
-        for (const chart of this._charts) {
-            chart.destroy();
+        for (const c of this._charts) {
+            c.destroy();
         }
         this._charts = [];
     }
@@ -126,32 +141,28 @@ export class EtpAssessmentDashboard extends Component {
         this._destroyCharts();
         this._renderQuestionTypeChart();
         this._renderCategoryChart();
-        this._renderDimensionChart();
         this._renderCompletionChart();
     }
 
     _renderQuestionTypeChart() {
         const el = this.questionTypeChart.el;
         if (!el) return;
-        const data = this.state.question_types.filter((d) => d.count > 0);
-        if (!data.length) return;
+        const items = (this.state.question_types || []).filter((d) => d.count > 0);
+        if (!items.length) return;
         const ctx = el.getContext("2d");
-        const labels = data.map((d) => d.type.replace("_", " "));
-        const values = data.map((d) => d.count);
-        const colors = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f"];
-
         const chart = new Chart(ctx, {
             type: "doughnut",
             data: {
-                labels,
-                datasets: [{ data: values, backgroundColor: colors }],
+                labels: items.map((d) => d.type.replace("_", " ")),
+                datasets: [{
+                    data: items.map((d) => d.count),
+                    backgroundColor: ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f"],
+                }],
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: "bottom", labels: { padding: 12 } },
-                },
+                plugins: { legend: { position: "bottom", labels: { padding: 12 } } },
             },
         });
         this._charts.push(chart);
@@ -160,19 +171,16 @@ export class EtpAssessmentDashboard extends Component {
     _renderCategoryChart() {
         const el = this.categoryChart.el;
         if (!el) return;
-        const data = this.state.categories.filter((d) => d.count > 0);
-        if (!data.length) return;
+        const items = (this.state.categories || []).filter((d) => d.count > 0);
+        if (!items.length) return;
         const ctx = el.getContext("2d");
-        const labels = data.map((d) => d.name);
-        const values = data.map((d) => d.count);
-
         const chart = new Chart(ctx, {
             type: "bar",
             data: {
-                labels,
+                labels: items.map((d) => d.name),
                 datasets: [{
                     label: "Questions",
-                    data: values,
+                    data: items.map((d) => d.count),
                     backgroundColor: "#4e79a7",
                     borderRadius: 4,
                 }],
@@ -181,40 +189,7 @@ export class EtpAssessmentDashboard extends Component {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, ticks: { stepSize: 1 } },
-                },
-            },
-        });
-        this._charts.push(chart);
-    }
-
-    _renderDimensionChart() {
-        const el = this.dimensionChart.el;
-        if (!el || !this.state.dimension_stats.length) return;
-        const ctx = el.getContext("2d");
-        const labels = this.state.dimension_stats.map((d) => d.name);
-        const accuracy = this.state.dimension_stats.map((d) => d.accuracy);
-
-        const chart = new Chart(ctx, {
-            type: "bar",
-            data: {
-                labels,
-                datasets: [{
-                    label: "Accuracy %",
-                    data: accuracy,
-                    backgroundColor: "#59a14f",
-                    borderRadius: 4,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: "y",
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { beginAtZero: true },
-                },
+                scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
             },
         });
         this._charts.push(chart);
@@ -224,11 +199,9 @@ export class EtpAssessmentDashboard extends Component {
         const el = this.completionChart.el;
         if (!el) return;
         const ctx = el.getContext("2d");
-        const kpis = this.state.kpis;
-        const completed = kpis.evaluators_submitted || 0;
-        const remaining = (kpis.total_evaluators || 0) - completed;
+        const completed = this.state.kpis.evaluators_submitted || 0;
+        const remaining = (this.state.kpis.total_evaluators || 0) - completed;
         if (!completed && !remaining) return;
-
         const chart = new Chart(ctx, {
             type: "doughnut",
             data: {
@@ -241,9 +214,7 @@ export class EtpAssessmentDashboard extends Component {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: "bottom" },
-                },
+                plugins: { legend: { position: "bottom" } },
             },
         });
         this._charts.push(chart);

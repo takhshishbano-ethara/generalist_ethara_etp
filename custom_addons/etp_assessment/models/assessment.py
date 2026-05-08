@@ -208,12 +208,12 @@ class EtpAssessment(models.Model):
 
     @api.model
     def get_dashboard_data(self, filters=None):
-        filters = filters or {}
+        if not isinstance(filters, dict):
+            filters = {}
         Assessment = self.env["etp.assessment"]
         Evaluator = self.env["etp.assessment.evaluator"]
         Question = self.env["etp.assessment.question"]
         Response = self.env["etp.assessment.response"]
-        Dimension = self.env["etp.assessment.dimension"]
 
         assessment_domain = []
         if filters.get("assessment_id"):
@@ -227,24 +227,32 @@ class EtpAssessment(models.Model):
         if filters.get("category_id"):
             assessment_domain.append(("category_id", "=", filters["category_id"]))
 
+        has_filters = bool(assessment_domain)
         filtered_assessments = Assessment.search(assessment_domain)
         filtered_ids = filtered_assessments.ids
 
-        ev_domain = [("assessment_id", "in", filtered_ids)] if filtered_ids else []
+        ev_domain = [("assessment_id", "in", filtered_ids)] if has_filters else []
+        resp_domain = [("assessment_id", "in", filtered_ids)] if has_filters else []
 
-        total_assessments = len(filtered_assessments)
-        draft_count = len(filtered_assessments.filtered(lambda a: a.state == "draft"))
-        in_progress_count = len(filtered_assessments.filtered(lambda a: a.state == "in_progress"))
-        done_count = len(filtered_assessments.filtered(lambda a: a.state == "done"))
-        cancelled_count = len(filtered_assessments.filtered(lambda a: a.state == "cancelled"))
+        total_assessments = len(filtered_assessments) if has_filters else Assessment.search_count([])
+        draft_count = len(filtered_assessments.filtered(lambda a: a.state == "draft")) if has_filters else Assessment.search_count([("state", "=", "draft")])
+        in_progress_count = len(filtered_assessments.filtered(lambda a: a.state == "in_progress")) if has_filters else Assessment.search_count([("state", "=", "in_progress")])
+        done_count = len(filtered_assessments.filtered(lambda a: a.state == "done")) if has_filters else Assessment.search_count([("state", "=", "done")])
+        cancelled_count = len(filtered_assessments.filtered(lambda a: a.state == "cancelled")) if has_filters else Assessment.search_count([("state", "=", "cancelled")])
 
-        total_questions = Question.search_count([("active", "=", True)])
+        if has_filters:
+            filtered_question_ids = filtered_assessments.mapped("question_ids").ids
+            q_domain = [("id", "in", filtered_question_ids), ("active", "=", True)]
+        else:
+            filtered_question_ids = []
+            q_domain = [("active", "=", True)]
+
+        total_questions = Question.search_count(q_domain)
         total_evaluators = Evaluator.search_count(ev_domain)
         evaluators_pending = Evaluator.search_count(ev_domain + [("state", "=", "pending")])
         evaluators_in_progress = Evaluator.search_count(ev_domain + [("state", "=", "in_progress")])
         evaluators_submitted = Evaluator.search_count(ev_domain + [("state", "=", "submitted")])
 
-        resp_domain = [("evaluator_id.assessment_id", "in", filtered_ids)] if filtered_ids else []
         total_responses = Response.search_count(resp_domain)
         responses_submitted = Response.search_count(resp_domain + [("state", "=", "submitted")])
         responses_draft = Response.search_count(resp_domain + [("state", "=", "draft")])
@@ -252,18 +260,19 @@ class EtpAssessment(models.Model):
 
         question_type_data = []
         for qtype in ["image_comparison", "text", "coding", "image_text", "video"]:
-            count = Question.search_count([("question_type", "=", qtype), ("active", "=", True)])
+            count = Question.search_count(q_domain + [("question_type", "=", qtype)])
             question_type_data.append({"type": qtype, "count": count})
 
         category_data = []
         categories = self.env["etp.assessment.category"].search([("active", "=", True)])
         for cat in categories:
-            q_count = Question.search_count([("category_id", "=", cat.id), ("active", "=", True)])
+            q_count = Question.search_count(q_domain + [("category_id", "=", cat.id)])
             category_data.append({"id": cat.id, "name": cat.name, "count": q_count})
 
-        active_domain = [("state", "=", "in_progress")]
-        if filtered_ids:
-            active_domain.append(("id", "in", filtered_ids))
+        if has_filters:
+            active_domain = [("id", "in", filtered_ids)]
+        else:
+            active_domain = [("state", "=", "in_progress")]
         active_assessments = Assessment.search(active_domain, limit=10, order="start_date desc")
         active_work = []
         for a in active_assessments:
@@ -289,36 +298,6 @@ class EtpAssessment(models.Model):
                 "total_questions": ev.total_questions,
                 "assessment_name": ev.assessment_id.name,
             })
-
-        dimension_stats = []
-        dimensions = Dimension.search([("active", "=", True)])
-        QuestionDimOption = self.env["etp.assessment.question.dimension.option"]
-        for dim in dimensions:
-            line_domain = [
-                ("dimension_id", "=", dim.id),
-                ("selected_option_id", "!=", False),
-                ("response_id.state", "=", "submitted"),
-            ]
-            if filtered_ids:
-                line_domain.append(("response_id.evaluator_id.assessment_id", "in", filtered_ids))
-            lines = self.env["etp.assessment.response.line"].search(line_domain)
-            if lines:
-                correct_count = 0
-                for line in lines:
-                    correct_opt = QuestionDimOption.search([
-                        ("question_dimension_id.question_id", "=", line.response_id.question_id.id),
-                        ("question_dimension_id.dimension_id", "=", dim.id),
-                        ("is_correct", "=", True),
-                    ], limit=1)
-                    if correct_opt and line.selected_option_id.id == correct_opt.master_option_id.id:
-                        correct_count += 1
-                dimension_stats.append({
-                    "name": dim.name,
-                    "response_count": len(lines),
-                    "correct_count": correct_count,
-                    "incorrect_count": len(lines) - correct_count,
-                    "accuracy": round((correct_count / len(lines)) * 100, 1) if lines else 0,
-                })
 
         completion_rate = 0
         if total_evaluators > 0:
@@ -349,7 +328,6 @@ class EtpAssessment(models.Model):
             "categories": category_data,
             "active_work": active_work,
             "evaluator_performance": evaluator_perf,
-            "dimension_stats": dimension_stats,
             "assessment_options": assessment_options,
         }
 
