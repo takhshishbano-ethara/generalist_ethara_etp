@@ -327,7 +327,7 @@ def _call_bedrock_converse(
     user_message,
     max_tokens=4096,
     temperature=0.7,
-    top_p=0.9,
+    top_p=None,
     timeout=600.0,
 ):
     url = BEDROCK_CONVERSE_URL.format(
@@ -349,9 +349,10 @@ def _call_bedrock_converse(
         "inferenceConfig": {
             "maxTokens": max_tokens,
             "temperature": temperature,
-            "topP": top_p,
         },
     }
+    if top_p is not None:
+        payload["inferenceConfig"]["topP"] = top_p
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
