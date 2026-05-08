@@ -1,0 +1,10 @@
+FROM aurora-worker:local
+
+USER root
+
+COPY odoo-requirements.txt /tmp/odoo-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/odoo-requirements.txt && rm /tmp/odoo-requirements.txt
+
+USER odoo
+
+CMD ["python", "/opt/odoo/odoo-bin", "--config=/etc/odoo/odoo.conf"]

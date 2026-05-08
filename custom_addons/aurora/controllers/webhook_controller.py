@@ -19,7 +19,7 @@ _WEBHOOK_MAX_SKEW_SECONDS = 300
 
 def _legacy_auth_enabled(env) -> bool:
     val = env["ir.config_parameter"].sudo().get_param(
-        "aurora.webhook_legacy_auth_enabled", "True",
+        "aurora.webhook_legacy_auth_enabled", "False",
     )
     return str(val).strip().lower() in ("1", "true", "yes", "on")
 
@@ -125,6 +125,24 @@ def _append_log(record, message: str) -> None:
     record.sudo().write({"log": "\n".join(lines)})
 
 
+def _send_bus_notification(env, model_name: str, record, values: dict) -> None:
+    try:
+        payload = {
+            "model": model_name,
+            "id": record.id,
+            "stage": values.get("stage") or getattr(record, "stage", None),
+            "progress_text": values.get("progress_text") or getattr(record, "progress_text", None),
+        }
+
+        user = getattr(record, "user_id", None)
+        if user and user.partner_id:
+            env["bus.bus"].sudo()._sendone(
+                user.partner_id, "aurora/status_update", payload,
+            )
+    except Exception:
+        _logger.debug("bus.bus notification failed for %s/%s", model_name, record.id)
+
+
 class AuroraWebhookController(http.Controller):
 
     @http.route(
@@ -156,6 +174,8 @@ class AuroraWebhookController(http.Controller):
         if message:
             _append_log(rec, str(message))
 
+        _send_bus_notification(request.env, "aurora.pipeline", rec, values)
+
         return {"ok": True}
 
     @http.route(
@@ -186,6 +206,8 @@ class AuroraWebhookController(http.Controller):
         message = kwargs.get("message")
         if message:
             _append_log(rec, str(message))
+
+        _send_bus_notification(request.env, "aurora.evaluation", rec, values)
 
         return {"ok": True}
 

@@ -305,14 +305,8 @@ def _sync_missing_registries(cr: Any, rec_id: int, eval_config, pipeline_id: int
 
 
 def _load_s3_config(cr: Any) -> dict:
-    from .pipeline import S3_BUCKET, S3_REGION, S3_AURORA_PREFIX, _get_env
-    return {
-        "bucket": S3_BUCKET,
-        "region": S3_REGION,
-        "access_key": _get_env("AURORA_S3_ACCESS_KEY"),
-        "secret_key": _get_env("AURORA_S3_SECRET_KEY"),
-        "folder": S3_AURORA_PREFIX,
-    }
+    from .artifact_collector import load_s3_config
+    return load_s3_config()
 
 
 def _update_instance(cr: Any, instance_id: int, vals: dict[str, Any]) -> None:
@@ -491,6 +485,7 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
     from ..tools.harness.constant import (
         BUILD_IMAGE_WORKDIR, BUILD_IMAGE_LOG_FILE,
     )
+    oci_tar_dir = eval_config.output_tar
     for instance in eval_config.instances:
         pr = instance.pr
         image = instance.dependency()
@@ -543,6 +538,18 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                 f"To capture a real build log, tick 'Force Build' on the evaluation, "
                 f"or run: docker rmi {image_tag_str}]"
             )
+
+        if oci_tar_dir:
+            safe_name = image_tag_str.replace("/", "_").replace(":", "_")
+            tar_path = Path(str(oci_tar_dir)) / f"{safe_name}.tar"
+            if tar_path.exists():
+                s3_uri = _upload_artifact(
+                    s3_config, use_s3, str(tar_path),
+                    _build_instance_key(s3_folder, phase, pr.org, pr.repo, run_number, iid, f"{safe_name}.oci.tar"),
+                )
+                if s3_uri:
+                    vals["oci_tar_s3_uri"] = s3_uri
+
         _update_instance(cr, instance_id, vals)
 
 
@@ -892,6 +899,7 @@ def _run_evaluation(db_name, uid, rec_id):
             log_level="INFO",
             log_to_console=False,
             platform=cfg["docker_platform"],
+            output_tar=Path(cfg["workdir"]) / "oci_tars" if cfg.get("docker_platform") else None,
             specifics=specifics,
             instance_limit=cfg["instance_limit"],
         )

@@ -167,6 +167,7 @@ def _build_with_buildx(
 ):
     platforms = [p.strip() for p in platform.split(",")]
     is_multi_platform = len(platforms) > 1
+    _tmp_tar: Path | None = None
 
     cmd = [
         "docker", "buildx", "build",
@@ -187,6 +188,10 @@ def _build_with_buildx(
         cmd.extend(["--output", f"type=oci,dest={output_tar}"])
         if not is_multi_platform:
             cmd.append("--load")
+    elif is_multi_platform:
+        import tempfile
+        _tmp_tar = Path(tempfile.mktemp(suffix=".tar", prefix="buildx_multiarch_"))
+        cmd.extend(["--output", f"type=oci,dest={_tmp_tar}"])
     else:
         cmd.append("--load")
 
@@ -204,7 +209,7 @@ def _build_with_buildx(
         )
         logger.info(f"Extracted OCI tar to {oci_dir}")
 
-    if output_tar and is_multi_platform:
+    if is_multi_platform:
         native = _detect_native_platform()
         logger.info(
             f"Loading native platform ({native}) into daemon from buildx cache..."
@@ -226,6 +231,10 @@ def _build_with_buildx(
         load_cmd.append(".")
         _run_buildx(load_cmd, workdir, logger, label="load native")
         logger.info(f"Native platform image loaded into daemon: {image_full_name}")
+
+        if not output_tar and _tmp_tar and _tmp_tar.exists():
+            _tmp_tar.unlink()
+            logger.info("Cleaned up temporary multi-arch OCI tar.")
 
 
 def run(

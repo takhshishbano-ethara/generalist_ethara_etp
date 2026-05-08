@@ -24,6 +24,7 @@
         "views/evaluation_views.xml",
         "views/evaluation_instance_views.xml",
         "views/harness_staging_views.xml",
+        "views/registry_wizard_views.xml",
         "views/token_views.xml",
         "views/aurora_menus.xml",
         "views/res_config_settings_views.xml",
@@ -31,6 +32,7 @@
     "assets": {
         "web.assets_backend": [
             "aurora/static/src/scss/aurora_form.scss",
+            "aurora/static/src/aurora_bus_service.js",
             "aurora/static/src/components/auto_refresh/auto_refresh.js",
             "aurora/static/src/components/auto_refresh/auto_refresh.xml",
             "aurora/static/src/components/dashboard/dashboard.js",

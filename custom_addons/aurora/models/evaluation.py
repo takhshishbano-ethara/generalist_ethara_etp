@@ -26,17 +26,21 @@ _k8s_config_loaded = False
 # Phase 2 infrastructure constants (DinD-enabled pods for Docker builds).
 # ---------------------------------------------------------------------------
 EVAL_NAMESPACE = "aurora"
-EVAL_NODE_SELECTOR = {"ethara.ai/node-pool": "general-purpose"}
+EVAL_NODE_SELECTOR = (
+    {} if os.environ.get("AURORA_LOCAL_MODE") else {"ethara.ai/node-pool": "general-purpose"}
+)
 EVAL_SERVICE_ACCOUNT = "aurora-worker"
-EVAL_KUEUE_QUEUE = "aurora-pipelines"
+EVAL_KUEUE_QUEUE = "" if os.environ.get("AURORA_LOCAL_MODE") else "aurora-pipelines"
 EVAL_DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/aurora-worker:latest"
+EVAL_IMAGE_PULL_POLICY = "IfNotPresent" if os.environ.get("AURORA_LOCAL_MODE") else "Always"
 EVAL_DIND_IMAGE = "docker:27-dind"
-EVAL_CPU_REQUEST = "2"
-EVAL_MEMORY_REQUEST = "4Gi"
-EVAL_MEMORY_LIMIT = "8Gi"
-EVAL_DIND_CPU_REQUEST = "2"
-EVAL_DIND_MEMORY_REQUEST = "4Gi"
-EVAL_DIND_MEMORY_LIMIT = "8Gi"
+EVAL_BINFMT_IMAGE = "tonistiigi/binfmt:latest"
+EVAL_CPU_REQUEST = "500m" if os.environ.get("AURORA_LOCAL_MODE") else "2"
+EVAL_MEMORY_REQUEST = "1Gi" if os.environ.get("AURORA_LOCAL_MODE") else "4Gi"
+EVAL_MEMORY_LIMIT = "3Gi" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
+EVAL_DIND_CPU_REQUEST = "500m" if os.environ.get("AURORA_LOCAL_MODE") else "2"
+EVAL_DIND_MEMORY_REQUEST = "1Gi" if os.environ.get("AURORA_LOCAL_MODE") else "4Gi"
+EVAL_DIND_MEMORY_LIMIT = "3Gi" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
 EVAL_DEADLINE_SECONDS = 28800  # 8 hours
 EVAL_WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_evaluation.py"
 EVAL_ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
@@ -393,6 +397,35 @@ class AuroraEvaluation(models.Model):
             f"server_wide_modules = {server_wide_modules}\n"
         )
 
+    def _create_eval_secret(self, core_v1, labels):
+        secret_name = f"aurora-eval-creds-{self.id}"
+        from odoo.tools import config as odoo_cfg
+        secret = k8s_client.V1Secret(
+            api_version="v1",
+            kind="Secret",
+            metadata=k8s_client.V1ObjectMeta(
+                name=secret_name,
+                namespace=EVAL_NAMESPACE,
+                labels=labels,
+            ),
+            string_data={
+                "DB_PASSWORD": odoo_cfg["db_password"] or "",
+                "AURORA_ENCRYPTION_KEY": _get_env("AURORA_ENCRYPTION_KEY"),
+                "AURORA_S3_ACCESS_KEY": _get_env("AURORA_S3_ACCESS_KEY"),
+                "AURORA_S3_SECRET_KEY": _get_env("AURORA_S3_SECRET_KEY"),
+            },
+        )
+        try:
+            core_v1.create_namespaced_secret(namespace=EVAL_NAMESPACE, body=secret)
+        except K8sApiException as exc:
+            if exc.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name=secret_name, namespace=EVAL_NAMESPACE, body=secret,
+                )
+            else:
+                raise
+        return secret_name
+
     def _create_eval_configmap(self, core_v1, labels):
         cm_name = f"aurora-eval-config-{self.id}"
         cm = k8s_client.V1ConfigMap(
@@ -416,6 +449,45 @@ class AuroraEvaluation(models.Model):
                 raise
         return cm_name
 
+    def _cleanup_k8s_resources(self):
+        """Delete the K8s Secret and ConfigMap created for this evaluation.
+
+        Called on cancel/watchdog/completion to prevent resource accumulation.
+        Follows Talos destroy pattern: explicit delete with graceful 404 handling.
+        """
+        if not K8S_AVAILABLE:
+            return
+        try:
+            _load_k8s_config()
+            core_v1 = k8s_client.CoreV1Api()
+        except Exception:
+            _logger.debug("Cannot load K8s config for cleanup (eval %s)", self.id)
+            return
+
+        secret_name = f"aurora-eval-creds-{self.id}"
+        cm_name = f"aurora-eval-config-{self.id}"
+
+        for kind, name, delete_fn in [
+            ("Secret", secret_name, core_v1.delete_namespaced_secret),
+            ("ConfigMap", cm_name, core_v1.delete_namespaced_config_map),
+        ]:
+            try:
+                delete_fn(name=name, namespace=EVAL_NAMESPACE)
+                _logger.info("Deleted K8s %s %s (eval %s)", kind, name, self.id)
+            except K8sApiException as exc:
+                if exc.status == 404:
+                    _logger.debug("K8s %s %s already gone (eval %s)", kind, name, self.id)
+                else:
+                    _logger.warning(
+                        "Failed to delete K8s %s %s (eval %s): %s",
+                        kind, name, self.id, exc.reason,
+                    )
+            except Exception:
+                _logger.warning(
+                    "Failed to delete K8s %s %s (eval %s)",
+                    kind, name, self.id, exc_info=True,
+                )
+
     def _create_evaluation_job(self):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes Python package is not installed on this server.")
@@ -428,7 +500,25 @@ class AuroraEvaluation(models.Model):
         job_uid = uuid.uuid4().hex[:12]
         job_name = f"aurora-eval-{self.id}-{job_uid}"
 
-        docker_image = _get_env("AURORA_DOCKER_IMAGE", EVAL_DOCKER_IMAGE)
+        ICP = self.env["ir.config_parameter"].sudo()
+        docker_image = (
+            ICP.get_param("aurora.worker_docker_image")
+            or _get_env("AURORA_DOCKER_IMAGE")
+            or EVAL_DOCKER_IMAGE
+        )
+
+        labels = {
+            "app.kubernetes.io/name": "aurora-pipelines",
+            "app.kubernetes.io/component": "evaluation-worker",
+            "app.kubernetes.io/managed-by": "aurora-odoo",
+            "platform": "aurora",
+            "evaluation-id": str(self.id),
+        }
+        if EVAL_KUEUE_QUEUE:
+            labels["kueue.x-k8s.io/queue-name"] = EVAL_KUEUE_QUEUE
+
+        secret_name = self._create_eval_secret(core_v1, labels)
+        cm_name = self._create_eval_configmap(core_v1, labels)
 
         env_vars = [
             k8s_client.V1EnvVar(name="EVALUATION_ID", value=str(self.id)),
@@ -438,34 +528,61 @@ class AuroraEvaluation(models.Model):
             k8s_client.V1EnvVar(name="DB_HOST", value=odoo_config["db_host"]),
             k8s_client.V1EnvVar(name="DB_PORT", value=str(odoo_config["db_port"] or "5432")),
             k8s_client.V1EnvVar(name="DB_USER", value=odoo_config["db_user"]),
-            k8s_client.V1EnvVar(name="DB_PASSWORD", value=odoo_config["db_password"]),
-            k8s_client.V1EnvVar(name="AURORA_ENCRYPTION_KEY", value=_get_env("AURORA_ENCRYPTION_KEY")),
+            k8s_client.V1EnvVar(
+                name="DB_PASSWORD",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="DB_PASSWORD",
+                    ),
+                ),
+            ),
+            k8s_client.V1EnvVar(
+                name="AURORA_ENCRYPTION_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_ENCRYPTION_KEY",
+                    ),
+                ),
+            ),
             k8s_client.V1EnvVar(name="DOCKER_HOST", value="tcp://localhost:2375"),
+            k8s_client.V1EnvVar(
+                name="AURORA_S3_ACCESS_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_S3_ACCESS_KEY",
+                    ),
+                ),
+            ),
+            k8s_client.V1EnvVar(
+                name="AURORA_S3_SECRET_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_S3_SECRET_KEY",
+                    ),
+                ),
+            ),
         ]
 
-        ICP = self.env["ir.config_parameter"].sudo()
+        s3_endpoint = _get_env("AURORA_S3_ENDPOINT")
+        if s3_endpoint:
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_S3_ENDPOINT", value=s3_endpoint))
+
         harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
         harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
 
-        labels = {
-            "app.kubernetes.io/name": "aurora-pipelines",
-            "app.kubernetes.io/component": "evaluation-worker",
-            "app.kubernetes.io/managed-by": "aurora-odoo",
-            "platform": "aurora",
-            "evaluation-id": str(self.id),
-            "kueue.x-k8s.io/queue-name": EVAL_KUEUE_QUEUE,
-        }
-
-        cm_name = self._create_eval_configmap(core_v1, labels)
-
         worker_container = k8s_client.V1Container(
             name="evaluation",
             image=docker_image,
-            image_pull_policy="Always",
+            image_pull_policy=EVAL_IMAGE_PULL_POLICY,
             command=["python", EVAL_WORKER_SCRIPT],
             env=env_vars,
+            security_context=k8s_client.V1SecurityContext(
+                run_as_non_root=True,
+                run_as_user=1000,
+                allow_privilege_escalation=False,
+            ),
             volume_mounts=[
                 k8s_client.V1VolumeMount(
                     name="odoo-config",
@@ -527,6 +644,15 @@ class AuroraEvaluation(models.Model):
             ),
         ]
 
+        # Init container: register QEMU binfmt handlers for multi-arch buildx.
+        # Required for cross-platform Docker builds (e.g. linux/arm64 on amd64 nodes).
+        binfmt_init_container = k8s_client.V1Container(
+            name="binfmt-setup",
+            image=EVAL_BINFMT_IMAGE,
+            args=["--install", "all"],
+            security_context=k8s_client.V1SecurityContext(privileged=True),
+        )
+
         job = k8s_client.V1Job(
             api_version="batch/v1",
             kind="Job",
@@ -540,11 +666,15 @@ class AuroraEvaluation(models.Model):
                 active_deadline_seconds=EVAL_DEADLINE_SECONDS,
                 backoff_limit=0,
                 template=k8s_client.V1PodTemplateSpec(
-                    metadata=k8s_client.V1ObjectMeta(labels=labels),
+                    metadata=k8s_client.V1ObjectMeta(
+                        labels=labels,
+                        annotations={"karpenter.sh/do-not-disrupt": "true"},
+                    ),
                     spec=k8s_client.V1PodSpec(
                         service_account_name=EVAL_SERVICE_ACCOUNT,
                         restart_policy="Never",
                         node_selector=EVAL_NODE_SELECTOR,
+                        init_containers=[binfmt_init_container],
                         containers=[worker_container, dind_container],
                         volumes=volumes,
                     ),
@@ -561,6 +691,7 @@ class AuroraEvaluation(models.Model):
         if self.stage in EVAL_TERMINAL_STATES:
             raise UserError("Cannot cancel a finished evaluation.")
         evaluation_executor.request_cancel(self.id)
+        self._cleanup_k8s_resources()
         self.write({"stage": "failed"})
         self.message_post(body="Evaluation cancelled by user.")
 
@@ -737,6 +868,7 @@ class AuroraEvaluation(models.Model):
                 rec.name, rec.id,
             )
             evaluation_executor.request_cancel(rec.id)
+            rec._cleanup_k8s_resources()
             rec.write({"stage": "failed"})
             rec.message_post(
                 body="Evaluation marked as failed by watchdog (no heartbeat for 15+ minutes).",

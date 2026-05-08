@@ -39,9 +39,9 @@ _MAX_DOWNLOAD_FILE_SIZE = 200 * 1024 * 1024  # 200 MB
 # ---------------------------------------------------------------------------
 NAMESPACE = "aurora"
 
-NODE_SELECTOR = {
-    "ethara.ai/node-pool": "general-purpose",
-}
+NODE_SELECTOR = (
+    {} if os.environ.get("AURORA_LOCAL_MODE") else {"ethara.ai/node-pool": "general-purpose"}
+)
 
 SERVICE_ACCOUNT = "aurora-worker"
 
@@ -49,9 +49,11 @@ S3_BUCKET = "production-grtlabs-tag"
 S3_REGION = "us-east-1"
 S3_AURORA_PREFIX = "aurora"
 
-KUEUE_QUEUE = "aurora-pipelines"
+KUEUE_QUEUE = "" if os.environ.get("AURORA_LOCAL_MODE") else "aurora-pipelines"
 
 DOCKER_IMAGE = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/aurora-worker:latest"
+
+IMAGE_PULL_POLICY = "IfNotPresent" if os.environ.get("AURORA_LOCAL_MODE") else "Always"
 
 CPU_REQUEST = "1"
 MEMORY_REQUEST = "2Gi"
@@ -383,6 +385,34 @@ class AuroraPipeline(models.Model):
             f"server_wide_modules = {server_wide_modules}\n"
         )
 
+    def _create_pipeline_secret(self, core_v1, labels):
+        secret_name = f"aurora-pipeline-creds-{self.id}"
+        secret = k8s_client.V1Secret(
+            api_version="v1",
+            kind="Secret",
+            metadata=k8s_client.V1ObjectMeta(
+                name=secret_name,
+                namespace=NAMESPACE,
+                labels=labels,
+            ),
+            string_data={
+                "DB_PASSWORD": odoo_config["db_password"] or "",
+                "AURORA_ENCRYPTION_KEY": _get_env("AURORA_ENCRYPTION_KEY"),
+                "AURORA_S3_ACCESS_KEY": _get_env("AURORA_S3_ACCESS_KEY"),
+                "AURORA_S3_SECRET_KEY": _get_env("AURORA_S3_SECRET_KEY"),
+            },
+        )
+        try:
+            core_v1.create_namespaced_secret(namespace=NAMESPACE, body=secret)
+        except K8sApiException as exc:
+            if exc.status == 409:
+                core_v1.replace_namespaced_secret(
+                    name=secret_name, namespace=NAMESPACE, body=secret,
+                )
+            else:
+                raise
+        return secret_name
+
     def _create_worker_configmap(self, core_v1, labels):
         """Create a per-pipeline ConfigMap with odoo.conf for the worker pod."""
         cm_name = f"aurora-worker-config-{self.id}"
@@ -415,6 +445,21 @@ class AuroraPipeline(models.Model):
         except Exception:
             _logger.debug("ConfigMap %s already gone or failed to delete", cm_name)
 
+    def _delete_pipeline_secret(self):
+        secret_name = f"aurora-pipeline-creds-{self.id}"
+        try:
+            _load_k8s_config()
+            core_v1 = k8s_client.CoreV1Api()
+            core_v1.delete_namespaced_secret(name=secret_name, namespace=NAMESPACE)
+            _logger.info("Deleted K8s Secret %s (pipeline %s)", secret_name, self.id)
+        except K8sApiException as exc:
+            if exc.status == 404:
+                _logger.debug("Secret %s already gone (pipeline %s)", secret_name, self.id)
+            else:
+                _logger.warning("Failed to delete Secret %s (pipeline %s)", secret_name, self.id)
+        except Exception:
+            _logger.debug("Secret %s cleanup failed (pipeline %s)", secret_name, self.id)
+
     def _create_pipeline_job(self):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes Python package is not installed on this server.")
@@ -427,6 +472,26 @@ class AuroraPipeline(models.Model):
         batch_v1 = k8s_client.BatchV1Api()
         core_v1 = k8s_client.CoreV1Api()
 
+        labels = {
+            "app.kubernetes.io/name": "aurora-pipeline",
+            "app.kubernetes.io/component": "pipeline-worker",
+            "app.kubernetes.io/managed-by": "aurora-odoo",
+            "platform": "aurora",
+            "pipeline-id": str(self.id),
+        }
+        if KUEUE_QUEUE:
+            labels["kueue.x-k8s.io/queue-name"] = KUEUE_QUEUE
+
+        secret_name = self._create_pipeline_secret(core_v1, labels)
+        cm_name = self._create_worker_configmap(core_v1, labels)
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        docker_image = (
+            ICP.get_param("aurora.worker_docker_image")
+            or _get_env("AURORA_DOCKER_IMAGE")
+            or DOCKER_IMAGE
+        )
+
         env_vars = [
             k8s_client.V1EnvVar(name="PIPELINE_ID", value=str(self.id)),
             k8s_client.V1EnvVar(name="ODOO_DB", value=db_name),
@@ -438,11 +503,43 @@ class AuroraPipeline(models.Model):
             k8s_client.V1EnvVar(name="DB_HOST", value=odoo_config["db_host"]),
             k8s_client.V1EnvVar(name="DB_PORT", value=str(odoo_config["db_port"] or "5432")),
             k8s_client.V1EnvVar(name="DB_USER", value=odoo_config["db_user"]),
-            k8s_client.V1EnvVar(name="DB_PASSWORD", value=odoo_config["db_password"]),
-            k8s_client.V1EnvVar(name="AURORA_ENCRYPTION_KEY", value=_get_env("AURORA_ENCRYPTION_KEY")),
+            k8s_client.V1EnvVar(
+                name="DB_PASSWORD",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="DB_PASSWORD",
+                    ),
+                ),
+            ),
+            k8s_client.V1EnvVar(
+                name="AURORA_ENCRYPTION_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_ENCRYPTION_KEY",
+                    ),
+                ),
+            ),
+            k8s_client.V1EnvVar(
+                name="AURORA_S3_ACCESS_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_S3_ACCESS_KEY",
+                    ),
+                ),
+            ),
+            k8s_client.V1EnvVar(
+                name="AURORA_S3_SECRET_KEY",
+                value_from=k8s_client.V1EnvVarSource(
+                    secret_key_ref=k8s_client.V1SecretKeySelector(
+                        name=secret_name, key="AURORA_S3_SECRET_KEY",
+                    ),
+                ),
+            ),
         ]
 
-        ICP = self.env["ir.config_parameter"].sudo()
+        s3_endpoint = _get_env("AURORA_S3_ENDPOINT")
+        if s3_endpoint:
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_S3_ENDPOINT", value=s3_endpoint))
 
         webhook_url = (
             _get_env("AURORA_WEBHOOK_URL")
@@ -457,23 +554,17 @@ class AuroraPipeline(models.Model):
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
 
-        labels = {
-            "app.kubernetes.io/name": "aurora-pipeline",
-            "app.kubernetes.io/component": "pipeline-worker",
-            "app.kubernetes.io/managed-by": "aurora-odoo",
-            "platform": "aurora",
-            "pipeline-id": str(self.id),
-            "kueue.x-k8s.io/queue-name": KUEUE_QUEUE,
-        }
-
-        cm_name = self._create_worker_configmap(core_v1, labels)
-
         container = k8s_client.V1Container(
             name="pipeline",
-            image=DOCKER_IMAGE,
-            image_pull_policy="Always",
+            image=docker_image,
+            image_pull_policy=IMAGE_PULL_POLICY,
             command=["python", WORKER_SCRIPT],
             env=env_vars,
+            security_context=k8s_client.V1SecurityContext(
+                run_as_non_root=True,
+                run_as_user=1000,
+                allow_privilege_escalation=False,
+            ),
             volume_mounts=[
                 k8s_client.V1VolumeMount(
                     name="odoo-config",
@@ -513,7 +604,10 @@ class AuroraPipeline(models.Model):
                 active_deadline_seconds=DEADLINE_SECONDS,
                 backoff_limit=0,
                 template=k8s_client.V1PodTemplateSpec(
-                    metadata=k8s_client.V1ObjectMeta(labels=labels),
+                    metadata=k8s_client.V1ObjectMeta(
+                        labels=labels,
+                        annotations={"karpenter.sh/do-not-disrupt": "true"},
+                    ),
                     spec=k8s_client.V1PodSpec(
                         service_account_name=SERVICE_ACCOUNT,
                         restart_policy="Never",
@@ -693,6 +787,7 @@ class AuroraPipeline(models.Model):
                     exc_info=True,
                 )
             self._delete_worker_configmap()
+            self._delete_pipeline_secret()
 
         self.write({"stage": "failed"})
         self.message_post(body="Pipeline cancelled by user.")
@@ -874,11 +969,19 @@ class AuroraPipeline(models.Model):
                 "creating an instance registry."
             )
 
-        from .registry_wizard import _TEMPLATE, _to_class_name
+        from .registry_wizard import (
+            _TEMPLATE,
+            _find_sample_registry,
+            _generate_llm_prompt,
+            _to_class_name,
+        )
         class_name = _to_class_name(repo)
         content = _TEMPLATE.format(
             class_name=class_name, org=org, repo=repo,
         )
+
+        sample = _find_sample_registry(lang, exclude_org=org)
+        llm_prompt = _generate_llm_prompt(org, repo, lang, sample) if sample else ""
 
         RegistryWiz = self.env["aurora.registry.wizard"]
         repo_safe = repo.replace("-", "_").lower()
@@ -889,6 +992,8 @@ class AuroraPipeline(models.Model):
             "lang": lang,
             "filename": f"{repo_safe}.py",
             "registry_content": content,
+            "sample_content": sample,
+            "llm_prompt": llm_prompt,
         })
         return {
             "type": "ir.actions.act_window",
@@ -911,7 +1016,11 @@ class AuroraPipeline(models.Model):
                 "Organisation, repository and language must be set."
             )
 
-        from .registry_wizard import _HARNESS_REPOS_ROOT
+        from .registry_wizard import (
+            _HARNESS_REPOS_ROOT,
+            _find_sample_registry,
+            _generate_llm_prompt,
+        )
 
         repo_safe = repo.replace("-", "_").lower()
         registry_file = _HARNESS_REPOS_ROOT / lang / org / f"{repo_safe}.py"
@@ -923,6 +1032,8 @@ class AuroraPipeline(models.Model):
             )
 
         content = registry_file.read_text()
+        sample = _find_sample_registry(lang, exclude_org=org)
+        llm_prompt = _generate_llm_prompt(org, repo, lang, sample) if sample else ""
 
         RegistryWiz = self.env["aurora.registry.wizard"]
         wiz = RegistryWiz.create({
@@ -932,6 +1043,8 @@ class AuroraPipeline(models.Model):
             "lang": lang,
             "filename": f"{repo_safe}.py",
             "registry_content": content,
+            "sample_content": sample,
+            "llm_prompt": llm_prompt,
             "edit_mode": True,
         })
         return {
@@ -1111,6 +1224,7 @@ class AuroraPipeline(models.Model):
                 except Exception:
                     _logger.warning("Failed to delete stalled Job %s", rec.job_name, exc_info=True)
                 rec._delete_worker_configmap()
+                rec._delete_pipeline_secret()
 
             rec.write({"stage": "failed"})
             rec.message_post(

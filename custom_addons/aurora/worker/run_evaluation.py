@@ -110,10 +110,64 @@ def _wait_for_docker(timeout: int = 120):
     )
 
 
+def _setup_buildx_builder():
+    """Create a buildx builder that leverages QEMU binfmt for multi-arch builds."""
+    import subprocess
+
+    builder_name = "aurora-multiarch"
+
+    inspect = subprocess.run(
+        ["docker", "buildx", "inspect", builder_name],
+        capture_output=True,
+        timeout=10,
+    )
+    if inspect.returncode == 0:
+        subprocess.run(
+            ["docker", "buildx", "use", builder_name],
+            capture_output=True,
+            timeout=10,
+        )
+        _logger.info("Buildx builder '%s' already exists, selected.", builder_name)
+        return
+
+    result = subprocess.run(
+        [
+            "docker", "buildx", "create",
+            "--name", builder_name,
+            "--driver", "docker-container",
+            "--bootstrap",
+            "--use",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        _logger.warning(
+            "Failed to create buildx builder '%s': %s",
+            builder_name,
+            result.stderr.strip(),
+        )
+        return
+
+    _logger.info("Created and bootstrapped buildx builder '%s'.", builder_name)
+
+
+_ALLOWED_EVAL_COLUMNS = frozenset({
+    "stage", "build_status", "run_status", "report_status",
+    "total_instances", "resolved_instances", "unresolved_instances", "error_instances",
+    "final_report_file", "missing_registries", "patch_file", "repo_dir", "workdir",
+    "output_dir", "last_heartbeat", "progress_text", "log", "s3_run_number",
+})
+
+
 def _update_eval(conn, rec_id: int, vals: dict):
     """Write evaluation fields via raw SQL."""
     if not vals:
         return
+    invalid_cols = set(vals.keys()) - _ALLOWED_EVAL_COLUMNS
+    if invalid_cols:
+        raise ValueError(f"Disallowed columns in _update_eval: {invalid_cols}")
     sets = []
     params = []
     for k, v in vals.items():
@@ -143,7 +197,6 @@ def _append_log(conn, rec_id: int, message: str):
 
 def _heartbeat(conn, rec_id: int, progress_text: Optional[str] = None):
     """Update heartbeat timestamp."""
-    vals = {"last_heartbeat": "NOW()"}
     sets = ["last_heartbeat = NOW()"]
     params = []
     if progress_text:
@@ -270,6 +323,28 @@ def _generate_patch_file(dataset_path: str, output_path: str) -> str:
     return output_path
 
 
+def _safe_collect(conn, rec_id: int, phase_label: str, fn):
+    try:
+        fn()
+    except Exception as exc:
+        _logger.warning("Artifact collection %s failed for eval=%s: %s",
+                        phase_label, rec_id, exc, exc_info=True)
+        _append_log(conn, rec_id, f"[warn] {phase_label} artifact collection failed: {exc}")
+
+
+def _seed_instance_records(conn, rec_id: int, instances):
+    from odoo.addons.aurora.models import artifact_collector
+    for inst in instances:
+        pr = inst.pr
+        iid = artifact_collector.instance_id_for(pr)
+        image = inst.dependency()
+        artifact_collector.ensure_instance(
+            conn, rec_id, pr.org, pr.repo, iid,
+            image_tag=(image.image_full_name() if hasattr(image, "image_full_name") else image.workdir()),
+            image_workdir=image.workdir(),
+        )
+
+
 def _setup_git_auth(token: str) -> Optional[str]:
     """Create a git credential helper script for authenticated clone.
 
@@ -328,12 +403,18 @@ def run_evaluation(db_name: str, rec_id: int):
 
     def _heartbeat_loop():
         while not heartbeat_stop.wait(timeout=60):
+            hb_conn = None
             try:
                 hb_conn = _open_cursor(db_name)
                 _heartbeat(hb_conn, rec_id, None)
-                hb_conn.close()
             except Exception:
                 _logger.debug("Heartbeat write failed", exc_info=True)
+            finally:
+                if hb_conn is not None:
+                    try:
+                        hb_conn.close()
+                    except Exception:
+                        pass
 
     heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
     heartbeat_thread.start()
@@ -354,6 +435,10 @@ def run_evaluation(db_name: str, rec_id: int):
         # Read config
         cfg = _read_eval_config(conn, rec_id)
         _append_log(conn, rec_id, f"Config loaded: workdir={cfg['workdir']}")
+
+        if cfg.get("docker_platform"):
+            _setup_buildx_builder()
+            _append_log(conn, rec_id, f"Buildx multi-arch builder ready (platform={cfg['docker_platform']}).")
 
         # Ensure working directories exist (K8s pod starts with empty volume)
         for dir_key in ("workdir", "output_dir", "repo_dir"):
@@ -378,6 +463,7 @@ def run_evaluation(db_name: str, rec_id: int):
 
         # Resolve remote dataset to local
         from odoo.addons.aurora.models import dataset_resolver
+        from odoo.addons.aurora.models import s3_storage as s3_storage_mod
         dataset_file = cfg["dataset_file"]
         if dataset_resolver.is_remote(dataset_file):
             _append_log(conn, rec_id, f"Downloading remote dataset: {dataset_file}")
@@ -472,6 +558,7 @@ def run_evaluation(db_name: str, rec_id: int):
             specifics = {s.strip() for s in cfg["specific_prs"].split(",") if s.strip()}
 
         # Build EvalConfig
+        oci_tar_dir = Path(cfg["workdir"]) / "oci_tars" if cfg.get("docker_platform") else None
         eval_config = EvalConfig(
             mode="evaluation",
             workdir=cfg["workdir"],
@@ -489,6 +576,7 @@ def run_evaluation(db_name: str, rec_id: int):
             log_level="INFO",
             log_to_console=True,
             platform=cfg["docker_platform"],
+            output_tar=oci_tar_dir,
             specifics=specifics,
             instance_limit=cfg["instance_limit"],
         )
@@ -500,6 +588,21 @@ def run_evaluation(db_name: str, rec_id: int):
 
         _append_log(conn, rec_id, f"Found {total_instances} instances to evaluate.")
         _update_eval(conn, rec_id, {"total_instances": total_instances})
+
+        from odoo.addons.aurora.models import artifact_collector
+        s3_config = artifact_collector.load_s3_config()
+        use_s3 = s3_storage_mod.is_configured(s3_config)
+        s3_folder = (s3_config.get("folder") or "").strip("/")
+        phase = "aurora_phase2"
+        run_numbers = artifact_collector.resolve_run_numbers(
+            s3_config, use_s3, s3_folder, phase, eval_config.instances,
+        )
+        if use_s3:
+            _append_log(conn, rec_id, f"S3 artifact upload enabled (run_numbers={dict(run_numbers)})")
+        else:
+            _append_log(conn, rec_id, "S3 not configured — artifacts will only persist in DB inline fields.")
+
+        _seed_instance_records(conn, rec_id, eval_config.instances)
 
         # ── Stage 1: Build Docker Images ──────────────────────────────────
         _check_cancelled()
@@ -518,6 +621,12 @@ def run_evaluation(db_name: str, rec_id: int):
             _fail_eval(conn, rec_id, f"Image build failed: {exc}")
             raise
 
+        _safe_collect(conn, rec_id, "post-build", lambda: artifact_collector.populate_build_artifacts(
+            conn, rec_id, cfg["workdir"], eval_config.instances,
+            s3_config, use_s3, run_numbers, s3_folder, phase,
+            oci_tar_dir=str(oci_tar_dir) if oci_tar_dir else None,
+        ))
+
         # ── Stage 2: Run Instances ────────────────────────────────────────
         _check_cancelled()
         _update_eval(conn, rec_id, {
@@ -534,6 +643,11 @@ def run_evaluation(db_name: str, rec_id: int):
         except Exception as exc:
             _fail_eval(conn, rec_id, f"Instance run failed: {exc}")
             raise
+
+        _safe_collect(conn, rec_id, "post-run", lambda: artifact_collector.populate_run_artifacts(
+            conn, rec_id, cfg["workdir"], eval_config.instances,
+            s3_config, use_s3, run_numbers, s3_folder, phase,
+        ))
 
         # ── Stage 3: Generate Reports ─────────────────────────────────────
         _check_cancelled()
@@ -565,6 +679,11 @@ def run_evaluation(db_name: str, rec_id: int):
         except Exception as exc:
             _fail_eval(conn, rec_id, f"Report generation failed: {exc}")
             raise
+
+        _safe_collect(conn, rec_id, "post-report", lambda: artifact_collector.populate_report_artifacts(
+            conn, rec_id, cfg["workdir"], cfg["output_dir"], eval_config.instances,
+            s3_config, use_s3, run_numbers, s3_folder, phase,
+        ))
 
         # ── Finalize ──────────────────────────────────────────────────────
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"

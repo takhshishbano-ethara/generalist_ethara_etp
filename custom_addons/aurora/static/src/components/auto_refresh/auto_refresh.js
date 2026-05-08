@@ -19,7 +19,7 @@ const STAGING_POLL_STAGES = new Set([
     "testing", "evaluating",
 ]);
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 15000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 export class AuroraAutoRefresh extends Component {
@@ -40,14 +40,29 @@ export class AuroraAutoRefresh extends Component {
             }
         };
 
+        this._onBusUpdate = (ev) => {
+            const payload = ev.detail;
+            if (this._matchesRecord(payload)) {
+                this._reload();
+            }
+        };
+
         onMounted(() => {
             document.addEventListener("visibilitychange", this._onVisibilityChange);
+            this.env.bus.addEventListener("AURORA:STATUS_UPDATE", this._onBusUpdate);
             this._checkAndStart();
         });
         onWillUnmount(() => {
             document.removeEventListener("visibilitychange", this._onVisibilityChange);
+            this.env.bus.removeEventListener("AURORA:STATUS_UPDATE", this._onBusUpdate);
             this._stop();
         });
+    }
+
+    _matchesRecord(payload) {
+        if (!payload) return false;
+        const record = this.props.record;
+        return payload.model === record.resModel && payload.id === record.resId;
     }
 
     _isEvaluation() {
@@ -80,30 +95,32 @@ export class AuroraAutoRefresh extends Component {
         }
     }
 
+    async _reload() {
+        if (this._reloading || document.hidden) return;
+        this._reloading = true;
+        try {
+            await this.props.record.load();
+            this.props.record.model.notify();
+            this._failCount = 0;
+        } catch {
+            this._failCount += 1;
+            if (this._failCount >= MAX_CONSECUTIVE_FAILURES) {
+                this._stop();
+                return;
+            }
+        } finally {
+            this._reloading = false;
+        }
+        if (!this._shouldPoll()) {
+            this._stop();
+        }
+    }
+
     _start() {
         if (this._timer) return;
         this.state.active = true;
         this._failCount = 0;
-        this._timer = setInterval(async () => {
-            if (this._reloading || document.hidden) return;
-            this._reloading = true;
-            try {
-                await this.props.record.load();
-                this.props.record.model.notify();
-                this._failCount = 0;
-            } catch {
-                this._failCount += 1;
-                if (this._failCount >= MAX_CONSECUTIVE_FAILURES) {
-                    this._stop();
-                    return;
-                }
-            } finally {
-                this._reloading = false;
-            }
-            if (!this._shouldPoll()) {
-                this._stop();
-            }
-        }, POLL_INTERVAL);
+        this._timer = setInterval(() => this._reload(), POLL_INTERVAL);
     }
 
     _stop() {

@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aurora-worker
+  namespace: aurora
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aurora-worker-role
+  namespace: aurora
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["create", "get", "update", "patch", "delete", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aurora-worker-binding
+  namespace: aurora
+subjects:
+  - kind: ServiceAccount
+    name: aurora-worker
+    namespace: aurora
+roleRef:
+  kind: Role
+  name: aurora-worker-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: odoo-pod-role
+  namespace: aurora
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["create", "get", "update", "patch", "delete", "replace", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: odoo-pod-binding
+  namespace: aurora
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: aurora
+roleRef:
+  kind: Role
+  name: odoo-pod-role
+  apiGroup: rbac.authorization.k8s.io
