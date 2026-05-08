@@ -48,7 +48,7 @@
                 <a t-att-href="state.docs_url" target="_blank" class="hk-backend-link">
                     Documentation
                 </a>
-                <a href="/huskarl" target="_blank" class="hk-backend-link">
+                <a href="/mars" target="_blank" class="hk-backend-link">
                     Portal View
                 </a>
             </div>

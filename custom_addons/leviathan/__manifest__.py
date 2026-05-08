@@ -1,0 +1,22 @@
+{
+    "name": "Leviathan",
+    "version": "19.0.1.0.0",
+    "category": "Tools",
+    "summary": "Leviathan — Automated PRD Generation Pipeline",
+    "description": "Leviathan custom module for Ethara ETP. Automated website analysis and PRD generation using AWS Bedrock LLM with deterministic scoring.",
+    "author": "Ethara",
+    "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
+    "data": [
+        "security/leviathan_security.xml",
+        "security/ir.model.access.csv",
+        "security/record_rules.xml",
+        "data/category_seed.xml",
+        "data/cron.xml",
+        "views/res_config_settings_views.xml",
+        "views/leviathan_job_views.xml",
+        "views/menuitems.xml",
+    ],
+    "installable": True,
+    "application": True,
+    "license": "LGPL-3",
+}

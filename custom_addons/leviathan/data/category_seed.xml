@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="category_normal_website" model="leviathan.category">
+            <field name="name">Normal Website</field>
+            <field name="technical_key">normal_website</field>
+        </record>
+        <record id="category_cool_transition" model="leviathan.category">
+            <field name="name">Cool Transition</field>
+            <field name="technical_key">cool_transition</field>
+        </record>
+        <record id="category_representation" model="leviathan.category">
+            <field name="name">Representation Format</field>
+            <field name="technical_key">representation</field>
+        </record>
+        <record id="category_svg_vector" model="leviathan.category">
+            <field name="name">SVG &amp; Vector Graphics</field>
+            <field name="technical_key">svg_vector</field>
+        </record>
+        <record id="category_3d_webgl" model="leviathan.category">
+            <field name="name">3D &amp; WebGL / Game</field>
+            <field name="technical_key">3d_webgl</field>
+        </record>
+    </data>
+</odoo>

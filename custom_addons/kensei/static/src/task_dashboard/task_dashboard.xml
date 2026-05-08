@@ -72,7 +72,7 @@
                                 </span>
                                 <t t-if="this.testResultsSummary">
                                     <span class="o_kensei_test_results_count">
-                                        <t t-out="this.testResultsSummary.total"/> run(s)
+                                        <t t-out="this.activeTestResults.length"/> run(s)
                                     </span>
                                 </t>
                                 <div class="ms-auto d-flex align-items-center gap-2">

@@ -17,6 +17,64 @@
                 </div>
             </div>
 
+            <!-- Filter Bar -->
+            <div class="etp-dash-filters">
+                <div class="etp-dash-filter-group">
+                    <select class="form-select form-select-sm etp-filter-select"
+                            t-on-change="onAssessmentChange">
+                        <option value="">All Assessments</option>
+                        <t t-foreach="state.assessment_options" t-as="opt" t-key="opt.id">
+                            <option t-att-value="opt.id"
+                                    t-att-selected="filters.assessment_id === opt.id">
+                                <t t-esc="opt.name"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <select class="form-select form-select-sm etp-filter-select"
+                            t-on-change="onCategoryChange">
+                        <option value="">All Categories</option>
+                        <t t-foreach="state.categories" t-as="cat" t-key="cat.id">
+                            <option t-att-value="cat.id"
+                                    t-att-selected="filters.category_id === cat.id">
+                                <t t-esc="cat.name"/>
+                            </option>
+                        </t>
+                    </select>
+                </div>
+
+                <div class="etp-dash-filter-group">
+                    <div class="etp-state-pills">
+                        <button t-attf-class="btn btn-sm {{filters.state === 'draft' ? 'btn-warning' : 'btn-outline-secondary'}}"
+                                t-on-click="() => this.onStateChange('draft')">Draft</button>
+                        <button t-attf-class="btn btn-sm {{filters.state === 'in_progress' ? 'btn-info' : 'btn-outline-secondary'}}"
+                                t-on-click="() => this.onStateChange('in_progress')">Active</button>
+                        <button t-attf-class="btn btn-sm {{filters.state === 'done' ? 'btn-success' : 'btn-outline-secondary'}}"
+                                t-on-click="() => this.onStateChange('done')">Done</button>
+                        <button t-attf-class="btn btn-sm {{filters.state === 'cancelled' ? 'btn-danger' : 'btn-outline-secondary'}}"
+                                t-on-click="() => this.onStateChange('cancelled')">Cancelled</button>
+                    </div>
+                </div>
+
+                <div class="etp-dash-filter-group">
+                    <input type="date" class="form-control form-control-sm etp-filter-date"
+                           t-att-value="filters.date_from"
+                           t-on-change="onDateFromChange"
+                           placeholder="From"/>
+                    <span class="etp-filter-date-sep">–</span>
+                    <input type="date" class="form-control form-control-sm etp-filter-date"
+                           t-att-value="filters.date_to"
+                           t-on-change="onDateToChange"
+                           placeholder="To"/>
+                </div>
+
+                <div class="etp-dash-filter-group" t-if="hasActiveFilters">
+                    <button class="btn btn-sm btn-outline-danger" t-on-click="clearFilters">
+                        <i class="fa fa-times me-1"/>Clear
+                    </button>
+                </div>
+            </div>
+
             <div t-if="!state.loaded" class="etp-dash-loading">
                 <i class="fa fa-circle-o-notch fa-spin fa-2x"/>
                 <span>Loading dashboard…</span>

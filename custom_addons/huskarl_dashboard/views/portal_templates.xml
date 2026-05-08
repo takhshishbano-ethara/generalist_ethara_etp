@@ -66,7 +66,7 @@
       <span class="badge">REINFORCEMENT</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">Agentic Code RL Environments with Human Curated <span class="thesis-em" style="font-style:normal;">Reward Signals</span></p>
+    <p class="thesis">How well do AI agents solve hard terminal tasks in real environments?</p>
   </header>
 
   <main id="main">

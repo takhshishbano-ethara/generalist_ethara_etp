@@ -62,7 +62,7 @@
       const punctMatch = w.match(/^(.*?)([.,!?;:]+)$/);
       const core = punctMatch ? punctMatch[1] : w;
       const punct = punctMatch ? punctMatch[2] : '';
-      const isEm = core.toLowerCase() === 'pressure';
+      const isEm = core.toLowerCase() === 'attack';
       const innerMarkup = isEm
         ? '<span class="thesis-em">' + core + '</span>' + punct
         : w;
@@ -165,7 +165,7 @@
 
   function safetyClass(val) {
     if (val === 'safe') return 'safety-safe';
-    if (val === 'Un Safe') return 'safety-unsafe';
+    if (val === 'Unsafe') return 'safety-unsafe';
     return 'safety-error';
   }
 

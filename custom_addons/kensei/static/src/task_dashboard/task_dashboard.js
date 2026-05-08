@@ -506,15 +506,13 @@ export class TaskDashboard extends Component {
         if (!this.taskId) return;
         try {
             const sandboxIds = Object.values(this.state.sandboxes).map(sb => sb.id).filter(Boolean);
-            let domain;
-            if (sandboxIds.length > 0) {
-                domain = ["|", ["kensei_id", "=", this.taskId], ["sandbox_id", "in", sandboxIds]];
-            } else {
-                domain = [["kensei_id", "=", this.taskId]];
+            if (sandboxIds.length === 0) {
+                this.state.testResults = {};
+                return;
             }
             const results = await this.orm.searchRead(
                 "kensei.test.result",
-                domain,
+                [["sandbox_id", "in", sandboxIds]],
                 [
                     "id", "sandbox_id", "model_type", "model_used", "status",
                     "tests_total", "tests_passed", "tests_failed", "tests_errored",
@@ -525,13 +523,13 @@ export class TaskDashboard extends Component {
             );
             const grouped = {};
             for (const r of results) {
-                let modelType = r.model_type || "";
-                if (!modelType && r.sandbox_id) {
+                let modelType = "";
+                if (r.sandbox_id) {
                     const sbId = r.sandbox_id[0];
                     const sb = Object.values(this.state.sandboxes).find(s => s.id === sbId);
-                    modelType = sb ? sb.model_type : "unknown";
+                    if (sb) modelType = sb.model_type;
                 }
-                if (!modelType) modelType = "unknown";
+                if (!modelType) modelType = r.model_type || "unknown";
                 if (!grouped[modelType]) grouped[modelType] = [];
                 grouped[modelType].push(r);
             }
@@ -661,7 +659,7 @@ export class TaskDashboard extends Component {
 
     getTestFunctions(result) {
         if (!result.test_code) return [];
-        const regex = /^(?:def|async def)\s+(test_\w+)\s*\(/gm;
+        const regex = /(?:def|async def)\s+(test_\w+)\s*\(/gm;
         const funcs = [];
         let match;
         while ((match = regex.exec(result.test_code)) !== null) {
@@ -672,9 +670,11 @@ export class TaskDashboard extends Component {
 
     getFunctionStatus(result, funcName) {
         if (!result.test_output) return "unknown";
-        if (result.test_output.includes(funcName + " PASSED")) return "passed";
-        if (result.test_output.includes(funcName + " FAILED")) return "failed";
-        if (result.test_output.includes(funcName + " ERROR")) return "error";
+        const output = result.test_output;
+        if (output.includes(funcName + " PASSED") || output.includes(funcName + "\\s+PASSED") ||
+            output.match(new RegExp(funcName + "\\s+PASSED"))) return "passed";
+        if (output.includes(funcName + " FAILED") || output.match(new RegExp(funcName + "\\s+FAILED"))) return "failed";
+        if (output.includes(funcName + " ERROR") || output.match(new RegExp(funcName + "\\s+ERROR"))) return "error";
         return "unknown";
     }
 
@@ -708,7 +708,7 @@ export class TaskDashboard extends Component {
     getFunctionCode(result, funcName) {
         if (!result.test_code) return "";
         const code = result.test_code;
-        const regex = new RegExp(`((?:def|async def)\\s+${funcName}\\s*\\([\\s\\S]*?)(?=\\n(?:def|async def|class)\\s|$)`, "m");
+        const regex = new RegExp(`([ \\t]*(?:def|async def)\\s+${funcName}\\s*\\([\\s\\S]*?)(?=\\n[ \\t]*(?:def|async def|class)\\s|$)`, "m");
         const match = code.match(regex);
         return match ? match[1].trim() : "";
     }
@@ -721,12 +721,15 @@ export class TaskDashboard extends Component {
     get testResultsSummary() {
         const results = this.activeTestResults;
         if (results.length === 0) return null;
-        const total = results.length;
-        const passed = results.filter(r => r.status === "passed").length;
-        const failed = results.filter(r => r.status === "failed").length;
-        const errored = results.filter(r => r.status === "error").length;
-        const running = results.filter(r => r.status === "running" || r.status === "generating").length;
-        return { total, passed, failed, errored, running };
+        let totalTests = 0, passed = 0, failed = 0, errored = 0, running = 0;
+        for (const r of results) {
+            totalTests += r.tests_total || 0;
+            passed += r.tests_passed || 0;
+            failed += r.tests_failed || 0;
+            errored += r.tests_errored || 0;
+            if (r.status === "running" || r.status === "generating") running++;
+        }
+        return { total: totalTests, passed, failed, errored, running };
     }
 
     async _saveRubrics() {
