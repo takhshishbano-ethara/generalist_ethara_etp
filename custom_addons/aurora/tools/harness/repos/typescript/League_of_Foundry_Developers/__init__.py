@@ -1,2 +1,0 @@
-from odoo.addons.aurora.tools.harness.repos.typescript.League_of_Foundry_Developers.foundry_vtt_types_1518_to_1464 import *
-from odoo.addons.aurora.tools.harness.repos.typescript.League_of_Foundry_Developers.foundry_vtt_types_1420_to_246 import *

@@ -192,7 +192,6 @@ def _notify_webhook(registry, db_name: str, rec_id: int, stage: str, progress_te
                 "Content-Type": "application/json",
                 "X-Aurora-Timestamp": ts,
                 "X-Aurora-Signature": sig,
-                "X-Aurora-Token": webhook_secret,
             },
             timeout=30,
         )
@@ -305,6 +304,7 @@ def _read_config(registry, rec_id: int) -> dict[str, Any]:
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
             "cache_dir": ICP.get_param("aurora.cache_dir", "/tmp/repo_cache"),
+            "min_merge_date": ICP.get_param("aurora.min_merge_date", "2021-01-01"),
             "s3_bucket": S3_BUCKET,
             "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
             "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),
@@ -586,7 +586,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
 
         result = _run_step(
             2, "step2_status", "filter_prs", "Filtering PRs",
-            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True),
+            lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, min_merge_date=cfg.get("min_merge_date", "2021-01-01")),
             step2_file,
         )
         if result is None:

@@ -1,2 +1,0 @@
-from odoo.addons.aurora.tools.harness.repos.python.python_telegram_bot.python_telegram_bot_4640_to_4388 import *
-from odoo.addons.aurora.tools.harness.repos.python.python_telegram_bot.python_telegram_bot_4170_to_3929 import *

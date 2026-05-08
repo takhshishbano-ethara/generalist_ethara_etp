@@ -15,6 +15,11 @@ _HARNESS_REPOS_ROOT = (
     / "repos"
 )
 
+# Also check Aurora's own harness repos (these are the Odoo-imports style)
+_AURORA_HARNESS_REPOS_ROOT = (
+    Path(__file__).resolve().parent.parent / "tools" / "harness" / "repos"
+)
+
 _TEMPLATE = '''\
 import re
 from typing import Optional, Union
@@ -205,6 +210,85 @@ def _to_class_name(s: str) -> str:
     return re.sub(r'[^a-zA-Z0-9]', '', s.replace('-', ' ').replace('_', ' ').title())
 
 
+def _find_sample_registry(lang: str, exclude_org: str = "", exclude_repo: str = "") -> str:
+    for root in (_AURORA_HARNESS_REPOS_ROOT, _HARNESS_REPOS_ROOT):
+        lang_dir = root / lang
+        if not lang_dir.is_dir():
+            continue
+        for org_dir in sorted(lang_dir.iterdir()):
+            if not org_dir.is_dir() or org_dir.name.startswith("_"):
+                continue
+            if org_dir.name == exclude_org:
+                continue
+            for py_file in sorted(org_dir.glob("*.py")):
+                if py_file.name == "__init__.py":
+                    continue
+                # Skip number-interval range files (e.g. jackson_databind_5714_to_1113.py)
+                if re.search(r'_\d+_to_\d+\.py$', py_file.name):
+                    continue
+                content = py_file.read_text()
+                if "Instance.register(" in content and "class " in content:
+                    return content
+    return ""
+
+
+def _generate_llm_prompt(org: str, repo: str, lang: str, sample_content: str) -> str:
+    lang_hints = {
+        "python": "pytest / unittest / tox",
+        "typescript": "jest / vitest / mocha",
+        "javascript": "jest / mocha / ava",
+        "java": "maven (mvn test) / gradle (./gradlew test) / JUnit",
+        "c": "make test / ctest / custom test scripts",
+        "cpp": "cmake + ctest / make test / catch2",
+        "csharp": "dotnet test / NUnit / xUnit",
+        "golang": "go test ./...",
+        "rust": "cargo test",
+        "ruby": "bundle exec rake test / rspec",
+        "php": "phpunit / pest",
+        "kotlin": "gradle test / ./gradlew test",
+        "scala": "sbt test",
+        "swift": "swift test / xcodebuild test",
+    }
+    test_frameworks = lang_hints.get(lang, "the standard test runner for this language")
+
+    prompt = f"""I need you to write a harness registry file for the GitHub repository `{org}/{repo}` (language: {lang}).
+
+This registry is used by an evaluation pipeline that:
+1. Builds a Docker base image with the repo cloned
+2. Builds a per-PR image that checks out a specific commit, applies patches, and installs dependencies
+3. Runs tests (baseline run, test-patch run, fix-patch run)
+4. Parses the test log output to extract passed/failed/skipped tests
+
+The file must define exactly 3 classes:
+- `<Name>ImageBase(Image)` — base Docker image (picks the right base image like node:20, ubuntu:22.04, etc., installs language runtime + build tools, clones the repo)
+- `<Name>ImageDefault(Image)` — per-PR image (depends on ImageBase, copies patches + scripts, runs prepare.sh to checkout the base commit and install deps)
+- `<Name>(Instance)` — registered with `@Instance.register("{org}", "{repo}")`, defines `run()`, `test_patch_run()`, `fix_patch_run()`, and `parse_log()`
+
+Key requirements:
+- `dependency()` in ImageBase should return the appropriate Docker base image for {lang} (e.g. node:20, python:3.11, ubuntu:22.04 with JDK, etc.)
+- The prepare.sh script should: checkout the base commit (`self.pr.base.sha`), install all deps
+- The run.sh script should: run the test suite (common frameworks: {test_frameworks})
+- test-run.sh: apply test.patch then run tests
+- fix-run.sh: apply test.patch + fix.patch then run tests
+- `parse_log()` must parse the actual test output format of this repo's test framework and extract individual test names into passed/failed/skipped sets
+
+Please look at the `{org}/{repo}` repository on GitHub to determine:
+1. What Docker base image to use
+2. How to install dependencies (package manager, build system)
+3. How to run tests (exact command)
+4. What the test output format looks like (so you can write regex for parse_log)
+
+Here is a COMPLETE working example registry for another {lang} repository — follow this structure exactly:
+
+```python
+{sample_content}
+```
+
+Write the complete registry file for `{org}/{repo}`. Return ONLY the Python code, no explanations."""
+
+    return prompt
+
+
 class AuroraRegistryWizard(models.TransientModel):
     _name = "aurora.registry.wizard"
     _description = "Create Instance Registry"
@@ -215,6 +299,14 @@ class AuroraRegistryWizard(models.TransientModel):
     lang = fields.Char(required=True, readonly=True)
     filename = fields.Char(readonly=True)
     registry_content = fields.Text(string="Registry Code (Python)")
+    sample_content = fields.Text(
+        string="Reference Registry (same language)",
+        readonly=True,
+    )
+    llm_prompt = fields.Text(
+        string="LLM Prompt",
+        readonly=True,
+    )
     edit_mode = fields.Boolean(default=False)
 
     def action_save_registry(self):

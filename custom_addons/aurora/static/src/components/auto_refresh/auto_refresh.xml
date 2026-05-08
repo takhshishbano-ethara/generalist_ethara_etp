@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="aurora.AuroraAutoRefresh">
-        <div t-if="state.active" class="aurora-polling-indicator">
-            <i class="fa fa-refresh fa-spin me-1"/>
-            <span>Auto-refreshing…</span>
+        <div t-if="state.active" class="aurora-polling-indicator badge text-bg-info">
+            <i class="fa fa-circle-o-notch fa-spin me-1"/>
+            <span>Live</span>
         </div>
     </t>
 </templates>

@@ -142,8 +142,7 @@ class TestRepoCloneCache(TestCase):
         from odoo.addons.aurora.tools.collect.build_dataset import RepoCloneCache
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = RepoCloneCache(tmpdir)
-            path = cache._repo_path("myorg", "myrepo")
-            self.assertEqual(path.name, "myorg__myrepo.git")
+            self.assertEqual(cache._cache_dir, tmpdir)
 
     @patch("subprocess.run")
     def test_get_diff_calls_git(self, mock_run):

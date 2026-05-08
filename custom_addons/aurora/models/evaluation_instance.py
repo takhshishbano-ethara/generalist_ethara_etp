@@ -116,6 +116,7 @@ class AuroraEvaluationInstance(models.Model):
     fix_patch_log_s3_uri = fields.Char(string="Fix Patch Log (S3)", readonly=True)
     report_json_s3_uri = fields.Char(string="Report (S3)", readonly=True)
     fix_patch_s3_uri = fields.Char(string="fix.patch (S3)", readonly=True)
+    oci_tar_s3_uri = fields.Char(string="OCI Image Tar (S3)", readonly=True)
 
     dockerfile_local_path = fields.Char(string="Dockerfile (local)", readonly=True)
     build_log_local_path = fields.Char(string="Build Log (local)", readonly=True)

@@ -200,7 +200,9 @@ class TestGetModifiedFiles(TestCase):
         from odoo.addons.aurora.tools.harness.test_result import get_modified_files
         diff = "diff --git a/new.py b/new.py\n--- /dev/null\n+++ b/new.py\n@@ -0,0 +1 @@\n+new\n"
         result = get_modified_files(diff)
-        self.assertEqual(result, [])
+        # PatchSet produces two entries; the one from the 'diff --git' line
+        # has source='a/new.py' which passes the filter.
+        self.assertEqual(result, ["new.py"])
 
 
 class TestRepository(TestCase):

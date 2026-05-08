@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_registry_wizard_form" model="ir.ui.view">
+        <field name="name">aurora.registry.wizard.form</field>
+        <field name="model">aurora.registry.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Instance Registry">
+                <sheet>
+                    <group>
+                        <group string="Target">
+                            <field name="org"/>
+                            <field name="repo"/>
+                            <field name="lang"/>
+                            <field name="filename"/>
+                        </group>
+                        <group string="Status">
+                            <field name="edit_mode" invisible="1"/>
+                            <field name="pipeline_id" invisible="1"/>
+                            <div invisible="not edit_mode">
+                                <span class="badge text-bg-info">Editing existing registry</span>
+                            </div>
+                            <div invisible="edit_mode">
+                                <span class="badge text-bg-warning">New registry — use the LLM prompt below to generate code</span>
+                            </div>
+                        </group>
+                    </group>
+
+                    <separator string="LLM Prompt (copy and paste into your AI assistant)"/>
+                    <field name="llm_prompt" widget="text" readonly="1"
+                           placeholder="No sample registry found for this language — prompt cannot be generated."
+                           class="o_field_text"/>
+
+                    <separator string="Registry Code — edit below or paste LLM output"/>
+                    <field name="registry_content" widget="ace" options="{'mode': 'python'}"
+                           placeholder="Paste the generated registry code here..."/>
+
+                    <separator string="Reference Registry (same language, read-only)"/>
+                    <field name="sample_content" widget="ace" options="{'mode': 'python'}" readonly="1"
+                           placeholder="No reference registry found for this language."/>
+                </sheet>
+
+                <footer>
+                    <button name="action_save_registry" string="Save Registry" type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

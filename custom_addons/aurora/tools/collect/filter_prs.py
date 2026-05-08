@@ -88,11 +88,12 @@ def extract_resolved_issues(pull: dict) -> list[str]:
     return list(resolved_issues)
 
 
-def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool = True):
+def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: bool = True, min_merge_date: str = "2021-01-01"):
     _logger.info("starting filter to obtain required pull requests")
     _logger.info(f"Output directory: {out_dir}")
     _logger.info(f"All Pull Requests: {prs_file}")
     _logger.info(f"Skip commit message: {skip_commit_message}")
+    _logger.info(f"Min merge date: {min_merge_date}")
 
     if skip_commit_message:
         _logger.warning(
@@ -136,6 +137,9 @@ def main(tokens: list[str], out_dir: Path, prs_file: Path, skip_commit_message: 
                 continue
 
             if not pull.get("merged_at"):
+                continue
+
+            if min_merge_date and pull["merged_at"] < min_merge_date:
                 continue
 
             pull["commits"] = []

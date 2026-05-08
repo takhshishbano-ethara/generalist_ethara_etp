@@ -1,2 +1,0 @@
-from odoo.addons.aurora.tools.harness.repos.typescript.archestra_ai.archestra_1452_to_32 import *
-from odoo.addons.aurora.tools.harness.repos.typescript.archestra_ai.archestra_3056_to_1453 import *

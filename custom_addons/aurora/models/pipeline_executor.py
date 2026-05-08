@@ -318,6 +318,7 @@ def _read_config(db_name: str, rec_id: int) -> dict[str, Any]:
             "max_tags": int(ICP.get_param("aurora.max_tags", "200")),
             "window_days": int(ICP.get_param("aurora.window_days", "30")),
             "cache_dir": ICP.get_param("aurora.cache_dir", ".repo_cache"),
+            "min_merge_date": ICP.get_param("aurora.min_merge_date", "2021-01-01"),
             "s3_bucket": S3_BUCKET,
             "s3_access_key": _get_env("AURORA_S3_ACCESS_KEY"),
             "s3_secret_key": _get_env("AURORA_S3_SECRET_KEY"),
@@ -627,7 +628,7 @@ def _run_pipeline(db_name, uid, rec_id):
             _heartbeat(cr, rec_id, "Step 1 skipped")
 
         result = _run_step(2, "step2_status", "filter_prs", "Filtering PRs",
-                           lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True), step2_file)
+                           lambda: filter_prs(tokens, out, step1_file, skip_commit_message=True, min_merge_date=cfg.get("min_merge_date", "2021-01-01")), step2_file)
         if result is None:
             return
         _update_pipeline(cr, rec_id, {"filtered_pr_count": result})

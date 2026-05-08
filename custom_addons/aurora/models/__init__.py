@@ -1,6 +1,7 @@
 from . import credential_manager
 from . import pipeline_config
 from . import s3_storage
+from . import artifact_collector
 from . import pipeline_executor
 from . import pipeline
 from . import pipeline_result
