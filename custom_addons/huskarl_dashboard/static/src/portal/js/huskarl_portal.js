@@ -249,8 +249,8 @@
     const nova = inst.models['Nova 2 Lite'] || {};
 
     return `<tr class="detail-row" data-detail-for="${esc(inst.instance_id)}"><td colspan="9"><div class="detail-content"><div class="detail-grid">`
-      + `<div class="detail-block"><div class="detail-block-title">Environment</div>`
-        + item('Environment ID', esc(inst.instance_id))
+      + `<div class="detail-block"><div class="detail-block-title">Instance</div>`
+        + item('Instance ID', esc(inst.instance_id))
         + item('Description', esc(inst.task_description))
         + item('Category', esc(inst.category))
         + item('Skill Domain', esc(inst.skill_domain))
