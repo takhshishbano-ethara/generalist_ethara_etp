@@ -15,7 +15,7 @@ _DATA_PATH = os.path.join(
 
 class AkatsukiShowcaseController(http.Controller):
 
-    @http.route("/Janus", type="http", auth="public", website=True, sitemap=True)
+    @http.route("/janus", type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
         try:
@@ -37,7 +37,7 @@ class AkatsukiShowcaseController(http.Controller):
         }
         return request.render("akatsuki_dashboard.portal_showcase", values)
 
-    @http.route("/Janus/api/instances", type="http", auth="public", cors="*")
+    @http.route("/janus/api/instances", type="http", auth="public", cors="*")
     def api_instances(self, **kw):
         try:
             with open(_DATA_PATH, "r") as f:

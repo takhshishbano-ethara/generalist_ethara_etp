@@ -76,7 +76,7 @@
     <p class="section-label" id="overview-label">&#xA7;01 &#xB7; The question</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Agentic-MME is a reinforcement learning environment for training multimodal agents to solve visual reasoning tasks through tool use. Each instance includes a high-resolution image, a question that cannot be answered without acting on the visual input, and a set of 17 tools spanning image manipulation and web search. Reward signals are generated using 2,000+ stepwise checkpoints that decompose performance into search correctness, visual operation accuracy, and efficiency. Two frontier models were tested on 10,000 instances requiring interleaved visual transformation and information retrieval.</p>
+        <p>Janus is a reinforcement learning environment for training multimodal agents to solve visual reasoning tasks through tool use. Each instance includes a high-resolution image, a question that cannot be answered without acting on the visual input, and a set of 17 tools spanning image manipulation and web search. Reward signals are generated using 2,000+ stepwise checkpoints that decompose performance into search correctness, visual operation accuracy, and efficiency. Two frontier models were tested on 10,000 instances requiring interleaved visual transformation and information retrieval.</p>
         <p class="teaser">Keep scrolling. The answer is in <a href="#results">&#xA7;04</a>.</p>
       </div>
 
@@ -187,6 +187,14 @@
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 &#x2014; Dual-Axis Process Scores (V-axis &amp; S-axis) by Domain</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Failure Mode Distribution full size">
+          <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/failure_line_light.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Nova 2 Lite across seven failure categories" loading="lazy" />
+          <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/failure_line_dark.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Nova 2 Lite across seven failure categories" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 2 &#x2014; Failure Mode Distribution (% of instances)</figcaption>
       </figure>
     </div>
   </section>

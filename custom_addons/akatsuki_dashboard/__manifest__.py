@@ -7,7 +7,7 @@
 Janus Dashboard
 ==================
 A single-page showcase displaying the Janus AI benchmark dataset.
-Available as both a backend client action and a public portal page at /Janus.
+Available as both a backend client action and a public portal page at /janus.
     """,
     "author": "Ethara",
     "license": "LGPL-3",
