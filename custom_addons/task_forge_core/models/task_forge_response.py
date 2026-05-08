@@ -10,8 +10,8 @@ class TaskForgeResponse(models.Model):
         'task.forge.log', string='Task Log',
         required=True, ondelete='cascade', index=True,
     )
-    label = fields.Char(string='Label', required=True)
-    sequence = fields.Integer(string='Sequence', required=True, default=1)
+    label = fields.Char(string='Label')
+    sequence = fields.Integer(string='Sequence', default=1)
     value = fields.Text(string='Response Value')
     response_url = fields.Char(string='Response URL')
 
@@ -22,14 +22,8 @@ class TaskForgeResponse(models.Model):
         related='task_id.employee_id', store=True, string='Employee',
     )
 
-    _uniq_task_sequence = models.Constraint(
-        'UNIQUE(task_id, sequence)',
-        'Each response sequence must be unique per task.',
-    )
-
     @api.model
     def scaffold_for_task(self, task):
-        """Create empty response records for a task based on its project's response count."""
         project = task.project_id
         if not project or not project.is_response_required:
             return self.browse()
@@ -54,7 +48,6 @@ class TaskForgeResponse(models.Model):
 
     @staticmethod
     def _generate_label(sequence):
-        """Convert 1-indexed sequence to letter label: 1->A, 2->B, ..., 27->AA"""
         label = ''
         n = sequence
         while n > 0:
