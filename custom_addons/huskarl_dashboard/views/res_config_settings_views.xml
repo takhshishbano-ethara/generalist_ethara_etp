@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_huskarl" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.huskarl.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Huskarl Dashboard" string="Huskarl Dashboard" name="huskarl_dashboard">
+                    <block title="Huskarl Dashboard Settings">
+                        <setting string="GitHub URL"
+                                 help="URL pointing to the Harbor framework repository">
+                            <field name="huskarl_github_url"/>
+                        </setting>
+                        <setting string="Documentation URL"
+                                 help="URL pointing to the Harbor framework documentation">
+                            <field name="huskarl_docs_url"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>
