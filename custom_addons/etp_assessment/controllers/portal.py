@@ -13,12 +13,21 @@ class EtpAssessmentPortal(http.Controller):
 
     def _get_evaluator_from_token(self, token):
         if not token:
+            _logger.warning("Assessment portal: empty token received")
             return False
-        return (
+        evaluator = (
             request.env["etp.assessment.evaluator"]
             .sudo()
             .search([("access_token", "=", token)], limit=1)
         )
+        if not evaluator:
+            _logger.warning(
+                "Assessment portal: no evaluator found for token '%s'. "
+                "Total evaluator records: %d",
+                token,
+                request.env["etp.assessment.evaluator"].sudo().search_count([]),
+            )
+        return evaluator
 
     def _auto_submit_remaining(self, evaluator):
         question_order = json.loads(evaluator.question_order or "[]")
