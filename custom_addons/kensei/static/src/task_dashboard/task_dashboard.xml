@@ -106,45 +106,110 @@
                                     </t>
                                 </div>
 
-                                <!-- Latest Results List -->
-                                <div class="o_kensei_test_results_list">
-                                    <t t-foreach="this.activeTestResults.slice(0, 8)" t-as="result" t-key="result.id">
-                                        <div class="o_kensei_test_result_item">
-                                            <span t-attf-class="o_kensei_test_result_status o_kensei_test_result_status_#{result.status}">
-                                                <t t-if="result.status === 'passed'"><i class="fa fa-check"/></t>
-                                                <t t-elif="result.status === 'failed'"><i class="fa fa-times"/></t>
-                                                <t t-elif="result.status === 'error'"><i class="fa fa-exclamation"/></t>
-                                                <t t-elif="result.status === 'running' || result.status === 'generating'"><i class="fa fa-spinner fa-spin"/></t>
-                                            </span>
-                                            <div class="o_kensei_test_result_info">
-                                                <span class="o_kensei_test_result_model">
-                                                    Trajectory <t t-out="result.trajectory_index || '?'"/>
+                                <!-- Results Grouped by Trajectory -->
+                                <div class="o_kensei_test_results_grouped">
+                                    <t t-foreach="this.testResultsByTrajectory" t-as="group" t-key="group.index">
+                                        <div class="o_kensei_test_traj_group">
+                                            <div class="o_kensei_test_traj_group_header">
+                                                <span class="o_kensei_test_traj_group_label">
+                                                    Trajectory <t t-out="group.index"/>
                                                 </span>
-                                                <span class="o_kensei_test_result_date" t-out="result.create_date"/>
-                                            </div>
-                                            <div class="o_kensei_test_result_counts">
-                                                <span class="o_kensei_test_count_pass" t-att-title="result.tests_passed + ' passed'">
-                                                    <t t-out="result.tests_passed"/>
-                                                </span>
-                                                <span class="o_kensei_test_count_sep">/</span>
-                                                <span class="o_kensei_test_count_total" t-att-title="result.tests_total + ' total'">
-                                                    <t t-out="result.tests_total"/>
+                                                <span class="o_kensei_test_traj_group_count">
+                                                    <t t-out="group.results.length"/> test(s)
                                                 </span>
                                             </div>
-                                            <t t-if="result.tests_failed > 0">
-                                                <span class="o_kensei_test_fail_pill">
-                                                    <t t-out="result.tests_failed"/> fail
-                                                </span>
-                                            </t>
-                                            <t t-if="result.tests_errored > 0">
-                                                <span class="o_kensei_test_error_pill">
-                                                    <t t-out="result.tests_errored"/> err
-                                                </span>
-                                            </t>
-                                            <span class="o_kensei_test_result_duration" t-att-title="'Exec: ' + (result.duration_execution_ms || 0) + 'ms'">
-                                                <i class="fa fa-clock-o me-1"/>
-                                                <t t-out="Math.round((result.duration_execution_ms || 0) / 1000 * 10) / 10"/>s
-                                            </span>
+                                            <div class="o_kensei_test_traj_group_items">
+                                                <t t-foreach="group.results" t-as="result" t-key="result.id">
+                                                    <div class="o_kensei_test_result_row">
+                                                        <div class="o_kensei_test_result_item" t-on-click="() => this.onToggleTestDetail(result.id)">
+                                                            <i t-attf-class="fa #{this.isTestExpanded(result.id) ? 'fa-caret-down' : 'fa-caret-right'} o_kensei_test_caret"/>
+                                                            <span t-attf-class="o_kensei_test_result_status o_kensei_test_result_status_#{result.status}">
+                                                                <t t-if="result.status === 'passed'"><i class="fa fa-check"/></t>
+                                                                <t t-elif="result.status === 'failed'"><i class="fa fa-times"/></t>
+                                                                <t t-elif="result.status === 'error'"><i class="fa fa-exclamation"/></t>
+                                                                <t t-else=""><i class="fa fa-spinner fa-spin"/></t>
+                                                            </span>
+                                                            <div class="o_kensei_test_result_counts">
+                                                                <span class="o_kensei_test_count_pass">
+                                                                    <t t-out="result.tests_passed"/>
+                                                                </span>
+                                                                <span class="o_kensei_test_count_sep">/</span>
+                                                                <span class="o_kensei_test_count_total">
+                                                                    <t t-out="result.tests_total"/>
+                                                                </span>
+                                                            </div>
+                                                            <t t-if="result.tests_failed > 0">
+                                                                <span class="o_kensei_test_fail_pill">
+                                                                    <t t-out="result.tests_failed"/> fail
+                                                                </span>
+                                                            </t>
+                                                            <t t-if="result.tests_errored > 0">
+                                                                <span class="o_kensei_test_error_pill">
+                                                                    <t t-out="result.tests_errored"/> err
+                                                                </span>
+                                                            </t>
+                                                            <span class="o_kensei_test_result_duration">
+                                                                <i class="fa fa-clock-o me-1"/>
+                                                                <t t-out="Math.round((result.duration_execution_ms || 0) / 1000 * 10) / 10"/>s
+                                                            </span>
+                                                        </div>
+                                                        <t t-if="this.isTestExpanded(result.id)">
+                                                            <div class="o_kensei_test_detail">
+                                                                <t t-set="funcs" t-value="this.getTestFunctions(result)"/>
+                                                                <t t-if="funcs.length > 0">
+                                                                    <div class="o_kensei_test_funcs">
+                                                                        <t t-foreach="funcs" t-as="fn" t-key="fn">
+                                                                            <div class="o_kensei_test_func_card">
+                                                                                <div class="o_kensei_test_func_header">
+                                                                                    <span t-attf-class="o_kensei_test_func_status o_kensei_test_func_status_#{this.getFunctionStatus(result, fn)}">
+                                                                                        <t t-if="this.getFunctionStatus(result, fn) === 'passed'"><i class="fa fa-check"/></t>
+                                                                                        <t t-elif="this.getFunctionStatus(result, fn) === 'failed'"><i class="fa fa-times"/></t>
+                                                                                        <t t-elif="this.getFunctionStatus(result, fn) === 'error'"><i class="fa fa-exclamation"/></t>
+                                                                                        <t t-else=""><i class="fa fa-minus"/></t>
+                                                                                    </span>
+                                                                                    <span class="o_kensei_test_func_name"><t t-out="fn"/></span>
+                                                                                    <div class="o_kensei_test_score">
+                                                                                        <t t-foreach="[-30,-20,-10,0,10,20,30]" t-as="sv" t-key="sv">
+                                                                                            <button t-attf-class="o_kensei_score_btn #{this.getFunctionScore(result, fn) === sv ? 'active' : ''} #{sv > 0 ? 'positive' : sv &lt; 0 ? 'negative' : 'neutral'}"
+                                                                                                    t-on-click.stop="() => this.onSetFunctionScore(result.id, fn, sv)">
+                                                                                                <t t-if="sv > 0">+</t><t t-out="sv"/>
+                                                                                            </button>
+                                                                                        </t>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div class="o_kensei_test_func_body">
+                                                                                    <div class="o_kensei_test_func_code_section">
+                                                                                        <div class="o_kensei_test_detail_label">Code</div>
+                                                                                        <pre class="o_kensei_test_detail_code"><t t-out="this.getFunctionCode(result, fn) || 'N/A'"/></pre>
+                                                                                    </div>
+                                                                                    <div class="o_kensei_test_func_output_section">
+                                                                                        <div class="o_kensei_test_detail_label">Output</div>
+                                                                                        <pre class="o_kensei_test_detail_output"><t t-out="this.getFunctionOutput(result, fn) || 'No output'"/></pre>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </t>
+                                                                    </div>
+                                                                </t>
+                                                                <t t-else="">
+                                                                    <div class="o_kensei_test_detail_section">
+                                                                        <div class="o_kensei_test_detail_label">
+                                                                            <i class="fa fa-code me-1"/>Test Code
+                                                                        </div>
+                                                                        <pre class="o_kensei_test_detail_code"><t t-out="result.test_code || 'No test code available'"/></pre>
+                                                                    </div>
+                                                                    <div class="o_kensei_test_detail_section">
+                                                                        <div class="o_kensei_test_detail_label">
+                                                                            <i class="fa fa-terminal me-1"/>Execution Output
+                                                                        </div>
+                                                                        <pre class="o_kensei_test_detail_output"><t t-out="result.test_output || 'No output available'"/></pre>
+                                                                    </div>
+                                                                </t>
+                                                            </div>
+                                                        </t>
+                                                    </div>
+                                                </t>
+                                            </div>
                                         </div>
                                     </t>
                                 </div>
