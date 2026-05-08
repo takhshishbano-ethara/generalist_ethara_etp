@@ -6,7 +6,7 @@
     "description": """
 Vesta Dashboard
 ===============
-A single-page showcase displaying Vesta — RL environments for
+A single-page showcase displaying Vesta - RL environments for
 training model safety under adversarial social pressure.
 Public portal page at /vesta.
     """,
