@@ -98,7 +98,7 @@
     <div class="kpi-row" aria-label="Key benchmark metrics" style="grid-template-columns: repeat(5, 1fr);">
       <div class="kpi-card">
         <p class="kpi-label">Attack Instances</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10000" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="30" aria-hidden="true">0</span></span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Attack Types</p>
@@ -277,7 +277,7 @@
           <div class="glance-row"><dt>IPI Attack Score</dt><dd><b>18/30</b></dd></div>
           <div class="glance-row"><dt>MEM Leak Rate</dt><dd><b>6/10</b></dd></div>
           <div class="glance-row"><dt>TRD Attack Score</dt><dd><b>12/30</b></dd></div>
-          <div class="glance-row"><dt>Avg Score</dt><dd><b>1.9/3</b></dd></div>
+          <div class="glance-row"><dt>Avg Score</dt><dd><b>1.7/3</b></dd></div>
           <div class="glance-row"><dt>Avg Tokens</dt><dd><b>39K</b></dd></div>
         </dl>
       </div>
@@ -341,10 +341,10 @@
     <p class="section-label" id="resources-label">§08 · Resources</p>
 
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/AstorYH/PASB" target="_blank" rel="noopener" style="text-decoration:none;">
+      <a class="resource" href="https://github.com/Ethara-Ai/surtor" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Code</p>
         <p class="res-title">GitHub Repository</p>
-        <p class="res-url mono">github.com/AstorYH/PASB</p>
+        <p class="res-url mono">github.com/Ethara-Ai/surtor</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
       <a class="resource" href="https://huggingface.co/datasets/ethara/Surtor" target="_blank" rel="noopener" style="text-decoration:none;">

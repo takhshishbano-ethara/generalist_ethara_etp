@@ -9,7 +9,7 @@ class SurtorShowcase extends Component {
     setup() {
         this.orm = useService("orm");
         this.state = useState({
-            trajectories_url: "https://github.com/AstorYH/PASB",
+            trajectories_url: "https://github.com/Ethara-Ai/surtor",
             dataset_url: "https://huggingface.co/datasets/ethara/Surtor",
         });
 

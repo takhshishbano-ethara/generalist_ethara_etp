@@ -7,7 +7,7 @@ class SurtorDashboardConfigSettings(models.TransientModel):
     surtor_trajectories_url = fields.Char(
         string='Trajectories URL',
         config_parameter='surtor_dashboard.trajectories_url',
-        default='https://github.com/AstorYH/PASB',
+        default='https://github.com/Ethara-Ai/surtor',
     )
     surtor_dataset_url = fields.Char(
         string='Dataset URL',
