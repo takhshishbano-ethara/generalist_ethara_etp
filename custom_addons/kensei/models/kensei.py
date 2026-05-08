@@ -35,8 +35,13 @@ _TASKDESC_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="kensei-ta
 _TASKDESC_GENERATING = set()
 _TASKDESC_LOCK = threading.Lock()
 
+_TESTWEIGHT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="kensei-testweight")
+_TESTWEIGHT_GENERATING = set()
+_TESTWEIGHT_LOCK = threading.Lock()
+
 _golden_prompt_cache = None
 _taskdesc_prompt_cache = None
+_testweight_prompt_cache = None
 
 
 def _get_golden_prompt():
@@ -69,6 +74,22 @@ def _get_taskdesc_prompt():
     else:
         _taskdesc_prompt_cache = ""
     return _taskdesc_prompt_cache
+
+
+def _get_test_weight_prompt():
+    global _testweight_prompt_cache
+    if _testweight_prompt_cache is not None:
+        return _testweight_prompt_cache
+    mod_path = get_module_path("kensei")
+    if not mod_path:
+        return ""
+    path = os.path.join(mod_path, "test_weight_assignment_system_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _testweight_prompt_cache = f.read().strip()
+    else:
+        _testweight_prompt_cache = ""
+    return _testweight_prompt_cache
 
 
 def _run_golden_generation_background(db_name, task_id, notify_partner_id):
@@ -374,6 +395,154 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
     finally:
         with _TASKDESC_LOCK:
             _TASKDESC_GENERATING.discard(task_id)
+
+
+def _run_test_weight_generation_background(db_name, task_id, notify_partner_id):
+    try:
+        # Phase 1: read all inputs
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei.kensei"].browse(task_id)
+            if not task.exists():
+                _logger.error("Test weight gen: task %s does not exist", task_id)
+                return
+
+            initial_prompt = task.initial_prompt or ""
+            test_code = task._get_best_test_code() or ""
+            rubrics = task.rubrics or ""
+            task_toml = task._build_harbor_task_toml() or ""
+
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (ICP.get_param("kensei.bedrock_inference_arn") or "").strip()
+            region = (ICP.get_param("kensei.bedrock_region") or "ap-south-1").strip()
+
+            dotenv = _load_dotenv()
+            api_key = (dotenv.get("KENSEI_AWS_BEARER_TOKEN") or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
+
+        if not api_key:
+            raise RuntimeError("KENSEI_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set in .env")
+        if not inference_arn:
+            raise RuntimeError("Bedrock Inference ARN not configured in Settings > Kensei")
+        if not test_code:
+            raise RuntimeError("No test code available. Generate tests first.")
+
+        system_prompt = _get_test_weight_prompt()
+        if not system_prompt:
+            raise RuntimeError("test_weight_assignment_system_prompt.md not found in kensei module")
+
+        # Assemble user message with all available context
+        parts = []
+        parts.append("## instruction.md\n%s" % initial_prompt)
+        parts.append("## test_outputs.py\n```python\n%s\n```" % test_code)
+        if task_toml:
+            parts.append("## task.toml\n```toml\n%s\n```" % task_toml)
+        if rubrics:
+            parts.append("## rubrics.json\n```json\n%s\n```" % rubrics)
+        user_message = "\n\n".join(parts)
+
+        # Phase 2: call LLM (no DB cursor held)
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=4096,
+            temperature=0.3,
+            timeout=300.0,
+        )
+        _logger.info(
+            "Test weights generated for task %s (%d chars, tokens: %s)",
+            task_id,
+            len(response_text),
+            usage,
+        )
+
+        # Extract JSON from response (handle markdown fencing)
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            # Remove opening fence
+            first_newline = cleaned.index("\n")
+            cleaned = cleaned[first_newline + 1:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+
+        # Validate it's valid JSON array
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, list):
+            raise ValueError("Expected JSON array of test weight objects, got %s" % type(parsed).__name__)
+        # Re-serialize for consistent storage
+        cleaned = json.dumps(parsed, indent=2, ensure_ascii=False)
+
+        # Phase 3: write result
+        for attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["kensei.kensei"].browse(task_id)
+                    if not task.exists():
+                        return
+                    task.write({
+                        "test_weights": cleaned,
+                        "test_weights_status": "done",
+                        "test_weights_error": False,
+                    })
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "kensei/test_weights_ready",
+                            {
+                                "task_id": task_id,
+                                "status": "done",
+                            },
+                        )
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and attempt < 2:
+                    time.sleep(1 + attempt)
+                    continue
+                raise
+
+    except Exception as e:
+        _logger.exception("Test weight generation failed for task %s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                task = env["kensei.kensei"].browse(task_id)
+                if task.exists():
+                    task.write({
+                        "test_weights_status": "error",
+                        "test_weights_error": str(e)[:1000],
+                    })
+                    partner = None
+                    if notify_partner_id:
+                        partner = env["res.partner"].browse(notify_partner_id)
+                        if not partner.exists():
+                            partner = None
+                    if partner:
+                        env["bus.bus"]._sendone(
+                            partner,
+                            "kensei/test_weights_ready",
+                            {
+                                "task_id": task_id,
+                                "status": "error",
+                                "error": str(e)[:500],
+                            },
+                        )
+        except Exception:
+            _logger.exception(
+                "Failed to write test weight error status for task %s", task_id
+            )
+    finally:
+        with _TESTWEIGHT_LOCK:
+            _TESTWEIGHT_GENERATING.discard(task_id)
 
 
 import re as _re
@@ -971,6 +1140,19 @@ class Kensei(models.Model):
     )
     task_description_error = fields.Text(string="Task Description Error")
 
+    test_weights = fields.Text(string="Test Weights (JSON)")
+    test_weights_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Test Weights Status",
+        default="idle",
+    )
+    test_weights_error = fields.Text(string="Test Weights Error")
+
     # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
     claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
@@ -1317,6 +1499,38 @@ class Kensei(models.Model):
                 notify_partner_id,
             )
 
+    def action_generate_test_weights(self):
+        self.ensure_one()
+        test_code = self._get_best_test_code()
+        if not test_code:
+            raise UserError(
+                "No test code available. Generate or run tests first."
+            )
+        if not self.initial_prompt:
+            raise UserError("Task instruction (initial_prompt) is required.")
+
+        with _TESTWEIGHT_LOCK:
+            if self.id in _TESTWEIGHT_GENERATING:
+                raise UserError("Test weight generation is already in progress.")
+            _TESTWEIGHT_GENERATING.add(self.id)
+
+        self.write(
+            {"test_weights_status": "generating", "test_weights_error": False}
+        )
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        @self.env.cr.postcommit.add
+        def _queue_testweight():
+            _TESTWEIGHT_POOL.submit(
+                _run_test_weight_generation_background,
+                db_name,
+                task_id,
+                notify_partner_id,
+            )
+
     # ── Trajectory export ───────────────────────────────────────
 
     def _slugify_task_type(self):
@@ -1596,6 +1810,13 @@ class Kensei(models.Model):
                     "content_type": "application/json",
                 })
 
+            if rec.test_weights:
+                files.append({
+                    "key": "tests/test_weights.json",
+                    "data": rec.test_weights.encode("utf-8"),
+                    "content_type": "application/json",
+                })
+
             trajectory_fields = {
                 "claude": "claude_trajectory",
                 "kimi": "glm_trajectory",
@@ -1798,6 +2019,13 @@ class Kensei(models.Model):
             files_to_upload.append({
                 "key": "rubrics.json",
                 "data": self._transform_rubrics_for_export(self.rubrics).encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+        if self.test_weights:
+            files_to_upload.append({
+                "key": "tests/test_weights.json",
+                "data": self.test_weights.encode("utf-8"),
                 "content_type": "application/json",
             })
 
@@ -2106,6 +2334,41 @@ class Kensei(models.Model):
         return "\n".join(lines) + "\n"
 
     def _generate_harbor_test_sh(self):
+        if self.test_weights:
+            return (
+                "#!/bin/bash\n"
+                "\n"
+                "apt-get update && apt-get install -y curl python3\n"
+                "curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh\n"
+                "source $HOME/.local/bin/env\n"
+                "\n"
+                "uvx --with pytest==8.4.1 pytest /tests/test_outputs.py -rA --tb=no -q > /tmp/pytest_output.txt 2>&1\n"
+                "\n"
+                "python3 - <<'SCORING_EOF'\n"
+                "import json, re, sys\n"
+                "\n"
+                "with open('/tests/test_weights.json') as f:\n"
+                "    weights = {w['test_name']: w['weight'] for w in json.load(f)}\n"
+                "\n"
+                "with open('/tmp/pytest_output.txt') as f:\n"
+                "    output = f.read()\n"
+                "\n"
+                "passed = set(re.findall(r'(test_\\w+) PASSED', output))\n"
+                "failed = set(re.findall(r'(test_\\w+) FAILED', output))\n"
+                "all_tests = passed | failed\n"
+                "\n"
+                "pos_sum = sum(w for t, w in weights.items() if w > 0)\n"
+                "if pos_sum == 0:\n"
+                "    reward = 1.0 if not failed else 0.0\n"
+                "else:\n"
+                "    earned = sum(weights.get(t, 0) for t in passed)\n"
+                "    penalty = sum(weights.get(t, 0) for t in failed if weights.get(t, 0) < 0)\n"
+                "    reward = max(0.0, min(1.0, (earned + penalty) / pos_sum))\n"
+                "\n"
+                "with open('/logs/verifier/reward.txt', 'w') as f:\n"
+                "    f.write(str(round(reward, 4)))\n"
+                "SCORING_EOF\n"
+            )
         return (
             "#!/bin/bash\n"
             "\n"

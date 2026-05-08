@@ -79,6 +79,9 @@ class TestNegativeCases:
 6. **No `__init__`** — Test classes have no constructor. Pure methods.
 7. **Docstrings** — Every class gets a docstring explaining intent. Individual tests get inline comments only where non-obvious.
 8. **No fixtures/conftest** — Everything self-contained in one file.
+9. **Function naming** — MUST use `def test_<service>_<action>_<detail>(self):` pattern. Use only lowercase letters, digits, and underscores. No nested functions, no decorators, no parametrize. Every test method starts with `test_` prefix.
+10. **One assertion group per method** — Each `def test_*` verifies ONE specific thing. Do NOT combine unrelated assertions in one method.
+11. **4-space indentation** — Always use exactly 4 spaces for class body and method body indentation. Never tabs.
 
 ---
 

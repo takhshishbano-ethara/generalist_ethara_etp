@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_leviathan_root"
+              name="Leviathan"
+              sequence="100"
+              groups="group_leviathan_user"
+              web_icon="leviathan,static/description/icon.png"/>
+
+    <menuitem id="menu_leviathan_jobs"
+              name="Jobs"
+              parent="menu_leviathan_root"
+              action="action_leviathan_job"
+              sequence="10"/>
+
+    <menuitem id="menu_leviathan_config"
+              name="Configuration"
+              parent="menu_leviathan_root"
+              sequence="90"
+              groups="group_leviathan_admin"/>
+
+    <menuitem id="menu_leviathan_settings"
+              name="Settings"
+              parent="menu_leviathan_config"
+              action="base_setup.action_general_configuration"
+              sequence="10"/>
+</odoo>
