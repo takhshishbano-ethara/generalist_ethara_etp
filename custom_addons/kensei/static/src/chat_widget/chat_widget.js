@@ -37,10 +37,11 @@ const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
 const CHAT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const MAX_PENDING_ATTACHMENTS = 10;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"];
 const ALLOWED_DOC_TYPES = [
     "application/pdf", "text/plain", "text/markdown",
     "text/html", "text/csv", "application/json",
+    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 const ALLOWED_VIDEO_TYPES = [
     "video/mp4", "video/webm", "video/quicktime",
@@ -76,6 +77,8 @@ function _wsUrlToHttpUrl(wsUrl) {
 const HTTP_ONLY_TYPES = new Set([
     "application/pdf", "text/plain", "text/markdown",
     "text/html", "text/csv", "application/json",
+    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/heic", "image/heif",
     ...ALLOWED_VIDEO_TYPES,
     ...ALLOWED_AUDIO_TYPES,
 ]);
@@ -88,11 +91,11 @@ function _extractUrlsFromText(text) {
 
 // ─── MEDIA: token protocol (OpenClaw) ───
 const MEDIA_TOKEN_RE = /\bMEDIA:\s*`?([^\s`\n]+)`?/gi;
-const BARE_PATH_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)\/[^\s`\n"')]+\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf))(?:\s|`|$|[.,;!?)])/gi;
+const BARE_PATH_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)\/[^\s`\n"')]+\.(?:png|jpe?g|gif|webp|bmp|svg|heic|heif|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|docx?|md))(?:\s|`|$|[.,;!?)])/gi;
 const BARE_DIR_RE = /(?:^|\s|`)(\/home\/node\/\.openclaw\/(?:workspace|uploads|media)(?:\/[^\s`\n"')]*)?\/)\s*(?:\n|$)/gim;
-const MEDIA_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf)$/i;
-const RELATIVE_FILE_RE = /(?:^|\n)\s*([a-zA-Z0-9][a-zA-Z0-9_\-.]*\.(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf))\b/g;
-const MEDIA_EXT_PATTERN = "(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf)";
+const MEDIA_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|bmp|svg|heic|heif|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|docx?|md)$/i;
+const RELATIVE_FILE_RE = /(?:^|\n)\s*([a-zA-Z0-9][a-zA-Z0-9_\-.]*\.(?:png|jpe?g|gif|webp|bmp|svg|heic|heif|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|docx?|md))\b/g;
+const MEDIA_EXT_PATTERN = "(?:png|jpe?g|gif|webp|bmp|svg|heic|heif|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|docx?|md)";
 // Natural language references: "saved to X", "wrote X", "created X", "output: X", "workspace/X", markdown ![](X)
 const WORKSPACE_REF_RE = new RegExp(
     "(?:" +
@@ -1975,23 +1978,40 @@ export class KenseiChatWidget extends Component {
         }
 
         for (const file of files) {
-            if (!ALLOWED_TYPES.includes(file.type)) {
-                this.state.attachmentError = `"${file.name}" has unsupported type: ${file.type || "unknown"}`;
+            let mimeType = file.type;
+            // Fallback: detect MIME from extension when browser reports empty/generic type
+            if (!mimeType || mimeType === "application/octet-stream") {
+                const ext = file.name.split(".").pop().toLowerCase();
+                const extMimeMap = {
+                    heic: "image/heic", heif: "image/heif",
+                    doc: "application/msword",
+                    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    md: "text/markdown", pdf: "application/pdf",
+                    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+                    gif: "image/gif", webp: "image/webp",
+                    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+                    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
+                    txt: "text/plain", html: "text/html", csv: "text/csv", json: "application/json",
+                };
+                mimeType = extMimeMap[ext] || mimeType;
+            }
+            if (!ALLOWED_TYPES.includes(mimeType)) {
+                this.state.attachmentError = `"${file.name}" has unsupported type: ${mimeType || "unknown"}`;
                 continue;
             }
-            if ((ALLOWED_VIDEO_TYPES.includes(file.type) || ALLOWED_AUDIO_TYPES.includes(file.type)) && file.size > MAX_MEDIA_SIZE_BYTES) {
+            if ((ALLOWED_VIDEO_TYPES.includes(mimeType) || ALLOWED_AUDIO_TYPES.includes(mimeType)) && file.size > MAX_MEDIA_SIZE_BYTES) {
                 this.state.attachmentError = `"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max media size: ${MAX_MEDIA_SIZE_MB} MB.`;
                 continue;
             }
-            const isImage = ALLOWED_IMAGE_TYPES.includes(file.type);
-            const isVideo = ALLOWED_VIDEO_TYPES.includes(file.type);
-            const isAudio = ALLOWED_AUDIO_TYPES.includes(file.type);
-            const previewUrl = (isImage || isVideo) ? URL.createObjectURL(file) : null;
+            const isImage = ALLOWED_IMAGE_TYPES.includes(mimeType);
+            const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
+            const isAudio = ALLOWED_AUDIO_TYPES.includes(mimeType);
+            const previewUrl = (isImage && !mimeType.includes("heic") && !mimeType.includes("heif") || isVideo) ? URL.createObjectURL(file) : null;
             this.state.pendingAttachments.push({
                 id: crypto.randomUUID(),
                 file,
                 name: file.name,
-                mimeType: file.type,
+                mimeType,
                 size: file.size,
                 previewUrl,
                 isVideo,
