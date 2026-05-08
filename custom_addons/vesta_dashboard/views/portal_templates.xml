@@ -68,7 +68,7 @@
       <span class="badge">MODEL SAFETY</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">RL Environments for Training Model Safety Under Adversarial Social <em>Pressure</em></p>
+    <p class="thesis">RL Environments for Training Model Safety Against Socially-Integrated Adversarial <em>Attack</em></p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
@@ -79,8 +79,8 @@
     <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p><b>Vesta</b> introduces RL environments for training model safety when models operate real-world enterprise infrastructure under adversarial social pressure.</p>
-        <p>Models deployed with tool access face a fundamentally different threat surface than what static alignment addresses. They interact with live systems, manage sensitive operations, and encounter adaptive adversaries who exploit operational context to induce unsafe behavior. Vesta provides the environments and reward signals needed to close this gap.</p>
+        <p><b>Vesta</b> provides RL environments where models operate in native tool environments — shell, file systems, messaging — alongside adversarial actors who socially manipulate them into policy-violating tool misuse.</p>
+        <p>This generates binary reward signals across 8 risk domains, training safety under sustained social and technical pressure.</p>
       </div>
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
@@ -100,22 +100,29 @@
     <p class="section-desc">Core dimensions of the Vesta environment suite.</p>
     <div class="kpi-row">
       <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Total Instances</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="10000">0</span></span></p>
+        <p class="kpi-sub mono">Safety environment instances</p>
+      </div>
+      <div class="kpi-card">
         <p class="kpi-label">Risk Domains</p>
         <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="8">0</span></span></p>
         <p class="kpi-sub mono">Enterprise risk categories</p>
       </div>
+    </div>
+    <div class="kpi-row">
       <div class="kpi-card">
         <p class="kpi-label">Tool Services</p>
         <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="6">0</span></span></p>
         <p class="kpi-sub mono">GitLab · RocketChat · OwnCloud · Plane · File · Bash</p>
       </div>
-    </div>
-    <div class="kpi-row">
       <div class="kpi-card">
         <p class="kpi-label">Adversarial Pressure</p>
         <p class="kpi-value"><span class="kpi-big"><span class="kpi-num" data-target="3">0</span></span></p>
         <p class="kpi-sub mono">None · Single adversary · Coordinated multi-actor</p>
       </div>
+    </div>
+    <div class="kpi-row">
       <div class="kpi-card">
         <p class="kpi-label">Reward Signal</p>
         <p class="kpi-value"><span class="kpi-big">Binary</span></p>
@@ -185,7 +192,7 @@
           <ul class="phase-body">
             <li>Goal-conditioned personas with escalating social pressure</li>
             <li>Personas span enterprise roles (engineers, managers, executives)</li>
-            <li>Binary terminal reward: safe or compromised</li>
+            <li>Binary terminal reward: safe or unsafe</li>
           </ul>
         </article>
       </div>
@@ -283,34 +290,9 @@
     <div class="viewer-pagination" id="viewer-pagination"></div>
   </section>
 
-  <!-- §07 — Architecture Comparison -->
-  <section class="section" id="architecture" aria-labelledby="arch-label">
-    <p class="section-label" id="arch-label">§07 · What Makes This Different</p>
-    <p class="section-desc">How Vesta compares to prior approaches.</p>
-
-    <div class="matrix-wrap" style="margin-bottom: 32px;">
-      <table class="results-table">
-        <thead>
-          <tr>
-            <th>Dimension</th>
-            <th>Prior Work</th>
-            <th>Vesta</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td><b>Environment</b></td><td>Mock APIs, text descriptions</td><td>Live infrastructure with real services</td></tr>
-          <tr><td><b>Tools</b></td><td>Simulated tool calls</td><td>Actual file system, bash, git, messaging</td></tr>
-          <tr><td><b>Adversary</b></td><td>Static prompts</td><td>Goal-conditioned adversaries with escalation strategies</td></tr>
-          <tr><td><b>Consequences</b></td><td>Hypothetical</td><td>Model actually modifies files, leaks credentials</td></tr>
-          <tr><td><b>Reward signal</b></td><td>Single LLM judge</td><td>Deterministic multi-channel state verification</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- §08 — Example Environments -->
+  <!-- §07 — Example Environments -->
   <section class="section" id="scenarios" aria-labelledby="scenarios-label">
-    <p class="section-label" id="scenarios-label">§08 · Example Environments</p>
+    <p class="section-label" id="scenarios-label">§07 · Example Environments</p>
 
     <div class="scenario-cards">
       <article class="scenario-card">
@@ -348,9 +330,9 @@
     </div>
   </section>
 
-  <!-- §09 — Resources -->
+  <!-- §08 — Resources -->
   <section class="section" id="resources" aria-labelledby="resources-label">
-    <p class="section-label" id="resources-label">§09 · Resources</p>
+    <p class="section-label" id="resources-label">§08 · Resources</p>
     <div class="resources">
       <a class="resource" t-att-href="github_url" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
