@@ -199,7 +199,7 @@ class OpenClawClient:
         try:
             async with websockets.connect(
                 self._ws_url,
-                max_size=20 * 1024 * 1024,
+                max_size=1650 * 1024 * 1024,
                 ping_interval=None,
                 close_timeout=5,
             ) as ws:

@@ -50,7 +50,7 @@ const ALLOWED_AUDIO_TYPES = [
     "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg",
     "audio/webm", "audio/x-m4a", "audio/mp4",
 ];
-const MAX_MEDIA_SIZE_MB = 50;
+const MAX_MEDIA_SIZE_MB = 1650;
 const MAX_MEDIA_SIZE_BYTES = MAX_MEDIA_SIZE_MB * 1024 * 1024;
 const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES, ...ALLOWED_VIDEO_TYPES, ...ALLOWED_AUDIO_TYPES];
 
