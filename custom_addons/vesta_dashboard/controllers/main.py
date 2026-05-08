@@ -19,7 +19,7 @@ class VestaShowcaseController(http.Controller):
         values = {
             "github_url": ICP.get_param(
                 "vesta_dashboard.github_url", ""
-            ) or "https://github.com/Ethara-Ai/Vesta",
+            ) or "https://github.com/Ethara-Ai/vesta",
             "dataset_url": ICP.get_param(
                 "vesta_dashboard.dataset_url", ""
             ) or "https://huggingface.co/datasets/ethara/Vesta",

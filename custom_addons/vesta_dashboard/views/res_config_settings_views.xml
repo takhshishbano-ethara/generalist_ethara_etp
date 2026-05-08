@@ -12,7 +12,7 @@
                         <setting string="GitHub URL"
                                  help="Override the GitHub button link. Leave empty to use the default URL.">
                             <field name="vesta_github_url"
-                                   placeholder="https://github.com/Ethara-Ai/Vesta"/>
+                                   placeholder="https://github.com/Ethara-Ai/vesta"/>
                         </setting>
                         <setting string="Dataset URL"
                                  help="Override the Dataset button link. Leave empty to use the default HuggingFace URL.">

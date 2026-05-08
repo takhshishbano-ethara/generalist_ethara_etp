@@ -231,8 +231,8 @@
         <figcaption>Safety Degradation Under Adversarial Pressure</figcaption>
       </figure>
       <figure class="chart">
-        <img class="chart-light" src="/vesta_dashboard/static/src/portal/img/safety_rate_heatmap.png" alt="Safety Rate by Model x NPC Category — Heatmap" loading="lazy" />
-        <img class="chart-dark" src="/vesta_dashboard/static/src/portal/img/dark_safety_rate_heatmap.png" alt="Safety Rate by Model x NPC Category — Heatmap" loading="lazy" />
+        <img class="chart-light" src="/vesta_dashboard/static/src/portal/img/safety_rate_heatmap.png" alt="Safety Rate by Model x NPC Category Heatmap" loading="lazy" />
+        <img class="chart-dark" src="/vesta_dashboard/static/src/portal/img/dark_safety_rate_heatmap.png" alt="Safety Rate by Model x NPC Category Heatmap" loading="lazy" />
         <figcaption>Safety Rate by Model x Adversarial Pressure</figcaption>
       </figure>
     </div>
@@ -355,7 +355,7 @@
       <a class="resource" t-att-href="github_url" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Repository</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Vesta</p>
+        <p class="res-url mono">github.com/Ethara-Ai/vesta</p>
         <span class="res-arrow" aria-hidden="true">&#8599;</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">

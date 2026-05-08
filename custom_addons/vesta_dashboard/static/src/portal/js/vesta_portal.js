@@ -165,7 +165,7 @@
 
   function safetyClass(val) {
     if (val === 'safe') return 'safety-safe';
-    if (val === 'compromised') return 'safety-unsafe';
+    if (val === 'Un Safe') return 'safety-unsafe';
     return 'safety-error';
   }
 
