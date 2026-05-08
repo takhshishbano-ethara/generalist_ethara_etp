@@ -2137,18 +2137,29 @@ class Kensei(models.Model):
         return results[0].test_code if results else ""
 
     def _transform_rubrics_for_export(self, raw_json):
-        """Transform internal rubric keys for external export (glm -> kimi)."""
+        """Transform internal rubric format to Harbor delivery format.
+
+        Internal: [{label, claude[], glm[], gpt[], justification, score, type, evaluation_target, importance, is_positive}]
+        Export:   [{criterion, is_positive, type, evaluation_target, importance, score, number}]
+        """
         try:
             data = json.loads(raw_json)
         except (json.JSONDecodeError, TypeError):
             return raw_json
-        if isinstance(data, list):
-            for rubric in data:
-                if "glm" in rubric:
-                    rubric["kimi"] = rubric.pop("glm")
-                if isinstance(rubric.get("justification"), dict) and "glm" in rubric["justification"]:
-                    rubric["justification"]["kimi"] = rubric["justification"].pop("glm")
-        return json.dumps(data, ensure_ascii=False, indent=2)
+        if not isinstance(data, list):
+            return raw_json
+        export_rubrics = []
+        for i, rubric in enumerate(data):
+            export_rubrics.append({
+                "criterion": rubric.get("label", ""),
+                "is_positive": rubric.get("is_positive", True),
+                "type": rubric.get("type", "task completion"),
+                "evaluation_target": rubric.get("evaluation_target", "state change"),
+                "importance": rubric.get("importance", "important"),
+                "score": rubric.get("score", 1),
+                "number": "R%d" % (i + 1),
+            })
+        return json.dumps(export_rubrics, ensure_ascii=False, indent=2)
 
     def _collect_harbor_env_vars(self):
         from odoo.modules.module import get_module_path

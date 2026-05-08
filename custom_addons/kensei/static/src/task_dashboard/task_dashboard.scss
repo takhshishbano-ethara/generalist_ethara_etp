@@ -532,10 +532,50 @@
     margin-bottom: 0.75rem;
 }
 
+.o_kensei_rubric_card_number {
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--kensei-text-secondary);
+    background: var(--kensei-surface-raised);
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--kensei-radius-sm);
+    margin-right: 0.5rem;
+}
+
 .o_kensei_rubric_card_label {
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--kensei-text);
+    flex: 1;
+}
+
+.o_kensei_rubric_meta_row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.o_kensei_rubric_meta_field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 100px;
+
+    label {
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--kensei-text-tertiary);
+    }
+
+    .form-select-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-color: var(--kensei-border-subtle);
+        border-radius: var(--kensei-radius-sm);
+    }
 }
 
 .o_kensei_rubric_ratings {

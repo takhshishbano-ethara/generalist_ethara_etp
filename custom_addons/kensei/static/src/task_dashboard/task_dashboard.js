@@ -472,18 +472,22 @@ export class TaskDashboard extends Component {
         }
         try {
             const parsed = JSON.parse(raw);
+            const migrateRubric = (r) => ({
+                ...r,
+                gpt: r.gpt || Array(12).fill(null),
+                justification: r.justification || { claude: "", glm: "", gpt: "" },
+                score: r.score ?? 1,
+                is_positive: r.is_positive ?? true,
+                type: r.type || "task completion",
+                evaluation_target: r.evaluation_target || "state change",
+                importance: r.importance || "important",
+            });
             if (Array.isArray(parsed)) {
-                // Legacy format: plain array — add justification to each if missing
-                this.state.rubrics = parsed.map(r => ({
-                    ...r,
-                    gpt: r.gpt || Array(12).fill(null),
-                    justification: r.justification || { claude: "", glm: "", gpt: "" },
-                }));
+                this.state.rubrics = parsed.map(migrateRubric);
             } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
                 const globalJ = parsed.justification || { claude: "", glm: "", gpt: "" };
-                this.state.rubrics = parsed.rubrics.map(r => ({
+                this.state.rubrics = parsed.rubrics.map(r => migrateRubric({
                     ...r,
-                    gpt: r.gpt || Array(12).fill(null),
                     justification: r.justification || { ...globalJ },
                 }));
             } else {
@@ -702,8 +706,32 @@ export class TaskDashboard extends Component {
             glm: Array(12).fill(null),
             gpt: Array(12).fill(null),
             justification: { claude: "", glm: "", gpt: "" },
+            score: 1,
+            is_positive: true,
+            type: "task completion",
+            evaluation_target: "state change",
+            importance: "important",
         });
         this.state.newRubricLabel = "";
+        await this._saveRubrics();
+    }
+
+    async onRubricMetaChange(rubricIndex, field, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const val = ev.target.value;
+        if (field === "score") {
+            rubric.score = parseInt(val, 10);
+            rubric.is_positive = rubric.score > 0;
+        } else {
+            rubric[field] = val;
+        }
+        if (field === "importance") {
+            const absScore = Math.abs(rubric.score);
+            if (rubric.importance === "critically_important" && absScore < 5) {
+                rubric.score = rubric.is_positive ? 5 : -5;
+            }
+        }
         await this._saveRubrics();
     }
 

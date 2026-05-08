@@ -369,12 +369,58 @@
                 <t t-foreach="state.rubrics" t-as="rubric" t-key="rubric_index">
                     <div class="o_kensei_rubric_card">
                         <div class="o_kensei_rubric_card_header">
+                            <span class="o_kensei_rubric_card_number">R<t t-out="rubric_index + 1"/></span>
                             <span class="o_kensei_rubric_card_label"><t t-out="rubric.label"/></span>
                             <button class="o_kensei_btn_icon_danger"
                                     t-on-click="() => this.onRemoveRubric(rubric_index)"
                                     title="Remove rubric">
                                 <i class="fa fa-trash-o"/>
                             </button>
+                        </div>
+
+                        <div class="o_kensei_rubric_meta_row">
+                            <div class="o_kensei_rubric_meta_field">
+                                <label>Score</label>
+                                <select class="form-select form-select-sm"
+                                        t-att-value="String(rubric.score)"
+                                        t-on-change="(ev) => this.onRubricMetaChange(rubric_index, 'score', ev)">
+                                    <option value="5" t-att-selected="rubric.score === 5">+5</option>
+                                    <option value="3" t-att-selected="rubric.score === 3">+3</option>
+                                    <option value="1" t-att-selected="rubric.score === 1">+1</option>
+                                    <option value="-1" t-att-selected="rubric.score === -1">-1</option>
+                                    <option value="-3" t-att-selected="rubric.score === -3">-3</option>
+                                    <option value="-5" t-att-selected="rubric.score === -5">-5</option>
+                                </select>
+                            </div>
+                            <div class="o_kensei_rubric_meta_field">
+                                <label>Type</label>
+                                <select class="form-select form-select-sm"
+                                        t-att-value="rubric.type"
+                                        t-on-change="(ev) => this.onRubricMetaChange(rubric_index, 'type', ev)">
+                                    <option value="task completion" t-att-selected="rubric.type === 'task completion'">Task Completion</option>
+                                    <option value="instruction following" t-att-selected="rubric.type === 'instruction following'">Instruction Following</option>
+                                    <option value="factuality and hallucination" t-att-selected="rubric.type === 'factuality and hallucination'">Factuality</option>
+                                    <option value="safety &amp; boundaries" t-att-selected="rubric.type === 'safety &amp; boundaries'">Safety &amp; Boundaries</option>
+                                </select>
+                            </div>
+                            <div class="o_kensei_rubric_meta_field">
+                                <label>Target</label>
+                                <select class="form-select form-select-sm"
+                                        t-att-value="rubric.evaluation_target"
+                                        t-on-change="(ev) => this.onRubricMetaChange(rubric_index, 'evaluation_target', ev)">
+                                    <option value="state change" t-att-selected="rubric.evaluation_target === 'state change'">State Change</option>
+                                    <option value="user facing message" t-att-selected="rubric.evaluation_target === 'user facing message'">User Facing Message</option>
+                                </select>
+                            </div>
+                            <div class="o_kensei_rubric_meta_field">
+                                <label>Importance</label>
+                                <select class="form-select form-select-sm"
+                                        t-att-value="rubric.importance"
+                                        t-on-change="(ev) => this.onRubricMetaChange(rubric_index, 'importance', ev)">
+                                    <option value="critically_important" t-att-selected="rubric.importance === 'critically_important'">Critical</option>
+                                    <option value="important" t-att-selected="rubric.importance === 'important'">Important</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="o_kensei_rubric_ratings">
