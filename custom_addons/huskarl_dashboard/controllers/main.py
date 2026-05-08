@@ -14,7 +14,7 @@ _DATA_PATH = os.path.join(
 
 class HuskarlShowcaseController(http.Controller):
 
-    @http.route('/huskarl', type='http', auth='public', website=True, sitemap=True)
+    @http.route('/mars', type='http', auth='public', website=True, sitemap=True)
     def portal_showcase(self, **kw):
         try:
             with open(_DATA_PATH, 'r', encoding='utf-8') as f:
