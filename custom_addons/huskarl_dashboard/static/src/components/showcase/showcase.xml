@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="huskarl_dashboard.Showcase">
+        <div class="hk-backend-showcase">
+            <div class="hk-backend-header">
+                <h1>Huskarl Dashboard</h1>
+                <p>Agent Evaluation Framework — Harbor</p>
+            </div>
+
+            <div class="hk-backend-metrics">
+                <div class="hk-backend-metric">
+                    <span class="hk-backend-metric__value">500</span>
+                    <span class="hk-backend-metric__label">Instances</span>
+                </div>
+                <div class="hk-backend-metric">
+                    <span class="hk-backend-metric__value">6</span>
+                    <span class="hk-backend-metric__label">Agents</span>
+                </div>
+                <div class="hk-backend-metric">
+                    <span class="hk-backend-metric__value">72%</span>
+                    <span class="hk-backend-metric__label">Best Pass Rate</span>
+                </div>
+                <div class="hk-backend-metric">
+                    <span class="hk-backend-metric__value">$1.28</span>
+                    <span class="hk-backend-metric__label">Avg Cost</span>
+                </div>
+            </div>
+
+            <div class="hk-backend-comparison">
+                <div class="hk-backend-model">
+                    <h3>Claude Code</h3>
+                    <div class="hk-backend-model__stat">Pass Rate: <strong>72%</strong></div>
+                    <div class="hk-backend-model__stat">Avg Cost: <strong>$1.80</strong></div>
+                    <div class="hk-backend-model__stat">Avg Time: <strong>349s</strong></div>
+                </div>
+                <div class="hk-backend-model">
+                    <h3>OpenHands</h3>
+                    <div class="hk-backend-model__stat">Pass Rate: <strong>50%</strong></div>
+                    <div class="hk-backend-model__stat">Avg Cost: <strong>$1.98</strong></div>
+                    <div class="hk-backend-model__stat">Avg Time: <strong>369s</strong></div>
+                </div>
+            </div>
+
+            <div class="hk-backend-links">
+                <a t-att-href="state.github_url" target="_blank" class="hk-backend-link">
+                    GitHub Repository
+                </a>
+                <a t-att-href="state.docs_url" target="_blank" class="hk-backend-link">
+                    Documentation
+                </a>
+                <a href="/huskarl" target="_blank" class="hk-backend-link">
+                    Portal View
+                </a>
+            </div>
+        </div>
+    </t>
+</templates>

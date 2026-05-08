@@ -1,0 +1,441 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_showcase" name="Huskarl Showcase">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>MARS — Agentic Code RL Environments · ETHARA AI</title>
+      <meta name="description" content="MARS is a collection of 10,000 human curated RL environments designed to train and stress-test frontier coding agents with structured reward signals."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('huskarl:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <link rel="stylesheet" href="/huskarl_dashboard/static/src/portal/css/huskarl_portal.css"/>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/huskarl_dashboard/static/src/portal/js/huskarl_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">MARS</h1>
+      <span class="badge">REINFORCEMENT</span>
+    </div>
+    <hr class="rule" />
+    <p class="thesis">Agentic Code RL Environments with Human Curated <span class="thesis-em" style="font-style:normal;">Reward Signals</span></p>
+  </header>
+
+  <main id="main">
+
+  <section class="section" id="overview" aria-labelledby="overview-label">
+    <p class="section-label" id="overview-label">§01 · Overview</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>MARS is a reinforcement learning environment for training autonomous agents to resolve complex <b style="color:var(--accent);">CLI (command line interface)</b> tasks. Each task includes a containerized environment with a human curated problem based on real-world operational scenarios, a natural language problem description, and a Docker container for sandboxed execution. Reward signals are generated using test suites that verify the final container state against expected outcomes. Two frontier models were tested on 10,000 instances covering 6 task categories across 3 difficulty tiers.</p>
+        <p class="teaser">Keep scrolling. The results are in <a href="#results">§04</a>.</p>
+      </div>
+
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
+          <div class="glance-row"><dt>Categories</dt><dd><b>6</b></dd></div>
+          <div class="glance-row"><dt>Difficulty Tiers</dt><dd><b>3</b> (Easy, Medium, Hard)</dd></div>
+          <div class="glance-row"><dt>Reward Coverage</dt><dd><b>100%</b> verified</dd></div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section" id="metrics" aria-labelledby="metrics-label">
+    <p class="section-label" id="metrics-label">§02 · Key metrics</p>
+    <p class="section-desc">Three numbers that define the scope of MARS.</p>
+
+    <div class="kpi-row" aria-label="Key benchmark metrics" style="grid-template-columns: repeat(4, 1fr);">
+      <div class="kpi-card">
+        <p class="kpi-label">Instances</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10000" aria-hidden="true">0</span></span></p>
+        <p class="kpi-note mono">100% reward signal coverage</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Models Used</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="2" aria-hidden="true">0</span></span></p>
+        <p class="kpi-note mono">GLM-5 &amp; Nova-2-Lite</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Categories</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="6" aria-hidden="true">0</span></span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Difficulty Tiers</p>
+        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="3" aria-hidden="true">0</span></span></p>
+        <p class="kpi-note mono">Easy, Medium, Hard</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="eval-pipeline" aria-labelledby="eval-pipeline-label">
+    <p class="section-label" id="eval-pipeline-label">§03 · Pipeline</p>
+    <p class="section-desc">Three stages turn a raw task into a scored RL environment.</p>
+
+    <div class="pipeline pipeline-b">
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 01</p>
+        <h4 class="phase-title">Environment Construction</h4>
+        <ul class="phase-body">
+          <li>Identify target real-world programming problems</li>
+          <li>Write human curated reward signals (deterministic test harnesses)</li>
+          <li>Package sandboxed runtimes with graded difficulty metadata</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 02</p>
+        <h4 class="phase-title">Agent Execution</h4>
+        <ul class="phase-body">
+          <li>Deploy frontier models into isolated environments</li>
+          <li>Agents produce solutions under resource constraints</li>
+          <li>Capture per-environment outputs</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 03</p>
+        <h4 class="phase-title">Reward Signal Evaluation</h4>
+        <ul class="phase-body">
+          <li>Execute reward signal harnesses against agent outputs</li>
+          <li>Score binary pass/fail per test case</li>
+          <li>Aggregate to environment-level and category-level pass rates</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">§03b · Methodology</p>
+    <p class="section-desc">How the evaluation scores are computed.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">Evaluation framework</p>
+        <h2 class="pipeline-title">Four principles govern the MARS evaluation system.</h2>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0; border:1px solid var(--border);">
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Sandboxed Execution</h4>
+          <ul class="phase-body">
+            <li>Every trial runs in an isolated container</li>
+            <li>No internet access, no host filesystem leakage</li>
+            <li>Reproducible environment via Docker images</li>
+          </ul>
+        </article>
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Automated Verification</h4>
+          <ul class="phase-body">
+            <li>Test scripts execute automatically post-agent</li>
+            <li>Binary reward: pass (1) or fail (0)</li>
+            <li>No human evaluation in the loop</li>
+          </ul>
+        </article>
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Single Attempt</h4>
+          <ul class="phase-body">
+            <li>Each agent gets exactly <b>one attempt</b> per task</li>
+            <li>Mirrors real-world single-submission workflow</li>
+            <li>No retry, no cherry-picking best runs</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Cost Tracking</h4>
+          <ul class="phase-body">
+            <li>Full token usage (input + output) recorded</li>
+            <li>USD cost computed per trial via LLM pricing</li>
+            <li>Enables cost-efficiency comparisons</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-reveal" id="results" aria-labelledby="results-label">
+    <p class="section-label" id="results-label">§04 · Results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        <span class="tok-agent-a">GLM-5</span> achieves overall pass rate <b class="reveal-big">65%</b>.
+        <span class="tok-agent-b">Nova-2-Lite</span> achieves overall pass rate <b class="reveal-big">45%</b>.
+      </p>
+      <p class="reveal-line reveal-kicker">
+        Both models show clear degradation as difficulty increases: from ~86% at Easy to ~33% (GLM-5) and 0% (Nova-2-Lite) at Hard.
+      </p>
+      <p class="reveal-cost mono">
+        GLM-5 achieves higher pass rates at <b>~48× lower cost</b>. ($0.72 vs $34.89)
+      </p>
+    </div>
+
+    <p class="section-desc" style="margin-top:2rem;"><b>Success rate by difficulty tier</b> for two frontier models.</p>
+
+    <div class="charts" style="grid-template-columns: 1fr;">
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Success Rate by Difficulty full size">
+          <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/01_success_rate_graph.png" alt="Success rate by difficulty level for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/01_success_rate_graph_dark.png" alt="Success rate by difficulty level for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 — Success Rate by Difficulty</figcaption>
+      </figure>
+    </div>
+
+    <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Success Rate by Category full size">
+          <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/02_category_success_rate.png" alt="Success rate by task category for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/02_category_success_rate_dark.png" alt="Success rate by task category for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 2 — Success Rate by Category</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — Success Rate by Reward Signal Count full size">
+          <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/03_testcases_dumbbell.png" alt="Success rate vs reward signal count (test cases) for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/03_testcases_dumbbell_dark.png" alt="Success rate vs reward signal count (test cases) for GLM-5 and Nova-2-Lite" loading="lazy" />
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 3 — Success Rate by Reward Signal Count</figcaption>
+      </figure>
+    </div>
+
+    <div style="margin-top:2.5rem;">
+      <p class="section-desc"><b>Difficulty breakdown</b></p>
+      <p class="caption">GLM-5 maintains a consistent lead across all tiers. Nova-2-Lite collapses entirely on Hard environments.</p>
+      <div class="matrix-wrap" style="margin-top:1rem;">
+        <table class="matrix" style="table-layout:fixed; width:100%;">
+          <colgroup>
+            <col style="width:30%;"/>
+            <col style="width:35%;"/>
+            <col style="width:35%;"/>
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col" class="matrix-th-meta">Difficulty</th>
+              <th scope="col" class="matrix-th-cell">GLM-5</th>
+              <th scope="col" class="matrix-th-cell">Nova-2-Lite</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="matrix-row"><td class="matrix-meta">Easy</td><td class="matrix-cell mono" style="color:var(--pass);">85.7%</td><td class="matrix-cell mono">71.4%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">Medium</td><td class="matrix-cell mono" style="color:var(--pass);">71.4%</td><td class="matrix-cell mono">57.1%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">Hard</td><td class="matrix-cell mono" style="color:var(--accent);">33.3%</td><td class="matrix-cell mono" style="color:var(--fail);">0.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:2.5rem;">
+      <p class="section-desc"><b>Category breakdown</b></p>
+      <p class="caption">Performance varies sharply by category. File-operations and algorithms show the highest GLM-5 pass rates. Data-querying and optimization expose the largest model gap.</p>
+      <div class="matrix-wrap" style="margin-top:1rem;">
+        <table class="matrix" style="table-layout:fixed; width:100%;">
+          <colgroup>
+            <col style="width:30%;"/>
+            <col style="width:35%;"/>
+            <col style="width:35%;"/>
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col" class="matrix-th-meta">Category</th>
+              <th scope="col" class="matrix-th-cell">GLM-5</th>
+              <th scope="col" class="matrix-th-cell">Nova-2-Lite</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="matrix-row"><td class="matrix-meta">algorithms</td><td class="matrix-cell mono" style="color:var(--pass);">100.0%</td><td class="matrix-cell mono" style="color:var(--pass);">100.0%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">data-querying</td><td class="matrix-cell mono" style="color:var(--accent);">33.3%</td><td class="matrix-cell mono" style="color:var(--fail);">0.0%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">debugging</td><td class="matrix-cell mono">66.7%</td><td class="matrix-cell mono">66.7%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">file-operations</td><td class="matrix-cell mono" style="color:var(--pass);">100.0%</td><td class="matrix-cell mono">50.0%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">optimization</td><td class="matrix-cell mono">50.0%</td><td class="matrix-cell mono" style="color:var(--fail);">0.0%</td></tr>
+            <tr class="matrix-row"><td class="matrix-meta">software-engineering</td><td class="matrix-cell mono">66.7%</td><td class="matrix-cell mono">50.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="instances" aria-labelledby="instances-label">
+    <p class="section-label" id="instances-label">§05 · Dataset Viewer</p>
+    <p class="section-desc">Sample environments evaluated on GLM-5 and Nova-2-Lite.</p>
+
+    <div style="display:flex; gap:12px; margin-top:1rem; margin-bottom:24px; flex-wrap:wrap;">
+      <input type="text" class="hk-dataset__search" placeholder="Search environments..." aria-label="Search environments" style="flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);"/>
+      <select class="hk-dataset__filter" aria-label="Filter by category" style="padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);">
+        <option value="">All Categories</option>
+        <option value="Software Engineering">Software Engineering</option>
+        <option value="Data Querying">Data Querying</option>
+        <option value="Debugging">Debugging</option>
+        <option value="File Operation">File Operation</option>
+        <option value="Optimization">Optimization</option>
+        <option value="Algorithms">Algorithms</option>
+      </select>
+      <select class="hk-dataset__diff-filter" aria-label="Filter by difficulty" style="padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);">
+        <option value="">All Difficulties</option>
+        <option value="Easy">Easy</option>
+        <option value="Medium">Medium</option>
+        <option value="Hard">Hard</option>
+      </select>
+    </div>
+
+    <div class="matrix-wrap">
+      <table class="matrix" id="matrix" aria-describedby="matrix-desc" style="table-layout:fixed; width:100%;">
+        <caption id="matrix-desc" class="sr-only">Dataset viewer: 20 sample environments evaluated on GLM-5 and Nova-2-Lite models.</caption>
+        <colgroup>
+          <col style="width:4%;"/>
+          <col style="width:22%;"/>
+          <col style="width:14%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+          <col style="width:10%;"/>
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col" class="matrix-th-meta">#</th>
+            <th scope="col" class="matrix-th-id" data-sort="instance_id">Environment</th>
+            <th scope="col" class="matrix-th-meta" data-sort="category">Category</th>
+            <th scope="col" class="matrix-th-meta" data-sort="difficulty">Difficulty</th>
+            <th scope="col" class="matrix-th-cell" data-sort="glm5_result">GLM-5</th>
+            <th scope="col" class="matrix-th-cell" data-sort="glm5_time">GLM-5 Time</th>
+            <th scope="col" class="matrix-th-cell" data-sort="nova_result">Nova-2-Lite</th>
+            <th scope="col" class="matrix-th-cell" data-sort="nova_time">Nova Time</th>
+            <th scope="col" class="matrix-th-meta">Language</th>
+          </tr>
+        </thead>
+        <tbody id="matrix-tbody" class="hk-dataset__body" aria-live="polite" aria-atomic="false"></tbody>
+      </table>
+    </div>
+    <div class="hk-dataset__pagination" style="display:flex; justify-content:center; gap:8px; margin-top:18px;"></div>
+
+    <script type="application/json" id="instances-data" t-out="instances_json"/>
+  </section>
+
+  <section class="section" id="comparison" aria-labelledby="comparison-label">
+    <p class="section-label" id="comparison-label">§06 · Aggregate Performance</p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div class="glance" style="height:100%;" aria-label="GLM-5 summary">
+        <p class="glance-label mono">GLM-5</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>65.0%</b></dd></div>
+          <div class="glance-row"><dt>Easy</dt><dd><b>85.7%</b></dd></div>
+          <div class="glance-row"><dt>Medium</dt><dd><b>71.4%</b></dd></div>
+          <div class="glance-row"><dt>Hard</dt><dd><b>33.3%</b></dd></div>
+          <div class="glance-row"><dt>Total Cost</dt><dd><b>$0.72</b></dd></div>
+        </dl>
+      </div>
+      <div class="glance" style="height:100%;" aria-label="Nova-2-Lite summary">
+        <p class="glance-label mono">Nova-2-Lite</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>45.0%</b></dd></div>
+          <div class="glance-row"><dt>Easy</dt><dd><b>71.4%</b></dd></div>
+          <div class="glance-row"><dt>Medium</dt><dd><b>57.1%</b></dd></div>
+          <div class="glance-row"><dt>Hard</dt><dd><b>0.0%</b></dd></div>
+          <div class="glance-row"><dt>Total Cost</dt><dd><b>$34.89</b></dd></div>
+        </dl>
+      </div>
+    </div>
+    <p class="caption" style="margin-top:1.5rem;">GLM-5 achieves higher pass rates at 48× lower cost.</p>
+  </section>
+
+  <section class="section" id="resources" aria-labelledby="resources-label">
+    <p class="section-label" id="resources-label">§07 · Resources</p>
+
+    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
+      <a class="resource" href="https://github.com/Ethara-Ai/Mars-Results" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Source Repository</p>
+        <p class="res-url mono">github.com/Ethara-Ai/Mars-Results</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Mars" target="_blank" rel="noopener" style="text-decoration:none;">
+        <p class="res-label mono">Dataset</p>
+        <p class="res-title">HuggingFace Dataset</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Mars</p>
+        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · project mars</p>
+    </div>
+  </footer>
+
+</div>
+
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

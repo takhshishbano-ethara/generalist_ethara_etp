@@ -19,12 +19,8 @@ class KenseiTestResult(models.Model):
         related="kensei_id.task_id", string="Task ID", store=True, index=True
     )
     trajectory_index = fields.Integer(
-        string="Trajectory #", default=0, index=True,
-        help="1-based index of the trajectory this test belongs to"
+        string="Trajectory #", default=0, index=True
     )
-
-    model_type = fields.Char(string="Model", index=True)
-    session_index = fields.Integer(string="Session #", default=0, index=True)
 
     model_used = fields.Char(string="LLM Used for Generation")
     status = fields.Selection(
@@ -37,6 +33,13 @@ class KenseiTestResult(models.Model):
         ],
         string="Status",
         default="generating",
+    )
+
+    score = fields.Integer(
+        string="Score", default=0,
+    )
+    test_scores = fields.Text(
+        string="Per-Function Scores", default="{}"
     )
 
     test_code = fields.Text(string="Test Code")

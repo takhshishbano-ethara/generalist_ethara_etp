@@ -387,6 +387,9 @@ class EtpAssessment(models.Model):
         for rec in self:
             if rec.state != "cancelled":
                 raise UserError("Only cancelled assessments can be reset to draft.")
+            rec.assessment_evaluator_ids.unlink()
+            rec.response_ids.unlink()
+            rec.write({"question_ids": [(5, 0, 0)]})
         self.write({"state": "draft"})
 
     def _send_assessment_emails(self):
@@ -444,7 +447,10 @@ class EtpAssessmentEvaluator(models.Model):
         "etp.assessment", required=True, ondelete="cascade"
     )
     employee_id = fields.Many2one("hr.employee", string="Candidate", required=True, ondelete="restrict")
-    access_token = fields.Char(string="Access Token", index=True, copy=False)
+    access_token = fields.Char(
+        string="Access Token", index=True, copy=False,
+        default=lambda self: str(uuid.uuid4()),
+    )
     question_order = fields.Text(string="Shuffled Question Order (JSON)")
     started_at = fields.Datetime(string="Started At", help="When the candidate first opened the assessment")
     deadline_datetime = fields.Datetime(

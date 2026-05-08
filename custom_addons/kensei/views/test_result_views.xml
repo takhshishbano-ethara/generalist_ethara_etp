@@ -8,11 +8,12 @@
             <list>
                 <field name="task_id" optional="show" />
                 <field name="model_type" string="Model" />
-                <field name="session_index" string="Session #" />
+                <field name="trajectory_index" string="Trajectory #" />
                 <field name="status" widget="badge"
                     decoration-success="status == 'passed'"
                     decoration-danger="status in ('failed', 'error')"
                     decoration-info="status in ('generating', 'running')" />
+                <field name="score" string="Score" />
                 <field name="tests_total" />
                 <field name="tests_passed" />
                 <field name="tests_failed" />
@@ -41,7 +42,7 @@
                         <group>
                             <field name="task_id" />
                             <field name="model_type" />
-                            <field name="session_index" />
+                            <field name="trajectory_index" />
                             <field name="sandbox_id" />
                             <field name="model_used" />
                             <field name="create_date" />
@@ -51,6 +52,7 @@
                             <field name="tests_passed" />
                             <field name="tests_failed" />
                             <field name="tests_errored" />
+                            <field name="score" />
                             <field name="duration_generation_ms" />
                             <field name="duration_execution_ms" />
                             <field name="generation_tokens_in" />
@@ -80,6 +82,7 @@
             <search>
                 <field name="task_id" />
                 <field name="model_type" />
+                <field name="trajectory_index" />
                 <field name="sandbox_id" />
                 <field name="model_used" />
                 <filter name="passed" string="Passed" domain="[('status', '=', 'passed')]" />
@@ -88,8 +91,8 @@
                 <group>
                     <filter name="group_task" string="Task ID" context="{'group_by': 'task_id'}" />
                     <filter name="group_model" string="Model" context="{'group_by': 'model_type'}" />
+                    <filter name="group_trajectory" string="Trajectory" context="{'group_by': 'trajectory_index'}" />
                     <filter name="group_status" string="Status" context="{'group_by': 'status'}" />
-                    <filter name="group_session" string="Session" context="{'group_by': 'session_index'}" />
                 </group>
             </search>
         </field>

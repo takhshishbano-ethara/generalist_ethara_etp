@@ -1520,9 +1520,27 @@ class KenseiSandbox(models.Model):
     def action_stop_sandbox(self):
         self.ensure_one()
 
+        _logger.info(
+            "action_stop_sandbox START (sandbox=%s, status=%s, mode=%s)",
+            self.id, self.docker_status, self._deployment_mode(),
+        )
+
+        try:
+            self._collect_mock_api_audit()
+        except Exception as e:
+            _logger.warning("API audit collection failed (sandbox=%s): %s", self.id, e)
+
+        _logger.info(
+            "action_stop_sandbox: audit done, api_request_ids=%d (sandbox=%s)",
+            len(self.api_request_ids), self.id,
+        )
+
+        try:
+            self._generate_and_run_tests()
+        except Exception as e:
+            _logger.warning("Test generation failed (sandbox=%s): %s", self.id, e)
+
         self._export_trajectory_to_task()
-        self._collect_mock_api_audit()
-        self._generate_and_run_tests()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -2738,9 +2756,22 @@ class KenseiSandbox(models.Model):
         mode = self._deployment_mode()
         if mode == "k8s":
             services = self.env['kensei.sandbox.k8s']._load_environment_services()
-            deployed = [s for s in services if s.get("k8s_image")]
-            if deployed:
-                self._collect_audit_k8s(deployed)
+            # For audit collection, try ALL services with a port — not just those
+            # with k8s_image. Env vars are injected for all services, and sidecars
+            # may be running even if image wasn't resolved at this point.
+            reachable = [s for s in services if s.get("port")]
+            _logger.info(
+                "K8s audit: total_services=%d, reachable_with_port=%d (sandbox=%s)",
+                len(services), len(reachable), self.id,
+            )
+            if reachable:
+                self._collect_audit_k8s(reachable)
+            else:
+                _logger.warning(
+                    "No mock services found for K8s audit (sandbox=%s). "
+                    "Check environment/ directory and service.toml files.",
+                    self.id,
+                )
         else:
             from odoo.modules.module import get_module_path
 
@@ -2824,8 +2855,11 @@ class KenseiSandbox(models.Model):
 
         try:
             k8s_config.load_incluster_config()
-        except Exception:
-            _logger.debug("Not in K8s cluster, skipping K8s audit collection")
+        except Exception as exc:
+            _logger.warning(
+                "K8s audit: load_incluster_config failed (sandbox=%s): %s",
+                self.id, exc,
+            )
             return
 
         core_v1 = k8s_client.CoreV1Api()
@@ -2863,12 +2897,18 @@ class KenseiSandbox(models.Model):
                     namespace,
                     container="openclaw",
                     command=fetch_cmd,
-                    stderr=True,
+                    stderr=False,
                     stdin=False,
                     stdout=True,
                     tty=False,
                     _preload_content=True,
                 )
+                if not resp or not resp.strip():
+                    _logger.warning(
+                        "K8s audit: empty response from %s:%d (sandbox=%s)",
+                        svc["name"], svc["port"], self.id,
+                    )
+                    continue
                 self._ingest_audit_json(svc["name"], resp)
             except Exception as e:
                 _logger.warning(
@@ -2882,8 +2922,23 @@ class KenseiSandbox(models.Model):
         import json as json_mod
         from datetime import datetime
 
-        data = json_mod.loads(raw_json)
+        try:
+            data = json_mod.loads(raw_json.strip())
+        except (json_mod.JSONDecodeError, ValueError, TypeError) as e:
+            _logger.warning(
+                "K8s audit: invalid JSON from %s (sandbox=%s): %s — raw[:200]: %s",
+                service_name, self.id, e, (raw_json or "")[:200],
+            )
+            return
+
         requests_list = data.get("requests", [])
+        if not requests_list:
+            _logger.info(
+                "K8s audit: no requests logged by %s (sandbox=%s)",
+                service_name, self.id,
+            )
+            return
+
         ApiRequest = self.env["kensei.api.request"].sudo()
 
         for entry in requests_list:
@@ -2952,19 +3007,6 @@ class KenseiSandbox(models.Model):
             _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
             return
 
-        session_index = 1
-        traj_field = TRAJECTORY_FIELD_MAP.get(self.model_type)
-        if traj_field and self.kensei_id:
-            raw = self.kensei_id[traj_field] or ""
-            try:
-                entries = json.loads(raw) if raw.strip() else []
-                session_index = len(entries) if isinstance(entries, list) else 1
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        model_label_map = {"claude": "claude", "glm": "kimi", "gpt": "gpt"}
-        model_label = model_label_map.get(self.model_type, self.model_type)
-
         TestResult = self.env["kensei.test.result"].sudo()
         traj_field_map = {
             "claude": "claude_trajectory",
@@ -2983,8 +3025,6 @@ class KenseiSandbox(models.Model):
                     pass
         result_record = TestResult.create({
             "sandbox_id": self.id,
-            "model_type": model_label,
-            "session_index": session_index,
             "model_used": "sonnet-4.6",
             "status": "generating",
             "trajectory_index": current_traj_index + 1,
@@ -3174,8 +3214,11 @@ class KenseiSandbox(models.Model):
             )
 
         message_parts.append("\n## Environment Variables for API Base URLs\n")
+        message_parts.append("Use `os.environ['<ENV_VAR>']` to get the full base URL (e.g. `http://localhost:<port>`).\n\n")
         for svc_name, info in env_vars.items():
-            message_parts.append("- %s=%s (port %d)\n" % (info["env_var"], svc_name, info["port"]))
+            message_parts.append("- `%s` → service: %s (port %d, value will be like `http://localhost:%d`)\n" % (
+                info["env_var"], svc_name, info["port"], info["port"]
+            ))
 
         message_parts.append("\n## Mock API Documentation (GET endpoints for verification)\n")
         message_parts.append(api_docs)
@@ -3276,7 +3319,7 @@ class KenseiSandbox(models.Model):
         encoded = base64.b64encode(test_code.encode()).decode()
         write_cmd = _compose_exec("openclaw", [
             "sh", "-c",
-            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+            "printf '%%s' '%s' | base64 -d > /tmp/test_state.py" % encoded,
         ])
 
         result = subprocess.run(
@@ -3297,7 +3340,7 @@ class KenseiSandbox(models.Model):
         )
 
         run_cmd = _compose_exec("openclaw", [
-            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short",
+            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long",
         ])
 
         result = subprocess.run(
@@ -3319,8 +3362,9 @@ class KenseiSandbox(models.Model):
 
         try:
             k8s_config.load_incluster_config()
-        except Exception:
-            return "ERROR: Not in K8s cluster"
+        except Exception as exc:
+            _logger.warning("K8s test exec: load_incluster_config failed: %s", exc)
+            return "ERROR: Not in K8s cluster: %s" % str(exc)[:200]
 
         core_v1 = k8s_client.CoreV1Api()
         pod_label = "app.kubernetes.io/name=kensei-sandbox,task-id=%s" % self.id
@@ -3340,7 +3384,7 @@ class KenseiSandbox(models.Model):
         encoded = base64.b64encode(test_code.encode()).decode()
         write_cmd = [
             "sh", "-c",
-            "echo '%s' | base64 -d > /tmp/test_state.py" % encoded,
+            "printf '%%s' '%s' | base64 -d > /tmp/test_state.py" % encoded,
         ]
         try:
             k8s_stream(
@@ -3371,14 +3415,14 @@ class KenseiSandbox(models.Model):
             pass
 
         try:
-            output = k8s_stream(
+            stdout = k8s_stream(
                 core_v1.connect_get_namespaced_pod_exec,
                 pod_name, namespace, container="openclaw",
-                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=short"],
+                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long"],
                 stderr=True, stdin=False, stdout=True, tty=False,
                 _preload_content=True,
             )
-            return (output or "")[:50000]
+            return (stdout or "")[:50000]
         except Exception as e:
             return "ERROR running pytest: %s" % str(e)[:500]
 

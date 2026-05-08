@@ -1,0 +1,462 @@
+[
+  {
+    "serial": 1,
+    "instance_id": "aggregate-sales-sqlite-queries",
+    "task_description": "Evaluates the ability to write multi-step SQL queries against a normalized SQLite database to produce aggregated sales reports.",
+    "category": "Software Engineering",
+    "difficulty": "Medium",
+    "language": "SQL",
+    "skill_domain": "SQL & Data Analysis",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 157.76,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": "aggregate-sales-sqlite-queries"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 155.56,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 2,
+    "instance_id": "build-plugin-loader-system",
+    "task_description": "Evaluates the ability to design and implement a Python plugin loading system with dependency resolution and lifecycle management.",
+    "category": "Software Engineering",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 237.9,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "build-plugin-loader-system"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 943.66,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 3,
+    "instance_id": "build-plugin-registry-cli",
+    "task_description": "Evaluates the ability to design and implement a CLI plugin registry system with dependency resolution and version constraints.",
+    "category": "Software Engineering",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 119.57,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "build-plugin-registry-cli"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 117.57,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 4,
+    "instance_id": "complex-sql-analytics-pipeline",
+    "task_description": "Evaluates the ability to write complex SQL queries involving window functions, CTEs, and multi-table joins to extract specific analytics from a normalized database.",
+    "category": "Data Querying",
+    "difficulty": "Hard",
+    "language": "SQL",
+    "skill_domain": "SQL & Data Analysis",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 116.38,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": "complex-sql-analytics-pipeline"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 1854.37,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 5,
+    "instance_id": "complex-sql-window-analytics",
+    "task_description": "Evaluates ability to write advanced SQL queries with window functions, CTEs, and complex aggregations against a multi-table analytical database",
+    "category": "Data Querying",
+    "difficulty": "Hard",
+    "language": "SQL",
+    "skill_domain": "SQL & Data Analysis",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 113.26,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "complex-sql-window-analytics"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 103.49,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 6,
+    "instance_id": "csv-column-extractor",
+    "task_description": "Tests ability to parse a CSV file and produce a filtered, sorted output file using standard CLI tools.",
+    "category": "File Operation",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 136.49,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "csv-column-extractor"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 42.81,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 7,
+    "instance_id": "csv-column-extractor-6",
+    "task_description": "Evaluates ability to extract and transform specific columns from a CSV file using basic CLI text processing.",
+    "category": "File Operation",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 62.55,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "csv-column-extractor-6"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 33.48,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 8,
+    "instance_id": "csv-pipeline-aggregator",
+    "task_description": "Evaluates ability to build a CLI data pipeline tool that reads, transforms, and aggregates CSV data with proper error handling.",
+    "category": "Software Engineering",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 128.15,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "csv-pipeline-aggregator"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 129.67,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 9,
+    "instance_id": "custom-git-merge-driver-2",
+    "task_description": "Evaluates ability to implement a custom Git merge driver that resolves conflicts in a structured data format using semantic rules rather than text-based diffing.",
+    "category": "Software Engineering",
+    "difficulty": "Hard",
+    "language": "Python",
+    "skill_domain": "Version Control Systems",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 260.99,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": "custom-git-merge-driver-2"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 1819.61,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 10,
+    "instance_id": "fix-async-connection-pool",
+    "task_description": "Debug a complex async connection pool implementation that exhibits race conditions, resource leaks, and incorrect timeout handling under concurrent load.",
+    "category": "Debugging",
+    "difficulty": "Hard",
+    "language": "Python",
+    "skill_domain": "Concurrency & Distributed Systems",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 192.73,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": "fix-async-connection-pool"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 1827.22,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 11,
+    "instance_id": "fix-broken-csv-parser",
+    "task_description": "Evaluates ability to debug a Python script that miscalculates statistics from a CSV file",
+    "category": "Debugging",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "Data Processing",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 69.8,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "fix-broken-csv-parser"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 33.44,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 12,
+    "instance_id": "fix-corrupted-raft-consensus",
+    "task_description": "Debug and fix a corrupted Raft consensus implementation that has subtle bugs in leader election, log replication, and commit index advancement.",
+    "category": "Debugging",
+    "difficulty": "Hard",
+    "language": "Python",
+    "skill_domain": "Concurrency & Distributed Systems",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 217.89,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": "fix-corrupted-raft-consensus"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 1827.79,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 13,
+    "instance_id": "fix-csv-parser-memory-leak",
+    "task_description": "Debug a Python CSV processing pipeline that produces incorrect aggregation results due to subtle data handling bugs",
+    "category": "Debugging",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Data Processing",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 174.83,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "fix-csv-parser-memory-leak"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 77.81,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 14,
+    "instance_id": "fix-flask-session-auth-7",
+    "task_description": "Debug a Flask application with broken session-based authentication that fails to maintain login state across requests",
+    "category": "Debugging",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Web Development",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 114.7,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "fix-flask-session-auth-7"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 99.77,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 15,
+    "instance_id": "fix-palindrome-checker",
+    "task_description": "Evaluates ability to debug a subtly broken Python string-processing function",
+    "category": "Debugging",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "String Processing",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 88.39,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "fix-palindrome-checker"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 56.9,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 16,
+    "instance_id": "json-log-summarizer",
+    "task_description": "Evaluates ability to parse newline-delimited JSON logs and produce a summary report via a CLI script.",
+    "category": "Software Engineering",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 88.79,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": "json-log-summarizer"
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 42.56,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 17,
+    "instance_id": "json-log-summarizer-2",
+    "task_description": "Evaluates ability to write a small CLI tool that parses JSON log files and produces a summary report.",
+    "category": "Software Engineering",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "Software Architecture",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 77.23,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 38.9,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 18,
+    "instance_id": "minimize-coin-change",
+    "task_description": "Evaluates ability to solve a basic optimization problem by computing minimum coin change.",
+    "category": "Optimization",
+    "difficulty": "Medium",
+    "language": "Python",
+    "skill_domain": "Algorithm Design",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 77.62,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 53.41,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 19,
+    "instance_id": "optimize-delivery-route-solver",
+    "task_description": "Evaluates ability to optimize a vehicle routing problem solver to handle large instances within strict time and quality constraints.",
+    "category": "Optimization",
+    "difficulty": "Hard",
+    "language": "Python",
+    "skill_domain": "Algorithm Design",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 370.89,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 1882.14,
+        "passed": false,
+        "pass_at_1": "Fail",
+        "trajectory_url": ""
+      }
+    }
+  },
+  {
+    "serial": 20,
+    "instance_id": "run-length-encoder",
+    "task_description": "Evaluates ability to implement a simple string encoding algorithm with edge cases",
+    "category": "Algorithms",
+    "difficulty": "Easy",
+    "language": "Python",
+    "skill_domain": "String Processing",
+    "models": {
+      "GLM-5": {
+        "time_seconds": 116.6,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      },
+      "Nova 2 Lite": {
+        "time_seconds": 47.3,
+        "passed": true,
+        "pass_at_1": "Pass",
+        "trajectory_url": ""
+      }
+    }
+  }
+]
