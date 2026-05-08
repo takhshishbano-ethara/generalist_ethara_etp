@@ -578,6 +578,7 @@ export class TaskDashboard extends Component {
                 this._testWeightsPollTimer = null;
                 if (this.state.testWeightsStatus === "done") {
                     this.notification.add("Test weights generated successfully.", { type: "success" });
+                    await this._loadTestResults();
                 } else if (this.state.testWeightsStatus === "error") {
                     this.notification.add("Test weight generation failed: " + this.state.testWeightsError, { type: "danger" });
                 }

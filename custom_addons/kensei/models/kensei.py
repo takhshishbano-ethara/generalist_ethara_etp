@@ -460,23 +460,34 @@ def _run_test_weight_generation_background(db_name, task_id, notify_partner_id):
             usage,
         )
 
-        # Extract JSON from response (handle markdown fencing)
         cleaned = response_text.strip()
         if cleaned.startswith("```"):
-            # Remove opening fence
             first_newline = cleaned.index("\n")
             cleaned = cleaned[first_newline + 1:]
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
 
-        # Validate it's valid JSON array
+        json_match = _re.search(r'\[.*\]', cleaned, _re.DOTALL)
+        if not json_match:
+            raise ValueError("No JSON array found in LLM response. Raw: %s" % cleaned[:500])
+        cleaned = json_match.group(0)
+
         parsed = json.loads(cleaned)
         if not isinstance(parsed, list):
             raise ValueError("Expected JSON array of test weight objects, got %s" % type(parsed).__name__)
-        # Re-serialize for consistent storage
         cleaned = json.dumps(parsed, indent=2, ensure_ascii=False)
 
-        # Phase 3: write result
+        # Phase 3: write result and apply scores to test results
+        weight_map = {w["test_name"]: w["weight"] for w in parsed if "test_name" in w}
+        score_clamp_map = {}
+        for tname, w in weight_map.items():
+            if w >= 100:
+                score_clamp_map[tname] = 30
+            elif w <= -30:
+                score_clamp_map[tname] = -30
+            else:
+                score_clamp_map[tname] = max(-30, min(30, w))
+
         for attempt in range(3):
             try:
                 with Registry(db_name).cursor() as cr:
@@ -489,6 +500,15 @@ def _run_test_weight_generation_background(db_name, task_id, notify_partner_id):
                         "test_weights_status": "done",
                         "test_weights_error": False,
                     })
+
+                    if score_clamp_map:
+                        test_results = env["kensei.test.result"].sudo().search([
+                            ("kensei_id", "=", task_id),
+                        ])
+                        scores_json = json.dumps(score_clamp_map, ensure_ascii=False)
+                        for tr in test_results:
+                            tr.write({"test_scores": scores_json})
+
                     partner = None
                     if notify_partner_id:
                         partner = env["res.partner"].browse(notify_partner_id)

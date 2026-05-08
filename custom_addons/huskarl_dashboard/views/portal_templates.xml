@@ -311,7 +311,7 @@
 
   <section class="section" id="instances" aria-labelledby="instances-label">
     <p class="section-label" id="instances-label">§05 · Dataset Viewer</p>
-    <p class="section-desc">Sample environments evaluated on GLM-5 and Nova-2-Lite.</p>
+    <p class="section-desc">Sample instances evaluated on GLM-5 and Nova-2-Lite.</p>
 
     <div style="display:flex; gap:12px; margin-top:1rem; margin-bottom:24px; flex-wrap:wrap;">
       <input type="text" class="hk-dataset__search" placeholder="Search environments..." aria-label="Search environments" style="flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);"/>
@@ -334,7 +334,7 @@
 
     <div class="matrix-wrap">
       <table class="matrix" id="matrix" aria-describedby="matrix-desc" style="table-layout:fixed; width:100%;">
-        <caption id="matrix-desc" class="sr-only">Dataset viewer: 20 sample environments evaluated on GLM-5 and Nova-2-Lite models.</caption>
+        <caption id="matrix-desc" class="sr-only">Dataset viewer: 20 sample instances evaluated on GLM-5 and Nova-2-Lite models.</caption>
         <colgroup>
           <col style="width:4%;"/>
           <col style="width:22%;"/>
@@ -349,7 +349,7 @@
         <thead>
           <tr>
             <th scope="col" class="matrix-th-meta">#</th>
-            <th scope="col" class="matrix-th-id" data-sort="instance_id">Environment</th>
+            <th scope="col" class="matrix-th-id" data-sort="instance_id">Instance</th>
             <th scope="col" class="matrix-th-meta" data-sort="category">Category</th>
             <th scope="col" class="matrix-th-meta" data-sort="difficulty">Difficulty</th>
             <th scope="col" class="matrix-th-cell" data-sort="glm5_result">GLM-5</th>
@@ -399,16 +399,16 @@
     <p class="section-label" id="resources-label">§07 · Resources</p>
 
     <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/Mars-Results" target="_blank" rel="noopener" style="text-decoration:none;">
+      <a class="resource" href="https://github.com/Ethara-Ai/mars-results" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Source Repository</p>
-        <p class="res-url mono">github.com/Ethara-Ai/Mars-Results</p>
+        <p class="res-url mono">github.com/Ethara-Ai/mars-results</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
-      <a class="resource" href="https://huggingface.co/datasets/ethara/Mars" target="_blank" rel="noopener" style="text-decoration:none;">
+      <a class="resource" href="https://huggingface.co/datasets/ethara/mars" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Dataset</p>
         <p class="res-title">HuggingFace Dataset</p>
-        <p class="res-url mono">huggingface.co/datasets/ethara/Mars</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/mars</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
     </div>
