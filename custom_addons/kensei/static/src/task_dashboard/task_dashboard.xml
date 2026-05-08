@@ -75,6 +75,30 @@
                                         <t t-out="this.testResultsSummary.total"/> run(s)
                                     </span>
                                 </t>
+                                <div class="ms-auto d-flex align-items-center gap-2">
+                                    <t t-if="state.testWeightsStatus === 'generating'">
+                                        <span class="badge text-bg-info">
+                                            <i class="fa fa-spinner fa-spin me-1"/>Generating Weights…
+                                        </span>
+                                    </t>
+                                    <t t-elif="state.testWeightsStatus === 'done'">
+                                        <span class="badge text-bg-success">
+                                            <i class="fa fa-check me-1"/>Weights Ready
+                                        </span>
+                                    </t>
+                                    <t t-elif="state.testWeightsStatus === 'error'">
+                                        <span class="badge text-bg-danger" t-att-title="state.testWeightsError">
+                                            <i class="fa fa-exclamation-triangle me-1"/>Weight Error
+                                        </span>
+                                    </t>
+                                    <button class="o_kensei_btn_ghost"
+                                            t-on-click="onGenerateTestWeights"
+                                            t-att-disabled="state.testWeightsStatus === 'generating'"
+                                            title="Auto-generate test weights using LLM">
+                                        <i class="fa fa-balance-scale me-1"/>
+                                        <span>Generate Weights</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <t t-if="!this.testResultsSummary">

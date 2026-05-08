@@ -44,6 +44,8 @@ export class TaskDashboard extends Component {
             rubricError: "",
             testResults: {},
             expandedTestIds: {},
+            testWeightsStatus: "idle",
+            testWeightsError: "",
         });
 
         this._onSandboxStatusChanged = (ev) => {
@@ -59,9 +61,11 @@ export class TaskDashboard extends Component {
             this._checkGogAuthStatus();
             this._loadRubrics();
             this._loadTestResults();
+            this._loadTestWeightsStatus();
         });
         onWillUnmount(() => {
             this._stopPolling();
+            if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
             this.env.bus.removeEventListener(
                 "KENSEI:SANDBOX_STATUS_CHANGED",
                 this._onSandboxStatusChanged,
@@ -535,6 +539,52 @@ export class TaskDashboard extends Component {
         } catch (e) {
             console.warn("[kensei-dashboard] Failed to load test results:", e);
         }
+    }
+
+    async _loadTestWeightsStatus() {
+        if (!this.taskId) return;
+        try {
+            const [data] = await this.orm.read(
+                "kensei.kensei",
+                [this.taskId],
+                ["test_weights_status", "test_weights_error"],
+            );
+            this.state.testWeightsStatus = data.test_weights_status || "idle";
+            this.state.testWeightsError = data.test_weights_error || "";
+        } catch (e) {
+            console.warn("[kensei-dashboard] Failed to load test weights status:", e);
+        }
+    }
+
+    async onGenerateTestWeights() {
+        if (!this.taskId) return;
+        try {
+            this.state.testWeightsStatus = "generating";
+            this.state.testWeightsError = "";
+            await this.orm.call("kensei.kensei", "action_generate_test_weights", [[this.taskId]]);
+            this.notification.add("Test weight generation started.", { type: "info" });
+            this._pollTestWeightsStatus();
+        } catch (e) {
+            this.state.testWeightsStatus = "error";
+            this.state.testWeightsError = e.message || String(e);
+            this.notification.add("Failed to start test weight generation: " + (e.message || e), { type: "danger" });
+        }
+    }
+
+    _pollTestWeightsStatus() {
+        if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+        this._testWeightsPollTimer = setInterval(async () => {
+            await this._loadTestWeightsStatus();
+            if (this.state.testWeightsStatus !== "generating") {
+                clearInterval(this._testWeightsPollTimer);
+                this._testWeightsPollTimer = null;
+                if (this.state.testWeightsStatus === "done") {
+                    this.notification.add("Test weights generated successfully.", { type: "success" });
+                } else if (this.state.testWeightsStatus === "error") {
+                    this.notification.add("Test weight generation failed: " + this.state.testWeightsError, { type: "danger" });
+                }
+            }
+        }, 5000);
     }
 
     get activeTestResults() {

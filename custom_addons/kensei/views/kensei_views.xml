@@ -144,6 +144,9 @@
             <field name="golden_error" invisible="1"/>
             <field name="golden_started_at" invisible="1"/>
             <field name="rubrics" invisible="1"/>
+            <field name="test_weights" invisible="1"/>
+            <field name="test_weights_status" invisible="1"/>
+            <field name="test_weights_error" invisible="1"/>
           </sheet>
         </form>
       </field>
