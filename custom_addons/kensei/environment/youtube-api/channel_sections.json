@@ -3,8 +3,8 @@
     "id": "section_001",
     "snippet": {
       "type": "singlePlaylist",
-      "channelId": "UC_TechCraftAcademy",
-      "title": "Python for Beginners",
+      "channelId": "UC_EquineHealthChannel",
+      "title": "Equine Skin Conditions",
       "position": 0
     },
     "contentDetails": {
@@ -15,8 +15,8 @@
     "id": "section_002",
     "snippet": {
       "type": "singlePlaylist",
-      "channelId": "UC_TechCraftAcademy",
-      "title": "Web Dev 2025",
+      "channelId": "UC_EquineHealthChannel",
+      "title": "Horse Owner Basics",
       "position": 1
     },
     "contentDetails": {
@@ -27,8 +27,8 @@
     "id": "section_003",
     "snippet": {
       "type": "singlePlaylist",
-      "channelId": "UC_TechCraftAcademy",
-      "title": "Career Advice",
+      "channelId": "UC_EquineHealthChannel",
+      "title": "Emergency and First Aid",
       "position": 2
     },
     "contentDetails": {
@@ -39,7 +39,7 @@
     "id": "section_004",
     "snippet": {
       "type": "popularUploads",
-      "channelId": "UC_TechCraftAcademy",
+      "channelId": "UC_EquineHealthChannel",
       "title": "Popular Uploads",
       "position": 3
     },
@@ -51,20 +51,20 @@
     "id": "section_005",
     "snippet": {
       "type": "singlePlaylist",
-      "channelId": "UC_TechCraftAcademy",
-      "title": "System Design",
+      "channelId": "UC_EquineHealthChannel",
+      "title": "Infectious Disease",
       "position": 4
     },
     "contentDetails": {
-      "playlists": ["PL_007"]
+      "playlists": ["PL_009"]
     }
   },
   {
     "id": "section_006",
     "snippet": {
       "type": "singlePlaylist",
-      "channelId": "UC_TechCraftAcademy",
-      "title": "Shorts & Quick Tips",
+      "channelId": "UC_EquineHealthChannel",
+      "title": "Quick Tips and Shorts",
       "position": 5
     },
     "contentDetails": {
