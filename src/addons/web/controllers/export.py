@@ -628,10 +628,50 @@ class ExportFormat(object):
 
 class CSVExport(ExportFormat, http.Controller):
 
+    _csv_batch_size = 5000
+
     @http.route('/web/export/csv', type='http', auth='user')
     def web_export_csv(self, data):
         try:
-            return self.base(data)
+            params = json.loads(data)
+            model, fields, ids, domain, import_compat = \
+                operator.itemgetter('model', 'fields', 'ids', 'domain', 'import_compat')(params)
+
+            Model = request.env[model].with_context(import_compat=import_compat, **params.get('context', {}))
+            if not Model._is_an_ordinary_table():
+                fields = [field for field in fields if field['name'] != 'id']
+
+            field_names = [f['name'] for f in fields]
+            if import_compat:
+                columns_headers = field_names
+            else:
+                columns_headers = [val['label'].strip() for val in fields]
+
+            records = Model.browse(ids) if ids else Model.search(domain)
+
+            groupby = params.get('groupby')
+            if not import_compat and groupby:
+                raise UserError(request.env._("Exporting grouped data to csv is not supported."))
+
+            _logger.info(
+                "User %d exported %d %r records from %s. Fields: %s. %s: %s",
+                request.env.user.id, len(records.ids), records._name,
+                request.httprequest.environ['REMOTE_ADDR'],
+                ','.join(field_names),
+                'IDs sample' if ids else 'Domain',
+                records.ids[:10] if ids else domain,
+            )
+
+            headers = [
+                ('Content-Disposition', content_disposition(
+                    osutil.clean_filename(self.filename(model) + self.extension))),
+                ('Content-Type', self.content_type),
+            ]
+
+            return request.make_response(
+                self._generate_csv(records, field_names, columns_headers),
+                headers=headers,
+            )
         except Exception as exc:
             _logger.exception("Exception during request handling.")
             payload = json.dumps({
@@ -640,6 +680,40 @@ class CSVExport(ExportFormat, http.Controller):
                 'data': http.serialize_exception(exc)
             })
             raise InternalServerError(payload) from exc
+
+    def _generate_csv(self, records, field_names, columns_headers):
+        fp = io.StringIO()
+        writer = csv.writer(fp, quoting=1)
+        writer.writerow(columns_headers)
+        yield fp.getvalue()
+        fp.seek(0)
+        fp.truncate()
+
+        record_ids = records.ids
+        batch_size = self._csv_batch_size
+
+        for offset in range(0, len(record_ids), batch_size):
+            batch = records.browse(record_ids[offset:offset + batch_size])
+            export_data = batch.export_data(field_names).get('datas', [])
+
+            for data in export_data:
+                row = []
+                for d in data:
+                    if d is None or d is False:
+                        d = ''
+                    elif isinstance(d, bytes):
+                        d = d.decode()
+                    # Spreadsheet apps tend to detect formulas on leading =, + and -
+                    if isinstance(d, str) and d.startswith(('=', '-', '+')):
+                        d = "'" + d
+                    row.append(d)
+                writer.writerow(row)
+
+            yield fp.getvalue()
+            fp.seek(0)
+            fp.truncate()
+
+        fp.close()
 
     @property
     def content_type(self):
