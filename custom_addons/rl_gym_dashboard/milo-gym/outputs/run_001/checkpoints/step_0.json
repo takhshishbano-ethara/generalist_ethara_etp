@@ -1,0 +1,22 @@
+{
+  "step": 0,
+  "best_eval": 0.0,
+  "best_checkpoint_path": null,
+  "learning_rate": 1e-05,
+  "temperature": 1.0,
+  "stopped": true,
+  "stop_reason": "3+ consecutive Docker failures",
+  "curriculum_state": {
+    "current_phase_idx": 0,
+    "step_count": 0,
+    "success_history": [],
+    "variance_adjustment": [],
+    "rng_seed": 42
+  },
+  "teacher_refresh_counter": 0,
+  "config": {
+    "model_path": "Qwen/Qwen3-30B-A3B",
+    "run_id": "run_001",
+    "total_steps": 10
+  }
+}

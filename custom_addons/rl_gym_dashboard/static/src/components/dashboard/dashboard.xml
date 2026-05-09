@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="rl_gym_dashboard.Dashboard">
+        <div class="rl-dash-container">
+            <header class="rl-dash-header">
+                <div class="rl-dash-header__left">
+                    <h1 class="rl-dash-header__title">RL Training Monitor</h1>
+                    <span class="rl-dash-header__badge" t-esc="state.algorithm"/>
+                    <span class="rl-dash-header__badge rl-dash-header__badge--env" t-esc="state.environment"/>
+                </div>
+                <div class="rl-dash-header__right">
+                    <span class="rl-dash-time" t-esc="state.trainingTime"/>
+                    <span class="rl-dash-live-indicator">
+                        <span class="rl-dash-live-indicator__dot"/>
+                        <span class="rl-dash-live-indicator__text">LIVE</span>
+                    </span>
+                </div>
+            </header>
+
+            <section class="rl-dash-overview">
+                <div class="rl-dash-overview__text">
+                    <p class="rl-dash-overview__lead">
+                        Real-time monitoring of reinforcement learning training runs across continuous-control locomotion tasks.
+                        This dashboard tracks policy optimization progress, loss convergence, entropy-driven exploration,
+                        and gradient health — providing actionable visibility into agent learning dynamics.
+                    </p>
+                    <p class="rl-dash-overview__detail">
+                        Training uses the <strong t-esc="state.algorithm"/> algorithm on <strong t-esc="state.environment"/> with
+                        vectorized environments, GAE advantage estimation (λ=0.95), and adaptive learning rate scheduling.
+                        Metrics update every 2 seconds. Reward curves show both raw episodic returns and exponential moving average (α=0.08).
+                    </p>
+                </div>
+                <div class="rl-dash-overview__glance">
+                    <h4 class="rl-dash-overview__glance-title">At a glance</h4>
+                    <div class="rl-dash-overview__glance-item">
+                        <span class="rl-dash-overview__glance-label">Algorithm</span>
+                        <span class="rl-dash-overview__glance-value" t-esc="state.algorithm"/>
+                    </div>
+                    <div class="rl-dash-overview__glance-item">
+                        <span class="rl-dash-overview__glance-label">Environment</span>
+                        <span class="rl-dash-overview__glance-value" t-esc="state.environment"/>
+                    </div>
+                    <div class="rl-dash-overview__glance-item">
+                        <span class="rl-dash-overview__glance-label">Batch Size</span>
+                        <span class="rl-dash-overview__glance-value">2048</span>
+                    </div>
+                    <div class="rl-dash-overview__glance-item">
+                        <span class="rl-dash-overview__glance-label">Update Freq</span>
+                        <span class="rl-dash-overview__glance-value">2s real-time</span>
+                    </div>
+                    <div class="rl-dash-overview__glance-item">
+                        <span class="rl-dash-overview__glance-label">Metrics</span>
+                        <span class="rl-dash-overview__glance-value">12 tracked</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rl-dash-kpis">
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">Episodes</span>
+                    <span class="rl-dash-kpi__value" t-esc="formatNumber(state.totalEpisodes)"/>
+                </div>
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">Total Steps</span>
+                    <span class="rl-dash-kpi__value" t-esc="formatNumber(state.totalSteps)"/>
+                </div>
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">Current Reward</span>
+                    <span class="rl-dash-kpi__value" t-esc="state.currentReward"/>
+                </div>
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">Best Reward</span>
+                    <span class="rl-dash-kpi__value" t-esc="state.bestReward"/>
+                </div>
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">Avg Reward (100)</span>
+                    <span class="rl-dash-kpi__value" t-esc="state.avgReward"/>
+                </div>
+                <div class="rl-dash-kpi">
+                    <span class="rl-dash-kpi__label">FPS</span>
+                    <span class="rl-dash-kpi__value" t-esc="state.fps"/>
+                </div>
+            </section>
+
+            <section class="rl-dash-charts">
+                <div class="rl-dash-chart rl-dash-chart--hero">
+                    <h3 class="rl-dash-chart__title">Episode Reward</h3>
+                    <div class="rl-dash-chart__canvas">
+                        <canvas t-ref="rewardChart"/>
+                    </div>
+                </div>
+                <div class="rl-dash-chart">
+                    <h3 class="rl-dash-chart__title">Training Losses</h3>
+                    <div class="rl-dash-chart__canvas">
+                        <canvas t-ref="lossChart"/>
+                    </div>
+                </div>
+                <div class="rl-dash-chart">
+                    <h3 class="rl-dash-chart__title">Exploration (Entropy)</h3>
+                    <div class="rl-dash-chart__canvas">
+                        <canvas t-ref="explorationChart"/>
+                    </div>
+                </div>
+                <div class="rl-dash-chart">
+                    <h3 class="rl-dash-chart__title">Gradient Norm</h3>
+                    <div class="rl-dash-chart__canvas">
+                        <canvas t-ref="gradientChart"/>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rl-dash-methodology">
+                <h3 class="rl-dash-methodology__title">§ Training Pipeline</h3>
+                <p class="rl-dash-methodology__desc">Four stages define the RL training loop monitored by this dashboard.</p>
+                <div class="rl-dash-methodology__grid">
+                    <div class="rl-dash-methodology__phase">
+                        <span class="rl-dash-methodology__phase-num">01</span>
+                        <h4 class="rl-dash-methodology__phase-title">Environment Interaction</h4>
+                        <p class="rl-dash-methodology__phase-text">Agent collects trajectories by executing the current policy in vectorized environments. Each rollout produces state-action-reward tuples stored in a replay buffer.</p>
+                    </div>
+                    <div class="rl-dash-methodology__phase">
+                        <span class="rl-dash-methodology__phase-num">02</span>
+                        <h4 class="rl-dash-methodology__phase-title">Advantage Estimation</h4>
+                        <p class="rl-dash-methodology__phase-text">GAE (Generalized Advantage Estimation) computes temporal-difference residuals with discount γ=0.99 and bias-variance trade-off λ=0.95 across the collected batch.</p>
+                    </div>
+                    <div class="rl-dash-methodology__phase">
+                        <span class="rl-dash-methodology__phase-num">03</span>
+                        <h4 class="rl-dash-methodology__phase-title">Policy Optimization</h4>
+                        <p class="rl-dash-methodology__phase-text">Clipped surrogate objective constrains policy updates within ε=0.2 trust region. Multiple gradient steps on minibatches maximize expected return while bounding KL divergence.</p>
+                    </div>
+                    <div class="rl-dash-methodology__phase">
+                        <span class="rl-dash-methodology__phase-num">04</span>
+                        <h4 class="rl-dash-methodology__phase-title">Evaluation &amp; Logging</h4>
+                        <p class="rl-dash-methodology__phase-text">Periodic evaluation rollouts (no exploration) measure true policy performance. Metrics are logged: episodic reward, loss components, gradient norms, and entropy decay.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rl-dash-bottom">
+                <div class="rl-dash-panel">
+                    <h3 class="rl-dash-panel__title">Episode History</h3>
+                    <table class="rl-dash-table">
+                        <thead>
+                            <tr>
+                                <th>Episode</th>
+                                <th>Reward</th>
+                                <th>Length</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.recentEpisodes" t-as="ep" t-key="ep.episode">
+                                <tr>
+                                    <td t-esc="ep.episode"/>
+                                    <td t-esc="ep.reward"/>
+                                    <td t-esc="ep.length"/>
+                                    <td t-esc="ep.timestamp"/>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="rl-dash-panel">
+                    <h3 class="rl-dash-panel__title">Hyperparameters</h3>
+                    <div class="rl-dash-config">
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Algorithm</span>
+                            <span class="rl-dash-config__value" t-esc="state.algorithm"/>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Environment</span>
+                            <span class="rl-dash-config__value" t-esc="state.environment"/>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Learning Rate</span>
+                            <span class="rl-dash-config__value" t-esc="state.learningRate"/>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Entropy Coeff</span>
+                            <span class="rl-dash-config__value" t-esc="state.entropyCoeff"/>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Clip Range</span>
+                            <span class="rl-dash-config__value" t-esc="state.clipRange"/>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Batch Size</span>
+                            <span class="rl-dash-config__value">2048</span>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">Gamma</span>
+                            <span class="rl-dash-config__value">0.99</span>
+                        </div>
+                        <div class="rl-dash-config__row">
+                            <span class="rl-dash-config__key">GAE Lambda</span>
+                            <span class="rl-dash-config__value">0.95</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </t>
+</templates>

@@ -1,0 +1,38 @@
+# Scaling Inter-RL Curriculum Configuration
+phases:
+  - phase_id: 1
+    max_turns: 10
+    step_start: 0
+    step_end: 50
+    difficulty_filter: ["easy"]
+    expected_success_rate: 0.3
+    hard_bias: 1.0
+  - phase_id: 2
+    max_turns: 20
+    step_start: 50
+    step_end: 150
+    difficulty_filter: ["easy", "medium"]
+    expected_success_rate: 0.2
+    hard_bias: 1.0
+  - phase_id: 3
+    max_turns: 35
+    step_start: 150
+    step_end: 300
+    difficulty_filter: ["easy", "medium", "hard"]
+    expected_success_rate: 0.15
+    hard_bias: 1.5
+  - phase_id: 4
+    max_turns: 50
+    step_start: 300
+    step_end: 500
+    difficulty_filter: ["easy", "medium", "hard"]
+    expected_success_rate: 0.1
+    hard_bias: 2.0
+
+advancement:
+  threshold: 0.7
+  window: 5
+
+variance:
+  target_low: 0.05
+  target_high: 0.4

@@ -1,0 +1,29 @@
+# Stage 0: Data Pipeline Configuration
+milo_data_dir: "data/milo-bench/"
+languages: ["python", "go"]
+output_dir: "data/tasks/"
+
+augmentation:
+  strategies: ["commit_reversion", "ast_mutation", "llm_bug_injection"]
+  llm_endpoint: ""
+  target_task_count: 1500
+
+validation:
+  timeout: 300
+  max_concurrent: 16
+
+difficulty:
+  model_path: "Qwen/Qwen2.5-Coder-14B-Instruct"
+  n_attempts: 16
+  temperature: 0.7
+
+splitting:
+  eval_size: 200
+  seed: 42
+  stratify_by: ["difficulty", "language"]
+
+docker:
+  registry: "localhost:5000"
+  cpu_limit: 1.0
+  mem_limit: "4g"
+  network_disabled: true

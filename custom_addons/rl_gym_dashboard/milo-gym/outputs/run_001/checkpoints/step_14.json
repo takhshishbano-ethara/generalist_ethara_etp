@@ -1,0 +1,30 @@
+{
+  "step": 14,
+  "best_eval": 0.0,
+  "best_checkpoint_path": null,
+  "learning_rate": 3e-05,
+  "temperature": 1.0,
+  "stopped": false,
+  "stop_reason": null,
+  "curriculum_state": {
+    "current_phase_idx": 0,
+    "step_count": 15,
+    "success_history": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "variance_adjustment": [
+      "hard"
+    ],
+    "rng_seed": 110908
+  },
+  "teacher_refresh_counter": 15,
+  "config": {
+    "model_path": "Qwen/Qwen2.5-Coder-14B-Instruct",
+    "run_id": "run_001",
+    "total_steps": 15
+  }
+}

@@ -1,0 +1,26 @@
+# Evaluation Configuration
+per_pr:
+  n_attempts: 1
+  temperature: 1.0
+  max_turns: 50
+  max_concurrent: 16
+
+best_of_n:
+  n: 8
+  temperature: 1.0
+  max_turns: 50
+
+full_milo:
+  enabled: false
+  max_turns: 480
+  timeout_minutes: 300
+  context_strategy: "first_4k_last_20k"
+
+metrics:
+  track_per_difficulty: true
+  track_per_language: true
+  save_trajectories: true
+
+output:
+  dir: "outputs/eval/"
+  format: "jsonl"
