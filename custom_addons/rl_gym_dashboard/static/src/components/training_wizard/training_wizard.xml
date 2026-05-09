@@ -510,7 +510,7 @@
     <!-- Step 4: Metrics                                                     -->
     <!-- ================================================================== -->
     <t t-name="rl_gym_dashboard.TrainingWizard.StepMetrics">
-        <div class="rl-wizard-metrics">
+        <div class="rl-wizard-metrics" t-ref="metricsRoot">
             <t t-if="state.loading">
                 <div class="rl-wizard-loading">
                     <div class="rl-wizard-loading__spinner"/>
@@ -518,7 +518,6 @@
                 </div>
             </t>
             <t t-else="">
-                <!-- Summary Cards -->
                 <div class="rl-wizard-metrics__summary">
                     <div class="rl-wizard-metrics__summary-card">
                         <div class="rl-wizard-metrics__summary-label">Final Loss</div>
@@ -536,39 +535,42 @@
                         <div class="rl-wizard-metrics__summary-label">Avg Tokens/sec</div>
                         <div class="rl-wizard-metrics__summary-value" t-esc="state.avgTokensSec"/>
                     </div>
-                </div>
-
-                <!-- Toggle Buttons -->
-                <div class="rl-wizard-metrics__toggles">
-                    <t t-foreach="metricLines" t-as="ml" t-key="ml.key">
-                        <button t-att-class="'rl-wizard-metrics__toggle'
-                            + (state.visibleLines[ml.key] ? ' rl-wizard-metrics__toggle--active' : '')"
-                                t-on-click="() => this.toggleLine(ml.key)">
-                            <t t-esc="ml.label"/>
-                        </button>
-                    </t>
-                </div>
-
-                <!-- Chart -->
-                <div class="rl-wizard-metrics__chart-area">
-                    <div class="rl-wizard-metrics__chart-canvas">
-                        <canvas t-ref="metricsChart"/>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Avg GPU Mem</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.avgGpuMem"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Policy Loss (end)</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.policyLossEnd"/>
                     </div>
                 </div>
 
-                <!-- Table -->
+                <div class="rl-wizard-metrics__charts-grid">
+                    <t t-foreach="chartDefs" t-as="def" t-key="def.id">
+                        <div class="rl-wizard-metrics__chart-card">
+                            <h4 class="rl-wizard-metrics__chart-title" t-esc="def.title"/>
+                            <div class="rl-wizard-metrics__chart-canvas">
+                                <canvas t-att-data-chart-id="def.id"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
                 <div class="rl-wizard-metrics__table-wrap">
                     <table class="rl-wizard-metrics__table">
                         <thead>
                             <tr>
                                 <th>Step</th>
                                 <th>Loss</th>
+                                <th>P.Loss</th>
+                                <th>V.Loss</th>
                                 <th>Reward</th>
-                                <th>Grad Norm</th>
-                                <th>LR</th>
+                                <th>Grad</th>
                                 <th>Entropy</th>
-                                <th>KL Div</th>
+                                <th>KL</th>
+                                <th>Clip</th>
                                 <th>Tok/s</th>
+                                <th>GPU</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -576,12 +578,15 @@
                                 <tr>
                                     <td t-esc="m.step"/>
                                     <td t-esc="fmtNum(m.loss)"/>
+                                    <td t-esc="fmtNum(m.policy_loss)"/>
+                                    <td t-esc="fmtNum(m.value_loss)"/>
                                     <td t-esc="fmtNum(m.reward)"/>
                                     <td t-esc="fmtNum(m.gradient_norm)"/>
-                                    <td t-esc="fmtSci(m.learning_rate)"/>
                                     <td t-esc="fmtNum(m.entropy)"/>
                                     <td t-esc="fmtNum(m.kl_divergence)"/>
+                                    <td t-esc="fmtNum(m.clip_fraction)"/>
                                     <td t-esc="Math.round(m.tokens_per_second)"/>
+                                    <td t-esc="(m.gpu_memory_used || 0).toFixed(1)"/>
                                 </tr>
                             </t>
                         </tbody>

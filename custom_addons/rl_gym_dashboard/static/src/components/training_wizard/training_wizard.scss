@@ -796,9 +796,13 @@ $rl-transition: 200ms ease;
 .rl-wizard-metrics {
   &__summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
     margin-bottom: 24px;
+
+    @media (max-width: 1200px) {
+      grid-template-columns: repeat(3, 1fr);
+    }
 
     @media (max-width: 768px) {
       grid-template-columns: repeat(2, 1fr);
@@ -809,12 +813,12 @@ $rl-transition: 200ms ease;
     background: $rl-bg-card;
     border: 1px solid $rl-border;
     border-radius: $rl-radius;
-    padding: 16px 20px;
+    padding: 14px 16px;
     text-align: center;
   }
 
   &__summary-label {
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: $rl-text-muted;
@@ -824,40 +828,45 @@ $rl-transition: 200ms ease;
 
   &__summary-value {
     font-family: $rl-font-mono;
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 700;
     color: $rl-text-primary;
   }
 
-  &__toggles {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
+  &__charts-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+
+    @media (max-width: 1200px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    @media (max-width: 768px) {
+      grid-template-columns: 1fr;
+    }
   }
 
-  &__toggle {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: 9999px;
+  &__chart-card {
+    background: $rl-bg-card;
     border: 1px solid $rl-border;
-    background: transparent;
-    color: $rl-text-muted;
-    cursor: pointer;
-    transition: all $rl-transition;
-    font-family: $rl-font-body;
+    border-radius: $rl-radius;
+    padding: 16px;
+  }
 
-    &--active {
-      border-color: $rl-accent-blue;
-      background: rgba($rl-accent-blue, 0.1);
-      color: $rl-accent-blue;
-    }
+  &__chart-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: $rl-text-secondary;
+    margin: 0 0 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
 
-    &:hover:not(&--active) {
-      border-color: $rl-border-hover;
-      color: $rl-text-secondary;
-    }
+  &__chart-canvas {
+    height: 200px;
+    width: 100%;
   }
 
   &__chart-area {
@@ -866,11 +875,6 @@ $rl-transition: 200ms ease;
     border-radius: $rl-radius;
     padding: 20px;
     margin-bottom: 20px;
-  }
-
-  &__chart-canvas {
-    height: 320px;
-    width: 100%;
   }
 
   &__table-wrap {

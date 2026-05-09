@@ -20,6 +20,7 @@ export class StepTraining extends Component {
         this.lossData = [];
         this.rewardData = [];
         this.stepLabels = [];
+        this._lastRecordedStep = -1;
 
         this.state = useState({
             status: "training",
@@ -43,29 +44,31 @@ export class StepTraining extends Component {
         onMounted(async () => {
             await this._createJob();
             this._createChart();
-            this.intervalId = setInterval(() => this._trainStep(), 1);
+            this._trainStep();
         });
 
         onWillUnmount(() => {
             if (this.timeoutId) clearTimeout(this.timeoutId);
+            this.timeoutId = null;
             if (this.chart) this.chart.destroy();
         });
     }
 
     _randomDelay() {
-        return Math.floor(Math.random() * (300000 - 10000 + 1)) + 10000;
+        return 1; //Math.floor(Math.random() * (5000 - 1000 + 1)) + 1000; change this to return to the normal speed 
     }
 
     _scheduleNextStep() {
         if (this.state.status !== "training") return;
         const delay = this._randomDelay();
-        const delaySec = Math.round(delay / 1000);
         const remaining = this.state.totalSteps - this.state.currentStep;
-        const avgDelay = 155;
-        const etaSec = remaining * avgDelay;
+        const avgDelaySec = 3;
+        const etaSec = remaining * avgDelaySec;
         this.state.etaLabel = etaSec > 3600
             ? `~${(etaSec / 3600).toFixed(1)}h`
-            : `~${Math.round(etaSec / 60)}m`;
+            : etaSec > 60
+                ? `~${Math.round(etaSec / 60)}m`
+                : `~${etaSec}s`;
         this.timeoutId = setTimeout(() => this._trainStep(), delay);
     }
 
@@ -98,18 +101,21 @@ export class StepTraining extends Component {
                 job_id: this.state.jobId,
             });
 
-            this.state.currentStep = result.current_step || 0;
+            const step = result.current_step || 0;
+            this.state.currentStep = step;
             this.state.totalSteps = result.total_steps || 500;
             this.state.progress = Math.round(result.progress || 0);
             this.state.currentLoss = this._fmtMetric(result.current_loss);
             this.state.currentReward = this._fmtMetric(result.current_reward);
             this.state.bestReward = this._fmtMetric(result.best_reward);
 
-            if (result.current_loss != null) this.lossData.push(result.current_loss);
-            if (result.current_reward != null) this.rewardData.push(result.current_reward);
-            this.stepLabels.push(result.current_step || this.stepLabels.length);
-
-            this._updateChart();
+            if (step > this._lastRecordedStep) {
+                this._lastRecordedStep = step;
+                if (result.current_loss != null) this.lossData.push(result.current_loss);
+                if (result.current_reward != null) this.rewardData.push(result.current_reward);
+                this.stepLabels.push(step);
+                this._updateChart();
+            }
 
             if (result.state === "completed" || result.progress >= 100) {
                 this.state.status = "completed";

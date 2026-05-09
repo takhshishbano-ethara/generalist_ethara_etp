@@ -327,9 +327,12 @@ class RlGymController(http.Controller):
         metrics = request.env['rl.training.metric'].search_read(
             [('job_id', '=', int(job_id)), ('step', '>', int(since_step))],
             ['step', 'loss', 'reward', 'gradient_norm', 'learning_rate',
-             'entropy', 'kl_divergence', 'tokens_per_second'],
+                'entropy', 'kl_divergence', 'tokens_per_second',
+                'policy_loss', 'value_loss', 'clip_fraction',
+                'reward_mean', 'reward_std', 'advantage_mean',
+                'samples_per_second', 'gpu_memory_used'],
             order='step asc',
-            limit=100
+            limit=2000
         )
         return metrics
 
