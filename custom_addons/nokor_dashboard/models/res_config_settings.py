@@ -1,7 +1,7 @@
 from odoo import fields, models
 
 
-class NokorDashboardConfigSettings(models.TransientModel):
+class TerraDashboardConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
     nokor_github_url = fields.Char(

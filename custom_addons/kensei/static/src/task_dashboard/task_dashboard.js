@@ -769,14 +769,6 @@ export class TaskDashboard extends Component {
     async onAddRubric() {
         const label = this.state.newRubricLabel.trim();
         if (!label) return;
-        const hasEmpty = this.state.rubrics.some(r =>
-            r.claude.some(v => v === null) || r.glm.some(v => v === null) || r.gpt.some(v => v === null)
-        );
-        if (hasEmpty) {
-            this.state.rubricError = "Complete all Pass/Fail ratings on existing rubrics before adding a new one.";
-            return;
-        }
-        this.state.rubricError = "";
         this.state.rubrics.push({
             label,
             claude: Array(12).fill(null),

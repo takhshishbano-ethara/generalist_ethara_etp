@@ -1071,18 +1071,21 @@ class KenseiSandbox(models.Model):
 
         media_ext_re = re.compile(
             r"/home/node/\.openclaw/(?:workspace|uploads|media)/[^\s\"'`\n)]+\."
-            r"(?:png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|csv|json|md|txt|html)",
+            r"(?:png|jpe?g|gif|webp|bmp|svg|heic|heif|mp4|webm|mov|mp3|wav|ogg|m4a|pdf|csv|json|md|txt|html|docx?)",
             re.IGNORECASE,
         )
 
         mime_map = {
             "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
             "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
-            "svg": "image/svg+xml", "mp4": "video/mp4", "webm": "video/webm",
+            "svg": "image/svg+xml", "heic": "image/heic", "heif": "image/heif",
+            "mp4": "video/mp4", "webm": "video/webm",
             "mov": "video/quicktime", "mp3": "audio/mpeg", "wav": "audio/wav",
             "ogg": "audio/ogg", "m4a": "audio/mp4", "pdf": "application/pdf",
             "csv": "text/csv", "json": "application/json", "md": "text/markdown",
             "txt": "text/plain", "html": "text/html",
+            "doc": "application/msword",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
 
         type_map = {
@@ -2548,7 +2551,7 @@ class KenseiSandbox(models.Model):
             "server {\n"
             "    listen 80;\n"
             "    server_name _;\n"
-            "    client_max_body_size 100m;\n"
+            "    client_max_body_size 1650m;\n"
             "    proxy_buffering off;\n"
             "    location /browser-api/ {\n"
             "        proxy_pass http://openclaw:18791/;\n"

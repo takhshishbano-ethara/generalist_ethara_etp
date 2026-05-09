@@ -641,10 +641,7 @@
                         <i class="fa fa-plus me-1"/>Add
                     </button>
                 </div>
-                <div t-if="state.rubricError" class="o_kensei_rubric_error">
-                    <i class="fa fa-exclamation-circle me-1"/>
-                    <t t-out="state.rubricError"/>
-                </div>
+
             </div>
         </div>
     </t>

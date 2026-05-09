@@ -1,744 +1,442 @@
 [
   {
-    "instance_id": "nokor__who-neonatal-gdp",
-    "task_id": "c3a1f7e2-9b4d-4e8a-b6c1-2d3f5a7e9b0c",
-    "level": "Level 3",
-    "modality": "PDF + Web Search",
-    "tools": "PDF reader, Web search, Calculator",
-    "estimated_time": "8-12 min",
-    "file_name": "worldhealthstatistics_2022.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/worldhealthstatistics_2022.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 6,
-      "tools_used": [
-        "PDF reader",
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 487,
-      "cost_usd": 0.38,
-      "answer": "0.017834"
+    "task_id": "d20ef263-7b51-4fae-9d32-3669faa68cff",
+    "level": "Hard",
+    "category": "calculation",
+    "ground_truth": "905",
+    "file_name": "d20ef263-7b51-4fae-9d32-3669faa68cff.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/d20ef263-7b51-4fae-9d32-3669faa68cff.png",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "905",
+      "cost": 0.039001,
+      "llm_calls": 5,
+      "avg_latency_seconds": 4.91
     },
     "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "PDF reader",
-        "Web search"
-      ],
-      "time_seconds": 312,
-      "cost_usd": 0.04,
-      "answer": "0.018200"
+      "score": true,
+      "model_answer": "905",
+      "cost": 0.01268,
+      "llm_calls": 6,
+      "avg_latency_seconds": 12.71
     }
   },
   {
-    "instance_id": "nokor__nasa-fund-balance",
-    "task_id": "d4b2e8f3-ac5e-5f9b-c7d2-3e4a6b8f0c1d",
-    "level": "Level 2",
-    "modality": "PDF",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "PDF reader, Calculator",
-    "estimated_time": "6-10 min",
-    "file_name": "fy2023-afr.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/fy2023-afr.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Calculator"
-      ],
-      "time_seconds": 394,
-      "cost_usd": 0.31,
-      "answer": "+12.3%"
+    "task_id": "44bd1a30-02f4-47f9-b7d2-f14c3e34b38e",
+    "level": "Very Hard",
+    "category": "calculation",
+    "ground_truth": "392",
+    "file_name": "44bd1a30-02f4-47f9-b7d2-f14c3e34b38e.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/44bd1a30-02f4-47f9-b7d2-f14c3e34b38e.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "262",
+      "cost": 0.102451,
+      "llm_calls": 10,
+      "avg_latency_seconds": 4.73
     },
     "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Calculator"
-      ],
-      "time_seconds": 278,
-      "cost_usd": 0.03,
-      "answer": "+11.8%"
+      "score": false,
+      "model_answer": "The card number from pile B that is also persistent is 1.",
+      "cost": 0.346737,
+      "llm_calls": 36,
+      "avg_latency_seconds": 9.04
     }
   },
   {
-    "instance_id": "nokor__nobel-paper-chars",
-    "task_id": "e5c3f9a4-bd6f-6a0c-d8e3-4f5a7c9a1d2e",
-    "level": "Level 2",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 3,
-    "tools": "Web search, Google Scholar, Character counter",
-    "estimated_time": "8-10 min",
+    "task_id": "677460ee-ca4d-4cd0-9fd6-554eea36a596",
+    "level": "Expert",
+    "category": "calculation",
+    "ground_truth": "482",
+    "file_name": "677460ee-ca4d-4cd0-9fd6-554eea36a596.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/677460ee-ca4d-4cd0-9fd6-554eea36a596.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "The polynomial P(x) = (1+x+x^2+...+x^17)^2 - x^17 can be factored as:\n\nP(x) = (1+x+...+x^18)(1+x+...+x^16)\n\nThis can be rewritten using geometric series formulas:\nP(x) = [(x^19 - 1)/(x-1)] × [(x^17 - 1)/(x-1)]\n\nThe roots of P(x) = 0 are:\n- The 19th roots of unity (except x=1): e^(2πik/19) for k = 1, 2, ..., 18 → 18 roots\n- The 17th roots of unity (except x=1): e^(2πik/17) for k = 1, 2, ..., 16 → 16 roots\n\nSince gcd(19, 17) = 1, these two sets of roots are disjoint (the only common root would be x=1, which is excluded).\n\nTotal roots: 18 + 16 = 34\n\nAll roots of unity have absolute value |x| = 1, so all 34 roots of P(x) lie on the unit circle.\n\nThe answer is 34.",
+      "cost": 0.396604,
+      "llm_calls": 26,
+      "avg_latency_seconds": 5.22
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "34",
+      "cost": 0.038997,
+      "llm_calls": 11,
+      "avg_latency_seconds": 14.59
+    }
+  },
+  {
+    "task_id": "e209665d-0246-4f59-8878-aee82a755441",
+    "level": "Expert",
+    "category": "calculation",
+    "ground_truth": "511",
+    "file_name": "e209665d-0246-4f59-8878-aee82a755441.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/e209665d-0246-4f59-8878-aee82a755441.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "The final answer is 1021.",
+      "cost": 0.842602,
+      "llm_calls": 41,
+      "avg_latency_seconds": 6.54
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "10",
+      "cost": 0.039855,
+      "llm_calls": 13,
+      "avg_latency_seconds": 65.65
+    }
+  },
+  {
+    "task_id": "ef718cac-fb93-4dd0-9ac0-e634c97c1d7e",
+    "level": "Expert",
+    "category": "calculation",
+    "ground_truth": "512",
+    "file_name": "ef718cac-fb93-4dd0-9ac0-e634c97c1d7e.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/ef718cac-fb93-4dd0-9ac0-e634c97c1d7e.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "I have solved the matrix problem step by step.\n\nGiven:\n- P = [[3, -1, -2], [2, 0, α], [3, -5, 0]]\n- PQ = kI, meaning Q = kP⁻¹\n- q₂₃ = -k/8\n- det(Q) = k²/2\n\nFrom the conditions, I derived:\n- det(P) = 12α + 20\n- Using det(Q) = k³/det(P) = k²/2, we get k = 6α + 10\n- Using q₂₃ = -k(3α + 4)/(4(3α + 5)) = -k/8, we solve for α = -1\n- Therefore k = 6(-1) + 10 = 4\n\nVerification:\n- det(P) = 8, det(Q) = 8\n- q₂₃ = -1/2 = -k/8 ✓\n\nChecking the options:\n(A) α = 0, k = 8: FALSE\n(B) 4α - k + 8 = 0 → 4(-1) - 4 + 8 = 0: TRUE ✓\n(C) det(P adj(Q)) = 2⁹ = 512: TRUE ✓\n(D) det(Q adj(P)) = 2¹³ = 8192: FALSE (actual value is 512 = 2⁹)\n\nThe correct answer is that options B and C are both correct. In standard JEE format for multiple correct answers, this corresponds to summing the option positions: 2 + 3 = 5.",
+      "cost": 0.24926,
+      "llm_calls": 18,
+      "avg_latency_seconds": 6.57
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "The correct answer is option B: 4α + k = 8. This satisfies all given conditions including det(PQ) = k³ and det(Q) = k²/8 with integer values k = 4 and α = 1.",
+      "cost": 0.034138,
+      "llm_calls": 9,
+      "avg_latency_seconds": 44.76
+    }
+  },
+  {
+    "task_id": "f8e1a5bb-d750-4b69-8933-813fe73763a0",
+    "level": "Expert",
+    "category": "calculation",
+    "ground_truth": "199",
+    "file_name": "f8e1a5bb-d750-4b69-8933-813fe73763a0.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/f8e1a5bb-d750-4b69-8933-813fe73763a0.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "839",
+      "cost": 0.145788,
+      "llm_calls": 14,
+      "avg_latency_seconds": 3.28
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "839",
+      "cost": 0.072479,
+      "llm_calls": 15,
+      "avg_latency_seconds": 3.69
+    }
+  },
+  {
+    "task_id": "9d49ac89-fd4c-4790-93e9-0639fa46aaf7",
+    "level": "Very Hard",
+    "category": "multimodality",
+    "ground_truth": "4",
+    "file_name": "9d49ac89-fd4c-4790-93e9-0639fa46aaf7.mp4",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/9d49ac89-fd4c-4790-93e9-0639fa46aaf7.mp4",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "4",
+      "cost": 0.580586,
+      "llm_calls": 45,
+      "avg_latency_seconds": 2.08
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "2",
+      "cost": 0.445824,
+      "llm_calls": 47,
+      "avg_latency_seconds": 4.08
+    }
+  },
+  {
+    "task_id": "b6a6ae8b-4918-42ad-99af-6a9a715f3be3",
+    "level": "Very Hard",
+    "category": "multimodality",
+    "ground_truth": "5",
+    "file_name": "b6a6ae8b-4918-42ad-99af-6a9a715f3be3.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/b6a6ae8b-4918-42ad-99af-6a9a715f3be3.png",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "5",
+      "cost": 0.647488,
+      "llm_calls": 32,
+      "avg_latency_seconds": 5.18
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "4",
+      "cost": 0.110182,
+      "llm_calls": 12,
+      "avg_latency_seconds": 13.2
+    }
+  },
+  {
+    "task_id": "cea04fef-158e-48b9-bc62-9c5438c2d0be",
+    "level": "Very Hard",
+    "category": "multimodality",
+    "ground_truth": "March 7, 2011",
+    "file_name": "cea04fef-158e-48b9-bc62-9c5438c2d0be.mp4",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/cea04fef-158e-48b9-bc62-9c5438c2d0be.mp4",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "March 7, 2011",
+      "cost": 0.300826,
+      "llm_calls": 25,
+      "avg_latency_seconds": 2.35
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "The exact date when the orbital assembly of the International Space Station was completed, according to the text overlay in the attached ISS Assembly Animation video, was May 24, 2011. This date corresponds to the successful installation and activation of the Alpha Magnetic Spectrometer-02 (AMS-02) during Space Shuttle Endeavour's STS-134 mission, which marked the completion of the US Orbital Segment of the ISS.",
+      "cost": 0.69516,
+      "llm_calls": 41,
+      "avg_latency_seconds": 3.53
+    }
+  },
+  {
+    "task_id": "419c61f4-b1b8-4ba4-9cda-c422c3916bba",
+    "level": "Expert",
+    "category": "multimodality",
+    "ground_truth": "25",
+    "file_name": "419c61f4-b1b8-4ba4-9cda-c422c3916bba.mp4",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/419c61f4-b1b8-4ba4-9cda-c422c3916bba.mp4",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "18",
+      "cost": 0.173337,
+      "llm_calls": 16,
+      "avg_latency_seconds": 2.24
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "79",
+      "cost": 0.508076,
+      "llm_calls": 53,
+      "avg_latency_seconds": 6.57
+    }
+  },
+  {
+    "task_id": "72371fa4-0115-46c8-8602-46062e54fccb",
+    "level": "Expert",
+    "category": "multimodality",
+    "ground_truth": "40",
+    "file_name": "72371fa4-0115-46c8-8602-46062e54fccb.png",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/72371fa4-0115-46c8-8602-46062e54fccb.png",
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "20",
+      "cost": 0.076814,
+      "llm_calls": 8,
+      "avg_latency_seconds": 5.17
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "20",
+      "cost": 0.047018,
+      "llm_calls": 12,
+      "avg_latency_seconds": 6.16
+    }
+  },
+  {
+    "task_id": "577a31c7-2067-48e9-ad12-585bcc566d6e",
+    "level": "Hard",
+    "category": "file_reading",
+    "ground_truth": "20",
+    "file_name": "577a31c7-2067-48e9-ad12-585bcc566d6e.csv",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/577a31c7-2067-48e9-ad12-585bcc566d6e.csv",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "20",
+      "cost": 0.110632,
+      "llm_calls": 9,
+      "avg_latency_seconds": 2.13
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "12",
+      "cost": 0.191919,
+      "llm_calls": 17,
+      "avg_latency_seconds": 2.41
+    }
+  },
+  {
+    "task_id": "61d0bd44-ffcb-455c-8574-84d4770adefc",
+    "level": "Very Hard",
+    "category": "file_reading",
+    "ground_truth": "1.1533",
+    "file_name": "61d0bd44-ffcb-455c-8574-84d4770adefc.csv",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/61d0bd44-ffcb-455c-8574-84d4770adefc.csv",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "1.1533",
+      "cost": 0.165428,
+      "llm_calls": 11,
+      "avg_latency_seconds": 1.86
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "0.2699",
+      "cost": 0.20117,
+      "llm_calls": 17,
+      "avg_latency_seconds": 2.42
+    }
+  },
+  {
+    "task_id": "f4973d5d-82bc-4144-ab2c-6c6624d5cd53",
+    "level": "Very Hard",
+    "category": "file_reading",
+    "ground_truth": "6174",
+    "file_name": "f4973d5d-82bc-4144-ab2c-6c6624d5cd53.pdf",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/f4973d5d-82bc-4144-ab2c-6c6624d5cd53.pdf",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "6174",
+      "cost": 0.379419,
+      "llm_calls": 29,
+      "avg_latency_seconds": 2.11
+    },
+    "nova_2_lite": {
+      "score": false,
+      "model_answer": "The absolute difference between the Department of Defense and Department of Health and Human Services federal R&amp;D obligation amounts for FY 2021 is 28,968 million dollars.",
+      "cost": 0.213395,
+      "llm_calls": 26,
+      "avg_latency_seconds": 2.44
+    }
+  },
+  {
+    "task_id": "3b25ff54-0b8d-452f-b96d-2e9bd3b8e40f",
+    "level": "Very Hard",
+    "category": "file_reading",
+    "ground_truth": "180",
+    "file_name": "3b25ff54-0b8d-452f-b96d-2e9bd3b8e40f.xlsx",
+    "file_view_url": "https://production-grtlabs-tag.s3.us-east-1.amazonaws.com/terra/3b25ff54-0b8d-452f-b96d-2e9bd3b8e40f.xlsx",
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "180",
+      "cost": 0.082606,
+      "llm_calls": 11,
+      "avg_latency_seconds": 3.42
+    },
+    "nova_2_lite": {
+      "score": true,
+      "model_answer": "180",
+      "cost": 0.02529,
+      "llm_calls": 6,
+      "avg_latency_seconds": 2.52
+    }
+  },
+  {
+    "task_id": "e152933a-416d-49ee-b2a8-97556a70a2e0",
+    "level": "Hard",
+    "category": "self_contained",
+    "ground_truth": "99",
     "file_name": "",
-    "file_type": "None",
     "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Character counter"
-      ],
-      "time_seconds": 356,
-      "cost_usd": 0.29,
-      "answer": "87"
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "99",
+      "cost": 0.062677,
+      "llm_calls": 8,
+      "avg_latency_seconds": 6.5
     },
     "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search"
-      ],
-      "time_seconds": 198,
-      "cost_usd": 0.02,
-      "answer": "84"
+      "score": false,
+      "model_answer": "The optimal strategy for the 100 prisoners and hats puzzle guarantees that 99 prisoners will guess their hat color correctly in the worst case. The first prisoner (at the back) has a 50% chance of being correct, but all subsequent prisoners can determine their hat color correctly based on the parity information encoded by the first prisoner and the previous announcements. Therefore, we can guarantee that at least 99 prisoners will guess correctly.",
+      "cost": 0.03802,
+      "llm_calls": 9,
+      "avg_latency_seconds": 3.45
     }
   },
   {
-    "instance_id": "nokor__fifa-population-calc",
-    "task_id": "f6d4a0b5-ce7a-7b1d-e9f4-5a6b8d0b2e3f",
-    "level": "Level 1",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "5-8 min",
+    "task_id": "7adb4e30-7f73-473c-b074-0327ef80bb6c",
+    "level": "Hard",
+    "category": "web_browsing",
+    "ground_truth": "University of Texas at Austin",
     "file_name": "",
-    "file_type": "None",
     "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 267,
-      "cost_usd": 0.24,
-      "answer": "1952028"
+    "kimi_k2_5": {
+      "score": true,
+      "model_answer": "University of Texas at Austin",
+      "cost": 0.030193,
+      "llm_calls": 5,
+      "avg_latency_seconds": 3.14
     },
     "nova_2_lite": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 187,
-      "cost_usd": 0.02,
-      "answer": "1952028"
+      "score": false,
+      "model_answer": "The oldest surviving photograph 'View from the Window at Le Gras' by Joseph Nicéphore Niépce is currently held and displayed at the Harry Ransom Center, which is part of the University of Texas at Austin.",
+      "cost": 0.119199,
+      "llm_calls": 20,
+      "avg_latency_seconds": 2.53
     }
   },
   {
-    "instance_id": "nokor__eiffel-element-atomic",
-    "task_id": "a7e5b1c6-df8b-8c2e-f0a5-6b7a9e1c3f4a",
-    "level": "Level 2",
-    "modality": "Web Search + Reasoning",
-    "num_steps": 6,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "10-15 min",
+    "task_id": "3caed3d7-1957-4fae-bed4-4990c2467858",
+    "level": "Expert",
+    "category": "web_browsing",
+    "ground_truth": "John Loud, 1888",
     "file_name": "",
-    "file_type": "None",
     "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 7,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 623,
-      "cost_usd": 0.47,
-      "answer": "941192"
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "John Jacob Loud, 1888",
+      "cost": 0.054401,
+      "llm_calls": 7,
+      "avg_latency_seconds": 1.46
     },
     "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 245,
-      "cost_usd": 0.03,
-      "answer": "912673"
+      "score": false,
+      "model_answer": "The inventor generally credited with filing the FIRST patent for a ballpoint pen mechanism is John Jacob Loud, who filed the patent in 1888.",
+      "cost": 0.185435,
+      "llm_calls": 24,
+      "avg_latency_seconds": 2.26
     }
   },
   {
-    "instance_id": "nokor__blackmarble-sydney",
-    "task_id": "b8f6c2d7-ea9c-9d3f-a1b6-7c8a0f2d4a5b",
-    "level": "Level 2",
-    "modality": "Image + Web Search",
-    "num_steps": 6,
-    "num_tools": 3,
-    "tools": "Image viewer/analyzer, Web search, Calculator",
-    "estimated_time": "8-12 min",
-    "file_name": "BlackMarble_2016_3km.jpg",
-    "file_type": "Image",
-    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Image analyzer",
-        "Web search"
-      ],
-      "time_seconds": 412,
-      "cost_usd": 0.42,
-      "answer": "5300000"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 3,
-      "tools_used": [
-        "Image analyzer",
-        "Web search"
-      ],
-      "time_seconds": 156,
-      "cost_usd": 0.03,
-      "answer": "4800000"
-    }
-  },
-  {
-    "instance_id": "nokor__borehole-trench-ratio",
-    "task_id": "c9a7d3e8-fb0d-0e4a-b2c7-8d9a1a3e5b6c",
-    "level": "Level 1",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "5-8 min",
+    "task_id": "da4dd8e2-b3d7-4efa-b400-51ce41ebcaf0",
+    "level": "Expert",
+    "category": "web_browsing",
+    "ground_truth": "7",
     "file_name": "",
-    "file_type": "None",
     "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 189,
-      "cost_usd": 0.19,
-      "answer": "1.1212"
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "The Nobel Prize in Literature was NOT awarded on 7 occasions between 1901 and 2023 (inclusive). The specific years when it was not awarded were: 1914, 1918, 1935, 1940, 1941, 1942, and 1943.",
+      "cost": 0.157173,
+      "llm_calls": 11,
+      "avg_latency_seconds": 2.04
     },
     "nova_2_lite": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 134,
-      "cost_usd": 0.02,
-      "answer": "1.1212"
+      "score": false,
+      "model_answer": "Based on the Wikipedia list of Nobel Prize in Literature laureates, the prize was not awarded in the following years between 1901 and 2023:\n\n1914, 1918, 1935, 1940, 1941, 1942, 1943, 2018\n\nThat's a total of 8 years where the Nobel Prize in Literature was not awarded during this period.",
+      "cost": 0.80338,
+      "llm_calls": 55,
+      "avg_latency_seconds": 2.62
     }
   },
   {
-    "instance_id": "nokor__liberty-speech-words",
-    "task_id": "d0b8e4f9-ac1e-1f5b-c3d8-9e0a2b4f6c7d",
-    "level": "Level 3",
-    "modality": "PDF + Web Search",
-    "num_steps": 6,
-    "num_tools": 3,
-    "tools": "PDF reader, Web search, Calculator",
-    "estimated_time": "10-15 min",
-    "file_name": "american_speeches_collection.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/american_speeches_collection.pdf",
-    "kimi_2_5": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 6,
-      "tools_used": [
-        "PDF reader",
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 578,
-      "cost_usd": 0.52,
-      "answer": "12425"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Calculator"
-      ],
-      "time_seconds": 423,
-      "cost_usd": 0.05,
-      "answer": "10625"
-    }
-  },
-  {
-    "instance_id": "nokor__nsf-rd-obligations",
-    "task_id": "e1c9f5a0-bd2f-2a6c-d4e9-0f1a3c5a7d8e",
-    "level": "Level 2",
-    "modality": "PDF",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "PDF reader, Calculator",
-    "estimated_time": "8-10 min",
-    "file_name": "nsf24309.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/nsf24309.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Calculator"
-      ],
-      "time_seconds": 445,
-      "cost_usd": 0.35,
-      "answer": "24891"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 6,
-      "tools_used": [
-        "PDF reader",
-        "Calculator"
-      ],
-      "time_seconds": 367,
-      "cost_usd": 0.04,
-      "answer": "23450"
-    }
-  },
-  {
-    "instance_id": "nokor__luxembourg-area-ratio",
-    "task_id": "f2d0a6b1-ce3a-3b7d-e5f0-1a2b4d6b8e9f",
-    "level": "Level 1",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "8-10 min",
+    "task_id": "dad8ef5c-6dde-404d-a49d-5a3763a9d3cf",
+    "level": "Expert",
+    "category": "web_browsing",
+    "ground_truth": "1963",
     "file_name": "",
-    "file_type": "None",
     "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 334,
-      "cost_usd": 0.27,
-      "answer": "0.319%"
+    "kimi_k2_5": {
+      "score": false,
+      "model_answer": "The second woman to win the Nobel Prize in Physics was Maria Goeppert Mayer, who received the award in 1963. This was 60 years after Marie Curie became the first woman to win the Nobel Prize in Physics in 1903.",
+      "cost": 0.022322,
+      "llm_calls": 4,
+      "avg_latency_seconds": 1.42
     },
     "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 256,
-      "cost_usd": 0.03,
-      "answer": "0.321%"
-    }
-  },
-  {
-    "instance_id": "nokor__blackmarble-cairo",
-    "task_id": "a3e1b7c2-df4b-4c8e-f6a1-2b3a5e7c9f0a",
-    "level": "Level 2",
-    "modality": "Image + Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Image analysis, Web search",
-    "estimated_time": "8-12 min",
-    "file_name": "BlackMarble_2016_3km.jpg",
-    "file_type": "Image",
-    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Image analyzer",
-        "Web search"
-      ],
-      "time_seconds": 389,
-      "cost_usd": 0.41,
-      "answer": "3"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "Image analyzer",
-        "Web search"
-      ],
-      "time_seconds": 201,
-      "cost_usd": 0.03,
-      "answer": "2"
-    }
-  },
-  {
-    "instance_id": "nokor__iss-assembly-video",
-    "task_id": "b4f2c8d3-ea5c-5d9f-a7b2-3c4a6f8d0a1b",
-    "level": "Level 3",
-    "modality": "Video + Web Search",
-    "num_steps": 6,
-    "num_tools": 3,
-    "tools": "Video player/analyzer, Web search, Counter",
-    "estimated_time": "10-15 min",
-    "file_name": "ISS_Assembly_Animation_2011.mp4",
-    "file_type": "Video",
-    "file_view_url": "https://s3.ethara.ai/nokor/ISS_Assembly_Animation_2011.mp4",
-    "kimi_2_5": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 7,
-      "tools_used": [
-        "Video analyzer",
-        "Web search",
-        "Counter"
-      ],
-      "time_seconds": 734,
-      "cost_usd": 0.61,
-      "answer": "3/2"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 3,
-      "tools_used": [
-        "Video analyzer"
-      ],
-      "time_seconds": 445,
-      "cost_usd": 0.06,
-      "answer": "2/1"
-    }
-  },
-  {
-    "instance_id": "nokor__who-life-expectancy",
-    "task_id": "c5a3d9e4-fb6d-6e0a-b8c3-4d5a7a9e1b2c",
-    "level": "Level 3",
-    "modality": "PDF + Web Search",
-    "num_steps": 6,
-    "num_tools": 3,
-    "tools": "PDF reader, Web search, Calculator",
-    "estimated_time": "8-12 min",
-    "file_name": "worldhealthstatistics_2022.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/worldhealthstatistics_2022.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 6,
-      "tools_used": [
-        "PDF reader",
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 501,
-      "cost_usd": 0.39,
-      "answer": "1222"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 389,
-      "cost_usd": 0.04,
-      "answer": "1175"
-    }
-  },
-  {
-    "instance_id": "nokor__tallest-buildings-digital-root",
-    "task_id": "d6b4e0f5-ac7e-7f1b-c9d4-5e6a8b0f2c3d",
-    "level": "Level 1",
-    "modality": "Web Search + Reasoning",
-    "num_steps": 6,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "8-10 min",
-    "file_name": "",
-    "file_type": "None",
-    "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 298,
-      "cost_usd": 0.25,
-      "answer": "3"
-    },
-    "nova_2_lite": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 212,
-      "cost_usd": 0.02,
-      "answer": "3"
-    }
-  },
-  {
-    "instance_id": "nokor__bls-unemployment-fed",
-    "task_id": "e7c5f1a6-bd8f-8a2c-d0e5-6f7a9c1a3d4e",
-    "level": "Level 2",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 3,
-    "tools": "Web search (BLS data), Web search (Fed projections), Calculator",
-    "estimated_time": "8-12 min",
-    "file_name": "",
-    "file_type": "None",
-    "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 6,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 534,
-      "cost_usd": 0.43,
-      "answer": "118.3%"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 298,
-      "cost_usd": 0.03,
-      "answer": "115.0%"
-    }
-  },
-  {
-    "instance_id": "nokor__gandhi-independence-pdf",
-    "task_id": "f8d6a2b7-ce9a-9b3d-e1f6-7a8a0d2b4e5f",
-    "level": "Level 3",
-    "modality": "PDF + Web Search",
-    "num_steps": 6,
-    "num_tools": 3,
-    "tools": "PDF reader, Text analysis, Web search",
-    "estimated_time": "12-15 min",
-    "file_name": "indian_independence_movements.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/indian_independence_movements.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 6,
-      "tools_used": [
-        "PDF reader",
-        "Text analysis",
-        "Web search"
-      ],
-      "time_seconds": 612,
-      "cost_usd": 0.51,
-      "answer": "1952"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Web search"
-      ],
-      "time_seconds": 478,
-      "cost_usd": 0.05,
-      "answer": "1960"
-    }
-  },
-  {
-    "instance_id": "nokor__nasa-heritage-assets",
-    "task_id": "a9e7b3c8-df0b-0c4e-f2a7-8b9a1e3c5f6a",
-    "level": "Level 3",
-    "modality": "PDF + Web Search",
-    "num_steps": 5,
-    "num_tools": 3,
-    "tools": "PDF reader, Web search, Calculator",
-    "estimated_time": "8-10 min",
-    "file_name": "nasa-fy-2024-afr.pdf",
-    "file_type": "PDF",
-    "file_view_url": "https://s3.ethara.ai/nokor/nasa-fy-2024-afr.pdf",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "PDF reader",
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 378,
-      "cost_usd": 0.33,
-      "answer": "50"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 4,
-      "tools_used": [
-        "PDF reader",
-        "Web search"
-      ],
-      "time_seconds": 267,
-      "cost_usd": 0.03,
-      "answer": "40"
-    }
-  },
-  {
-    "instance_id": "nokor__eu-accession-area",
-    "task_id": "b0f8c4d9-ea1c-1d5f-a3b8-9c0a2f4d6a7b",
-    "level": "Level 2",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Web search, Calculator",
-    "estimated_time": "6-8 min",
-    "file_name": "",
-    "file_type": "None",
-    "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 6,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 445,
-      "cost_usd": 0.36,
-      "answer": "0.4017"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 312,
-      "cost_usd": 0.03,
-      "answer": "0.3892"
-    }
-  },
-  {
-    "instance_id": "nokor__korea-gdp-ratio",
-    "task_id": "c1a9d5e0-fb2d-2e6a-b4c9-0d1a3a5e7b8c",
-    "level": "Level 3",
-    "modality": "Image + Web Search",
-    "num_steps": 5,
-    "num_tools": 3,
-    "tools": "Image analysis, Web search, Calculator",
-    "estimated_time": "8-10 min",
-    "file_name": "BlackMarble_2016_3km.jpg",
-    "file_type": "Image",
-    "file_view_url": "https://s3.ethara.ai/nokor/BlackMarble_2016_3km.jpg",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 256,
-      "cost_usd": 0.22,
-      "answer": "90"
-    },
-    "nova_2_lite": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 4,
-      "tools_used": [
-        "Web search",
-        "Calculator"
-      ],
-      "time_seconds": 178,
-      "cost_usd": 0.02,
-      "answer": "90"
-    }
-  },
-  {
-    "instance_id": "nokor__treaty-rome-population",
-    "task_id": "d2b0e6f1-ac3e-3f7b-c5d0-1e2a4b6f8c9d",
-    "level": "Level 1",
-    "modality": "Web Search",
-    "num_steps": 5,
-    "num_tools": 2,
-    "tools": "Web search, Data comparison",
-    "estimated_time": "8-10 min",
-    "file_name": "",
-    "file_type": "None",
-    "file_view_url": "",
-    "kimi_2_5": {
-      "outcome": "PASS",
-      "score": 1,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search",
-        "Data comparison"
-      ],
-      "time_seconds": 367,
-      "cost_usd": 0.28,
-      "answer": "0.7"
-    },
-    "nova_2_lite": {
-      "outcome": "FAIL",
-      "score": 0,
-      "steps_taken": 5,
-      "tools_used": [
-        "Web search"
-      ],
-      "time_seconds": 289,
-      "cost_usd": 0.03,
-      "answer": "11.6"
+      "score": false,
+      "model_answer": "The second woman to win the Nobel Prize in Physics was Maria Goeppert Mayer in 1963. Therefore, the answer is 1963.",
+      "cost": 0.039715,
+      "llm_calls": 8,
+      "avg_latency_seconds": 1.91
     }
   }
 ]

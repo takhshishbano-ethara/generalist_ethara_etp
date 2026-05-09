@@ -7,17 +7,17 @@
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
-                <app data-string="Nokor Dashboard" string="Nokor Dashboard" name="nokor_dashboard">
+                <app data-string="Terra Dashboard" string="Terra Dashboard" name="nokor_dashboard">
                     <block title="Dashboard Link Buttons">
                         <setting string="GitHub URL"
                                  help="Override the GitHub button link. Leave empty to use the placeholder URL.">
                             <field name="nokor_github_url"
-                                   placeholder="https://github.com/Ethara-Ai/Nokor"/>
+                                   placeholder="https://github.com/Ethara-Ai/terra"/>
                         </setting>
                         <setting string="Dataset URL"
                                  help="Override the Dataset button link. Leave empty to use the placeholder URL.">
                             <field name="nokor_dataset_url"
-                                   placeholder="https://huggingface.co/datasets/ethara/Nokor"/>
+                                   placeholder="https://huggingface.co/datasets/ethara/terra"/>
                         </setting>
                     </block>
                 </app>
