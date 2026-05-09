@@ -15,7 +15,7 @@ export class StepTraining extends Component {
     setup() {
         this.chartRef = useRef("trainingChart");
         this.chart = null;
-        this.intervalId = null;
+        this.timeoutId = null;
         this.lossData = [];
         this.rewardData = [];
         this.stepLabels = [];
@@ -31,6 +31,7 @@ export class StepTraining extends Component {
             bestReward: "—",
             learningRate: "—",
             tokensPerSec: "—",
+            etaLabel: "—",
             jobId: null,
         });
 
@@ -41,13 +42,30 @@ export class StepTraining extends Component {
         onMounted(async () => {
             await this._createJob();
             this._createChart();
-            this.intervalId = setInterval(() => this._trainStep(), 800);
+            this._scheduleNextStep();
         });
 
         onWillUnmount(() => {
-            if (this.intervalId) clearInterval(this.intervalId);
+            if (this.timeoutId) clearTimeout(this.timeoutId);
             if (this.chart) this.chart.destroy();
         });
+    }
+
+    _randomDelay() {
+        return Math.floor(Math.random() * (300000 - 10000 + 1)) + 10000;
+    }
+
+    _scheduleNextStep() {
+        if (this.state.status !== "training") return;
+        const delay = this._randomDelay();
+        const delaySec = Math.round(delay / 1000);
+        const remaining = this.state.totalSteps - this.state.currentStep;
+        const avgDelay = 155;
+        const etaSec = remaining * avgDelay;
+        this.state.etaLabel = etaSec > 3600
+            ? `~${(etaSec / 3600).toFixed(1)}h`
+            : `~${Math.round(etaSec / 60)}m`;
+        this.timeoutId = setTimeout(() => this._trainStep(), delay);
     }
 
     async _createJob() {
@@ -97,10 +115,12 @@ export class StepTraining extends Component {
                 this.state.statusLabel = "Completed";
                 this.state.progress = 100;
                 this.props.trainingState.status = "completed";
-                clearInterval(this.intervalId);
+            } else {
+                this._scheduleNextStep();
             }
         } catch (e) {
             console.error("Training step failed:", e);
+            this._scheduleNextStep();
         }
     }
 
@@ -213,11 +233,11 @@ export class StepTraining extends Component {
         if (this.state.status === "training") {
             this.state.status = "paused";
             this.state.statusLabel = "Paused";
-            clearInterval(this.intervalId);
+            if (this.timeoutId) clearTimeout(this.timeoutId);
         } else if (this.state.status === "paused") {
             this.state.status = "training";
             this.state.statusLabel = "Training";
-            this.intervalId = setInterval(() => this._trainStep(), 800);
+            this._scheduleNextStep();
         }
     }
 }
