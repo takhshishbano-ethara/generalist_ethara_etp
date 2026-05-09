@@ -12,17 +12,13 @@
 
     <menuitem id="menu_rl_gym_root"
               name="RL Training"
+              action="action_training_wizard"
               sequence="205"/>
 
-    <menuitem id="menu_rl_gym_dashboard"
+    <!-- Training Monitor menu hidden - code preserved, just not shown to user -->
+    <!-- <menuitem id="menu_rl_gym_dashboard"
               name="Training Monitor"
               parent="menu_rl_gym_root"
               action="action_rl_gym_dashboard"
-              sequence="10"/>
-
-    <menuitem id="menu_rl_gym_wizard"
-              name="New Training"
-              parent="menu_rl_gym_root"
-              action="action_training_wizard"
-              sequence="20"/>
+              sequence="10"/> -->
 </odoo>
