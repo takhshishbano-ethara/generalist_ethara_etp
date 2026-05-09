@@ -1,0 +1,38 @@
+# Hardware Profile: 8x H100 80GB — Nemotron-3-Nano-30B-A3B
+# Model: 31.6B params total, 3.2B active per forward pass
+# Architecture: Hybrid Mamba-Transformer MoE (52 layers)
+# Layer pattern: MEMEM*EMEMEM*EMEMEM*EMEMEM*EMEMEM*EMEMEMEM*EMEMEMEME
+
+compute:
+  n_gpus: 8
+  training_gpus: [0, 1, 2, 3, 4, 5]
+  vllm_gpus: [6, 7]
+  tp_size: 2  # Nemotron supports TP=2 for inference
+
+memory:
+  gpu_memory_utilization: 0.90
+  max_model_len: 131072  # 128K context for Stage 2
+  max_concurrent_sequences: 16
+  gradient_checkpointing: true
+
+docker:
+  containers: 64
+  cpu_per_container: 1.0
+  mem_per_container: "4g"
+  timeout: 1800
+  network_disabled: true
+
+ecr:
+  enabled: true
+  account_id: "426628337772"
+  region: "ap-south-1"
+  repository: "rfp-coding-q1-tag"
+  refresh_buffer_seconds: 1800
+  patch_path: "/home/fix.patch"
+
+distributed:
+  strategy: "fsdp2"
+  sharding: "full"
+  cpu_offload: false
+  activation_checkpointing: true
+  expert_parallel_size: 8  # 128 experts / 8 GPUs = 16 experts per GPU

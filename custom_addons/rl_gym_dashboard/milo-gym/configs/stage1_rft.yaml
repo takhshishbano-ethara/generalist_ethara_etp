@@ -1,0 +1,33 @@
+# Stage 1: Rejection Fine-Tuning Warmup
+model_path: "Qwen/Qwen2.5-Coder-14B-Instruct"
+
+generation:
+  n_per_task: 16
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 32768
+  difficulty_filter: ["easy"]
+
+sft:
+  lr: 4e-6
+  epochs: 6
+  batch_size: 4
+  max_seq_length: 32768
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.05
+  scheduler: "cosine"
+  lora:
+    rank: 64
+    alpha: 64
+    target_modules: "all-linear"
+
+gate:
+  threshold: 0.15
+  eval_tasks: 50
+
+teacher:
+  fallback_threshold: 0.05
+  model: "bedrock"
+  bedrock_model_arn: "arn:aws:bedrock:ap-south-1:426628337772:application-inference-profile/7in78zjs9ywn"
+  bedrock_region: "ap-south-1"
+  n_per_task: 8

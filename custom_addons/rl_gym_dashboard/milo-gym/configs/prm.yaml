@@ -1,0 +1,26 @@
+prm:
+  enabled: true
+  mode: "bedrock"
+  advantage_mode: "hybrid"
+
+  bedrock_model_arn: "arn:aws:bedrock:ap-south-1:426628337772:application-inference-profile/7in78zjs9ywn"
+  bedrock_region: "ap-south-1"
+
+  judge_endpoint: "http://localhost:8001/v1/chat/completions"
+  judge_model: "gpt-4o"
+  judge_votes: 3
+  judge_timeout: 30.0
+  judge_max_concurrent: 16
+
+  prm_model_path: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+  prm_checkpoint: ""
+  prm_lora_rank: 8
+
+  shaping_alpha: 0.05
+  outcome_gate: true
+  gate_mode: "hard_gate"
+
+  teacher_refresh_steps: 200
+  teacher_model_path: ""
+
+  min_group_variance: 0.01

@@ -3362,9 +3362,8 @@ class KenseiSandbox(models.Model):
         install_cmd = _compose_exec("openclaw", [
             "sh", "-c",
             "python3 -m pytest --version >/dev/null 2>&1 || "
-            "pip install --break-system-packages pytest -q 2>&1 || "
-            "pip install pytest -q 2>&1 || "
-            "pip3 install --break-system-packages pytest -q 2>&1 || true",
+            "(curl -sSL https://bootstrap.pypa.io/get-pip.py | python3 - --user --break-system-packages -q && "
+            "python3 -m pip install --user --break-system-packages pytest -q) 2>&1 || true",
         ])
         subprocess.run(
             install_cmd, capture_output=True, text=True, timeout=60, cwd=workdir
@@ -3435,9 +3434,8 @@ class KenseiSandbox(models.Model):
                 command=[
                     "sh", "-c",
                     "python3 -m pytest --version >/dev/null 2>&1 || "
-                    "pip install --break-system-packages pytest -q 2>&1 || "
-                    "pip install pytest -q 2>&1 || "
-                    "pip3 install --break-system-packages pytest -q 2>&1 || true",
+                    "(curl -sSL https://bootstrap.pypa.io/get-pip.py | python3 - --user --break-system-packages -q && "
+                    "python3 -m pip install --user --break-system-packages pytest -q) 2>&1 || true",
                 ],
                 stderr=True, stdin=False, stdout=True, tty=False,
                 _preload_content=True,
