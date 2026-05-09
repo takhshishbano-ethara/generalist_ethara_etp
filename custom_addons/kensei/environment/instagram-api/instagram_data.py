@@ -141,7 +141,10 @@ _hashtags = _coerce_hashtags(_load("hashtags.csv"))
 _mentions = _coerce_mentions(_load("mentions.csv"))
 
 with open(DATA_DIR / "user.json", encoding="utf-8") as _f:
-    _user = json.load(_f)
+    _user_raw = json.load(_f)
+    # user.json may be a single user dict or a list of users.
+    # Use the first user as the active account.
+    _user = _user_raw[0] if isinstance(_user_raw, list) else _user_raw
 
 # Mutable in-memory stores
 _media_store = deepcopy(_media)

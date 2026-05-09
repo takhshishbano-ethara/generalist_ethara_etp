@@ -1,12 +1,12 @@
 {
   "info": {
     "name": "YouTube Mock API v3",
-    "description": "Complete test collection for the mock YouTube Data API v3 service (TechCraft Academy). Base URL defaults to http://localhost:8008 for local testing.",
+    "description": "Complete test collection for the mock YouTube Data API v3 service (Equine Wellness Academy). Base URL defaults to http://localhost:8008 for local testing.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {"key": "base_url", "value": "http://localhost:8008"},
-    {"key": "channel_id", "value": "UC_TechCraftAcademy"}
+    {"key": "channel_id", "value": "UC_EquineHealthChannel"}
   ],
   "item": [
     {
@@ -419,21 +419,21 @@
           "name": "GET Channel Analytics",
           "request": {
             "method": "GET",
-            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&metrics=views,estimatedMinutesWatched,subscribersGained&startDate=2025-03-01&endDate=2025-03-31", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_TechCraftAcademy"}, {"key": "metrics", "value": "views,estimatedMinutesWatched,subscribersGained"}, {"key": "startDate", "value": "2025-03-01"}, {"key": "endDate", "value": "2025-03-31"}]}
+            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&metrics=views,estimatedMinutesWatched,subscribersGained&startDate=2025-03-01&endDate=2025-03-31", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_EquineHealthChannel"}, {"key": "metrics", "value": "views,estimatedMinutesWatched,subscribersGained"}, {"key": "startDate", "value": "2025-03-01"}, {"key": "endDate", "value": "2025-03-31"}]}
           }
         },
         {
           "name": "GET Video Analytics",
           "request": {
             "method": "GET",
-            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&filters=video==vid_001&metrics=views,estimatedMinutesWatched,likes&startDate=2025-03-01&endDate=2025-03-31", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_TechCraftAcademy"}, {"key": "filters", "value": "video==vid_001"}, {"key": "metrics", "value": "views,estimatedMinutesWatched,likes"}, {"key": "startDate", "value": "2025-03-01"}, {"key": "endDate", "value": "2025-03-31"}]}
+            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&filters=video==vid_001&metrics=views,estimatedMinutesWatched,likes&startDate=2025-03-01&endDate=2025-03-31", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_EquineHealthChannel"}, {"key": "filters", "value": "video==vid_001"}, {"key": "metrics", "value": "views,estimatedMinutesWatched,likes"}, {"key": "startDate", "value": "2025-03-01"}, {"key": "endDate", "value": "2025-03-31"}]}
           }
         },
         {
           "name": "GET Video Analytics - 404",
           "request": {
             "method": "GET",
-            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&filters=video==INVALID_VID_99&metrics=views", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_TechCraftAcademy"}, {"key": "filters", "value": "video==INVALID_VID_99"}, {"key": "metrics", "value": "views"}]}
+            "url": {"raw": "{{base_url}}/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&filters=video==INVALID_VID_99&metrics=views", "host": ["{{base_url}}"], "path": ["youtube", "analytics", "v2", "reports"], "query": [{"key": "ids", "value": "channel==UC_EquineHealthChannel"}, {"key": "filters", "value": "video==INVALID_VID_99"}, {"key": "metrics", "value": "views"}]}
           }
         }
       ]

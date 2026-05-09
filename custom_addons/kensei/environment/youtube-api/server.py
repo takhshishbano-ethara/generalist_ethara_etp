@@ -24,7 +24,7 @@ def list_channels(
     id: Optional[str] = Query(default=None),
     part: Optional[str] = Query(default="snippet,contentDetails,statistics,brandingSettings"),
 ):
-    channel_id = id if id else "UC_TechCraftAcademy"
+    channel_id = id if id else youtube_data._CHANNEL_ID
     result = youtube_data.get_channel(channel_id)
     if "error" in result:
         return JSONResponse(status_code=404, content=result)
@@ -46,7 +46,7 @@ def list_videos(
     elif channelId:
         result = youtube_data.list_videos(channel_id=channelId, max_results=maxResults)
     else:
-        result = youtube_data.list_videos(channel_id="UC_TechCraftAcademy", max_results=maxResults)
+        result = youtube_data.list_videos(channel_id=youtube_data._CHANNEL_ID, max_results=maxResults)
     return result
 
 
@@ -92,7 +92,7 @@ def list_playlists(
     elif channelId:
         result = youtube_data.list_playlists(channel_id=channelId, max_results=maxResults)
     else:
-        result = youtube_data.list_playlists(channel_id="UC_TechCraftAcademy", max_results=maxResults)
+        result = youtube_data.list_playlists(channel_id=youtube_data._CHANNEL_ID, max_results=maxResults)
     return result
 
 
@@ -333,7 +333,7 @@ def list_channel_sections(
 
 @app.get("/youtube/analytics/v2/reports")
 def get_analytics(
-    ids: Optional[str] = Query(default="channel==UC_TechCraftAcademy"),
+    ids: Optional[str] = Query(default=None),
     metrics: Optional[str] = Query(default="views,estimatedMinutesWatched,subscribersGained"),
     dimensions: Optional[str] = Query(default=None),
     filters: Optional[str] = Query(default=None),
