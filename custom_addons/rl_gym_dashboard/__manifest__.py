@@ -1,24 +1,28 @@
 {
     'name': 'RL Training Dashboard',
-    'version': '19.0.1.0.0',
+    'version': '19.0.2.0.0',
     'category': 'Productivity',
-    'summary': 'Real-time Reinforcement Learning Training Monitoring Dashboard',
+    'summary': 'ML Model Training Platform with 6-Step Wizard',
     'description': """
-RL Training Environment Monitoring Dashboard
-=============================================
+RL Training Platform
+====================
 
-A comprehensive real-time monitoring dashboard for RL training experiments.
-Displays live metrics including rewards, losses, episode statistics,
-gradient norms, and training progress with simulated demo data.
+A comprehensive ML model training platform with:
+- 6-step training wizard (Model Selection → Configuration → Training → Metrics → Weights → Inference)
+- Real-time training monitoring dashboard
+- HuggingFace dataset integration
+- S3 weight management
+- Simulated training with realistic metrics
+- Chart.js visualizations
 
 Features:
-- Live updating Chart.js graphs tied to universal clock
+- Multi-step wizard with stepper UI
+- Live updating Chart.js graphs
 - KPI cards for key training metrics
-- Episode history table
-- Training loss curves (policy, value, entropy)
-- Reward progression and moving averages
-- Hyperparameter configuration panel
-- Alert/anomaly detection indicators
+- HuggingFace dataset search and preview
+- LoRA/GSPO/Curriculum configuration
+- S3 upload for trained weights
+- Inference playground
     """,
     'author': 'Ethara',
     'website': 'https://ethara.ai',
@@ -26,8 +30,10 @@ Features:
     'depends': [
         'base',
         'web',
+        'mail',
     ],
     'data': [
+        'security/ir.model.access.csv',
         'views/rl_gym_dashboard_menus.xml',
     ],
     'assets': {
@@ -35,6 +41,15 @@ Features:
             'rl_gym_dashboard/static/src/scss/rl_dashboard.scss',
             'rl_gym_dashboard/static/src/components/dashboard/dashboard.js',
             'rl_gym_dashboard/static/src/components/dashboard/dashboard.xml',
+            'rl_gym_dashboard/static/src/components/training_wizard/training_wizard.scss',
+            'rl_gym_dashboard/static/src/components/training_wizard/training_wizard.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/training_wizard.xml',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_model_selection.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_configuration.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_training.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_metrics.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_weights.js',
+            'rl_gym_dashboard/static/src/components/training_wizard/step_inference.js',
         ],
     },
     'installable': True,

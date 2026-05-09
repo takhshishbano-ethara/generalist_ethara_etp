@@ -5,8 +5,24 @@
         <field name="tag">rl_gym_dashboard.main</field>
     </record>
 
-    <menuitem id="menu_rl_gym_dashboard"
+    <record id="action_training_wizard" model="ir.actions.client">
+        <field name="name">Training Wizard</field>
+        <field name="tag">rl_gym_dashboard.training_wizard</field>
+    </record>
+
+    <menuitem id="menu_rl_gym_root"
               name="RL Training"
-              action="action_rl_gym_dashboard"
               sequence="205"/>
+
+    <menuitem id="menu_rl_gym_dashboard"
+              name="Training Monitor"
+              parent="menu_rl_gym_root"
+              action="action_rl_gym_dashboard"
+              sequence="10"/>
+
+    <menuitem id="menu_rl_gym_wizard"
+              name="New Training"
+              parent="menu_rl_gym_root"
+              action="action_training_wizard"
+              sequence="20"/>
 </odoo>
