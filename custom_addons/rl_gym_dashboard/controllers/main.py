@@ -9,11 +9,15 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-HF_TOKEN = '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'
 HF_API_BASE = 'https://huggingface.co/api'
 
 
 class RlGymController(http.Controller):
+
+    def _get_hf_token(self):
+        return request.env['ir.config_parameter'].sudo().get_param(
+            'rl_gym_dashboard.hf_token', default=''
+        )
 
     @http.route('/rl_gym/models', type='json', auth='user')
     def get_models(self):
@@ -27,7 +31,7 @@ class RlGymController(http.Controller):
 
     @http.route('/rl_gym/datasets/search', type='json', auth='user')
     def search_datasets(self, query='', author='ethara'):
-        headers = {'Authorization': f'Bearer {HF_TOKEN}'}
+        headers = {'Authorization': f'Bearer {self._get_hf_token()}'}
         params = {'author': author, 'search': query, 'limit': 50}
         try:
             resp = requests.get(
@@ -51,7 +55,7 @@ class RlGymController(http.Controller):
 
     @http.route('/rl_gym/datasets/info', type='json', auth='user')
     def get_dataset_info(self, repo_id):
-        headers = {'Authorization': f'Bearer {HF_TOKEN}'}
+        headers = {'Authorization': f'Bearer {self._get_hf_token()}'}
         try:
             resp = requests.get(
                 f'{HF_API_BASE}/datasets/{repo_id}',
@@ -98,6 +102,43 @@ class RlGymController(http.Controller):
                 return {
                     'columns': [f['column']['name'] for f in data.get('features', [])],
                     'rows': data.get('rows', [])[:10],
+                }
+        except requests.RequestException:
+            pass
+
+        # Fallback: list files in repo as preview (works for private datasets)
+        try:
+            resp = requests.get(
+                f'{HF_API_BASE}/datasets/{repo_id}/tree/main',
+                headers=headers, timeout=10
+            )
+            if resp.status_code == 200:
+                tree = resp.json()
+                files = []
+                for f in tree:
+                    if f.get('type') == 'file':
+                        files.append({
+                            'path': f.get('path', ''),
+                            'size': f.get('size', 0),
+                        })
+                # Also list data/ subdirectory if present
+                data_dir = [f for f in tree if f.get('type') == 'directory' and f.get('path') == 'data']
+                if data_dir:
+                    resp2 = requests.get(
+                        f'{HF_API_BASE}/datasets/{repo_id}/tree/main/data',
+                        headers=headers, timeout=10
+                    )
+                    if resp2.status_code == 200:
+                        for f in resp2.json()[:20]:
+                            if f.get('type') == 'file':
+                                files.append({
+                                    'path': f.get('path', ''),
+                                    'size': f.get('size', 0),
+                                })
+                return {
+                    'file_list': files[:30],
+                    'total_files': len(files),
+                    'note': 'Private dataset — showing file listing instead of row preview',
                 }
         except requests.RequestException:
             pass

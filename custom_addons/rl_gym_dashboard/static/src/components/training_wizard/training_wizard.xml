@@ -267,7 +267,7 @@
                         <span>Loading preview…</span>
                     </div>
                 </t>
-                <t t-elif="props.datasetInfo and props.datasetInfo.preview">
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns">
                     <div class="rl-wizard-dataset__preview">
                         <div class="rl-wizard-dataset__preview-title">Data Preview</div>
                         <table class="rl-wizard-dataset__preview-table">
@@ -288,6 +288,40 @@
                                 </t>
                             </tbody>
                         </table>
+                    </div>
+                </t>
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.file_list">
+                    <div class="rl-wizard-dataset__preview">
+                        <div class="rl-wizard-dataset__preview-title">Dataset Files</div>
+                        <p class="rl-wizard-dataset__preview-note" t-esc="props.datasetInfo.preview.note"/>
+                        <table class="rl-wizard-dataset__preview-table">
+                            <thead>
+                                <tr><th>File</th><th>Size</th></tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="props.datasetInfo.preview.file_list.slice(0, 15)" t-as="f" t-key="f_index">
+                                    <tr>
+                                        <td t-esc="f.path"/>
+                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.preview.total_files > 15">
+                            <t t-esc="'... and ' + (props.datasetInfo.preview.total_files - 15) + ' more files'"/>
+                        </p>
+                    </div>
+                </t>
+                <t t-elif="props.datasetInfo and !props.datasetInfo.preview">
+                    <div class="rl-wizard-dataset__preview">
+                        <div class="rl-wizard-dataset__preview-title">Dataset Info</div>
+                        <p class="rl-wizard-dataset__preview-note">No preview available for this private dataset.</p>
+                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.downloads">
+                            Downloads: <t t-esc="props.datasetInfo.downloads"/>
+                        </p>
+                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.tags and props.datasetInfo.tags.length">
+                            Tags: <t t-esc="props.datasetInfo.tags.join(', ')"/>
+                        </p>
                     </div>
                 </t>
 
