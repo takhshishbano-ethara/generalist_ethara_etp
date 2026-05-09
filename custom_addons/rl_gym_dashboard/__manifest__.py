@@ -34,6 +34,7 @@ Features:
     ],
     'data': [
         'security/ir.model.access.csv',
+        'data/seed_models.xml',
         'views/rl_gym_dashboard_menus.xml',
     ],
     'assets': {

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="model_nemotron_30b" model="rl.training.model">
+            <field name="name">Nemotron-30B-A3B</field>
+            <field name="technical_name">nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16</field>
+            <field name="model_type">causal_lm</field>
+            <field name="description">NVIDIA Nemotron 30B with Active-3B MoE architecture. Optimized for multi-turn code generation with gated expert routing. Best with GTPO policy for entropy-weighted credit at high-uncertainty decision points.</field>
+            <field name="parameter_count">30B (3B active)</field>
+            <field name="architecture">MoE-A3B</field>
+            <field name="recommended_policy">gtpo</field>
+            <field name="sequence">1</field>
+        </record>
+
+        <record id="model_llama_8b" model="rl.training.model">
+            <field name="name">Llama-3.1-8B-Instruct</field>
+            <field name="technical_name">meta-llama/Llama-3.1-8B-Instruct</field>
+            <field name="model_type">causal_lm</field>
+            <field name="description">Meta Llama 3.1 8B instruction-tuned dense transformer. Strong baseline for single-turn code tasks with efficient LoRA fine-tuning. Recommended for quick iteration cycles.</field>
+            <field name="parameter_count">8B</field>
+            <field name="architecture">Dense Transformer</field>
+            <field name="recommended_policy">gtpo</field>
+            <field name="sequence">2</field>
+        </record>
+
+        <record id="model_qwen_7b" model="rl.training.model">
+            <field name="name">Qwen-2.5-Coder-7B-Instruct</field>
+            <field name="technical_name">Qwen/Qwen2.5-Coder-7B-Instruct</field>
+            <field name="model_type">causal_lm</field>
+            <field name="description">Alibaba Qwen 2.5 code-specialized 7B model. Pre-trained on large-scale code corpora with strong multi-language support. Excellent for code repair and generation tasks.</field>
+            <field name="parameter_count">7B</field>
+            <field name="architecture">Dense Transformer</field>
+            <field name="recommended_policy">gtpo</field>
+            <field name="sequence">3</field>
+        </record>
+
+        <record id="model_mistral_7b" model="rl.training.model">
+            <field name="name">Mistral-7B-Instruct-v0.3</field>
+            <field name="technical_name">mistralai/Mistral-7B-Instruct-v0.3</field>
+            <field name="model_type">causal_lm</field>
+            <field name="description">Mistral AI 7B instruction model with sliding window attention. Efficient for long-context tasks with strong reasoning capabilities. Good balance of speed and quality.</field>
+            <field name="parameter_count">7B</field>
+            <field name="architecture">Dense Transformer (SWA)</field>
+            <field name="recommended_policy">gtpo</field>
+            <field name="sequence">4</field>
+        </record>
+
+    </data>
+</odoo>
