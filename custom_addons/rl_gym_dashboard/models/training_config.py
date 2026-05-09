@@ -12,6 +12,12 @@ class RlTrainingConfig(models.Model):
     model_id = fields.Many2one('rl.training.model', string='Model',
                                ondelete='cascade')
 
+    # Policy Type
+    policy_type = fields.Selection([
+        ('gspo', 'GSPO'),
+        ('gtpo', 'GTPO'),
+    ], string='Policy Type', default='gspo')
+
     # LoRA Configuration
     lora_enabled = fields.Boolean(string='Enable LoRA', default=True)
     lora_rank = fields.Integer(string='LoRA Rank', default=64)
@@ -35,12 +41,21 @@ class RlTrainingConfig(models.Model):
     max_grad_norm = fields.Float(string='Max Gradient Norm', default=1.0,
                                  digits=(4, 2))
 
-    # GSPO Configuration
-    gspo_group_size = fields.Integer(string='GSPO Group Size', default=8)
-    gspo_clip_range = fields.Float(string='GSPO Clip Range', default=0.2,
+    # Policy Configuration (shared)
+    gspo_group_size = fields.Integer(string='Group Size', default=8)
+    gspo_clip_range = fields.Float(string='Clip Range', default=0.2,
                                    digits=(4, 3))
     gspo_kl_coeff = fields.Float(string='KL Coefficient', default=0.01,
                                   digits=(6, 4))
+    clip_low = fields.Float(string='Clip Low', default=0.2, digits=(6, 4))
+    clip_high = fields.Float(string='Clip High', default=0.28, digits=(6, 4))
+
+    # GTPO-specific
+    gtpo_gamma = fields.Float(string='GTPO Gamma', default=0.9, digits=(4, 3))
+    gtpo_ent_threshold = fields.Float(string='Entropy Threshold', default=0.7,
+                                      digits=(4, 3))
+    gtpo_ent_scale = fields.Float(string='Entropy Scale', default=0.1,
+                                  digits=(4, 3))
 
     # Curriculum Configuration
     curriculum_enabled = fields.Boolean(string='Enable Curriculum', default=True)

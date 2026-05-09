@@ -9,6 +9,7 @@ export class StepTraining extends Component {
         modelId: { type: [Number, { value: null }], optional: true },
         configId: { type: [Number, { value: null }], optional: true },
         jobName: { type: String, optional: true },
+        policyType: { type: String, optional: true },
         rpc: { type: Function },
     };
 
@@ -31,7 +32,11 @@ export class StepTraining extends Component {
             bestReward: "—",
             learningRate: "—",
             tokensPerSec: "—",
+<<<<<<< HEAD
             etaLabel: "—",
+=======
+            policyType: (this.props.policyType || "gspo").toUpperCase(),
+>>>>>>> f6ca1b348 (feat(rl_gym): add GTPO policy support, dynamic dataset-driven config, and fix dataset preview)
             jobId: null,
         });
 
@@ -42,7 +47,11 @@ export class StepTraining extends Component {
         onMounted(async () => {
             await this._createJob();
             this._createChart();
+<<<<<<< HEAD
             this._scheduleNextStep();
+=======
+            this.intervalId = setInterval(() => this._trainStep(), 1);
+>>>>>>> f6ca1b348 (feat(rl_gym): add GTPO policy support, dynamic dataset-driven config, and fix dataset preview)
         });
 
         onWillUnmount(() => {

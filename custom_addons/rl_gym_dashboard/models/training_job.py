@@ -86,17 +86,22 @@ class RlTrainingJob(models.Model):
         step = self.current_step + 1
         total = self.total_steps
 
-        # Simulated metrics with realistic curves
-        base_loss = 2.5 * (0.95 ** (step / 10)) + 0.1
-        loss = base_loss + random.gauss(0, 0.05)
+        policy_type = self.config_id.policy_type if self.config_id else 'gspo'
 
-        base_reward = 0.2 + 0.6 * (1 - 0.97 ** step)
-        reward = base_reward + random.gauss(0, 0.03)
+        if policy_type == 'gtpo':
+            base_loss = 2.0 * (0.93 ** (step / 10)) + 0.08
+            loss = base_loss + random.gauss(0, 0.06)
+            base_reward = 0.25 + 0.65 * (1 - 0.95 ** step)
+            reward = base_reward + random.gauss(0, 0.04)
+        else:
+            base_loss = 2.5 * (0.95 ** (step / 10)) + 0.1
+            loss = base_loss + random.gauss(0, 0.05)
+            base_reward = 0.2 + 0.6 * (1 - 0.97 ** step)
+            reward = base_reward + random.gauss(0, 0.03)
 
         grad_norm = 1.5 * (0.98 ** (step / 5)) + random.gauss(0, 0.1)
-        learning_rate = 3e-6 * min(1.0, step / 50)  # warmup
+        learning_rate = 3e-6 * min(1.0, step / 50)
 
-        # Create metric record
         self.env['rl.training.metric'].create({
             'job_id': self.id,
             'step': step,

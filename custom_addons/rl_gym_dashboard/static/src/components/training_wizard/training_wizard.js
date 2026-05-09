@@ -42,10 +42,12 @@ class TrainingWizard extends Component {
             datasetInfo: null,
             loadingDatasets: false,
             loadingInfo: false,
+            rewardDescription: "",
+            datasetConfigApplied: false,
             configSections: {
                 lora: true,
                 training: true,
-                gspo: false,
+                policy: false,
                 curriculum: false,
                 hardware: false,
             },
@@ -57,21 +59,27 @@ class TrainingWizard extends Component {
                 selectedModelId: null,
                 customName: "",
                 config: {
+                    policy_type: "gspo",
                     lora_rank: 64,
                     lora_alpha: 128,
                     lora_dropout: 0.05,
                     learning_rate: 3e-6,
                     batch_size: 64,
                     gradient_accumulation: 4,
-                    max_steps: 500,
+                    max_steps: 450,
                     warmup_steps: 50,
                     weight_decay: 0.01,
                     max_grad_norm: 1.0,
-                    gspo_beta: 0.1,
-                    gspo_lambda: 0.5,
+                    gspo_group_size: 8,
+                    gspo_kl_coeff: 0.01,
+                    clip_low: 0.2,
+                    clip_high: 0.28,
+                    gtpo_gamma: 0.9,
+                    gtpo_ent_threshold: 0.7,
+                    gtpo_ent_scale: 0.1,
                     curriculum_enabled: true,
-                    curriculum_stages: 3,
-                    gpu_count: 1,
+                    curriculum_stages: 4,
+                    gpu_count: 8,
                     precision: "bf16",
                 },
                 dataset: null,
@@ -113,6 +121,7 @@ class TrainingWizard extends Component {
 
     onSelectModel(modelId) {
         this.state.wizardData.selectedModelId = modelId;
+        this._loadModelDefaults(modelId);
     }
 
     onNameChange(name) {
@@ -148,7 +157,10 @@ class TrainingWizard extends Component {
 
     async onDatasetSelect(dataset) {
         this.state.wizardData.dataset = dataset;
+        this.state.datasetInfo = null;
         this.state.loadingInfo = true;
+        this.state.rewardDescription = "";
+        this.state.datasetConfigApplied = false;
         try {
             const info = await this.rpc("/rl_gym/datasets/info", { repo_id: dataset.id });
             this.state.datasetInfo = info;
@@ -157,6 +169,29 @@ class TrainingWizard extends Component {
             this.state.datasetInfo = null;
         }
         this.state.loadingInfo = false;
+        this._loadDatasetDefaults(dataset.id);
+    }
+
+    async _loadDatasetDefaults(repoId) {
+        try {
+            const defaults = await this.rpc("/rl_gym/config/dataset_defaults", { repo_id: repoId });
+            if (defaults && typeof defaults === "object" && Object.keys(defaults).length > 0) {
+                const reward = defaults.reward_description || "";
+                Object.keys(defaults).forEach((k) => {
+                    if (k === "reward_description") return;
+                    if (k in this.state.wizardData.config) {
+                        this.state.wizardData.config[k] = defaults[k];
+                    }
+                });
+                this.state.rewardDescription = reward;
+                this.state.datasetConfigApplied = true;
+                setTimeout(() => {
+                    this.state.datasetConfigApplied = false;
+                }, 3000);
+            }
+        } catch (e) {
+            console.error("Load dataset defaults failed:", e);
+        }
     }
 
     onSplitChange(key, value) {
@@ -169,15 +204,16 @@ class TrainingWizard extends Component {
 
     async onLoadDefaults() {
         if (!this.state.wizardData.selectedModelId) return;
+        await this._loadModelDefaults(this.state.wizardData.selectedModelId);
+    }
+
+    async _loadModelDefaults(modelId) {
         try {
-            const defaults = await this.rpc("/rl_gym/config/defaults", {
-                model_id: this.state.wizardData.selectedModelId,
-            });
-            if (defaults && defaults.length) {
-                const cfg = defaults[0];
-                Object.keys(cfg).forEach((k) => {
+            const defaults = await this.rpc("/rl_gym/config/defaults", { model_id: modelId });
+            if (defaults && typeof defaults === "object" && !Array.isArray(defaults)) {
+                Object.keys(defaults).forEach((k) => {
                     if (k in this.state.wizardData.config) {
-                        this.state.wizardData.config[k] = cfg[k];
+                        this.state.wizardData.config[k] = defaults[k];
                     }
                 });
             }

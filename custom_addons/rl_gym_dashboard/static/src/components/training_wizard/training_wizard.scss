@@ -1333,3 +1333,298 @@ $rl-transition: 200ms ease;
   color: $rl-text-muted;
   font-size: 13px;
 }
+
+// ============================================================================
+// Preview Button
+// ============================================================================
+
+.rl-wizard-dataset__preview-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  margin-top: 12px;
+  background: rgba($rl-accent-blue, 0.08);
+  border: 1px solid rgba($rl-accent-blue, 0.3);
+  border-radius: $rl-radius;
+  color: $rl-accent-blue;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all $rl-transition;
+
+  &:hover {
+    background: rgba($rl-accent-blue, 0.15);
+    border-color: $rl-accent-blue;
+  }
+}
+
+.rl-wizard-dataset__preview-btn-meta {
+  color: $rl-text-muted;
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.rl-wizard-dataset__no-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-top: 12px;
+  color: $rl-text-muted;
+  font-size: 12px;
+  background: rgba($rl-border, 0.2);
+  border-radius: $rl-radius-sm;
+}
+
+.rl-wizard-dataset__no-preview-meta {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+// ============================================================================
+// Preview Modal
+// ============================================================================
+
+.rl-wizard-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 24px;
+}
+
+.rl-wizard-modal {
+  background: $rl-bg-card;
+  border: 1px solid $rl-border;
+  border-radius: 12px;
+  width: 90vw;
+  max-width: 1100px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.rl-wizard-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid $rl-border;
+  flex-shrink: 0;
+}
+
+.rl-wizard-modal__title {
+  color: $rl-text-primary;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rl-wizard-modal__close {
+  background: none;
+  border: none;
+  color: $rl-text-muted;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all $rl-transition;
+
+  &:hover {
+    color: $rl-text-primary;
+    background: rgba($rl-border, 0.4);
+  }
+}
+
+.rl-wizard-modal__body {
+  padding: 20px;
+  overflow: auto;
+  flex: 1;
+}
+
+.rl-wizard-modal__note {
+  color: $rl-text-secondary;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.rl-wizard-modal__table-wrap {
+  overflow-x: auto;
+  border-radius: $rl-radius;
+  border: 1px solid $rl-border;
+}
+
+.rl-wizard-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: $rl-font-mono;
+
+  th {
+    position: sticky;
+    top: 0;
+    background: $rl-bg-deep;
+    color: $rl-accent-cyan;
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid $rl-border;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 8px 12px;
+    color: $rl-text-secondary;
+    border-bottom: 1px solid rgba($rl-border, 0.4);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  tr:hover td {
+    background: rgba($rl-accent-blue, 0.04);
+    color: $rl-text-primary;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.rl-wizard-modal__row-num {
+  color: $rl-text-muted !important;
+  font-size: 10px;
+  width: 36px;
+  min-width: 36px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.rl-wizard-modal__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid $rl-border;
+  background: $rl-bg-deep;
+}
+
+.rl-wizard-modal__page-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: $rl-bg-card;
+  color: $rl-text-secondary;
+  border: 1px solid $rl-border;
+  border-radius: $rl-radius;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover:not(:disabled) {
+    background: $rl-accent-blue;
+    color: #fff;
+    border-color: $rl-accent-blue;
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+}
+
+.rl-wizard-modal__page-info {
+  font-size: 12px;
+  color: $rl-text-secondary;
+  font-family: $rl-font-mono;
+}
+
+.rl-wizard-modal__page-rows {
+  color: $rl-text-muted;
+  margin-left: 6px;
+  font-size: 11px;
+}
+
+// ============================================================================
+// Config Panel — Dataset Auto-Populate Feedback
+// ============================================================================
+
+@keyframes rl-flash-glow {
+  0% { box-shadow: 0 0 0 0 rgba($rl-accent-green, 0.4); }
+  40% { box-shadow: 0 0 12px 4px rgba($rl-accent-green, 0.25); }
+  100% { box-shadow: 0 0 0 0 rgba($rl-accent-green, 0); }
+}
+
+.rl-wizard-config__panel--flash {
+  animation: rl-flash-glow 1.5s ease-out;
+}
+
+.rl-wizard-config__notification {
+  background: rgba($rl-accent-green, 0.1);
+  border: 1px solid rgba($rl-accent-green, 0.3);
+  border-radius: $rl-radius-sm;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: $rl-accent-green;
+  font-weight: 500;
+  animation: rl-notification-slide 0.3s ease-out;
+}
+
+@keyframes rl-notification-slide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.rl-wizard-config__reward-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba($rl-accent-purple, 0.06);
+  border-left: 3px solid $rl-accent-purple;
+  border-radius: 0 $rl-radius-sm $rl-radius-sm 0;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.rl-wizard-config__reward-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.rl-wizard-config__reward-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rl-wizard-config__reward-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: $rl-accent-purple;
+}
+
+.rl-wizard-config__reward-text {
+  font-size: 12px;
+  color: $rl-text-secondary;
+  line-height: 1.4;
+}

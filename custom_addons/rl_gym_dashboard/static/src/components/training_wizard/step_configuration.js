@@ -25,18 +25,32 @@ const CONFIG_SECTIONS = [
         ],
     },
     {
-        key: "gspo",
-        label: "GSPO",
+        key: "policy",
+        label: "Policy",
         fields: [
-            { key: "gspo_beta", label: "Beta", type: "number", step: 0.01 },
-            { key: "gspo_lambda", label: "Lambda", type: "number", step: 0.01 },
+            { key: "policy_type", label: "Policy Type", type: "select", options: [
+                { value: "gspo", label: "GSPO" },
+                { value: "gtpo", label: "GTPO" },
+            ]},
+            { key: "gspo_group_size", label: "Group Size", type: "number", step: 1 },
+            { key: "clip_low", label: "Clip Low", type: "number", step: 0.0001 },
+            { key: "clip_high", label: "Clip High", type: "number", step: 0.0001 },
+            { key: "gspo_kl_coeff", label: "KL Coefficient", type: "number", step: 0.001,
+              showWhen: "gspo" },
+            { key: "gtpo_gamma", label: "Discount Gamma", type: "number", step: 0.01,
+              showWhen: "gtpo" },
+            { key: "gtpo_ent_threshold", label: "Entropy Threshold", type: "number", step: 0.01,
+              showWhen: "gtpo" },
+            { key: "gtpo_ent_scale", label: "Entropy Scale", type: "number", step: 0.01,
+              showWhen: "gtpo" },
         ],
     },
     {
         key: "curriculum",
         label: "Curriculum",
         fields: [
-            { key: "curriculum_stages", label: "Stages", type: "number", step: 1 },
+            { key: "curriculum_enabled", label: "Enabled", type: "checkbox" },
+            { key: "curriculum_stages", label: "Phases", type: "number", step: 1 },
         ],
     },
     {
@@ -44,7 +58,11 @@ const CONFIG_SECTIONS = [
         label: "Hardware",
         fields: [
             { key: "gpu_count", label: "GPU Count", type: "number", step: 1 },
-            { key: "precision", label: "Precision", type: "text" },
+            { key: "precision", label: "Precision", type: "select", options: [
+                { value: "bf16", label: "BF16" },
+                { value: "fp16", label: "FP16" },
+                { value: "fp32", label: "FP32" },
+            ]},
         ],
     },
 ];
@@ -61,6 +79,8 @@ export class StepConfiguration extends Component {
         loadingDatasets: { type: Boolean },
         loadingInfo: { type: Boolean },
         sections: { type: Object },
+        rewardDescription: { type: String, optional: true },
+        datasetConfigApplied: { type: Boolean, optional: true },
         onConfigChange: { type: Function },
         onDatasetSearch: { type: Function },
         onDatasetSelect: { type: Function },
@@ -71,6 +91,47 @@ export class StepConfiguration extends Component {
 
     setup() {
         this.searchTimeout = null;
+        this.state = useState({ showPreviewModal: false, previewPage: 0 });
+    }
+
+    get pageSize() { return 10; }
+
+    get totalRows() {
+        const preview = this.props.datasetInfo && this.props.datasetInfo.preview;
+        if (!preview || !preview.rows) return 0;
+        return preview.rows.length;
+    }
+
+    get totalPages() {
+        return Math.max(1, Math.ceil(this.totalRows / this.pageSize));
+    }
+
+    get pagedRows() {
+        const preview = this.props.datasetInfo && this.props.datasetInfo.preview;
+        if (!preview || !preview.rows) return [];
+        const start = this.state.previewPage * this.pageSize;
+        return preview.rows.slice(start, start + this.pageSize);
+    }
+
+    openPreview() {
+        this.state.previewPage = 0;
+        this.state.showPreviewModal = true;
+    }
+
+    closePreview() {
+        this.state.showPreviewModal = false;
+    }
+
+    prevPage() {
+        if (this.state.previewPage > 0) this.state.previewPage--;
+    }
+
+    nextPage() {
+        if (this.state.previewPage < this.totalPages - 1) this.state.previewPage++;
+    }
+
+    goToPage(page) {
+        this.state.previewPage = Math.max(0, Math.min(page, this.totalPages - 1));
     }
 
     get configSections() {
@@ -89,9 +150,25 @@ export class StepConfiguration extends Component {
         return this.props.config[key];
     }
 
+    isFieldVisible(field) {
+        if (!field.showWhen) return true;
+        return this.props.config.policy_type === field.showWhen;
+    }
+
     onFieldChange(key, ev) {
-        const val = ev.target.type === "number" ? parseFloat(ev.target.value) : ev.target.value;
+        let val;
+        if (ev.target.type === "checkbox") {
+            val = ev.target.checked;
+        } else if (ev.target.type === "number" || ev.target.tagName === "INPUT" && ev.target.step) {
+            val = parseFloat(ev.target.value);
+        } else {
+            val = ev.target.value;
+        }
         this.props.onConfigChange(key, val);
+    }
+
+    onSelectChange(key, ev) {
+        this.props.onConfigChange(key, ev.target.value);
     }
 
     onSearchInput(ev) {

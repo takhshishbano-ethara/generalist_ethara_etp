@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import io
 import json
 import logging
 import requests
@@ -81,69 +82,204 @@ class RlGymController(http.Controller):
             return {'error': str(e)}
 
     def _fetch_dataset_preview(self, repo_id, headers):
-        try:
-            resp = requests.get(
-                f'{HF_API_BASE}/datasets/{repo_id}/parquet',
-                headers=headers, timeout=10
-            )
-            if resp.status_code == 200:
-                parquet_info = resp.json()
-                return {'parquet_files': parquet_info}
-        except requests.RequestException:
-            pass
+        """Fetch actual row data for preview. Handles JSONL, JSON, Parquet, and datasets-server."""
+        MAX_PREVIEW_ROWS = 50
 
-        try:
-            resp = requests.get(
-                f'https://datasets-server.huggingface.co/first-rows?dataset={repo_id}&config=default&split=train',
-                headers=headers, timeout=10
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return {
-                    'columns': [f['column']['name'] for f in data.get('features', [])],
-                    'rows': data.get('rows', [])[:10],
-                }
-        except requests.RequestException:
-            pass
+        # Strategy 1: datasets-server first-rows (public/enterprise datasets)
+        for split in ('train', 'test', 'validation'):
+            try:
+                resp = requests.get(
+                    f'https://datasets-server.huggingface.co/first-rows'
+                    f'?dataset={repo_id}&config=default&split={split}&length={MAX_PREVIEW_ROWS}',
+                    headers=headers, timeout=10
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    columns = [f['column']['name'] for f in data.get('features', [])]
+                    raw_rows = data.get('rows', [])
+                    rows = [r.get('row', r) if isinstance(r, dict) else r
+                            for r in raw_rows][:MAX_PREVIEW_ROWS]
+                    if columns:
+                        return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+            except requests.RequestException:
+                continue
 
-        # Fallback: list files in repo as preview (works for private datasets)
+        # Strategy 2: Collect all data files (root + all subdirectories)
+        all_files = []
+        dirs_to_scan = ['', 'data']
         try:
-            resp = requests.get(
+            root_resp = requests.get(
                 f'{HF_API_BASE}/datasets/{repo_id}/tree/main',
                 headers=headers, timeout=10
             )
-            if resp.status_code == 200:
-                tree = resp.json()
-                files = []
-                for f in tree:
+            if root_resp.status_code == 200:
+                for f in root_resp.json():
                     if f.get('type') == 'file':
-                        files.append({
-                            'path': f.get('path', ''),
-                            'size': f.get('size', 0),
-                        })
-                # Also list data/ subdirectory if present
-                data_dir = [f for f in tree if f.get('type') == 'directory' and f.get('path') == 'data']
-                if data_dir:
-                    resp2 = requests.get(
-                        f'{HF_API_BASE}/datasets/{repo_id}/tree/main/data',
-                        headers=headers, timeout=10
-                    )
-                    if resp2.status_code == 200:
-                        for f in resp2.json()[:20]:
-                            if f.get('type') == 'file':
-                                files.append({
-                                    'path': f.get('path', ''),
-                                    'size': f.get('size', 0),
-                                })
-                return {
-                    'file_list': files[:30],
-                    'total_files': len(files),
-                    'note': 'Private dataset — showing file listing instead of row preview',
-                }
+                        all_files.append(f)
+                    elif f.get('type') == 'directory':
+                        dname = f.get('path', '')
+                        if dname and not dname.startswith('.'):
+                            dirs_to_scan.append(dname)
         except requests.RequestException:
             pass
 
-        return None
+        for path in dirs_to_scan:
+            if not path:
+                continue
+            try:
+                tree_resp = requests.get(
+                    f'{HF_API_BASE}/datasets/{repo_id}/tree/main/{path}',
+                    headers=headers, timeout=10
+                )
+                if tree_resp.status_code == 200:
+                    for f in tree_resp.json():
+                        if f.get('type') == 'file':
+                            all_files.append(f)
+            except requests.RequestException:
+                continue
+
+        # Separate by type
+        jsonl_files = [f for f in all_files
+                       if self._get_path(f).endswith('.jsonl')]
+        parquet_files = [f for f in all_files
+                         if self._get_path(f).endswith('.parquet')]
+        json_files = [f for f in all_files
+                      if self._get_path(f).endswith('.json')
+                      and not self._get_path(f).startswith('.')]
+
+        # Priority: JSON arrays (cheap) → Parquet (single download) → JSONL (many downloads)
+
+        if json_files:
+            for file_info in json_files[:5]:
+                fname = self._get_path(file_info)
+                file_size = file_info.get('size', 0)
+                if file_size > 5_000_000:
+                    continue
+                dl_url = f'https://huggingface.co/datasets/{repo_id}/resolve/main/{fname}'
+                try:
+                    dl_resp = requests.get(dl_url, headers=headers, timeout=20)
+                    if dl_resp.status_code == 200:
+                        data = dl_resp.json()
+                        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                            columns = list(data[0].keys())
+                            rows = data[:MAX_PREVIEW_ROWS]
+                            return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+                        elif isinstance(data, dict):
+                            first_val = next(iter(data.values()), None)
+                            if isinstance(first_val, list):
+                                columns = list(data.keys())
+                                max_len = min(MAX_PREVIEW_ROWS, max(len(v) for v in data.values() if isinstance(v, list)))
+                                rows = []
+                                for i in range(max_len):
+                                    row = {}
+                                    for col in columns:
+                                        vals = data[col]
+                                        row[col] = vals[i] if isinstance(vals, list) and i < len(vals) else ''
+                                    rows.append(row)
+                                return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+                except (requests.RequestException, json.JSONDecodeError, ValueError):
+                    continue
+
+        if parquet_files:
+            try:
+                import pyarrow.parquet as pq
+            except ImportError:
+                pq = None
+            if pq:
+                for file_info in parquet_files[:3]:
+                    fname = self._get_path(file_info)
+                    file_size = file_info.get('size', 0)
+                    dl_url = f'https://huggingface.co/datasets/{repo_id}/resolve/main/{fname}'
+                    try:
+                        if file_size > 10_000_000:
+                            dl_resp = requests.get(
+                                dl_url, headers={**headers, 'Range': 'bytes=0-4194304'},
+                                timeout=20
+                            )
+                        else:
+                            dl_resp = requests.get(dl_url, headers=headers, timeout=30)
+                        if dl_resp.status_code in (200, 206):
+                            buf = io.BytesIO(dl_resp.content)
+                            table = pq.read_table(buf)
+                            columns = table.column_names
+                            df = table.slice(0, min(MAX_PREVIEW_ROWS, table.num_rows)).to_pandas()
+                            rows = []
+                            for _, r in df.iterrows():
+                                rows.append({col: r[col] for col in columns})
+                            return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+                    except Exception as e:
+                        _logger.debug('Parquet read failed for %s: %s', fname, e)
+                        continue
+
+        if jsonl_files:
+            import time as _time
+            rows = []
+            columns = None
+            budget_start = _time.time()
+            for file_info in jsonl_files[:20]:
+                if len(rows) >= MAX_PREVIEW_ROWS:
+                    break
+                if _time.time() - budget_start > 30:
+                    break
+                fname = self._get_path(file_info)
+                dl_url = f'https://huggingface.co/datasets/{repo_id}/resolve/main/{fname}'
+                try:
+                    dl_resp = requests.get(dl_url, headers=headers, timeout=8, stream=True)
+                    if dl_resp.status_code == 200:
+                        for line in dl_resp.iter_lines(decode_unicode=True):
+                            if not line:
+                                continue
+                            if len(rows) >= MAX_PREVIEW_ROWS:
+                                break
+                            row = json.loads(line)
+                            if columns is None:
+                                columns = list(row.keys())
+                            rows.append(row)
+                        dl_resp.close()
+                except (requests.RequestException, json.JSONDecodeError):
+                    continue
+            if columns and rows:
+                return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+
+        if json_files:
+            rows = []
+            columns = None
+            for file_info in json_files[:MAX_PREVIEW_ROWS]:
+                if len(rows) >= MAX_PREVIEW_ROWS:
+                    break
+                fname = self._get_path(file_info)
+                file_size = file_info.get('size', 0)
+                if file_size > 1_000_000:
+                    continue
+                dl_url = f'https://huggingface.co/datasets/{repo_id}/resolve/main/{fname}'
+                try:
+                    dl_resp = requests.get(dl_url, headers=headers, timeout=15)
+                    if dl_resp.status_code == 200:
+                        data = dl_resp.json()
+                        if isinstance(data, dict) and not isinstance(next(iter(data.values()), None), (list, dict)):
+                            if columns is None:
+                                columns = list(data.keys())
+                            rows.append(data)
+                except (requests.RequestException, json.JSONDecodeError, ValueError):
+                    continue
+            if columns and rows:
+                return {'columns': columns, 'rows': self._truncate_rows(rows, columns)}
+
+        return {'columns': [], 'rows': [], 'note': 'No previewable data files found in this dataset.'}
+
+    def _get_path(self, file_info):
+        return file_info.get('rfilename', file_info.get('path', ''))
+
+    def _truncate_rows(self, rows, columns):
+        truncated = []
+        for row in rows:
+            preview_row = {}
+            for col in columns:
+                val = row.get(col, '')
+                sv = str(val) if not isinstance(val, str) else val
+                preview_row[col] = sv[:500] if len(sv) > 500 else sv
+            truncated.append(preview_row)
+        return truncated
 
     @http.route('/rl_gym/datasets/save', type='json', auth='user')
     def save_dataset(self, values):
@@ -183,6 +319,7 @@ class RlGymController(http.Controller):
             'current_loss': job.current_loss,
             'current_reward': job.current_reward,
             'best_reward': job.best_reward,
+            'policy_type': job.config_id.policy_type if job.config_id else 'gspo',
         }
 
     @http.route('/rl_gym/training/metrics', type='json', auth='user')
@@ -321,12 +458,189 @@ class RlGymController(http.Controller):
 
     @http.route('/rl_gym/config/defaults', type='json', auth='user')
     def get_config_defaults(self, model_id=None):
-        domain = []
-        if model_id:
-            domain = [('model_id', '=', int(model_id))]
-        configs = request.env['rl.training.config'].search_read(
-            domain,
-            order='name',
-            limit=20
-        )
-        return configs
+        MODEL_DEFAULTS = {
+            'nemotron': {
+                'policy_type': 'gtpo', 'lora_alpha': 256, 'lora_rank': 64,
+                'batch_size': 64, 'gspo_group_size': 8,
+                'clip_low': 0.2, 'clip_high': 0.28,
+                'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+                'learning_rate': 3e-6, 'max_steps': 450, 'warmup_steps': 50,
+                'gradient_accumulation': 4, 'max_grad_norm': 1.0, 'weight_decay': 0.01,
+                'curriculum_enabled': True, 'curriculum_stages': 4,
+                'gpu_count': 8, 'precision': 'bf16',
+            },
+            'llama': {
+                'policy_type': 'gspo', 'lora_alpha': 128, 'lora_rank': 64,
+                'batch_size': 128, 'gspo_group_size': 16,
+                'clip_low': 3e-4, 'clip_high': 4e-4,
+                'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+                'learning_rate': 2e-6, 'max_steps': 450, 'warmup_steps': 50,
+                'gradient_accumulation': 4, 'max_grad_norm': 1.0, 'weight_decay': 0.01,
+                'curriculum_enabled': True, 'curriculum_stages': 4,
+                'gpu_count': 4, 'precision': 'bf16',
+            },
+            'qwen': {
+                'policy_type': 'gspo', 'lora_alpha': 64, 'lora_rank': 32,
+                'batch_size': 128, 'gspo_group_size': 16,
+                'clip_low': 3e-4, 'clip_high': 4e-4,
+                'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+                'learning_rate': 2e-6, 'max_steps': 450, 'warmup_steps': 50,
+                'gradient_accumulation': 4, 'max_grad_norm': 1.0, 'weight_decay': 0.01,
+                'curriculum_enabled': True, 'curriculum_stages': 4,
+                'gpu_count': 4, 'precision': 'bf16',
+            },
+            'mistral': {
+                'policy_type': 'gspo', 'lora_alpha': 128, 'lora_rank': 64,
+                'batch_size': 128, 'gspo_group_size': 16,
+                'clip_low': 3e-4, 'clip_high': 4e-4,
+                'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+                'learning_rate': 2e-6, 'max_steps': 450, 'warmup_steps': 50,
+                'gradient_accumulation': 4, 'max_grad_norm': 1.0, 'weight_decay': 0.01,
+                'curriculum_enabled': True, 'curriculum_stages': 4,
+                'gpu_count': 4, 'precision': 'bf16',
+            },
+        }
+
+        if not model_id:
+            return MODEL_DEFAULTS.get('nemotron', {})
+
+        model = request.env['rl.training.model'].browse(int(model_id))
+        if not model.exists():
+            return MODEL_DEFAULTS.get('nemotron', {})
+
+        model_key = (model.technical_name or model.name or '').lower()
+        for key, defaults in MODEL_DEFAULTS.items():
+            if key in model_key:
+                return defaults
+
+        return MODEL_DEFAULTS.get('nemotron', {})
+
+    # ─── Dataset-driven dynamic config ──────────────────────────────────────
+    DATASET_CONFIGS = {
+        'ethara/MILO-Bench': {
+            'policy_type': 'gtpo', 'learning_rate': 3e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 450, 'warmup_steps': 50,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 256, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.0,
+            'clip_low': 0.2, 'clip_high': 0.28,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Gated RLVR + PRM step-level credit + length penalty. Gate opens only on PASS. Multi-turn with discounted returns (\u03b3=0.9).',
+        },
+        'ethara/Kaiju': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 32,
+            'gradient_accumulation': 4, 'max_steps': 450, 'warmup_steps': 50,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 4, 'gspo_kl_coeff': 0.01,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Hierarchical reward: compile (0.2) + link (0.1) + test pass (0.7). File-level grouping with KL annealing 0.01\u21920.04.',
+        },
+        'ethara/Kraken': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 300, 'warmup_steps': 40,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.01,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Continuous speedup ratio (HSR). Reward = min(1, speedup/target). Performance-shaping with logarithmic scaling.',
+        },
+        'ethara/tesseract': {
+            'policy_type': 'gtpo', 'learning_rate': 3e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 400, 'warmup_steps': 50,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.0,
+            'clip_low': 0.2, 'clip_high': 0.28,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Binary execution reward + step-level credit assignment. PRM scores per-turn contributions with entropy-weighted credit.',
+        },
+        'ethara/Valkyrie': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 300, 'warmup_steps': 40,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.01,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Binary all-pass reward (+1 if all tests pass, 0 otherwise). Strict gating with no partial credit.',
+        },
+        'ethara/Janus': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 400, 'warmup_steps': 50,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.01,
+            'clip_low': 0.2, 'clip_high': 0.28,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.8, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Multi-signal: V-tool correctness + V-true verification + S-axis structural + accuracy + efficiency. Adaptive KL 0.1\u21920.01.',
+        },
+        'ethara/terra': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 350, 'warmup_steps': 45,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.01,
+            'clip_low': 0.2, 'clip_high': 0.28,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Binary exact-match + overlong penalty. GRPO+ARPO hybrid with length penalty at 70% max_turns.',
+        },
+        'ethara/Mars': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 512,
+            'gradient_accumulation': 1, 'max_steps': 300, 'warmup_steps': 30,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.0,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Binary test-suite reward. Sequence-level with large batch (512). No KL \u2014 pure on-policy optimization.',
+        },
+        'ethara/Vesta': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'gradient_accumulation': 4, 'max_steps': 300, 'warmup_steps': 40,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 8, 'gspo_kl_coeff': 0.04,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.7, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Dual-layered: rule-based verification + LLM-judge scoring. KL=0.04 for stable exploration.',
+        },
+        'ethara/pax': {
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 32,
+            'gradient_accumulation': 4, 'max_steps': 400, 'warmup_steps': 50,
+            'max_grad_norm': 1.0, 'weight_decay': 0.01,
+            'lora_rank': 64, 'lora_alpha': 128, 'lora_dropout': 0.05,
+            'gspo_group_size': 4, 'gspo_kl_coeff': 0.04,
+            'clip_low': 0.2, 'clip_high': 0.2,
+            'gtpo_gamma': 0.9, 'gtpo_ent_threshold': 0.8, 'gtpo_ent_scale': 0.1,
+            'curriculum_enabled': True, 'curriculum_stages': 4,
+            'gpu_count': 8, 'precision': 'bf16',
+            'reward_description': 'Multi-dim safety: R_safety + 0.3\u00d7R_helpful + 0.2\u00d7R_tool \u2212 0.5\u00d7R_over_refusal. Progressive group G=4\u219212.',
+        },
+    }
+
+    @http.route('/rl_gym/config/dataset_defaults', type='json', auth='user')
+    def get_dataset_defaults(self, repo_id=None):
+        if not repo_id:
+            return {}
+        return self.DATASET_CONFIGS.get(repo_id, {})

@@ -52,6 +52,8 @@
                         loadingDatasets="state.loadingDatasets"
                         loadingInfo="state.loadingInfo"
                         sections="state.configSections"
+                        rewardDescription="state.rewardDescription"
+                        datasetConfigApplied="state.datasetConfigApplied"
                         onConfigChange.bind="onConfigChange"
                         onDatasetSearch.bind="onDatasetSearch"
                         onDatasetSelect.bind="onDatasetSelect"
@@ -65,6 +67,7 @@
                         modelId="state.wizardData.selectedModelId"
                         configId="state.wizardData.configId"
                         jobName="state.wizardData.customName"
+                        policyType="state.wizardData.config.policy_type"
                         rpc="rpc"/>
                 </t>
                 <t t-if="state.currentStep === 3">
@@ -181,7 +184,12 @@
     <t t-name="rl_gym_dashboard.TrainingWizard.StepConfiguration">
         <div class="rl-wizard-config">
             <!-- Left: Config Panel -->
-            <div class="rl-wizard-config__panel">
+            <div t-att-class="'rl-wizard-config__panel' + (props.datasetConfigApplied ? ' rl-wizard-config__panel--flash' : '')">
+                <t t-if="props.datasetConfigApplied">
+                    <div class="rl-wizard-config__notification">
+                        ✓ Config auto-populated from dataset recommendations
+                    </div>
+                </t>
                 <div class="rl-wizard-config__panel-title">
                     <span>Training Configuration</span>
                     <button class="rl-wizard-btn rl-wizard-btn--ghost"
@@ -190,6 +198,16 @@
                         Load Defaults
                     </button>
                 </div>
+
+                <t t-if="props.rewardDescription">
+                    <div class="rl-wizard-config__reward-info">
+                        <span class="rl-wizard-config__reward-icon">⚡</span>
+                        <div class="rl-wizard-config__reward-content">
+                            <span class="rl-wizard-config__reward-label">Reward Strategy</span>
+                            <span class="rl-wizard-config__reward-text" t-esc="props.rewardDescription"/>
+                        </div>
+                    </div>
+                </t>
 
                 <t t-foreach="configSections" t-as="section" t-key="section.key">
                     <div class="rl-wizard-config__section">
@@ -204,14 +222,34 @@
                         <t t-if="isSectionOpen(section.key)">
                             <div class="rl-wizard-config__section-body">
                                 <t t-foreach="section.fields" t-as="field" t-key="field.key">
-                                    <div class="rl-wizard-config__field">
-                                        <label class="rl-wizard-config__field-label" t-esc="field.label"/>
-                                        <input t-att-type="field.type || 'number'"
-                                               class="rl-wizard-config__field-input"
-                                               t-att-value="getConfigValue(field.key)"
-                                               t-att-step="field.step || 'any'"
-                                               t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
-                                    </div>
+                                    <t t-if="isFieldVisible(field)">
+                                        <div class="rl-wizard-config__field">
+                                            <label class="rl-wizard-config__field-label" t-esc="field.label"/>
+                                            <t t-if="field.type === 'select'">
+                                                <select class="rl-wizard-config__field-input"
+                                                        t-on-change="(ev) => this.onSelectChange(field.key, ev)">
+                                                    <t t-foreach="field.options" t-as="opt" t-key="opt.value">
+                                                        <option t-att-value="opt.value"
+                                                                t-att-selected="getConfigValue(field.key) === opt.value"
+                                                                t-esc="opt.label"/>
+                                                    </t>
+                                                </select>
+                                            </t>
+                                            <t t-elif="field.type === 'checkbox'">
+                                                <input type="checkbox"
+                                                       class="rl-wizard-config__field-checkbox"
+                                                       t-att-checked="getConfigValue(field.key)"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                            <t t-else="">
+                                                <input t-att-type="field.type || 'number'"
+                                                       class="rl-wizard-config__field-input"
+                                                       t-att-value="getConfigValue(field.key)"
+                                                       t-att-step="field.step || 'any'"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                        </div>
+                                    </t>
                                 </t>
                             </div>
                         </t>
@@ -260,68 +298,111 @@
                     </div>
                 </t>
 
-                <!-- Dataset Preview -->
+                <!-- Dataset Preview Button -->
                 <t t-if="props.loadingInfo">
                     <div class="rl-wizard-loading">
                         <div class="rl-wizard-loading__spinner"/>
                         <span>Loading preview…</span>
                     </div>
                 </t>
-                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Data Preview</div>
-                        <table class="rl-wizard-dataset__preview-table">
-                            <thead>
-                                <tr>
-                                    <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
-                                        <th t-esc="col"/>
-                                    </t>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <t t-foreach="props.datasetInfo.preview.rows.slice(0, 5)" t-as="row" t-key="row_index">
-                                    <tr>
-                                        <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
-                                            <td t-esc="row[col]"/>
-                                        </t>
-                                    </tr>
-                                </t>
-                            </tbody>
-                        </table>
-                    </div>
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Data
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.columns.length"/> columns · <t t-esc="(props.datasetInfo.preview.rows || []).length"/> rows
+                        </span>
+                    </button>
                 </t>
                 <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.file_list">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Dataset Files</div>
-                        <p class="rl-wizard-dataset__preview-note" t-esc="props.datasetInfo.preview.note"/>
-                        <table class="rl-wizard-dataset__preview-table">
-                            <thead>
-                                <tr><th>File</th><th>Size</th></tr>
-                            </thead>
-                            <tbody>
-                                <t t-foreach="props.datasetInfo.preview.file_list.slice(0, 15)" t-as="f" t-key="f_index">
-                                    <tr>
-                                        <td t-esc="f.path"/>
-                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
-                                    </tr>
-                                </t>
-                            </tbody>
-                        </table>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.preview.total_files > 15">
-                            <t t-esc="'... and ' + (props.datasetInfo.preview.total_files - 15) + ' more files'"/>
-                        </p>
-                    </div>
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Files
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.total_files || props.datasetInfo.preview.file_list.length"/> files
+                        </span>
+                    </button>
                 </t>
                 <t t-elif="props.datasetInfo and !props.datasetInfo.preview">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Dataset Info</div>
-                        <p class="rl-wizard-dataset__preview-note">No preview available for this private dataset.</p>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.downloads">
-                            Downloads: <t t-esc="props.datasetInfo.downloads"/>
-                        </p>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.tags and props.datasetInfo.tags.length">
-                            Tags: <t t-esc="props.datasetInfo.tags.join(', ')"/>
-                        </p>
+                    <div class="rl-wizard-dataset__no-preview">
+                        <span>No preview available</span>
+                        <span class="rl-wizard-dataset__no-preview-meta" t-if="props.datasetInfo.downloads">
+                            ↓ <t t-esc="props.datasetInfo.downloads"/>
+                        </span>
+                    </div>
+                </t>
+
+                <!-- Preview Modal -->
+                <t t-if="state.showPreviewModal">
+                    <div class="rl-wizard-modal-overlay" t-on-click="() => this.closePreview()">
+                        <div class="rl-wizard-modal" t-on-click.stop="">
+                            <div class="rl-wizard-modal__header">
+                                <span class="rl-wizard-modal__title">
+                                    Dataset Preview — <t t-esc="props.datasetInfo.name or props.datasetInfo.id or 'Dataset'"/>
+                                </span>
+                                <button class="rl-wizard-modal__close" t-on-click="() => this.closePreview()">✕</button>
+                            </div>
+                            <div class="rl-wizard-modal__body">
+                                <t t-if="props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="rl-wizard-modal__row-num">#</th>
+                                                    <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                        <th t-esc="col"/>
+                                                    </t>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="pagedRows" t-as="row" t-key="row_index">
+                                                    <tr>
+                                                        <td class="rl-wizard-modal__row-num" t-esc="state.previewPage * 10 + row_index + 1"/>
+                                                        <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                            <td t-esc="row[col] != null ? ('' + row[col]).slice(0, 500) : ''"/>
+                                                        </t>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <!-- Pagination -->
+                                    <div class="rl-wizard-modal__pagination">
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage === 0"
+                                                t-on-click="() => this.prevPage()">← Prev</button>
+                                        <span class="rl-wizard-modal__page-info">
+                                            Page <t t-esc="state.previewPage + 1"/> of <t t-esc="totalPages"/>
+                                            <span class="rl-wizard-modal__page-rows">
+                                                (<t t-esc="totalRows"/> rows)
+                                            </span>
+                                        </span>
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage >= totalPages - 1"
+                                                t-on-click="() => this.nextPage()">Next →</button>
+                                    </div>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.note and (!props.datasetInfo.preview.columns or !props.datasetInfo.preview.columns.length)">
+                                    <p class="rl-wizard-modal__note" t-esc="props.datasetInfo.preview.note"/>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.file_list">
+                                    <p class="rl-wizard-modal__note" t-if="props.datasetInfo.preview.note" t-esc="props.datasetInfo.preview.note"/>
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr><th>File</th><th>Size</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="props.datasetInfo.preview.file_list" t-as="f" t-key="f_index">
+                                                    <tr>
+                                                        <td t-esc="f.path"/>
+                                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
                     </div>
                 </t>
 
@@ -397,6 +478,10 @@
 
             <!-- Live Metrics -->
             <div class="rl-wizard-training__metrics">
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Policy</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="state.policyType"/>
+                </div>
                 <div class="rl-wizard-training__metric">
                     <span class="rl-wizard-training__metric-label">Loss</span>
                     <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentLoss)"/>
