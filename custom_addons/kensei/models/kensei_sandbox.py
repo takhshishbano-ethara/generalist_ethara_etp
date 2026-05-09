@@ -2899,7 +2899,7 @@ class KenseiSandbox(models.Model):
                     core_v1.connect_get_namespaced_pod_exec,
                     pod_name,
                     namespace,
-                    container="openclaw",
+                    container=svc["name"],
                     command=fetch_cmd,
                     stderr=False,
                     stdin=False,
@@ -2924,14 +2924,25 @@ class KenseiSandbox(models.Model):
 
     def _ingest_audit_json(self, service_name, raw_json):
         import json as json_mod
+        import ast
         from datetime import datetime
 
+        stripped = (raw_json or "").strip()
+        data = None
         try:
-            data = json_mod.loads(raw_json.strip())
-        except (json_mod.JSONDecodeError, ValueError, TypeError) as e:
+            data = json_mod.loads(stripped)
+        except (json_mod.JSONDecodeError, ValueError, TypeError):
+            # Fallback: mock APIs may return Python repr (single quotes) instead
+            # of JSON when running older images or non-FastAPI responses.
+            try:
+                data = ast.literal_eval(stripped)
+            except (ValueError, SyntaxError):
+                pass
+
+        if not isinstance(data, dict):
             _logger.warning(
-                "K8s audit: invalid JSON from %s (sandbox=%s): %s — raw[:200]: %s",
-                service_name, self.id, e, (raw_json or "")[:200],
+                "K8s audit: unparseable response from %s (sandbox=%s) — raw[:200]: %s",
+                service_name, self.id, stripped[:200],
             )
             return
 
@@ -3006,10 +3017,23 @@ class KenseiSandbox(models.Model):
             )
             return
 
+        # Collect audit logs from running mock APIs before extracting CUD ops.
+        # Without this, api_request_ids is empty when called before stop.
+        try:
+            self._collect_mock_api_audit()
+        except Exception as e:
+            _logger.warning(
+                "Audit collection before test gen failed (sandbox=%s): %s",
+                self.id, e,
+            )
+
         cud_operations = self._extract_cud_operations()
         if not cud_operations:
             _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
-            return
+            raise UserError(
+                "No testable operations found. The agent hasn't performed any "
+                "Create/Update/Delete actions on the mock APIs yet."
+            )
 
         TestResult = self.env["kensei.test.result"].sudo()
         traj_field_map = {
