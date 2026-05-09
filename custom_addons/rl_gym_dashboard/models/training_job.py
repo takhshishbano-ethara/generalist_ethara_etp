@@ -106,6 +106,7 @@ class RlTrainingJob(models.Model):
             'learning_rate': learning_rate,
             'entropy': max(0, 1.0 - step / total + random.gauss(0, 0.02)),
             'kl_divergence': abs(random.gauss(0.01, 0.005)),
+            'tokens_per_second': max(100, 2500 + random.gauss(0, 400)),
         })
 
         best = max(self.best_reward, reward)

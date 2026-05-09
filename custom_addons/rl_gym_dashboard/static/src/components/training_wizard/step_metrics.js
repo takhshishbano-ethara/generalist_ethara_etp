@@ -1,5 +1,5 @@
 /** @odoo-module **/
-import { Component, useState, useRef, onMounted, onWillUnmount, onWillStart } from "@odoo/owl";
+import { Component, useState, useRef, onMounted, onPatched, onWillUnmount, onWillStart } from "@odoo/owl";
 import { loadBundle } from "@web/core/assets";
 
 const METRIC_LINES = [
@@ -41,7 +41,12 @@ export class StepMetrics extends Component {
 
         onMounted(async () => {
             await this._loadMetrics();
-            this._createChart();
+        });
+
+        onPatched(() => {
+            if (!this.chart && this.chartRef.el && this.state.metricsData.length) {
+                this._createChart();
+            }
         });
 
         onWillUnmount(() => {
