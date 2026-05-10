@@ -362,7 +362,7 @@
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">§08 ·  Resources</p>
 
-    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
       <a class="resource" href="https://github.com/Ethara-Ai/Kraken-Dataset" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Code</p>
         <p class="res-title">GitHub repository</p>
@@ -375,12 +375,12 @@
         <p class="res-url mono">huggingface.co/datasets/ethara/Kraken</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
       </a>
-      <a class="resource" href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" style="text-decoration:none;">
+      <!-- <a class="resource" href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" style="text-decoration:none;">
         <p class="res-label mono">Paper</p>
         <p class="res-title">Research Paper</p>
         <p class="res-url mono">arxiv.org/abs/2511.06090</p>
         <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
-      </a>
+      </a> -->
     </div>
   </section>
 
