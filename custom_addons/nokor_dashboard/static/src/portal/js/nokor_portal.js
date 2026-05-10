@@ -397,9 +397,7 @@
       modalityStrip.innerHTML = stripHtml;
     }
 
-    // Glance instances
-    var glanceInstances = document.getElementById('nk-glance-instances');
-    if (glanceInstances) glanceInstances.innerHTML = '<b>' + total.toLocaleString() + '</b>';
+
 
     // Eval KPI cards per difficulty level
     var levels = ['hard', 'vhard', 'expert'];
