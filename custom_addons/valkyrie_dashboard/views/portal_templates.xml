@@ -90,7 +90,7 @@
                             <aside class="vk-glance" aria-label="At a glance">
                                 <p class="vk-glance-label vk-mono">At a glance</p>
                                 <dl class="vk-glance-list">
-                                    <div class="vk-glance-row"><dt>Instances</dt><dd><b>10000</b></dd></div>
+                                    <div class="vk-glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
                                     <div class="vk-glance-row"><dt>Repositories</dt><dd><b>100</b></dd></div>
                                     <div class="vk-glance-row"><dt>CWE classes</dt><dd><b>300</b></dd></div>
                                     <div class="vk-glance-row"><dt>Test cases</dt><dd><b>16,756</b></dd></div>
@@ -105,24 +105,21 @@
                     <!-- ================= §02 SCOPE OF THE SUITE ================= -->
                     <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
                         <p class="vk-section-label" id="vk-scope-label">§02 · Key metrics</p>
-                        <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Ten thousand instances.</p>
-                        <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 10000 instances">
-                            <div class="vk-funnel-step">
-                                <span class="vk-funnel-num">100</span>
-                                <span class="vk-funnel-unit">CWE classes covered</span>
-                                <span class="vk-funnel-sub">125, 416, 665, 670, 754, 787, 908</span>
+                        <p class="vk-section-desc">Three numbers that define the scope of Valkyrie.</p>
+                        <div class="vk-kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">CWE Classes Covered</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big">100</span></p>
+                                <p class="vk-kpi-sub vk-mono">125, 416, 665, 670, 754, 787, 908</p>
                             </div>
-                            <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
-                            <div class="vk-funnel-step">
-                                <span class="vk-funnel-num">300</span>
-                                <span class="vk-funnel-unit">Target codebases</span>
-                                <!-- <span class="vk-funnel-sub">FFmpeg · jq (C / compiled)</span> -->
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">Target Codebases</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big">300</span></p>
                             </div>
-                            <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
-                            <div class="vk-funnel-step vk-funnel-step--final">
-                                <span class="vk-funnel-num">10,000</span>
-                                <span class="vk-funnel-unit">Instances</span>
-                                <span class="vk-funnel-sub">8,412,673 tests</span>
+                            <div class="vk-kpi-card">
+                                <p class="vk-kpi-label">Instances</p>
+                                <p class="vk-kpi-value"><span class="vk-kpi-big">10,000</span></p>
+                                <p class="vk-kpi-sub vk-mono">8,412,673 tests</p>
                             </div>
                         </div>
                     </section>

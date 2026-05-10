@@ -130,26 +130,24 @@
   </section>
 
   <!-- ================= §02 KEY METRICS ================= -->
-  <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
+  <section class="section" id="scale" aria-labelledby="scale-label">
     <p class="section-label" id="scale-label">§02 · Key metrics</p>
-    <p class="section-desc">Fifty curated instances. Three frontier models. Four hundred fifty trajectories.</p>
-    <div class="funnel" aria-label="Funnel from 10,000 instances to 90,000 trajectories">
-      <div class="funnel-step">
-        <span class="funnel-num">10,000</span>
-        <span class="funnel-unit">Instances curated</span>
-        <span class="funnel-sub">across 8 languages</span>
+    <p class="section-desc">Three numbers that define the scope of MILO-Bench.</p>
+    <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <div class="kpi-card">
+        <p class="kpi-label">Instances Curated</p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
+        <p class="kpi-sub mono">across 8 languages</p>
       </div>
-      <span class="funnel-arrow mono" aria-hidden="true">→</span>
-      <div class="funnel-step">
-        <span class="funnel-num">3</span>
-        <span class="funnel-unit">Models evaluated</span>
-        <span class="funnel-sub">Claude Opus 4.6 · GLM 5 · Kimi K2.5</span>
+      <div class="kpi-card">
+        <p class="kpi-label">Models Evaluated</p>
+        <p class="kpi-value"><span class="kpi-big">3</span></p>
+        <p class="kpi-sub mono">Claude Opus 4.6 · GLM 5 · Kimi K2.5</p>
       </div>
-      <span class="funnel-arrow mono" aria-hidden="true">→</span>
-      <div class="funnel-step funnel-step--final">
-        <span class="funnel-num">90,000</span>
-        <span class="funnel-unit">Trajectories generated</span>
-        <span class="funnel-sub">3 models × 3 seeds × 10,000 instances</span>
+      <div class="kpi-card">
+        <p class="kpi-label">Trajectories Generated</p>
+        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
+        <p class="kpi-sub mono">3 models × 3 seeds × 10,000 instances</p>
       </div>
     </div>
   </section>

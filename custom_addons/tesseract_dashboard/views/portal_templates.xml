@@ -112,10 +112,10 @@
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>10000</b></dd></div>
-          <div class="glance-row"><dt>Repositories</dt><dd><b>1100</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Repositories</dt><dd><b>1,100</b></dd></div>
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
-          <div class="glance-row"><dt>Embedded images</dt><dd><b>24000</b></dd></div>
+          <div class="glance-row"><dt>Embedded images</dt><dd><b>24,000</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
         </dl>
         <!-- <p class="glance-foot mono">Benchmark · v1 · 2026</p> -->
