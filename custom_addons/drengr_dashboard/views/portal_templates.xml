@@ -18,8 +18,7 @@
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
             } else {
-              var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
-              document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();

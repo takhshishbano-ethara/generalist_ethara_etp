@@ -17,6 +17,8 @@
             var saved = localStorage.getItem('janus:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -71,13 +73,13 @@
 
   <main id="main">
 
-  <!-- &#xA7;01 THE QUESTION -->
+  <!-- &#xA7;01 Overview -->
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">&#xA7;01 &#xB7; The question</p>
+    <p class="section-label" id="overview-label">&#xA7;01 &#xB7; Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>Janus is a reinforcement learning environment for training multimodal agents to solve visual reasoning tasks through tool use. Each instance includes a high-resolution image, a question that cannot be answered without acting on the visual input, and a set of 17 tools spanning image manipulation and web search. Reward signals are generated using 2,000+ stepwise checkpoints that decompose performance into search correctness, visual operation accuracy, and efficiency. Two frontier models were tested on 10,000 instances requiring interleaved visual transformation and information retrieval.</p>
-        <p class="teaser">Keep scrolling. The answer is in <a href="#results">&#xA7;04</a>.</p>
+        <p class="teaser">Keep scrolling. The answer is in <a href="#results">&#xA7;05</a>.</p>
       </div>
 
       <aside class="glance" aria-label="At a glance">
@@ -121,9 +123,57 @@
     </div>
   </section>
 
-  <!-- &#xA7;03 PIPELINE -->
+  <!-- &#xA7;03 METHODOLOGY -->
+  <section class="section" id="methodology" aria-labelledby="method-label">
+    <p class="section-label" id="method-label">&#xA7;03 &#xB7; Methodology</p>
+    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Janus scoring system.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Dual-Axis Process Verification</h4>
+          <ul class="phase-body">
+            <li><b>S-axis</b> (Strategy): Audits Knowledge Expansion &#x2014; search keywords, reference URLs, expected intermediate answers</li>
+            <li><b>V-axis</b> (Visual Evidence): Audits Visual Expansion &#x2014; tool intent (V_tool) and artifact faithfulness (V_true)</li>
+            <li>Scores = fraction of passed checkpoints on each axis</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Final Answer Accuracy</h4>
+          <ul class="phase-body">
+            <li>Computed via normalized exact match against golden answers</li>
+            <li>Supported match types: exact, contains, numeric (with tolerance)</li>
+            <li>Answer standardization eliminates evaluation ambiguity</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Efficiency (Overthink Metric)</h4>
+          <ul class="phase-body">
+            <li>Overthink = max(0, C_agent &#x2212; C_human) / (C_human + 1)</li>
+            <li>Penalizes redundant tool calls relative to human reference trajectory</li>
+            <li>Reference tool calls per task: 2&#x2013;3 (human baseline)</li>
+            <li>Max tool calls allowed: 5&#x2013;7 per instance</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Correctness Gating</h4>
+          <ul class="phase-body">
+            <li>Processed images must pass VLM judge verification</li>
+            <li>Any-pass mechanism: checkpoint passes if any artifact contains required evidence</li>
+            <li>Incorrect visual manipulations are penalized through V_true scoring</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- &#xA7;04 EVALUATION PIPELINE -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
-    <p class="section-label" id="pipeline-label">&#xA7;03 &#xB7; Evaluation pipeline</p>
+    <p class="section-label" id="pipeline-label">&#xA7;04 &#xB7; Evaluation pipeline</p>
     <div class="pipeline-frame">
     <div class="pipeline-intro">
       <p class="pipeline-eyebrow mono">The method</p>
@@ -165,9 +215,9 @@
     </div>
   </section>
 
-  <!-- &#xA7;04 RESULTS -->
+  <!-- &#xA7;05 RESULTS -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">&#xA7;04 &#xB7; Results</p>
+    <p class="section-label" id="results-label">&#xA7;05 &#xB7; Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -199,9 +249,9 @@
     </div>
   </section>
 
-  <!-- &#xA7;05 DATASET VIEWER -->
+  <!-- &#xA7;06 DATASET VIEWER -->
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">&#xA7;05 &#xB7; Dataset Viewer</p>
+    <p class="section-label" id="instances-label">&#xA7;06 &#xB7; Dataset Viewer</p>
     <p class="section-desc">20 instances across 3 difficulty levels (L1, L2, L3). Click any row for full run metadata.</p>
 
     <div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap;">
@@ -255,9 +305,9 @@
     <script type="application/json" id="instances-data" t-out="instances_json"/>
   </section>
 
-  <!-- &#xA7;06 MODEL COMPARISON -->
+  <!-- &#xA7;07 MODEL COMPARISON -->
   <section class="section" id="models" aria-labelledby="models-label">
-    <p class="section-label" id="models-label">&#xA7;06 &#xB7; Model comparison</p>
+    <p class="section-label" id="models-label">&#xA7;07 &#xB7; Model comparison</p>
     <p class="section-desc">Head-to-head breakdown of both evaluated frontier models.</p>
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
@@ -286,75 +336,27 @@
     </div>
   </section>
 
-  <!-- &#xA7;07 METHODOLOGY -->
-  <section class="section" id="methodology" aria-labelledby="method-label">
-    <p class="section-label" id="method-label">&#xA7;07 &#xB7; Methodology</p>
-    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Janus scoring system.</p>
-
-    <div class="pipeline-frame">
-      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
-        <article class="phase">
-          <p class="phase-label">Principle 01</p>
-          <h4 class="phase-title">Dual-Axis Process Verification</h4>
-          <ul class="phase-body">
-            <li><b>S-axis</b> (Strategy): Audits Knowledge Expansion &#x2014; search keywords, reference URLs, expected intermediate answers</li>
-            <li><b>V-axis</b> (Visual Evidence): Audits Visual Expansion &#x2014; tool intent (V_tool) and artifact faithfulness (V_true)</li>
-            <li>Scores = fraction of passed checkpoints on each axis</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Principle 02</p>
-          <h4 class="phase-title">Final Answer Accuracy</h4>
-          <ul class="phase-body">
-            <li>Computed via normalized exact match against golden answers</li>
-            <li>Supported match types: exact, contains, numeric (with tolerance)</li>
-            <li>Answer standardization eliminates evaluation ambiguity</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Principle 03</p>
-          <h4 class="phase-title">Efficiency (Overthink Metric)</h4>
-          <ul class="phase-body">
-            <li>Overthink = max(0, C_agent &#x2212; C_human) / (C_human + 1)</li>
-            <li>Penalizes redundant tool calls relative to human reference trajectory</li>
-            <li>Reference tool calls per task: 2&#x2013;3 (human baseline)</li>
-            <li>Max tool calls allowed: 5&#x2013;7 per instance</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Principle 04</p>
-          <h4 class="phase-title">Correctness Gating</h4>
-          <ul class="phase-body">
-            <li>Processed images must pass VLM judge verification</li>
-            <li>Any-pass mechanism: checkpoint passes if any artifact contains required evidence</li>
-            <li>Incorrect visual manipulations are penalized through V_true scoring</li>
-          </ul>
-        </article>
-      </div>
-    </div>
-  </section>
-
   <!-- &#xA7;08 RESOURCES -->
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">&#xA7;08 &#xB7; Resources</p>
-    <div class="resources" style="grid-template-columns: repeat(3, 1fr);">
-      <a class="resource" href="https://github.com/Ethara-Ai/Janus" target="_blank" rel="noopener">
-        <p class="res-label mono">Code</p>
-        <p class="res-title">GitHub Repository</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/Janus</p>
-        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" href="https://huggingface.co/datasets/ethara/Janus" target="_blank" rel="noopener">
-        <p class="res-label mono">Data</p>
-        <p class="res-title">Dataset on HuggingFace</p>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/Janus</p>
-        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" href="https://arxiv.org/abs/2604.03016" target="_blank" rel="noopener">
         <p class="res-label mono">Paper</p>
         <p class="res-title">Research Paper</p>
         <p class="res-url mono">arxiv.org/abs/2604.03016</p>
-        <span class="res-arrow" aria-hidden="true">&#x2197;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>

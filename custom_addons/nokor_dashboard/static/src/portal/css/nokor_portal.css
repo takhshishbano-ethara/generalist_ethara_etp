@@ -56,6 +56,12 @@
   --nk-vhard:   #B8860B;
   --nk-expert:  #B5171F;
 
+  /* model semantic colors */
+  --kimi:          #2A5CB8;
+  --kimi-surface:  #E5EDFB;
+  --nova:          #5C3FB3;
+  --nova-surface:  #EEE4FB;
+
   /* focus ring */
   --focus-ring: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--accent-2);
 
@@ -899,9 +905,9 @@ hr.rule {
   box-shadow: var(--card-shadow);
 }
 .kpi-card:hover {
-  border-color: var(--border-2);
-  box-shadow: 0 4px 12px rgba(15,20,35,0.07), 0 1px 2px rgba(15,20,35,0.05);
-  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(15,20,35,0.12), 0 2px 6px rgba(15,20,35,0.08);
+  transform: translateY(-2px);
 }
 .kpi-card--accent {
   border-left: 3px solid var(--accent-bright);
@@ -915,6 +921,8 @@ hr.rule {
   text-transform: uppercase;
   color: var(--ink-3);
 }
+.tok-kimi { color: var(--kimi); font-weight: 500; }
+.tok-nova { color: var(--nova); font-weight: 500; }
 
 .kpi-big {
   font-family: var(--font-display);
@@ -1472,6 +1480,15 @@ hr.rule {
   color: var(--ink-3);
   margin: 0;
 }
+.foot-inner a {
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--border-2);
+  transition: color var(--dur-xfast) var(--ease-ui), border-color var(--dur-xfast) var(--ease-ui);
+}
+.foot-inner a:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
 
 /* ============================================================
    THEME TOGGLE
@@ -1828,6 +1845,11 @@ hr.rule {
   --nk-hard:    #89B5FF;
   --nk-vhard:   #FBBF24;
   --nk-expert:  #FF8F8F;
+
+  --kimi:            #89B5FF;
+  --kimi-surface:    rgba(137,181,255,0.14);
+  --nova:            #CDB0FF;
+  --nova-surface:    rgba(205,176,255,0.14);
 
   /* focus ring */
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);

@@ -16,7 +16,7 @@
   const currentTheme = () => {
     const explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return prefersDark.matches ? 'dark' : 'light';
+    return 'dark';
   };
 
   const syncButtonLabel = () => {
@@ -207,116 +207,12 @@
   }
 
   // ============================================================
-  // §7 — FUNNEL COUNTERS (IntersectionObserver)
-  // Animates `.funnel-num[data-target]` from 0 → target with
-  // easeOutCubic over 900ms. Respects prefers-reduced-motion.
+  // §7 — (Removed: funnel counters now use static HTML values)
   // ============================================================
-  function initFunnelCounters() {
-    const funnelNums = document.querySelectorAll('.funnel-num[data-target]');
-    if (!funnelNums.length) return;
-
-    const animateCount = (el) => {
-      const target = Number(el.dataset.target || '0');
-      if (prefersReduced) {
-        el.textContent = target.toLocaleString();
-        return;
-      }
-      const duration = 900;
-      const start = performance.now();
-      const step = (now) => {
-        const t = Math.min(1, (now - start) / duration);
-        // easeOutCubic
-        const eased = 1 - Math.pow(1 - t, 3);
-        const val = Math.round(target * eased);
-        el.textContent = val.toLocaleString();
-        if (t < 1) requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-    };
-
-    if ('IntersectionObserver' in window) {
-      const io = new IntersectionObserver((entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            animateCount(e.target);
-            io.unobserve(e.target);
-          }
-        }
-      }, { threshold: 0.3 });
-      funnelNums.forEach((n) => io.observe(n));
-    } else {
-      funnelNums.forEach(animateCount);
-    }
-  }
 
   // ============================================================
-  // §8 — COUNT-UP (quality cards, confidence strip)
-  // Distinct from funnel counters — operates on metric values
-  // that already have text content (including %, commas).
+  // §8 — (Removed: count-up now uses static HTML values)
   // ============================================================
-  function initCountUp() {
-    var nums = document.querySelectorAll(
-      ".au-metric-val, .au-quality-num, .au-confidence-big"
-    );
-    if (!nums.length) return;
-
-    var observer = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-
-          var el = entry.target;
-          observer.unobserve(el);
-
-          var raw = el.textContent.trim();
-          var hasPercent = raw.indexOf("%") !== -1;
-          var hasComma = raw.indexOf(",") !== -1;
-          var cleaned = raw.replace(/[,%]/g, "");
-          var target = parseFloat(cleaned);
-
-          if (isNaN(target) || target === 0) return;
-
-          var isFloat = cleaned.indexOf(".") !== -1;
-          var duration = 800;
-          var start = performance.now();
-
-          function step(now) {
-            var elapsed = now - start;
-            var progress = Math.min(elapsed / duration, 1);
-            var eased = 1 - Math.pow(1 - progress, 3);
-            var current = target * eased;
-
-            var display;
-            if (isFloat) {
-              display = current.toFixed(1);
-            } else {
-              display = Math.round(current).toString();
-            }
-
-            if (hasComma) {
-              display = Number(display).toLocaleString("en-US");
-            }
-            if (hasPercent) {
-              display += "%";
-            }
-
-            el.textContent = display;
-
-            if (progress < 1) {
-              requestAnimationFrame(step);
-            }
-          }
-
-          requestAnimationFrame(step);
-        });
-      },
-      { threshold: 0.3 }
-    );
-
-    nums.forEach(function (el) {
-      observer.observe(el);
-    });
-  }
 
   // ============================================================
   // §9 — LIGHTBOX
@@ -569,7 +465,7 @@
 
     var countEl = document.getElementById("au-eval-count");
     if (countEl) {
-      countEl.textContent = evalFilteredData.length + " of 10,000 instances";
+      countEl.textContent = evalFilteredData.length + " of " + evalAllData.length + " instances";
     }
 
     evalRenderPagination();
@@ -752,8 +648,6 @@
   // ============================================================
   function init() {
     initScrollAnimations();
-    initFunnelCounters();
-    initCountUp();
     initLightbox();
     initEvalViewer();
   }

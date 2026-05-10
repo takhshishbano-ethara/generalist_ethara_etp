@@ -12,7 +12,7 @@
   const currentTheme = () => {
     const explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return prefersDark.matches ? 'dark' : 'light';
+    return 'dark';
   };
   const syncButtonLabel = () => {
     if (!toggleBtn) return;

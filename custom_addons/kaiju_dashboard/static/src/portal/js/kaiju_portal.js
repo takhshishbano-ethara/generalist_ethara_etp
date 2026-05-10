@@ -12,7 +12,7 @@
   const currentTheme = () => {
     const explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return prefersDark.matches ? 'dark' : 'light';
+    return 'dark';
   };
   const syncButtonLabel = () => {
     if (!toggleBtn) return;
@@ -186,59 +186,6 @@
     // Re-measure on resize so triggers adapt to layout shifts
     window.addEventListener('resize', () => ScrollTrigger.refresh(), { passive: true });
   };
-
-  // ============================================================
-  // KPI counter animation (IntersectionObserver) — easeOutCubic
-  // progression, supports float targets via decimal detection
-  // and data-suffix for units like "%".
-  // ============================================================
-  const kpiNums = document.querySelectorAll('.kpi-num');
-
-  const animateCount = (el) => {
-    const target = Number(el.dataset.target || '0');
-    const suffix = el.dataset.suffix || '';
-    const isFloat = String(el.dataset.target).indexOf('.') !== -1;
-
-    if (prefersReduced) {
-      el.textContent = (isFloat ? target.toFixed(1) : target.toLocaleString()) + suffix;
-      return;
-    }
-
-    const duration = 900;
-    const start = performance.now();
-    const step = (now) => {
-      const t = Math.min(1, (now - start) / duration);
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3);
-      const current = target * eased;
-
-      if (t === 1) {
-        el.textContent = (isFloat ? target.toFixed(1) : target.toLocaleString()) + suffix;
-      } else {
-        if (isFloat) {
-          el.textContent = current.toFixed(1);
-        } else {
-          el.textContent = Math.round(current).toLocaleString();
-        }
-        requestAnimationFrame(step);
-      }
-    };
-    requestAnimationFrame(step);
-  };
-
-  if ('IntersectionObserver' in window && kpiNums.length) {
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          animateCount(e.target);
-          io.unobserve(e.target);
-        }
-      }
-    }, { threshold: 0.3 });
-    kpiNums.forEach((n) => io.observe(n));
-  } else {
-    kpiNums.forEach(animateCount);
-  }
 
   // ============================================================
   // Lightbox — click any chart image → full-size preview. Close

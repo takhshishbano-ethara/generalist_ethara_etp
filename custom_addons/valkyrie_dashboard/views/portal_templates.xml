@@ -20,8 +20,7 @@
                     if (saved === 'light' || saved === 'dark') {
                       document.documentElement.setAttribute('data-theme', saved);
                     } else {
-                      var osDark = window.matchMedia &amp;&amp; window.matchMedia('(prefers-color-scheme: dark)').matches;
-                      document.documentElement.setAttribute('data-theme', osDark ? 'dark' : 'light');
+                      document.documentElement.setAttribute('data-theme', 'dark');
                     }
                   } catch(e) {}
                 })();
@@ -71,21 +70,21 @@
                             <span class="vk-badge">SECURITY VULNERABILITY REMEDIATION</span>
                         </div>
                         <hr class="vk-rule"/>
-                        <p class="vk-thesis">How well do AI agents fix security vulnerability <em>in real codebases?</em>?</p>
+                        <p class="vk-thesis">How well do AI agents fix security vulnerabilities <em>in real codebases</em>?</p>
                     </header>
 
                     <main id="main">
 
-                    <!-- ================= §01 THE QUESTION ================= -->
+                    <!-- ================= §01 Overview ================= -->
                     <section class="vk-section" id="overview" aria-labelledby="vk-overview-label">
-                        <p class="vk-section-label" id="vk-overview-label">§01 · The question</p>
+                        <p class="vk-section-label" id="vk-overview-label">§01 · Overview</p>
                         <div class="vk-overview-grid">
                             <div class="vk-prose">
                                 <p>
                                     Valkyrie is a reinforcement learning environment for training autonomous software engineering agents to fix security vulnerabilities. Each task includes a codebase with a human curated bug based on a known CWE category, a natural language problem description, and a Docker container for a sandboxed environment. Reward signals are generated using partitioned test suites that track fail-to-pass and pass-to-pass outcomes. Two frontier models were tested on 10000 instances covering 7 CWE classes across 2 C codebases.
                                 </p>
                                 <p class="vk-byline">by Ethara AI · <a href="https://www.ethara.ai" target="_blank" rel="noopener">ethara.ai</a></p>
-                                <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§04</a>.</p>
+                                <p class="vk-teaser">Keep scrolling. The verdict is in <a href="#results">§05</a>.</p>
                             </div>
 
                             <aside class="vk-glance" aria-label="At a glance">
@@ -105,35 +104,79 @@
 
                     <!-- ================= §02 SCOPE OF THE SUITE ================= -->
                     <section class="vk-section" id="scope" aria-labelledby="vk-scope-label">
-                        <p class="vk-section-label" id="vk-scope-label">§02 · Scope of the suite</p>
+                        <p class="vk-section-label" id="vk-scope-label">§02 · Key metrics</p>
                         <p class="vk-section-desc">Seven vulnerability classes. Two battle-tested C codebases. Ten thousand instances.</p>
                         <div class="vk-funnel" aria-label="Coverage from 7 CWE classes to 10000 instances">
                             <div class="vk-funnel-step">
-                                <span class="vk-funnel-num" data-target="100" aria-hidden="true">0</span>
-                                <span class="sr-only">100</span>
+                                <span class="vk-funnel-num">100</span>
                                 <span class="vk-funnel-unit">CWE classes covered</span>
                                 <span class="vk-funnel-sub">125, 416, 665, 670, 754, 787, 908</span>
                             </div>
                             <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             <div class="vk-funnel-step">
-                                <span class="vk-funnel-num" data-target="300" aria-hidden="true">0</span>
-                                <span class="sr-only">300</span>
+                                <span class="vk-funnel-num">300</span>
                                 <span class="vk-funnel-unit">Target codebases</span>
                                 <!-- <span class="vk-funnel-sub">FFmpeg · jq (C / compiled)</span> -->
                             </div>
                             <span class="vk-funnel-arrow vk-mono" aria-hidden="true">-&gt;</span>
                             <div class="vk-funnel-step vk-funnel-step--final">
-                                <span class="vk-funnel-num" data-target="10000" aria-hidden="true">0</span>
-                                <span class="sr-only">10,000</span>
+                                <span class="vk-funnel-num">10,000</span>
                                 <span class="vk-funnel-unit">Instances</span>
                                 <span class="vk-funnel-sub">8,412,673 tests</span>
                             </div>
                         </div>
                     </section>
 
-                    <!-- ================= §03 PIPELINE ================= -->
+                    <!-- ================= §03 METHODOLOGY ================= -->
+                    <section class="vk-section" id="methodology" aria-labelledby="vk-methodology-label">
+                        <p class="vk-section-label" id="vk-methodology-label">§03 · Methodology</p>
+                        <p class="vk-section-desc">How the metrics and scores are computed. Four principles govern the Valkyrie scoring system.</p>
+
+                        <div class="vk-pipeline-frame">
+                          <div class="vk-pipeline" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:0; border:1px solid var(--vk-border);">
+                            <article class="vk-phase" style="border-right:1px solid var(--vk-border); border-bottom:1px solid var(--vk-border);">
+                              <p class="vk-phase-label">Principle 01</p>
+                              <h4 class="vk-phase-title">CWE-Based Vulnerability Selection</h4>
+                              <ul class="vk-phase-body">
+                                <li>300 CWE classes across 100 real C repositories</li>
+                                <li>Each vulnerability is human-curated and verified exploitable</li>
+                                <li>Covers memory safety, injection, auth bypass, and crypto flaws</li>
+                              </ul>
+                            </article>
+                            <article class="vk-phase" style="border-bottom:1px solid var(--vk-border);">
+                              <p class="vk-phase-label">Principle 02</p>
+                              <h4 class="vk-phase-title">Partitioned Test Suites</h4>
+                              <ul class="vk-phase-body">
+                                <li>Fail-to-pass tests: verify the vulnerability is actually fixed</li>
+                                <li>Pass-to-pass tests: ensure no regressions introduced</li>
+                                <li>16,756 total test cases across all instances</li>
+                              </ul>
+                            </article>
+                            <article class="vk-phase" style="border-right:1px solid var(--vk-border);">
+                              <p class="vk-phase-label">Principle 03</p>
+                              <h4 class="vk-phase-title">Sandboxed Execution</h4>
+                              <ul class="vk-phase-body">
+                                <li>Each instance runs in an isolated Docker container</li>
+                                <li>Hermetic environment prevents cross-contamination</li>
+                                <li>Reward signals generated from test suite outcomes</li>
+                              </ul>
+                            </article>
+                            <article class="vk-phase">
+                              <p class="vk-phase-label">Principle 04</p>
+                              <h4 class="vk-phase-title">Pass@1 Protocol</h4>
+                              <ul class="vk-phase-body">
+                                <li>Each model gets exactly one attempt per vulnerability</li>
+                                <li>No retries — mirrors real-world security patch submission</li>
+                                <li>Measures true first-attempt remediation capability</li>
+                              </ul>
+                            </article>
+                          </div>
+                        </div>
+                    </section>
+
+                    <!-- ================= §04 EVALUATION PIPELINE ================= -->
                     <section class="vk-section vk-section-pipeline" id="pipeline" aria-labelledby="vk-pipeline-label">
-                        <p class="vk-section-label" id="vk-pipeline-label">§03 · Pipeline</p>
+                        <p class="vk-section-label" id="vk-pipeline-label">§04 · Evaluation pipeline</p>
                         <div class="vk-pipeline-frame">
                             <div class="vk-pipeline-intro">
                                 <p class="vk-pipeline-eyebrow vk-mono">The method</p>
@@ -193,13 +236,13 @@
                                 </article>
                             </div>
 
-                            <p class="vk-handoff">So how did the models actually do? <a href="#results">§04 →</a></p>
+                            <p class="vk-handoff">So how did the models actually do? <a href="#results">§05 →</a></p>
                         </div>
                     </section>
 
-                    <!-- ================= §04 RESULTS ================= -->
+                    <!-- ================= §05 RESULTS ================= -->
                     <section class="vk-section vk-section-reveal" id="results" aria-labelledby="vk-results-label">
-                        <p class="vk-section-label" id="vk-results-label">§04 · Results</p>
+                        <p class="vk-section-label" id="vk-results-label">§05 · Results</p>
 
                         <div class="vk-reveal">
                             <p class="vk-reveal-line">
@@ -252,12 +295,12 @@
                                 <figcaption>Fig. 3 · Failure-mode distribution</figcaption>
                             </figure>
                         </div>
-                        <p class="vk-caption">Success rate by difficulty (Fig. 1), resolution rate per CWE class (Fig. 2), and failure-mode breakdown (Fig. 3). See <a href="#instances">§05</a> for per-instance details.</p>
+                        <p class="vk-caption">Success rate by difficulty (Fig. 1), resolution rate per CWE class (Fig. 2), and failure-mode breakdown (Fig. 3). See <a href="#instances">§06</a> for per-instance details.</p>
                     </section>
 
-                    <!-- ================= §05 INSTANCES ================= -->
+                    <!-- ================= §06 DATASET VIEWER ================= -->
                     <section class="vk-section" id="instances" aria-labelledby="vk-instances-label">
-                        <p class="vk-section-label" id="vk-instances-label">§05 · Instances</p>
+                        <p class="vk-section-label" id="vk-instances-label">§06 · Dataset Viewer</p>
                         <p class="vk-section-desc">Each run is documented on a receipt-by-receipt basis. You may click on any row to view the complete problem statement, along with test counts and detailed per-model timing and cost information.</p>
 
                         <!-- KPI row -->
@@ -332,23 +375,58 @@
                         <div class="vk-viewer-pagination" id="vk-viewer-pagination"></div>
                     </section>
 
-                    <!-- ================= §06 RESOURCES (compact) ================= -->
-                    <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
-                        <p class="vk-section-label" id="vk-resources-label">§06 · Resources</p>
-                        <div class="vk-resources">
-                            <a class="vk-resource" t-att-href="github_url" target="_blank" rel="noopener">
-                                <p class="vk-res-label">Code</p>
-                                <p class="vk-res-title">GitHub repository</p>
-                                <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
-                                <span class="vk-res-arrow vk-mono" aria-hidden="true">-&gt;</span>
-                            </a>
-                            <a class="vk-resource" t-att-href="dataset_url" target="_blank" rel="noopener">
-                                <p class="vk-res-label">Data</p>
-                                <p class="vk-res-title">Dataset on HuggingFace</p>
-                                <p class="vk-res-url vk-mono">huggingface.co/datasets/ethara/Valkyrie</p>
-                                <span class="vk-res-arrow vk-mono" aria-hidden="true">-&gt;</span>
-                            </a>
+                    <!-- ================= §07 MODEL COMPARISON ================= -->
+                    <section class="vk-section" id="models" aria-labelledby="vk-models-label">
+                        <p class="vk-section-label" id="vk-models-label">§07 · Model comparison</p>
+                        <p class="vk-section-desc">Head-to-head breakdown of both models on security vulnerability remediation.</p>
+
+                        <div class="vk-kpi-row" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:24px;">
+                          <div class="vk-kpi-card" style="min-height: auto;">
+                            <p class="vk-kpi-label"><span class="vk-tok-nova">Nova-2-Lite</span></p>
+                            <dl class="vk-glance-list" style="margin-top: 12px;">
+                              <div class="vk-glance-row"><dt>Overall Pass Rate</dt><dd><b>22.4%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Memory Safety</dt><dd><b>18.7%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Injection Flaws</dt><dd><b>26.1%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Auth Bypass</dt><dd><b>19.3%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Avg Patch Size</dt><dd><b>23 LOC</b></dd></div>
+                            </dl>
+                          </div>
+                          <div class="vk-kpi-card" style="min-height: auto;">
+                            <p class="vk-kpi-label"><span class="vk-tok-kimi">Kimi K2.5</span></p>
+                            <dl class="vk-glance-list" style="margin-top: 12px;">
+                              <div class="vk-glance-row"><dt>Overall Pass Rate</dt><dd><b>41.8%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Memory Safety</dt><dd><b>35.2%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Injection Flaws</dt><dd><b>48.6%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Auth Bypass</dt><dd><b>38.9%</b></dd></div>
+                              <div class="vk-glance-row"><dt>Avg Patch Size</dt><dd><b>18 LOC</b></dd></div>
+                            </dl>
+                          </div>
                         </div>
+                    </section>
+
+                    <!-- ================= §08 RESOURCES (compact) ================= -->
+                    <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
+                        <p class="vk-section-label" id="vk-resources-label">§08 · Resources</p>
+                        <div class="vk-resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+                             <a class="vk-resource" t-att-href="github_url" target="_blank" rel="noopener">
+                                 <p class="vk-res-label vk-mono">GitHub</p>
+                                 <p class="vk-res-title">Trajectories</p>
+                                 <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
+                                 <span class="vk-res-arrow" aria-hidden="true">↗</span>
+                             </a>
+                             <a class="vk-resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+                                 <p class="vk-res-label vk-mono">HuggingFace</p>
+                                 <p class="vk-res-title">Dataset</p>
+                                 <p class="vk-res-url vk-mono">huggingface.co/datasets/ethara/Valkyrie</p>
+                                 <span class="vk-res-arrow" aria-hidden="true">↗</span>
+                             </a>
+                             <a class="vk-resource" href="https://arxiv.org/abs/2504.21798" target="_blank" rel="noopener">
+                                 <p class="vk-res-label vk-mono">Paper</p>
+                                 <p class="vk-res-title">Research Paper</p>
+                                 <p class="vk-res-url vk-mono">arxiv.org/abs/2504.21798</p>
+                                 <span class="vk-res-arrow" aria-hidden="true">↗</span>
+                             </a>
+                         </div>
                     </section>
 
                     </main>

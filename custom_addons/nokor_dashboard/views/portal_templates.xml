@@ -32,6 +32,8 @@
             var saved = localStorage.getItem('terra:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -91,14 +93,15 @@
       <span class="badge mono">RL ENVIRONMENT FOR GENERAL AI ASSISTANTS</span>
     </div>
     <hr class="rule"/>
-    <p class="thesis">Multi-Step, Multi-Category Training for General AI Assistants. GAIA Methodology.</p>
+    <p class="thesis">Can AI assistants reliably handle multi-step, multi-category tasks across <em>diverse real-world domains</em>?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
-  <!-- ================= §01 THE BENCHMARK ================= -->
+  <!-- ================= §01 Overview ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
-    <p class="section-label" id="overview-label">§01 · The environment</p>
+    <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>TERRA is an RL environment that trains AI assistants on multi-modal reasoning and tool-use tasks following the GAIA methodology. Given real-world documents, images, videos, and web-accessible information, agents must decompose complex questions into multi-step reasoning chains, select appropriate tools, and produce precise answers. Terra requires coordinating across PDF analysis, web search, image understanding, video comprehension, and mathematical reasoning. This mirrors the complexity of real-world information work.</p>
@@ -124,37 +127,58 @@
     </div>
   </section>
 
-  <!-- ================= §02 THE FUNNEL ================= -->
+  <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
-    <p class="section-label" id="scale-label">§02 · The scale</p>
+    <p class="section-label" id="scale-label">§02 · Key metrics</p>
     <p class="section-desc">Curated instances. Five categories. Three difficulty levels.</p>
     <div class="funnel" aria-label="Funnel from instances to categories">
       <div class="funnel-step">
-        <span class="funnel-num" data-target="20" aria-hidden="true">0</span>
-        <span class="sr-only">20</span>
+        <span class="funnel-num">20</span>
         <span class="funnel-unit">Instances curated</span>
         <span class="funnel-sub">across 5 categories</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step">
-        <span class="funnel-num" data-target="5" aria-hidden="true">0</span>
-        <span class="sr-only">5</span>
+        <span class="funnel-num">5</span>
         <span class="funnel-unit">Categories</span>
         <span class="funnel-sub">calculation, multimodality, file reading, self-contained, web browsing</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step funnel-step--final">
-        <span class="funnel-num" data-target="3" aria-hidden="true">0</span>
-        <span class="sr-only">3</span>
+        <span class="funnel-num">3</span>
         <span class="funnel-unit">Difficulty levels</span>
         <span class="funnel-sub">Hard · Very Hard · Expert</span>
       </div>
     </div>
   </section>
 
-  <!-- ================= §03 PIPELINE ================= -->
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label" data-animate="fade-up">
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-desc">Three scoring principles ensure fair and reproducible results.</p>
+
+    <div class="methodology-grid">
+      <div class="meth-card" data-animate="fade-up" data-delay="0">
+        <span class="meth-num mono">01</span>
+        <h4 class="meth-title">Exact Match</h4>
+        <p class="meth-desc">Answers must match ground truth exactly. No partial credit, no fuzzy matching.</p>
+      </div>
+      <div class="meth-card" data-animate="fade-up" data-delay="1">
+        <span class="meth-num mono">02</span>
+        <h4 class="meth-title">Tool Transparency</h4>
+        <p class="meth-desc">All tool calls are logged. Models must demonstrate appropriate tool selection.</p>
+      </div>
+      <div class="meth-card" data-animate="fade-up" data-delay="2">
+        <span class="meth-num mono">03</span>
+        <h4 class="meth-title">Reproducibility</h4>
+        <p class="meth-desc">Fixed seeds, deterministic scoring, published solution traces for independent verification.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 EVALUATION PIPELINE ================= -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
-    <p class="section-label" id="pipeline-label">§03 · The pipeline</p>
+    <p class="section-label" id="pipeline-label">§04 · Evaluation pipeline</p>
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
@@ -196,9 +220,9 @@
     </div><!-- /.pipeline-frame -->
   </section>
 
-  <!-- ================= §04 RESULTS ================= -->
+  <!-- ================= §05 RESULTS ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
-    <p class="section-label" id="results-label">§04 · Baseline validation</p>
+    <p class="section-label" id="results-label">§05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -232,42 +256,8 @@
         <figcaption>Fig. 1. GAIA performance comparison across difficulty levels (Kimi K2.5 vs Nova-2-Lite)</figcaption>
       </figure>
     </div>
-  </section>
 
-  <!-- ================= §05 MODEL COMPARISON ================= -->
-  <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
-    <p class="section-label" id="comparison-label">§05 · Model comparison</p>
-    <p class="section-desc">Side-by-side performance breakdown across difficulty levels and categories.</p>
-
-    <div class="quality-grid">
-      <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
-        <span class="nk-quality-num" id="nk-kimi-acc">—</span>
-        <span class="quality-label">Kimi K2.5 Accuracy</span>
-        <span class="quality-pct mono" id="nk-kimi-pass-count">—</span>
-      </div>
-      <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
-        <span class="nk-quality-num" id="nk-nova-acc">—</span>
-        <span class="quality-label">Nova-2-Lite Accuracy</span>
-        <span class="quality-pct mono" id="nk-nova-pass-count">—</span>
-      </div>
-      <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
-        <span class="nk-quality-num" id="nk-acc-gap">—</span>
-        <span class="quality-label">Accuracy Gap</span>
-        <span class="quality-pct mono">percentage points</span>
-      </div>
-    </div>
-
-    <div class="confidence-strip" data-animate="fade-up">
-      <span class="nk-confidence-big" id="nk-mean-acc">—</span>
-      <span class="confidence-lbl mono">Mean Accuracy (both models)</span>
-    </div>
-  </section>
-
-  <!-- ================= §06 DIFFICULTY DISTRIBUTION ================= -->
-  <section class="section" id="difficulty" aria-labelledby="difficulty-label" data-animate="fade-up">
-    <p class="section-label" id="difficulty-label">§06 · Difficulty distribution</p>
-    <p class="section-desc">Pass score breakdown by difficulty level across both models.</p>
-
+    <!-- Difficulty distribution (merged) -->
     <div class="dist-kpi-grid">
       <div class="dist-kpi-card dist-kpi--hard" data-animate="fade-up" data-delay="0">
         <div class="dist-kpi-top">
@@ -347,9 +337,9 @@
     </div>
   </section>
 
-  <!-- ================= §07 DATASET VIEWER ================= -->
+  <!-- ================= §06 DATASET VIEWER ================= -->
   <section class="section" id="nk-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
-    <p class="section-label" id="viewer-label">§07 · Dataset viewer</p>
+    <p class="section-label" id="viewer-label">§06 · Dataset Viewer</p>
 
     <!-- Difficulty KPI Cards -->
     <div class="dist-kpi-grid" id="nk-eval-kpi-grid">
@@ -464,45 +454,78 @@
     <div class="eval-pagination" id="nk-eval-pagination"></div>
   </section>
 
-  <!-- ================= §08 METHODOLOGY ================= -->
-  <section class="section" id="methodology" aria-labelledby="methodology-label" data-animate="fade-up">
-    <p class="section-label" id="methodology-label">§08 · Methodology</p>
-    <p class="section-desc">Three scoring principles ensure fair and reproducible results.</p>
+  <!-- ================= §07 MODEL COMPARISON ================= -->
+  <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
+    <p class="section-label" id="comparison-label">§07 · Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models (pilot data, n=20).</p>
 
-    <div class="methodology-grid">
-      <div class="meth-card" data-animate="fade-up" data-delay="0">
-        <span class="meth-num mono">01</span>
-        <h4 class="meth-title">Exact Match</h4>
-        <p class="meth-desc">Answers must match ground truth exactly. No partial credit, no fuzzy matching.</p>
+    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>50%</b> (10/20)</dd></div>
+          <div class="glance-row"><dt>Hard</dt><dd><b>100%</b> (4/4)</dd></div>
+          <div class="glance-row"><dt>Very Hard</dt><dd><b>85.7%</b> (6/7)</dd></div>
+          <div class="glance-row"><dt>Expert</dt><dd><b>0%</b> (0/9)</dd></div>
+          <div class="glance-row"><dt>Avg LLM Calls</dt><dd><b>16.8</b></dd></div>
+          <div class="glance-row"><dt>Avg Latency</dt><dd><b>3.6s</b></dd></div>
+        </dl>
       </div>
-      <div class="meth-card" data-animate="fade-up" data-delay="1">
-        <span class="meth-num mono">02</span>
-        <h4 class="meth-title">Tool Transparency</h4>
-        <p class="meth-desc">All tool calls are logged. Models must demonstrate appropriate tool selection.</p>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>10%</b> (2/20)</dd></div>
+          <div class="glance-row"><dt>Hard</dt><dd><b>25%</b> (1/4)</dd></div>
+          <div class="glance-row"><dt>Very Hard</dt><dd><b>14.3%</b> (1/7)</dd></div>
+          <div class="glance-row"><dt>Expert</dt><dd><b>0%</b> (0/9)</dd></div>
+          <div class="glance-row"><dt>Avg LLM Calls</dt><dd><b>21.9</b></dd></div>
+          <div class="glance-row"><dt>Avg Latency</dt><dd><b>10.3s</b></dd></div>
+        </dl>
       </div>
-      <div class="meth-card" data-animate="fade-up" data-delay="2">
-        <span class="meth-num mono">03</span>
-        <h4 class="meth-title">Reproducibility</h4>
-        <p class="meth-desc">Fixed seeds, deterministic scoring, published solution traces for independent verification.</p>
-      </div>
+    </div>
+
+    <h3 class="section-desc" style="margin-top:2rem; font-weight:600;">Per-Category Accuracy</h3>
+    <div class="eval-table-wrap" style="margin-top:1rem;">
+      <table class="eval-table" aria-label="Per-category accuracy breakdown">
+        <thead>
+          <tr>
+            <th scope="col">Category</th>
+            <th scope="col" style="text-align:center;"><span class="tok-kimi">Kimi K2.5</span></th>
+            <th scope="col" style="text-align:center;"><span class="tok-nova">Nova-2-Lite</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Calculation (n=6)</td><td style="text-align:center;">16.7% (1/6)</td><td style="text-align:center;">16.7% (1/6)</td></tr>
+          <tr><td>Multi-Modality (n=5)</td><td style="text-align:center;">60.0% (3/5)</td><td style="text-align:center;">0% (0/5)</td></tr>
+          <tr><td>File Reading (n=4)</td><td style="text-align:center;">100% (4/4)</td><td style="text-align:center;">25.0% (1/4)</td></tr>
+          <tr><td>Web Browsing (n=4)</td><td style="text-align:center;">25.0% (1/4)</td><td style="text-align:center;">0% (0/4)</td></tr>
+          <tr><td>Self-Contained (n=1)</td><td style="text-align:center;">100% (1/1)</td><td style="text-align:center;">0% (0/1)</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
-  <!-- ================= §09 RESOURCES ================= -->
+  <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
-    <p class="section-label" id="resources-label">§09 · Resources</p>
-    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" t-att-href="github_url" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Code</p>
-        <p class="res-title">Source on GitHub</p>
+    <p class="section-label" id="resources-label">§08 · Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/terra</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Data</p>
-        <p class="res-title">Dataset on HuggingFace</p>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/terra</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2311.12983" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2311.12983</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>
@@ -511,7 +534,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"> Ethara AI Labs. Project Terra.</p>
+      <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · project terra</p>
     </div>
   </footer>
 

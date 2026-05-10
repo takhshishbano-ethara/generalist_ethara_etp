@@ -41,8 +41,8 @@
   --accent-on:     #FFFFFF;   /* ink on bright lime (13:1) */
 
   /* model semantic colors — split into ink + surface variants */
-  --kimi:          #2A5CB8;   /* blue ink · 5.9:1 */
-  --kimi-surface:  #E5EDFB;
+  --glm:           #2A5CB8;   /* blue ink · 5.9:1 */
+  --glm-surface:   #E5EDFB;
   --nova:          #5C3FB3;   /* purple ink · 7.2:1 */
   --nova-surface:  #EEE4FB;
 
@@ -751,7 +751,7 @@ hr.rule {
 .caption b { color: var(--ink); }
 .caption a { color: var(--accent); border-bottom: 1px solid var(--border-2); }
 .caption a:hover { border-color: var(--accent); }
-.tok-kimi { color: var(--kimi); font-weight: 500; }
+.tok-glm  { color: var(--glm); font-weight: 500; }
 .tok-nova { color: var(--nova); font-weight: 500; }
 
 /* ============================================================
@@ -1609,8 +1609,8 @@ hr.rule {
   --accent-on:       #FFFFFF;
 
   /* model semantic colors */
-  --kimi:            #89B5FF;
-  --kimi-surface:    rgba(137,181,255,0.14);
+  --glm:             #89B5FF;
+  --glm-surface:     rgba(137,181,255,0.14);
   --nova:            #CDB0FF;
   --nova-surface:    rgba(205,176,255,0.14);
 
@@ -1656,7 +1656,7 @@ hr.rule {
     --border: #2A3148;  --border-2: #3A4568;  --border-3: #4A5578;
     --accent: #EE00EE;  --accent-2: #FF44FF;  --accent-bright: #EE00EE;
     --accent-surface: rgba(238,0,238,0.12);  --accent-on: #FFFFFF;
-    --kimi: #89B5FF;  --kimi-surface: rgba(137,181,255,0.14);
+    --glm: #89B5FF;  --glm-surface: rgba(137,181,255,0.14);
     --nova: #CDB0FF;  --nova-surface: rgba(205,176,255,0.14);
     --pass: #5EE695;  --pass-surface: rgba(94,230,149,0.14);
     --fail: #FF8F8F;  --fail-surface: rgba(255,143,143,0.12);

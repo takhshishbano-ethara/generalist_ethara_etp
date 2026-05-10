@@ -19,13 +19,13 @@
 
   if (toggle) {
     toggle.addEventListener('click', function () {
-      const current = document.documentElement.getAttribute('data-theme') || 'light';
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
       setTheme(current === 'dark' ? 'light' : 'dark');
     });
   }
 
-  // If no saved theme and user prefers dark, apply it
-  if (!getTheme() && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  // If no saved theme, default to dark
+  if (!getTheme()) {
     setTheme('dark');
   }
 
@@ -119,7 +119,7 @@
     });
   }
 
-  /* ─── FUNNEL COUNTER ANIMATION ─── */
+  /* ─── COUNTER ANIMATION UTILITY ─── */
   function animateCounter(el, target, duration) {
     duration = duration || 900;
     var start = 0;
@@ -136,21 +136,6 @@
       if (progress < 1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
-  }
-
-  // Observe funnel numbers
-  var funnelNums = document.querySelectorAll('.funnel-num[data-target]');
-  if (funnelNums.length) {
-    var funnelObs = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          var target = parseInt(entry.target.dataset.target, 10);
-          animateCounter(entry.target, target);
-          funnelObs.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.3 });
-    funnelNums.forEach(function (el) { funnelObs.observe(el); });
   }
 
   /* ─── COUNT-UP for quality/confidence numbers ─── */

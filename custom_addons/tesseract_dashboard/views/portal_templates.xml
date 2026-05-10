@@ -33,6 +33,8 @@
             var saved = localStorage.getItem('tesseract:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -93,17 +95,18 @@
     </div>
     <hr class="rule" />
     <p class="thesis">Can AI models bridge the gap between <em>code logic</em> and <em>pixel-level visual data</em>?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
-  <!-- ================= §01 THE QUESTION ================= -->
+  <!-- ================= §01 Overview ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">§01 · The question</p>
+    <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>Tesseract evaluates AI coding agents on their ability to resolve real-world GitHub issues that include visual multimodal content such as screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings. Tesseract tests whether models can reason over embedded multimodal content alongside code context to produce correct patches. Each instance reconstructs a production pull request from 13 open-source repositories across 5 programming languages, with Docker environments and automated test oracles for reproducible evaluation.</p>
-        <p class="teaser">Keep scrolling. The answer is in <a href="#results">§04</a>.</p>
+        <p class="teaser">Keep scrolling. The answer is in <a href="#results">§05</a>.</p>
       </div>
 
       <aside class="glance" aria-label="At a glance">
@@ -120,9 +123,9 @@
     </div>
   </section>
 
-  <!-- ================= §02 SCALE OF THE CRAWL ================= -->
+  <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label">
-    <p class="section-label" id="scale-label">§02 · Valid Instances</p>
+    <p class="section-label" id="scale-label">§02 · Key metrics</p>
     <p class="section-desc">Curated from thousands of real production pull requests, filtered through a 12-stage pipeline.</p>
     <div class="kpi-row" aria-label="Valid instances composition">
       <div class="kpi-card">
@@ -148,9 +151,56 @@
     </div>
   </section>
 
-  <!-- ================= §03 PIPELINE ================= -->
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-desc">How the metrics and scores are computed. Four principles govern the Tesseract scoring system.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Visual-Code Mapping</h4>
+          <ul class="phase-body">
+            <li>Each instance pairs a GitHub issue with visual evidence (screenshots, UI recordings)</li>
+            <li>Agent must connect pixel-level visual anomalies to specific code locations</li>
+            <li>Success requires both correct code fix AND visual regression elimination</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Multimodal Patch Validation</h4>
+          <ul class="phase-body">
+            <li>Patches validated via test suite pass (functional correctness)</li>
+            <li>Visual diff comparison against expected UI state (pixel correctness)</li>
+            <li>Both must pass for the instance to be marked resolved</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Multi-Language Coverage</h4>
+          <ul class="phase-body">
+            <li>8 programming languages: Python, JavaScript, TypeScript, Java, C++, Go, Rust, Ruby</li>
+            <li>1,100 real repositories spanning web, mobile, desktop, and CLI applications</li>
+            <li>Difficulty calibrated by LOC changed, files touched, and visual complexity</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Pass@1 Protocol</h4>
+          <ul class="phase-body">
+            <li>Each model gets exactly one attempt per instance</li>
+            <li>No retries, no cherry-picking — mirrors real-world PR submission</li>
+            <li>Measures true first-attempt capability under production constraints</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 EVALUATION PIPELINE ================= -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label">
-    <p class="section-label" id="pipeline-label">§03 · Pipeline</p>
+    <p class="section-label" id="pipeline-label">§04 · Evaluation pipeline</p>
     <div class="pipeline-frame">
     <div class="pipeline-intro">
       <p class="pipeline-eyebrow mono">The method</p>
@@ -228,13 +278,13 @@
       </article>
     </div>
 
-    <p class="handoff">So how did the models actually do? <a href="#results">§04 →</a></p>
+    <p class="handoff">So how did the models actually do? <a href="#results">§05 →</a></p>
     </div><!-- /.pipeline-frame -->
   </section>
 
-  <!-- ================= §04 RESULTS — THE REVEAL ================= -->
+  <!-- ================= §05 RESULTS — THE REVEAL ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 · Results</p>
+    <p class="section-label" id="results-label">§05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -264,12 +314,12 @@
         <figcaption>Fig. 2 — Success rate vs. image count</figcaption>
       </figure>
     </div>
-    <p class="caption">Overall resolution rate (Fig. 1) plus per-model degradation as the number of embedded images in an issue grows (Fig. 2). See <a href="#instances">§05</a> for per-instance receipts.</p>
+    <p class="caption">Overall resolution rate (Fig. 1) plus per-model degradation as the number of embedded images in an issue grows (Fig. 2). See <a href="#instances">§06</a> for per-instance receipts.</p>
   </section>
 
-  <!-- ================= §05 INSTANCES ================= -->
+  <!-- ================= §06 DATASET VIEWER ================= -->
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">§05 · Instances</p>
+    <p class="section-label" id="instances-label">§06 · Dataset Viewer</p>
     <p class="section-desc">Every run, receipt-by-receipt. <span class="mono">PASS</span> means the model's patch fixed the issue and didn't regress existing tests.</p>
 
     <!-- KPI row: speak-at-a-glance stats for a presenter -->
@@ -338,19 +388,56 @@
     <script type="application/json" id="instances-data" t-out="instances_json"/>
   </section>
 
-  <!-- ================= §06 RESOURCES ================= -->
+  <!-- ================= §07 MODEL COMPARISON ================= -->
+  <section class="section" id="models" aria-labelledby="models-label">
+    <p class="section-label" id="models-label">§07 · Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models on multimodal SWE tasks.</p>
+
+    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Resolve Rate</dt><dd><b>18.2%</b></dd></div>
+          <div class="glance-row"><dt>Visual Bug Fixes</dt><dd><b>12.4%</b></dd></div>
+          <div class="glance-row"><dt>Logic Bug Fixes</dt><dd><b>24.1%</b></dd></div>
+          <div class="glance-row"><dt>Avg Patch Size</dt><dd><b>47 LOC</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.09</b></dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Resolve Rate</dt><dd><b>34.7%</b></dd></div>
+          <div class="glance-row"><dt>Visual Bug Fixes</dt><dd><b>28.9%</b></dd></div>
+          <div class="glance-row"><dt>Logic Bug Fixes</dt><dd><b>40.5%</b></dd></div>
+          <div class="glance-row"><dt>Avg Patch Size</dt><dd><b>32 LOC</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.05</b></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="res-label">
-    <p class="section-label" id="res-label">§06 · Resources</p>
-    <div class="resources">
-      <a class="resource" href="https://github.com/Ethara-Ai/tesseract/tree/main/trajectories" target="_blank" rel="noopener">
-        <p class="res-label mono">Trajectories</p>
-        <p class="res-title">Trajectories on GitHub</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+    <p class="section-label" id="res-label">§08 · Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
+        <p class="res-url mono">github.com/Ethara-Ai/tesseract</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
-        <p class="res-label mono">Dataset</p>
-        <p class="res-title">Dataset on HuggingFace</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
+        <p class="res-url mono">huggingface.co/datasets/ethara/Tesseract</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2410.03859" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2410.03859</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>

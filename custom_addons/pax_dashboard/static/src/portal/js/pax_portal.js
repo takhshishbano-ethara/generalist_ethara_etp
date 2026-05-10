@@ -7,7 +7,7 @@
   const currentTheme = () => {
     const explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return prefersDark.matches ? 'dark' : 'light';
+    return 'dark';
   };
   const syncButtonLabel = () => {
     if (!toggleBtn) return;
@@ -143,38 +143,6 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     })[c]);
 
-  const funnelNums = document.querySelectorAll('.funnel-num');
-  const animateCount = (el) => {
-    const target = Number(el.dataset.target || '0');
-    const suffix = el.dataset.suffix || '';
-    if (prefersReduced) {
-      el.textContent = target.toLocaleString() + suffix;
-      return;
-    }
-    const duration = 900;
-    const start = performance.now();
-    const step = (now) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      const val = Math.round(target * eased);
-      el.textContent = val.toLocaleString() + (t === 1 ? suffix : '');
-      if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  };
-  if ('IntersectionObserver' in window && funnelNums.length) {
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          animateCount(e.target);
-          io.unobserve(e.target);
-        }
-      }
-    }, { threshold: 0.3 });
-    funnelNums.forEach((n) => io.observe(n));
-  } else {
-    funnelNums.forEach(animateCount);
-  }
 
   const searchInput = document.querySelector('.kr-dataset__search');
   const filterSelect = document.querySelector('.kr-dataset__filter');

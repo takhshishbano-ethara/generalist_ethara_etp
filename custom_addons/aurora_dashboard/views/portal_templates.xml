@@ -32,6 +32,8 @@
             var saved = localStorage.getItem('aurora:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -92,13 +94,14 @@
     </div>
     <hr class="rule"/>
     <p class="thesis">Can frontier models perform long-horizon software evolution with production-grade reliability?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
-  <!-- ================= §01 THE ENVIRONMENT ================= -->
+  <!-- ================= §01 Overview ================= -->
   <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
-    <p class="section-label" id="overview-label">§01 · The environment</p>
+    <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>MILO-Bench trains AI agents to perform long-horizon software evolution extended from SWE-EVO. Given real-world codebases and their development history, the system works through sequences of 2 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++. Unlike single-issue setups, it requires maintaining coherent, consistent development over extended timelines. Each instance reconstructs a milestone from post-training-cutoff repositories, with hermetic Docker environments.</p>
@@ -126,37 +129,81 @@
     </div>
   </section>
 
-  <!-- ================= §02 THE FUNNEL ================= -->
+  <!-- ================= §02 KEY METRICS ================= -->
   <section class="section" id="scale" aria-labelledby="scale-label" data-animate="fade-up">
-    <p class="section-label" id="scale-label">§02 · The funnel</p>
+    <p class="section-label" id="scale-label">§02 · Key metrics</p>
     <p class="section-desc">Fifty curated instances. Three frontier models. Four hundred fifty trajectories.</p>
     <div class="funnel" aria-label="Funnel from 10,000 instances to 90,000 trajectories">
       <div class="funnel-step">
-        <span class="funnel-num" data-target="10000" aria-hidden="true">0</span>
-        <span class="sr-only">10,000</span>
+        <span class="funnel-num">10,000</span>
         <span class="funnel-unit">Instances curated</span>
         <span class="funnel-sub">across 8 languages</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step">
-        <span class="funnel-num" data-target="3" aria-hidden="true">0</span>
-        <span class="sr-only">3</span>
+        <span class="funnel-num">3</span>
         <span class="funnel-unit">Models evaluated</span>
         <span class="funnel-sub">Claude Opus 4.6 · GLM 5 · Kimi K2.5</span>
       </div>
       <span class="funnel-arrow mono" aria-hidden="true">→</span>
       <div class="funnel-step funnel-step--final">
-        <span class="funnel-num" data-target="90000" aria-hidden="true">0</span>
-        <span class="sr-only">90,000</span>
+        <span class="funnel-num">90,000</span>
         <span class="funnel-unit">Trajectories generated</span>
         <span class="funnel-sub">3 models × 3 seeds × 10,000 instances</span>
       </div>
     </div>
   </section>
 
-  <!-- ================= §03 PIPELINE ================= -->
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-desc">How the metrics and scores are computed. Four principles govern the MILO-Bench scoring system.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Long-Horizon Software Evolution</h4>
+          <ul class="phase-body">
+            <li>Tasks span multi-step, multi-commit evolution chains across entire repositories</li>
+            <li>Each trajectory requires understanding of full codebase context and history</li>
+            <li>90,000 trajectories generated across 10,000 instances</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Production-Grade Reliability</h4>
+          <ul class="phase-body">
+            <li>Patches must pass CI test suites — no regressions allowed</li>
+            <li>Cross-file consistency verified across the full dependency graph</li>
+            <li>Build integrity maintained through the entire evolution chain</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Multi-Language Coverage</h4>
+          <ul class="phase-body">
+            <li>8 programming languages: Python, JavaScript, TypeScript, Java, C++, Go, Rust, Ruby</li>
+            <li>Real-world repositories with production codebases</li>
+            <li>Difficulty calibrated by trajectory length, files touched, and dependency complexity</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Three-Model Evaluation</h4>
+          <ul class="phase-body">
+            <li>Claude Opus 4.6, GLM 5, and Kimi K2.5 evaluated head-to-head</li>
+            <li>Each model gets exactly one attempt per instance (Pass@1)</li>
+            <li>No retries — measures true first-attempt evolution capability</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 PIPELINE ================= -->
   <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
-    <p class="section-label" id="pipeline-label">§03 · The pipeline</p>
+    <p class="section-label" id="pipeline-label">§04 · Evaluation pipeline</p>
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
@@ -198,9 +245,9 @@
     </div><!-- /.pipeline-frame -->
   </section>
 
-  <!-- ================= §04 RESULTS ================= -->
+  <!-- ================= §05 RESULTS ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
-    <p class="section-label" id="results-label">§04 · The results</p>
+    <p class="section-label" id="results-label">§05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -221,31 +268,27 @@
         <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>
       </figure>
     </div>
-  </section>
 
-  <!-- ================= §05 QUALITY DISTRIBUTION ================= -->
-  <section class="section" id="quality" aria-labelledby="quality-label" data-animate="fade-up">
-    <p class="section-label" id="quality-label">§05 · Pass Rate distribution</p>
     <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5).</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
-        <span class="au-quality-num" data-target="18">18</span>
+        <span class="au-quality-num">18</span>
         <span class="quality-label">≥ 50% PASS</span>
         <span class="quality-pct mono">36.0%</span>
       </div>
       <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
-        <span class="au-quality-num" data-target="20">20</span>
+        <span class="au-quality-num">20</span>
         <span class="quality-label">10–49% PASS</span>
         <span class="quality-pct mono">40.0%</span>
       </div>
       <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
-        <span class="au-quality-num" data-target="8">8</span>
+        <span class="au-quality-num">8</span>
         <span class="quality-label">&lt; 10% PASS</span>
         <span class="quality-pct mono">16.0%</span>
       </div>
       <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
-        <span class="au-quality-num" data-target="4">4</span>
+        <span class="au-quality-num">4</span>
         <span class="quality-label">0% PASS</span>
         <span class="quality-pct mono">8.0%</span>
       </div>
@@ -259,7 +302,7 @@
 
   <!-- ================= §06 DATASET VIEWER ================= -->
   <section class="section" id="au-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
-    <p class="section-label" id="viewer-label">§06 · Dataset viewer</p>
+    <p class="section-label" id="viewer-label">§06 · Dataset Viewer</p>
 
     <!-- KPI row -->
     <div class="kpi-row" aria-label="Headline statistics for the evaluation">
@@ -335,21 +378,63 @@
     <div class="eval-pagination" id="au-eval-pagination"></div>
   </section>
 
-  <!-- ================= §07 RESOURCES ================= -->
+  <!-- ================= §07 MODEL COMPARISON ================= -->
+  <section class="section" id="models" aria-labelledby="models-label">
+    <p class="section-label" id="models-label">§07 · Model comparison</p>
+    <p class="section-desc">Head-to-head breakdown of all three evaluated frontier models on long-horizon evolution tasks.</p>
+
+    <div class="kpi-row" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-nova">Claude Opus 4.6</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>42.1%</b></dd></div>
+          <div class="glance-row"><dt>Short Trajectories</dt><dd><b>58.3%</b></dd></div>
+          <div class="glance-row"><dt>Long Trajectories</dt><dd><b>26.8%</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.14</b></dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>36.4%</b></dd></div>
+          <div class="glance-row"><dt>Short Trajectories</dt><dd><b>49.7%</b></dd></div>
+          <div class="glance-row"><dt>Long Trajectories</dt><dd><b>23.1%</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.06</b></dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label">GLM 5</p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>31.2%</b></dd></div>
+          <div class="glance-row"><dt>Short Trajectories</dt><dd><b>44.5%</b></dd></div>
+          <div class="glance-row"><dt>Long Trajectories</dt><dd><b>18.9%</b></dd></div>
+          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.04</b></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
-    <p class="section-label" id="resources-label">§07 · Resources</p>
-    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Code</p>
-        <p class="res-title">Trajectories on GitHub</p>
+    <p class="section-label" id="resources-label">§08 · Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/milo-bench-paper</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Data</p>
-        <p class="res-title">Dataset on HuggingFace</p>
+      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/MILO-Bench</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2512.18470" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2512.18470</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>
@@ -358,7 +443,7 @@
 
   <footer class="foot">
     <div class="foot-inner">
-      <p class="mono"> Ethara.AI. Project Milo-Bench.</p>
+      <p class="mono">ethara.ai · project milo-bench</p>
     </div>
   </footer>
 
