@@ -886,61 +886,51 @@ hr.rule {
 /* ---------- §06 RESOURCES ------------------------------- */
 .resources {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
-@media (max-width: 768px) { .resources { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .resources { grid-template-columns: 1fr !important; }
+}
 .resource {
   position: relative;
   display: block;
+  padding: 24px 26px;
   border: var(--hairline);
-  padding: 28px;
-  min-height: 160px;
   background: var(--bg-2);
-  transition:
-    border-color var(--dur-fast) var(--ease-ui),
-    background var(--dur-fast) var(--ease-ui),
-    color var(--dur-fast) var(--ease-ui),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
+  color: var(--ink);
   box-shadow: var(--card-shadow);
+  transition: border-color var(--dur-fast) var(--ease-ui), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .resource:hover {
-  transform: translateY(-1px);
   border-color: var(--accent);
+  transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(15,20,35,0.08), 0 1px 2px rgba(15,20,35,0.04);
 }
 .res-label {
-  font-family: var(--font-mono);
   font-size: var(--s-ui);
   letter-spacing: var(--ls-wide);
   text-transform: uppercase;
-  color: var(--ink-3);
-  margin-bottom: 12px;
-  transition: color var(--dur-fast) var(--ease-ui);
+  color: var(--accent);
+  margin-bottom: 6px;
 }
-.resource:hover .res-label { color: var(--accent); }
 .res-title {
-  font-size: 24px;
+  font-size: var(--s-h3);
   font-weight: 600;
   color: var(--ink);
   letter-spacing: -0.01em;
-  margin-bottom: 6px;
-  transition: color var(--dur-fast) var(--ease-ui);
+  margin-bottom: 8px;
 }
-.resource:hover .res-title { color: var(--ink); }
 .res-url {
-  font-size: var(--s-ui);
+  font-size: 13px;
   color: var(--ink-3);
-  transition: color var(--dur-fast) var(--ease-ui);
+  word-break: break-all;
 }
-.resource:hover .res-url { color: var(--ink-2); }
 .res-arrow {
   position: absolute;
-  top: 30px; right: 30px;
-  font-size: 16px;
+  top: 24px;
+  right: 26px;
   color: var(--ink-3);
-  transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-ui);
+  transition: color var(--dur-fast) var(--ease-ui), transform var(--dur-fast) var(--ease-ui);
 }
 .resource:hover .res-arrow {
   color: var(--accent);

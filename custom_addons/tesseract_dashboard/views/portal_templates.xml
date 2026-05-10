@@ -418,16 +418,16 @@
   </section>
 
   <!-- ================= §08 RESOURCES ================= -->
-  <section class="section" id="resources" aria-labelledby="res-label">
-    <p class="section-label" id="res-label">§08 · Resources</p>
+  <section class="section" id="resources" aria-labelledby="resources-label">
+    <p class="section-label" id="resources-label">§08 · Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-      <a class="resource" t-att-href="trajectories_url" target="_blank" rel="noopener">
+      <a class="resource" href="https://github.com/Ethara-Ai/tesseract" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/tesseract</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" t-att-href="dataset_url" target="_blank" rel="noopener">
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Tesseract" target="_blank" rel="noopener">
         <p class="res-label mono">HuggingFace</p>
         <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/Tesseract</p>
