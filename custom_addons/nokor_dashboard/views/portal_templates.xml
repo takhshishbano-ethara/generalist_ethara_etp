@@ -457,7 +457,7 @@
   <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="comparison" aria-labelledby="comparison-label" data-animate="fade-up">
     <p class="section-label" id="comparison-label">§07 · Model comparison</p>
-    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models (pilot data, n=20).</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models.</p>
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
@@ -484,7 +484,7 @@
       </div>
     </div>
 
-    <h3 class="section-desc" style="margin-top:2rem; font-weight:600;">Per-Category Accuracy</h3>
+    <!-- <h3 class="section-desc" style="margin-top:2rem; font-weight:600;">Per-Category Accuracy</h3>
     <div class="eval-table-wrap" style="margin-top:1rem;">
       <table class="eval-table" aria-label="Per-category accuracy breakdown">
         <thead>
@@ -502,7 +502,7 @@
           <tr><td>Self-Contained (n=1)</td><td style="text-align:center;">100% (1/1)</td><td style="text-align:center;">0% (0/1)</td></tr>
         </tbody>
       </table>
-    </div>
+    </div> -->
   </section>
 
   <!-- ================= §08 RESOURCES ================= -->
