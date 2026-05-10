@@ -1,0 +1,774 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- ================================================================== -->
+    <!-- Main Wizard Template                                                -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard">
+        <div class="rl-wizard-container">
+            <header class="rl-wizard-header">
+                <h1 class="rl-wizard-header__title">ML Training Wizard</h1>
+                <span class="rl-wizard-header__badge">6-Step Pipeline</span>
+            </header>
+
+            <!-- Stepper Bar -->
+            <nav class="rl-wizard-stepper">
+                <t t-foreach="stepsMeta" t-as="step" t-key="step.index">
+                    <div t-att-class="'rl-wizard-step'
+                        + (state.currentStep === step.index ? ' rl-wizard-step--active' : '')
+                        + (state.currentStep > step.index ? ' rl-wizard-step--completed' : '')">
+                        <div class="rl-wizard-step__circle">
+                            <t t-if="state.currentStep > step.index">✓</t>
+                            <t t-else="" t-esc="step.index + 1"/>
+                        </div>
+                        <span class="rl-wizard-step__label" t-esc="step.title"/>
+                    </div>
+                    <t t-if="step.index &lt; 5">
+                        <div t-att-class="'rl-wizard-step__connector'
+                            + (state.currentStep > step.index ? ' rl-wizard-step--completed' : '')"/>
+                    </t>
+                </t>
+            </nav>
+
+            <!-- Step Content -->
+            <div class="rl-wizard-content">
+                <t t-if="state.currentStep === 0">
+                    <StepModelSelection
+                        models="state.models"
+                        selectedModelId="state.wizardData.selectedModelId"
+                        customName="state.wizardData.customName"
+                        loading="state.loadingModels"
+                        onSelectModel.bind="onSelectModel"
+                        onNameChange.bind="onNameChange"/>
+                </t>
+                <t t-if="state.currentStep === 1">
+                    <StepConfiguration
+                        config="state.wizardData.config"
+                        dataset="state.wizardData.dataset"
+                        datasetSearch="state.datasetSearch"
+                        datasetResults="state.datasetResults"
+                        datasetInfo="state.datasetInfo"
+                        splits="state.wizardData.splits"
+                        loadingDatasets="state.loadingDatasets"
+                        loadingInfo="state.loadingInfo"
+                        sections="state.configSections"
+                        rewardDescription="state.rewardDescription"
+                        datasetConfigApplied="state.datasetConfigApplied"
+                        onConfigChange.bind="onConfigChange"
+                        onDatasetSearch.bind="onDatasetSearch"
+                        onDatasetSelect.bind="onDatasetSelect"
+                        onSplitChange.bind="onSplitChange"
+                        onToggleSection.bind="onToggleSection"
+                        onLoadDefaults.bind="onLoadDefaults"/>
+                </t>
+                <t t-if="state.currentStep === 2">
+                    <StepTraining
+                        trainingState="state.trainingState"
+                        modelId="state.wizardData.selectedModelId"
+                        configId="state.wizardData.configId"
+                        jobName="state.wizardData.customName"
+                        policyType="state.wizardData.config.policy_type"
+                        rpc="rpc"/>
+                </t>
+                <t t-if="state.currentStep === 3">
+                    <StepMetrics
+                        jobId="state.trainingState.jobId"
+                        rpc="rpc"/>
+                </t>
+                <t t-if="state.currentStep === 4">
+                    <StepWeights
+                        jobId="state.trainingState.jobId"
+                        jobName="state.wizardData.customName"
+                        rpc="rpc"/>
+                </t>
+                <t t-if="state.currentStep === 5">
+                    <StepInference
+                        jobId="state.trainingState.jobId"
+                        rpc="rpc"/>
+                </t>
+            </div>
+
+            <!-- Footer Navigation -->
+            <footer class="rl-wizard-footer">
+                <button t-att-class="'rl-wizard-btn rl-wizard-btn--ghost'"
+                        t-att-disabled="state.currentStep === 0"
+                        t-on-click="onBack">
+                    ← Back
+                </button>
+                <div>
+                    <t t-if="state.currentStep === 0">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-att-disabled="!canProceed"
+                                t-on-click="onNext">
+                            Next →
+                        </button>
+                    </t>
+                    <t t-if="state.currentStep === 1">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-att-disabled="!canProceed"
+                                t-on-click="onNext">
+                            Start Training →
+                        </button>
+                    </t>
+                    <t t-if="state.currentStep === 2">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-att-disabled="!canProceed"
+                                t-on-click="onNext">
+                            View Metrics →
+                        </button>
+                    </t>
+                    <t t-if="state.currentStep === 3">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-on-click="onNext">
+                            Manage Weights →
+                        </button>
+                    </t>
+                    <t t-if="state.currentStep === 4">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-on-click="onNext">
+                            Run Inference →
+                        </button>
+                    </t>
+                    <t t-if="state.currentStep === 5">
+                        <button class="rl-wizard-btn rl-wizard-btn--success"
+                                t-on-click="onFinish">
+                            ✓ Finish
+                        </button>
+                    </t>
+                </div>
+            </footer>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 1: Model Selection                                             -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepModelSelection">
+        <div class="rl-wizard-models">
+            <t t-if="props.loading">
+                <div class="rl-wizard-loading">
+                    <div class="rl-wizard-loading__spinner"/>
+                    <span>Loading models…</span>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="rl-wizard-models__grid">
+                    <t t-foreach="props.models" t-as="model" t-key="model.id">
+                        <div t-att-class="'rl-wizard-card rl-wizard-card--clickable rl-wizard-models__card'
+                            + (props.selectedModelId === model.id ? ' rl-wizard-card--selected' : '')"
+                             t-on-click="() => this.selectModel(model.id)">
+                            <span class="rl-wizard-models__name" t-esc="model.name"/>
+                            <div class="rl-wizard-models__meta">
+                                <span class="rl-wizard-models__badge" t-esc="model.model_type"/>
+                                <span class="rl-wizard-models__params" t-esc="formatParams(model.parameter_count)"/>
+                            </div>
+                            <p class="rl-wizard-models__desc" t-esc="model.description"/>
+                        </div>
+                    </t>
+                </div>
+                <div class="rl-wizard-models__input-group">
+                    <label class="rl-wizard-label">Custom Training Name</label>
+                    <input type="text"
+                           class="rl-wizard-input"
+                           placeholder="e.g. my-finetuned-llama-v1"
+                           t-att-value="props.customName"
+                           t-on-input="onNameInput"/>
+                </div>
+            </t>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 2: Configuration & Dataset                                     -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepConfiguration">
+        <div class="rl-wizard-config">
+            <!-- Left: Config Panel -->
+            <div t-att-class="'rl-wizard-config__panel' + (props.datasetConfigApplied ? ' rl-wizard-config__panel--flash' : '')">
+                <t t-if="props.datasetConfigApplied">
+                    <div class="rl-wizard-config__notification">
+                        ✓ Config auto-populated from dataset recommendations
+                    </div>
+                </t>
+                <div class="rl-wizard-config__panel-title">
+                    <span>Training Configuration</span>
+                    <button class="rl-wizard-btn rl-wizard-btn--ghost"
+                            style="padding: 4px 10px; font-size: 11px;"
+                            t-on-click="props.onLoadDefaults">
+                        Load Defaults
+                    </button>
+                </div>
+
+                <t t-if="props.rewardDescription">
+                    <div class="rl-wizard-config__reward-info">
+                        <span class="rl-wizard-config__reward-icon">⚡</span>
+                        <div class="rl-wizard-config__reward-content">
+                            <span class="rl-wizard-config__reward-label">Reward Strategy</span>
+                            <span class="rl-wizard-config__reward-text" t-esc="props.rewardDescription"/>
+                        </div>
+                    </div>
+                </t>
+
+                <t t-foreach="configSections" t-as="section" t-key="section.key">
+                    <div class="rl-wizard-config__section">
+                        <div class="rl-wizard-config__section-header"
+                             t-on-click="() => this.toggleSection(section.key)">
+                            <span class="rl-wizard-config__section-title" t-esc="section.label"/>
+                            <span t-att-class="'rl-wizard-config__section-toggle'
+                                + (isSectionOpen(section.key) ? ' rl-wizard-config__section-toggle--open' : '')">
+                                ▼
+                            </span>
+                        </div>
+                        <t t-if="isSectionOpen(section.key)">
+                            <div class="rl-wizard-config__section-body">
+                                <t t-foreach="section.fields" t-as="field" t-key="field.key">
+                                    <t t-if="isFieldVisible(field)">
+                                        <div class="rl-wizard-config__field">
+                                            <label class="rl-wizard-config__field-label" t-esc="field.label"/>
+                                            <t t-if="field.type === 'select'">
+                                                <select class="rl-wizard-config__field-input"
+                                                        t-on-change="(ev) => this.onSelectChange(field.key, ev)">
+                                                    <t t-foreach="field.options" t-as="opt" t-key="opt.value">
+                                                        <option t-att-value="opt.value"
+                                                                t-att-selected="getConfigValue(field.key) === opt.value"
+                                                                t-esc="opt.label"/>
+                                                    </t>
+                                                </select>
+                                            </t>
+                                            <t t-elif="field.type === 'checkbox'">
+                                                <input type="checkbox"
+                                                       class="rl-wizard-config__field-checkbox"
+                                                       t-att-checked="getConfigValue(field.key)"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                            <t t-else="">
+                                                <input t-att-type="field.type || 'number'"
+                                                       class="rl-wizard-config__field-input"
+                                                       t-att-value="getConfigValue(field.key)"
+                                                       t-att-step="field.step || 'any'"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+            </div>
+
+            <!-- Right: Dataset Panel -->
+            <div class="rl-wizard-config__panel">
+                <div class="rl-wizard-config__panel-title">
+                    <span>Dataset Selection</span>
+                </div>
+
+                <div class="rl-wizard-dataset__search">
+                    <span class="rl-wizard-dataset__search-icon">⌕</span>
+                    <input type="text"
+                           class="rl-wizard-dataset__search-input"
+                           placeholder="Search HuggingFace datasets…"
+                           t-att-value="props.datasetSearch"
+                           t-on-input="onSearchInput"/>
+                </div>
+
+                <t t-if="props.loadingDatasets">
+                    <div class="rl-wizard-loading">
+                        <div class="rl-wizard-loading__spinner"/>
+                        <span>Searching…</span>
+                    </div>
+                </t>
+
+                <t t-if="props.datasetResults and props.datasetResults.length">
+                    <div class="rl-wizard-dataset__results">
+                        <t t-foreach="props.datasetResults" t-as="ds" t-key="ds.id">
+                            <div t-att-class="'rl-wizard-dataset__result-item'
+                                + (props.dataset and props.dataset.id === ds.id ? ' rl-wizard-dataset__result-item--selected' : '')"
+                                 t-on-click="() => this.selectDataset(ds)">
+                                <div class="rl-wizard-dataset__result-name" t-esc="ds.name"/>
+                                <div class="rl-wizard-dataset__result-meta">
+                                    <span>↓ <t t-esc="ds.downloads"/></span>
+                                    <span>♥ <t t-esc="ds.likes"/></span>
+                                    <t t-foreach="(ds.tags || []).slice(0, 3)" t-as="tag" t-key="tag">
+                                        <span class="rl-wizard-dataset__result-tag" t-esc="tag"/>
+                                    </t>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <!-- Dataset Preview Button -->
+                <t t-if="props.loadingInfo">
+                    <div class="rl-wizard-loading">
+                        <div class="rl-wizard-loading__spinner"/>
+                        <span>Loading preview…</span>
+                    </div>
+                </t>
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Data
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.columns.length"/> columns · <t t-esc="(props.datasetInfo.preview.rows || []).length"/> rows
+                        </span>
+                    </button>
+                </t>
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.file_list">
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Files
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.total_files || props.datasetInfo.preview.file_list.length"/> files
+                        </span>
+                    </button>
+                </t>
+                <t t-elif="props.datasetInfo and !props.datasetInfo.preview">
+                    <div class="rl-wizard-dataset__no-preview">
+                        <span>No preview available</span>
+                        <span class="rl-wizard-dataset__no-preview-meta" t-if="props.datasetInfo.downloads">
+                            ↓ <t t-esc="props.datasetInfo.downloads"/>
+                        </span>
+                    </div>
+                </t>
+
+                <!-- Preview Modal -->
+                <t t-if="state.showPreviewModal">
+                    <div class="rl-wizard-modal-overlay" t-on-click="() => this.closePreview()">
+                        <div class="rl-wizard-modal" t-on-click.stop="">
+                            <div class="rl-wizard-modal__header">
+                                <span class="rl-wizard-modal__title">
+                                    Dataset Preview — <t t-esc="props.datasetInfo.name or props.datasetInfo.id or 'Dataset'"/>
+                                </span>
+                                <button class="rl-wizard-modal__close" t-on-click="() => this.closePreview()">✕</button>
+                            </div>
+                            <div class="rl-wizard-modal__body">
+                                <t t-if="props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="rl-wizard-modal__row-num">#</th>
+                                                    <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                        <th t-esc="col"/>
+                                                    </t>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="pagedRows" t-as="row" t-key="row_index">
+                                                    <tr>
+                                                        <td class="rl-wizard-modal__row-num" t-esc="state.previewPage * 10 + row_index + 1"/>
+                                                        <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                            <td t-esc="row[col] != null ? ('' + row[col]).slice(0, 500) : ''"/>
+                                                        </t>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <!-- Pagination -->
+                                    <div class="rl-wizard-modal__pagination">
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage === 0"
+                                                t-on-click="() => this.prevPage()">← Prev</button>
+                                        <span class="rl-wizard-modal__page-info">
+                                            Page <t t-esc="state.previewPage + 1"/> of <t t-esc="totalPages"/>
+                                            <span class="rl-wizard-modal__page-rows">
+                                                (<t t-esc="totalRows"/> rows)
+                                            </span>
+                                        </span>
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage >= totalPages - 1"
+                                                t-on-click="() => this.nextPage()">Next →</button>
+                                    </div>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.note and (!props.datasetInfo.preview.columns or !props.datasetInfo.preview.columns.length)">
+                                    <p class="rl-wizard-modal__note" t-esc="props.datasetInfo.preview.note"/>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.file_list">
+                                    <p class="rl-wizard-modal__note" t-if="props.datasetInfo.preview.note" t-esc="props.datasetInfo.preview.note"/>
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr><th>File</th><th>Size</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="props.datasetInfo.preview.file_list" t-as="f" t-key="f_index">
+                                                    <tr>
+                                                        <td t-esc="f.path"/>
+                                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <!-- Train/Val/Test Splits -->
+                <div class="rl-wizard-dataset__splits">
+                    <div class="rl-wizard-dataset__split-field">
+                        <label class="rl-wizard-dataset__split-label">Train</label>
+                        <input type="range" min="0" max="1" step="0.05"
+                               class="rl-wizard-inference__slider"
+                               t-att-value="props.splits.train"
+                               t-on-input="(ev) => this.onSplitInput('train', ev)"/>
+                        <span class="rl-wizard-dataset__split-value" t-esc="props.splits.train"/>
+                    </div>
+                    <div class="rl-wizard-dataset__split-field">
+                        <label class="rl-wizard-dataset__split-label">Validation</label>
+                        <input type="range" min="0" max="1" step="0.05"
+                               class="rl-wizard-inference__slider"
+                               t-att-value="props.splits.val"
+                               t-on-input="(ev) => this.onSplitInput('val', ev)"/>
+                        <span class="rl-wizard-dataset__split-value" t-esc="props.splits.val"/>
+                    </div>
+                    <div class="rl-wizard-dataset__split-field">
+                        <label class="rl-wizard-dataset__split-label">Test</label>
+                        <input type="range" min="0" max="1" step="0.05"
+                               class="rl-wizard-inference__slider"
+                               t-att-value="props.splits.test"
+                               t-on-input="(ev) => this.onSplitInput('test', ev)"/>
+                        <span class="rl-wizard-dataset__split-value" t-esc="props.splits.test"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 3: Training                                                    -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepTraining">
+        <div class="rl-wizard-training">
+            <!-- Status + Pause -->
+            <div class="rl-wizard-training__status">
+                <span t-att-class="'rl-wizard-training__status-badge rl-wizard-training__status-badge--' + state.status"
+                      t-esc="state.statusLabel"/>
+                <t t-if="state.status === 'training' or state.status === 'paused'">
+                    <button t-att-class="'rl-wizard-btn ' + (state.status === 'paused' ? 'rl-wizard-btn--success' : 'rl-wizard-btn--orange')"
+                            t-on-click="togglePause"
+                            style="padding: 6px 14px; font-size: 12px;">
+                        <t t-if="state.status === 'paused'">▶ Resume</t>
+                        <t t-else="">⏸ Pause</t>
+                    </button>
+                </t>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="rl-wizard-training__progress">
+                <div class="rl-wizard-training__progress-bar">
+                    <div class="rl-wizard-training__progress-fill"
+                         t-attf-style="width: {{ state.progress }}%"/>
+                </div>
+                <div class="rl-wizard-training__progress-text">
+                    <span><t t-esc="state.progress"/>%</span>
+                    <span>Step <t t-esc="state.currentStep"/> / <t t-esc="state.totalSteps"/></span>
+                </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="rl-wizard-training__chart-area">
+                <h3 class="rl-wizard-training__chart-title">Loss &amp; Reward</h3>
+                <div class="rl-wizard-training__chart-canvas">
+                    <canvas t-ref="trainingChart"/>
+                </div>
+            </div>
+
+            <!-- Live Metrics -->
+            <div class="rl-wizard-training__metrics">
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Policy</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="state.policyType"/>
+                </div>
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Loss</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentLoss)"/>
+                </div>
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Reward</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentReward)"/>
+                </div>
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Best Reward</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.bestReward)"/>
+                </div>
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Learning Rate</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="state.learningRate"/>
+                </div>
+                <div class="rl-wizard-training__metric">
+                    <span class="rl-wizard-training__metric-label">Tokens/sec</span>
+                    <span class="rl-wizard-training__metric-value" t-esc="state.tokensPerSec"/>
+                </div>
+            </div>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 4: Metrics                                                     -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepMetrics">
+        <div class="rl-wizard-metrics" t-ref="metricsRoot">
+            <t t-if="state.loading">
+                <div class="rl-wizard-loading">
+                    <div class="rl-wizard-loading__spinner"/>
+                    <span>Loading metrics…</span>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="rl-wizard-metrics__summary">
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Final Loss</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.finalLoss"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Best Reward</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.bestReward"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Total Steps</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.totalSteps"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Avg Tokens/sec</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.avgTokensSec"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Avg GPU Mem</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.avgGpuMem"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Policy Loss (end)</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.policyLossEnd"/>
+                    </div>
+                </div>
+
+                <div class="rl-wizard-metrics__charts-grid">
+                    <t t-foreach="chartDefs" t-as="def" t-key="def.id">
+                        <div class="rl-wizard-metrics__chart-card">
+                            <h4 class="rl-wizard-metrics__chart-title" t-esc="def.title"/>
+                            <div class="rl-wizard-metrics__chart-canvas">
+                                <canvas t-att-data-chart-id="def.id"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="rl-wizard-metrics__table-wrap">
+                    <table class="rl-wizard-metrics__table">
+                        <thead>
+                            <tr>
+                                <th>Step</th>
+                                <th>Loss</th>
+                                <th>P.Loss</th>
+                                <th>V.Loss</th>
+                                <th>Reward</th>
+                                <th>Grad</th>
+                                <th>Entropy</th>
+                                <th>KL</th>
+                                <th>Clip</th>
+                                <th>Tok/s</th>
+                                <th>GPU</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.metricsData" t-as="m" t-key="m.step">
+                                <tr>
+                                    <td t-esc="m.step"/>
+                                    <td t-esc="fmtNum(m.loss)"/>
+                                    <td t-esc="fmtNum(m.policy_loss)"/>
+                                    <td t-esc="fmtNum(m.value_loss)"/>
+                                    <td t-esc="fmtNum(m.reward)"/>
+                                    <td t-esc="fmtNum(m.gradient_norm)"/>
+                                    <td t-esc="fmtNum(m.entropy)"/>
+                                    <td t-esc="fmtNum(m.kl_divergence)"/>
+                                    <td t-esc="fmtNum(m.clip_fraction)"/>
+                                    <td t-esc="Math.round(m.tokens_per_second)"/>
+                                    <td t-esc="(m.gpu_memory_used || 0).toFixed(1)"/>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+            </t>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 5: Weight Management                                           -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepWeights">
+        <div class="rl-wizard-weights">
+            <!-- Weight Info Card -->
+            <div class="rl-wizard-weights__card">
+                <h3 class="rl-wizard-weights__card-title">Weight Information</h3>
+                <div class="rl-wizard-weights__info-row">
+                    <span class="rl-wizard-weights__info-key">Name</span>
+                    <span class="rl-wizard-weights__info-value" t-esc="state.weightName"/>
+                </div>
+                <div class="rl-wizard-weights__info-row">
+                    <span class="rl-wizard-weights__info-key">Format</span>
+                    <span class="rl-wizard-weights__info-value">safetensors</span>
+                </div>
+                <div class="rl-wizard-weights__info-row">
+                    <span class="rl-wizard-weights__info-key">Estimated Size</span>
+                    <span class="rl-wizard-weights__info-value" t-esc="state.fileSize"/>
+                </div>
+                <div class="rl-wizard-weights__info-row">
+                    <span class="rl-wizard-weights__info-key">Weight ID</span>
+                    <span class="rl-wizard-weights__info-value" t-esc="state.weightId or '—'"/>
+                </div>
+            </div>
+
+            <!-- S3 Config Warning -->
+            <t t-if="!state.s3Configured">
+                <div class="rl-wizard-weights__warning">
+                    <span class="rl-wizard-weights__warning-icon">⚠</span>
+                    <span class="rl-wizard-weights__warning-text">
+                        S3 storage is not configured. Upload may fail. Configure S3 credentials in system settings.
+                    </span>
+                </div>
+            </t>
+
+            <!-- Upload Area -->
+            <div class="rl-wizard-weights__card">
+                <h3 class="rl-wizard-weights__card-title">Upload to S3</h3>
+                <div class="rl-wizard-weights__upload-area">
+                    <t t-if="state.uploading">
+                        <div class="rl-wizard-weights__spinner"/>
+                        <div class="rl-wizard-weights__status-text">Uploading weights…</div>
+                    </t>
+                    <t t-elif="state.s3Url">
+                        <div class="rl-wizard-weights__status-text" style="color: #10b981;">✓ Upload Complete</div>
+                        <div class="rl-wizard-weights__url">
+                            <span class="rl-wizard-weights__url-text" t-esc="state.s3Url"/>
+                            <button class="rl-wizard-weights__url-copy" t-on-click="copyUrl">Copy</button>
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <button class="rl-wizard-btn rl-wizard-btn--primary"
+                                t-att-disabled="!state.weightId"
+                                t-on-click="uploadWeights">
+                            ↑ Upload to S3
+                        </button>
+                    </t>
+
+                    <t t-if="state.uploadError">
+                        <div class="rl-wizard-weights__error">
+                            <t t-esc="state.uploadError"/>
+                        </div>
+                        <button class="rl-wizard-btn rl-wizard-btn--ghost"
+                                style="margin-top: 8px;"
+                                t-on-click="uploadWeights">
+                            Retry Upload
+                        </button>
+                    </t>
+                </div>
+            </div>
+        </div>
+    </t>
+
+    <!-- ================================================================== -->
+    <!-- Step 6: Inference                                                   -->
+    <!-- ================================================================== -->
+    <t t-name="rl_gym_dashboard.TrainingWizard.StepInference">
+        <div class="rl-wizard-inference">
+            <!-- Main Area -->
+            <div class="rl-wizard-inference__main">
+                <div class="rl-wizard-inference__prompt-area">
+                    <div class="rl-wizard-inference__prompt-label">Prompt</div>
+                    <textarea class="rl-wizard-inference__prompt-input"
+                              placeholder="Enter your prompt…"
+                              t-att-value="state.prompt"
+                              t-on-input="onPromptInput"/>
+                    <button class="rl-wizard-btn rl-wizard-btn--primary"
+                            style="margin-top: 12px;"
+                            t-att-disabled="state.running or !state.prompt.trim()"
+                            t-on-click="runInference">
+                        <t t-if="state.running">Running…</t>
+                        <t t-else="">▶ Run Inference</t>
+                    </button>
+                </div>
+
+                <div class="rl-wizard-inference__response-area">
+                    <div class="rl-wizard-inference__response-label">Response</div>
+                    <t t-if="state.running">
+                        <div class="rl-wizard-loading">
+                            <div class="rl-wizard-loading__spinner"/>
+                            <span>Generating…</span>
+                        </div>
+                    </t>
+                    <t t-elif="state.response">
+                        <div class="rl-wizard-inference__response-text" t-esc="state.response.response"/>
+                        <div class="rl-wizard-inference__response-meta">
+                            <span>Tokens: <t t-esc="state.response.tokens_used"/></span>
+                            <span>Model: <t t-esc="state.response.model"/></span>
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <div class="rl-wizard-inference__empty">
+                            Enter a prompt and click Run Inference to see results.
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="rl-wizard-inference__sidebar">
+                <!-- Config -->
+                <div class="rl-wizard-inference__config-panel">
+                    <div class="rl-wizard-inference__config-title">Parameters</div>
+
+                    <div class="rl-wizard-inference__slider-group">
+                        <div class="rl-wizard-inference__slider-header">
+                            <span class="rl-wizard-inference__slider-label">Max Tokens</span>
+                            <span class="rl-wizard-inference__slider-value" t-esc="state.maxTokens"/>
+                        </div>
+                        <input type="range" class="rl-wizard-inference__slider"
+                               min="64" max="1024" step="64"
+                               t-att-value="state.maxTokens"
+                               t-on-input="onMaxTokensChange"/>
+                    </div>
+
+                    <div class="rl-wizard-inference__slider-group">
+                        <div class="rl-wizard-inference__slider-header">
+                            <span class="rl-wizard-inference__slider-label">Temperature</span>
+                            <span class="rl-wizard-inference__slider-value" t-esc="state.temperature"/>
+                        </div>
+                        <input type="range" class="rl-wizard-inference__slider"
+                               min="0" max="2" step="0.1"
+                               t-att-value="state.temperature"
+                               t-on-input="onTemperatureChange"/>
+                    </div>
+                </div>
+
+                <!-- History -->
+                <div class="rl-wizard-inference__history-panel">
+                    <div class="rl-wizard-inference__history-title">
+                        <span>History (<t t-esc="state.history.length"/>)</span>
+                        <button class="rl-wizard-inference__history-clear"
+                                t-if="state.history.length"
+                                t-on-click="clearHistory">
+                            Clear
+                        </button>
+                    </div>
+                    <t t-if="state.history.length === 0">
+                        <div class="rl-wizard-inference__empty">No runs yet.</div>
+                    </t>
+                    <t t-foreach="state.history" t-as="item" t-key="item_index">
+                        <div class="rl-wizard-inference__history-item"
+                             t-on-click="() => this.loadHistoryItem(item)">
+                            <div class="rl-wizard-inference__history-prompt" t-esc="item.prompt"/>
+                            <div class="rl-wizard-inference__history-tokens">
+                                <t t-esc="item.tokens_used"/> tokens
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

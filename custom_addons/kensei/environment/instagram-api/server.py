@@ -291,6 +291,23 @@ def publish_media_container(user_id: str, body: MediaPublishBody):
     return result
 
 
+class UserUpdateBody(BaseModel):
+    biography: Optional[str] = None
+    website: Optional[str] = None
+    name: Optional[str] = None
+
+
+@app.put("/{user_id}")
+def update_user(user_id: str, body: UserUpdateBody):
+    data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not data:
+        return JSONResponse(status_code=400, content={"error": {"message": "No updatable fields provided", "type": "IGApiException", "code": 100}})
+    result = instagram_data.update_user(user_id, data)
+    if "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
+
+
 @app.get("/{user_id}")
 def get_user(user_id: str, fields: Optional[str] = Query(default=None)):
     result = instagram_data.get_user(user_id)

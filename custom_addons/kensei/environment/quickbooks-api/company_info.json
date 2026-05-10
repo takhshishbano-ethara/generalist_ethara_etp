@@ -1,53 +1,28 @@
 {
-  "CompanyName": "Greenleaf Landscaping LLC",
-  "LegalName": "Greenleaf Landscaping LLC",
+  "CompanyName": "Cedar Ridge Martial Arts Academy",
+  "LegalName": "Cedar Ridge Martial Arts Academy LLC",
   "CompanyAddr": {
-    "Id": "1",
-    "Line1": "4521 Shamrock Drive",
-    "City": "Charlotte",
-    "CountrySubDivisionCode": "NC",
-    "PostalCode": "28215",
-    "Country": "US"
+    "Line1": "4827 SW Cedar Hills Blvd",
+    "City": "Beaverton",
+    "CountrySubDivisionCode": "OR",
+    "PostalCode": "97005"
   },
-  "CustomerCommunicationAddr": {
-    "Id": "1",
-    "Line1": "4521 Shamrock Drive",
-    "City": "Charlotte",
-    "CountrySubDivisionCode": "NC",
-    "PostalCode": "28215",
-    "Country": "US"
-  },
-  "LegalAddr": {
-    "Id": "1",
-    "Line1": "4521 Shamrock Drive",
-    "City": "Charlotte",
-    "CountrySubDivisionCode": "NC",
-    "PostalCode": "28215",
-    "Country": "US"
+  "Email": {
+    "Address": "aaron.delgado@cedarridgemartialarts.com"
   },
   "PrimaryPhone": {
-    "FreeFormNumber": "(704) 555-0173"
+    "FreeFormNumber": "(503) 555-0147"
   },
-  "CompanyStartDate": "2022-01-15",
   "FiscalYearStartMonth": "January",
   "Country": "US",
-  "Email": {
-    "Address": "info@greenleaflandscaping.com"
-  },
-  "WebAddr": {
-    "URI": "https://www.greenleaflandscaping.com"
-  },
-  "SupportedLanguages": "en",
+  "IndustryType": "Sports & Recreation",
   "NameValue": [
-    {"Name": "QBOSubscriptionStatus", "Value": "QuickBooks Online Plus"},
-    {"Name": "Industry", "Value": "Landscaping Services"}
+    { "Name": "OwnerName", "Value": "Aaron Delgado" },
+    { "Name": "CoOwnerName", "Value": "Raj Patel" },
+    { "Name": "OwnershipSplit", "Value": "Aaron 40% / Raj 60%" }
   ],
-  "Id": "1",
-  "SyncToken": "4",
   "MetaData": {
-    "CreateTime": "2022-01-15T09:00:00-05:00",
-    "LastUpdatedTime": "2025-04-28T14:30:00-04:00"
-  },
-  "domain": "QBO",
-  "sparse": false
+    "CreateTime": "2021-03-15T10:00:00-07:00",
+    "LastUpdatedTime": "2026-04-30T09:15:00-07:00"
+  }
 }

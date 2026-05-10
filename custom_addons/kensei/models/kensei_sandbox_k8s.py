@@ -44,6 +44,7 @@ server {
     listen 80;
     server_name _;
     resolver kube-dns.kube-system.svc.cluster.local valid=10s;
+    client_max_body_size 0;
     location ~ ^/(\\d+)(?:/(.*))? {
         set $task_id $1;
         set $path $2;

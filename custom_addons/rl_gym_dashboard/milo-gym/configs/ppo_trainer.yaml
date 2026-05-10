@@ -1,0 +1,83 @@
+# MILO-RL: GSPO Training Config for Nemotron-3-Nano-30B-A3B
+# Algorithm: GSPO (segment-level) + Gated Rewards (PivotRL disabled for v1)
+model_path: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+
+lora:
+  rank: 64
+  alpha: 64
+  target_modules: "linear_qkv,linear_proj,linear_fc1,linear_fc2,in_proj,out_proj"
+  dropout: 0.0
+
+gspo:
+  learning_rate: 3e-6
+  group_size: 16
+  batch_size: 128
+  clip_low: 3e-4
+  clip_high: 4e-4
+  norm_adv_by_std: true
+  length_normalize: true
+  compact_filtering: true
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  max_grad_norm: 1.0
+  warmup_steps: 10
+  total_steps: 450
+  epochs_per_rollout: 1
+  micro_batch_size: 1
+  # GSPO-specific
+  importance_sampling: "segment"
+  loss_agg_mode: "seq-mean-token-mean"
+  freeze_router: true
+  moe_aux_loss_coeff: 0.0001
+  expert_bias_update_rate: 0.001
+  overlong_penalty: true
+  overlong_penalty_threshold: 10
+
+moe:
+  num_experts: 128
+  shared_experts: 2
+  top_k: 6
+  router_type: "sigmoid"
+  freeze_router: true
+  aux_loss_coeff: 0.0001
+  expert_bias_update_rate: 0.001
+  load_balancing_type: "seq_aux_loss"
+
+gated_reward:
+  enabled: true
+  outcome_pass: 1.0
+  outcome_fail: -0.1
+  outcome_empty: -0.2
+  outcome_timeout: -0.5
+  length_penalty_weight: 0.1
+  prm_weight: 0.05
+  gate_threshold: -0.5
+  pivot_enabled: false
+  pivot_variance_threshold: 0.0
+  pivot_difficulty_threshold: 0.8
+
+curriculum:
+  phases:
+    - phase_id: 1
+      max_turns: 15
+      step_start: 0
+      step_end: 100
+      difficulty_filter: ["easy", "medium"]
+      expected_success_rate: 0.3
+    - phase_id: 2
+      max_turns: 30
+      step_start: 100
+      step_end: 250
+      difficulty_filter: ["medium", "hard"]
+      expected_success_rate: 0.2
+    - phase_id: 3
+      max_turns: 50
+      step_start: 250
+      step_end: 450
+      difficulty_filter: ["hard"]
+      expected_success_rate: 0.15
+
+monitoring:
+  eval_every: 25
+  checkpoint_every: 50

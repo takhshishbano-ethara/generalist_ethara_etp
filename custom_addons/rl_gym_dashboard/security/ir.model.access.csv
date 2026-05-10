@@ -1,0 +1,13 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_rl_training_model_user,rl.training.model.user,model_rl_training_model,base.group_user,1,0,0,0
+access_rl_training_model_manager,rl.training.model.manager,model_rl_training_model,base.group_system,1,1,1,1
+access_rl_training_job_user,rl.training.job.user,model_rl_training_job,base.group_user,1,1,1,0
+access_rl_training_job_manager,rl.training.job.manager,model_rl_training_job,base.group_system,1,1,1,1
+access_rl_training_config_user,rl.training.config.user,model_rl_training_config,base.group_user,1,1,1,0
+access_rl_training_config_manager,rl.training.config.manager,model_rl_training_config,base.group_system,1,1,1,1
+access_rl_training_dataset_user,rl.training.dataset.user,model_rl_training_dataset,base.group_user,1,1,1,0
+access_rl_training_dataset_manager,rl.training.dataset.manager,model_rl_training_dataset,base.group_system,1,1,1,1
+access_rl_training_metric_user,rl.training.metric.user,model_rl_training_metric,base.group_user,1,0,0,0
+access_rl_training_metric_manager,rl.training.metric.manager,model_rl_training_metric,base.group_system,1,1,1,1
+access_rl_training_weight_user,rl.training.weight.user,model_rl_training_weight,base.group_user,1,1,1,0
+access_rl_training_weight_manager,rl.training.weight.manager,model_rl_training_weight,base.group_system,1,1,1,1

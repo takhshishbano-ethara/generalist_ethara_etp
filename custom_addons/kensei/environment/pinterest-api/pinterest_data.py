@@ -128,7 +128,10 @@ _ad_accounts = _coerce_ad_accounts(_load("ad_accounts.csv"))
 _campaigns = _coerce_campaigns(_load("campaigns.csv"))
 
 with open(DATA_DIR / "user_account.json", encoding="utf-8") as _f:
-    _user_account = json.load(_f)
+    _user_account_raw = json.load(_f)
+    # user_account.json may be a single account dict or a list of accounts.
+    # Use the first account as the active user.
+    _user_account = _user_account_raw[0] if isinstance(_user_account_raw, list) else _user_account_raw
 
 # Mutable in-memory stores
 _boards_store = deepcopy(_boards)

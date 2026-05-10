@@ -22,7 +22,7 @@ curl -X GET "http://localhost:8008/health"
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/channels?id=UC_TechCraftAcademy&part=snippet,contentDetails,statistics,brandingSettings"
+curl -X GET "http://localhost:8008/youtube/v3/channels?id=UC_EquineHealthChannel&part=snippet,contentDetails,statistics,brandingSettings"
 ```
 
 ```json
@@ -34,9 +34,9 @@ curl -X GET "http://localhost:8008/youtube/v3/channels?id=UC_TechCraftAcademy&pa
   },
   "items": [
     {
-      "id": "UC_TechCraftAcademy",
+      "id": "UC_EquineHealthChannel",
       "snippet": {
-        "title": "TechCraft Academy",
+        "title": "Equine Wellness Academy",
         "description": "Learn programming, master new tools, and level up your developer career. New tutorials every Tuesday, Thursday & Saturday!\n\nTopics: Python, JavaScript, React, System Design, Career Advice, Code Reviews, and more.\n\nBusiness inquiries: techcraftacademy@gmail.com",
         "customUrl": "@techcraftacademy",
         "publishedAt": "2022-01-10T15:30:00Z",
@@ -73,7 +73,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channels?id=UC_TechCraftAcademy&pa
       },
       "brandingSettings": {
         "channel": {
-          "title": "TechCraft Academy",
+          "title": "Equine Wellness Academy",
           "description": "Learn programming, master new tools, and level up your developer career.",
           "keywords": "programming tutorials coding python javascript react career advice developer",
           "unsubscribedTrailer": "vid_001",
@@ -107,7 +107,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channels?id=INVALID_CHANNEL_99"
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/videos?channelId=UC_TechCraftAcademy&part=snippet,contentDetails,statistics,status&maxResults=5"
+curl -X GET "http://localhost:8008/youtube/v3/videos?channelId=UC_EquineHealthChannel&part=snippet,contentDetails,statistics,status&maxResults=5"
 ```
 
 ```json
@@ -122,7 +122,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?channelId=UC_TechCraftAcade
       "id": "vid_001",
       "snippet": {
         "publishedAt": "2025-03-15T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "5 Projects That Got Me Hired as a Developer",
         "description": "Building a portfolio is the #1 way to stand out. Here are 5 real projects that helped me land my first dev job.\\n\\n0:00 Intro\\n2:15 Project 1: Full-Stack Todo App\\n8:30 Project 2: Real-time Chat\\n15:00 Project 3: E-commerce Store\\n22:45 Project 4: CLI Tool\\n28:00 Project 5: Open Source Contribution\\n33:15 Tips for Your Portfolio\\n36:00 Outro",
         "thumbnails": {
@@ -147,7 +147,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?channelId=UC_TechCraftAcade
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "tags": [
           "portfolio",
           "developer job",
@@ -195,7 +195,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?id=vid_001&part=snippet,con
       "id": "vid_001",
       "snippet": {
         "publishedAt": "2025-03-15T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "5 Projects That Got Me Hired as a Developer",
         "description": "Building a portfolio is the #1 way to stand out. Here are 5 real projects that helped me land my first dev job.\\n\\n0:00 Intro\\n2:15 Project 1: Full-Stack Todo App\\n8:30 Project 2: Real-time Chat\\n15:00 Project 3: E-commerce Store\\n22:45 Project 4: CLI Tool\\n28:00 Project 5: Open Source Contribution\\n33:15 Tips for Your Portfolio\\n36:00 Outro",
         "thumbnails": {
@@ -220,7 +220,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?id=vid_001&part=snippet,con
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "tags": [
           "portfolio",
           "developer job",
@@ -287,7 +287,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?id=vid_001,vid_002,vid_003&
       "id": "vid_001",
       "snippet": {
         "publishedAt": "2025-03-15T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "5 Projects That Got Me Hired as a Developer",
         "description": "Building a portfolio is the #1 way to stand out. Here are 5 real projects that helped me land my first dev job.\\n\\n0:00 Intro\\n2:15 Project 1: Full-Stack Todo App\\n8:30 Project 2: Real-time Chat\\n15:00 Project 3: E-commerce Store\\n22:45 Project 4: CLI Tool\\n28:00 Project 5: Open Source Contribution\\n33:15 Tips for Your Portfolio\\n36:00 Outro",
         "thumbnails": {
@@ -312,7 +312,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videos?id=vid_001,vid_002,vid_003&
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "tags": [
           "portfolio",
           "developer job",
@@ -356,7 +356,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/videos?part=snippet,status" -H 'Co
       "id": "vid_005",
       "snippet": {
         "publishedAt": "2025-03-06T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "8 VS Code Extensions Senior Devs Use Daily",
         "description": "After 8 years of coding, these are the only VS Code extensions I actually use daily.\\n\\n0:00 Intro\\n0:45 Extension 1: GitLens\\n3:15 Extension 2: Error Lens\\n5:30 Extension 3: GitHub Copilot\\n8:00 Extension 4: REST Client\\n10:15 Extension 5: Docker\\n12:00 Extension 6: Prettier\\n13:30 Extension 7: Thunder Client\\n15:00 Bonus Tips",
         "thumbnails": {
@@ -381,7 +381,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/videos?part=snippet,status" -H 'Co
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "tags": [
           "vs code",
           "productivity",
@@ -455,7 +455,7 @@ curl -X DELETE "http://localhost:8008/youtube/v3/videos?id=INVALID_ID_99999"
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_TechCraftAcademy&part=snippet,contentDetails,status&maxResults=10"
+curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_EquineHealthChannel&part=snippet,contentDetails,status&maxResults=10"
 ```
 
 ```json
@@ -470,7 +470,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_TechCraftAc
       "id": "PL_001",
       "snippet": {
         "publishedAt": "2022-03-15T10:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners",
         "description": "Complete Python course from zero to confident programmer. Follow along in order!",
         "thumbnails": {
@@ -490,7 +490,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_TechCraftAc
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "status": {
         "privacyStatus": "public"
@@ -503,7 +503,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_TechCraftAc
       "id": "PL_002",
       "snippet": {
         "publishedAt": "2023-01-10T10:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Web Dev 2025",
         "description": "Frontend and backend web development tutorials for the modern stack.",
         "thumbnails": {
@@ -523,7 +523,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?channelId=UC_TechCraftAc
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "status": {
         "privacyStatus": "public"
@@ -551,7 +551,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?id=PL_001&part=snippet,c
       "id": "PL_001",
       "snippet": {
         "publishedAt": "2022-03-15T10:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners",
         "description": "Complete Python course from zero to confident programmer. Follow along in order!",
         "thumbnails": {
@@ -571,7 +571,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlists?id=PL_001&part=snippet,c
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "status": {
         "privacyStatus": "public"
@@ -619,7 +619,7 @@ curl -X POST "http://localhost:8008/youtube/v3/playlists?part=snippet,status" -H
       "id": "PL_011",
       "snippet": {
         "publishedAt": "2026-05-06T18:43:43Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "AI & Machine Learning",
         "description": "AI tutorials",
         "thumbnails": {
@@ -639,7 +639,7 @@ curl -X POST "http://localhost:8008/youtube/v3/playlists?part=snippet,status" -H
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "status": {
         "privacyStatus": "public"
@@ -668,7 +668,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/playlists?part=snippet" -H 'Conten
       "id": "PL_005",
       "snippet": {
         "publishedAt": "2022-09-12T10:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Tool Reviews 2025",
         "description": "Honest reviews of developer tools IDEs and frameworks.",
         "thumbnails": {
@@ -688,7 +688,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/playlists?part=snippet" -H 'Conten
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "status": {
         "privacyStatus": "public"
@@ -759,7 +759,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlistItems?playlistId=PL_001&pa
       "id": "PLI_001",
       "snippet": {
         "publishedAt": "2025-02-27T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners - Complete Course 2025",
         "playlistId": "PL_001",
         "position": 0,
@@ -784,7 +784,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlistItems?playlistId=PL_001&pa
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "contentDetails": {
         "videoId": "vid_002",
@@ -795,7 +795,7 @@ curl -X GET "http://localhost:8008/youtube/v3/playlistItems?playlistId=PL_001&pa
       "id": "PLI_002",
       "snippet": {
         "publishedAt": "2025-02-27T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Building a REST API with FastAPI - Full Tutorial",
         "playlistId": "PL_001",
         "position": 1,
@@ -838,7 +838,7 @@ curl -X POST "http://localhost:8008/youtube/v3/playlistItems?part=snippet" -H 'C
       "id": "PLI_026",
       "snippet": {
         "publishedAt": "2026-05-06T18:43:43Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Build a CLI Tool with Go - Beginner Friendly",
         "playlistId": "PL_001",
         "position": 2,
@@ -863,7 +863,7 @@ curl -X POST "http://localhost:8008/youtube/v3/playlistItems?part=snippet" -H 'C
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "contentDetails": {
         "videoId": "vid_020",
@@ -904,7 +904,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/playlistItems?part=snippet" -H 'Co
       "id": "PLI_003",
       "snippet": {
         "publishedAt": "2025-03-11T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "React vs Vue in 2025 - Which Should You Learn?",
         "playlistId": "PL_002",
         "position": 5,
@@ -929,7 +929,7 @@ curl -X PUT "http://localhost:8008/youtube/v3/playlistItems?part=snippet" -H 'Co
             "height": 360
           }
         },
-        "channelTitle": "TechCraft Academy"
+        "channelTitle": "Equine Wellness Academy"
       },
       "contentDetails": {
         "videoId": "vid_003",
@@ -984,7 +984,7 @@ curl -X GET "http://localhost:8008/youtube/v3/commentThreads?videoId=vid_001&par
       "kind": "youtube#commentThread",
       "id": "cmt_041",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "videoId": "vid_001",
         "topLevelComment": {
           "kind": "youtube#comment",
@@ -1012,7 +1012,7 @@ curl -X GET "http://localhost:8008/youtube/v3/commentThreads?videoId=vid_001&par
       "kind": "youtube#commentThread",
       "id": "cmt_004",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "videoId": "vid_001",
         "topLevelComment": {
           "kind": "youtube#comment",
@@ -1050,7 +1050,7 @@ curl -X GET "http://localhost:8008/youtube/v3/commentThreads?videoId=vid_019&par
       "kind": "youtube#commentThread",
       "id": "cmt_028",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "videoId": "vid_019",
         "topLevelComment": {
           "kind": "youtube#comment",
@@ -1094,15 +1094,15 @@ curl -X POST "http://localhost:8008/youtube/v3/commentThreads?part=snippet" -H '
       "kind": "youtube#commentThread",
       "id": "cmt_051",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "videoId": "vid_001",
         "topLevelComment": {
           "kind": "youtube#comment",
           "id": "cmt_051",
           "snippet": {
-            "authorDisplayName": "TechCraft Academy",
+            "authorDisplayName": "Equine Wellness Academy",
             "authorChannelId": {
-              "value": "UC_TechCraftAcademy"
+              "value": "UC_EquineHealthChannel"
             },
             "textDisplay": "Great video!",
             "textOriginal": "Great video!",
@@ -1142,9 +1142,9 @@ curl -X GET "http://localhost:8008/youtube/v3/comments?parentId=cmt_002&part=sni
       "kind": "youtube#comment",
       "id": "cmt_003",
       "snippet": {
-        "authorDisplayName": "TechCraft Academy",
+        "authorDisplayName": "Equine Wellness Academy",
         "authorChannelId": {
-          "value": "UC_TechCraftAcademy"
+          "value": "UC_EquineHealthChannel"
         },
         "textDisplay": "Great question! I used Socket.io because it handles reconnection and fallbacks automatically. For a portfolio piece, Socket.io is perfect \u2014 it shows you understand real-time concepts without reinventing the wheel.",
         "textOriginal": "Great question! I used Socket.io because it handles reconnection and fallbacks automatically. For a portfolio piece, Socket.io is perfect \u2014 it shows you understand real-time concepts without reinventing the wheel.",
@@ -1175,9 +1175,9 @@ curl -X POST "http://localhost:8008/youtube/v3/comments?part=snippet" -H 'Conten
       "kind": "youtube#comment",
       "id": "cmt_052",
       "snippet": {
-        "authorDisplayName": "TechCraft Academy",
+        "authorDisplayName": "Equine Wellness Academy",
         "authorChannelId": {
-          "value": "UC_TechCraftAcademy"
+          "value": "UC_EquineHealthChannel"
         },
         "textDisplay": "Thanks! I used Next.js.",
         "textOriginal": "Thanks! I used Next.js.",
@@ -1222,9 +1222,9 @@ curl -X PUT "http://localhost:8008/youtube/v3/comments?part=snippet" -H 'Content
       "kind": "youtube#comment",
       "id": "cmt_003",
       "snippet": {
-        "authorDisplayName": "TechCraft Academy",
+        "authorDisplayName": "Equine Wellness Academy",
         "authorChannelId": {
-          "value": "UC_TechCraftAcademy"
+          "value": "UC_EquineHealthChannel"
         },
         "textDisplay": "Updated reply.",
         "textOriginal": "Updated reply.",
@@ -1306,7 +1306,7 @@ curl -X POST "http://localhost:8008/youtube/v3/comments/setModerationStatus?id=I
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_TechCraftAcademy&part=snippet&maxResults=10"
+curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_EquineHealthChannel&part=snippet&maxResults=10"
 ```
 
 ```json
@@ -1325,7 +1325,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_TechC
       },
       "snippet": {
         "publishedAt": "2025-03-13T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners - Complete Course 2025",
         "description": "Everything you need to start coding in Python from scratch. No experience required!\\n\\n0:00 Intro & Setup\\n3:20 Variables & Data Types\\n12:45 Control Flow\\n22:00 Functions\\n35:15 Lists & Dictionaries\\",
         "thumbnails": {
@@ -1350,7 +1350,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_TechC
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "liveBroadcastContent": "none"
       }
     },
@@ -1362,7 +1362,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_TechC
       },
       "snippet": {
         "publishedAt": "2025-02-27T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Building a REST API with FastAPI - Full Tutorial",
         "description": "Complete hands-on tutorial building a production-ready REST API with Python's FastAPI framework.\\n\\n0:00 Intro & Setup\\n4:00 Project Structure\\n8:30 First Endpoint\\n14:00 Pydantic Models\\n20:00 Databa",
         "thumbnails": {
@@ -1376,7 +1376,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=python&channelId=UC_TechC
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_TechCraftAcademy&part=snippet&order=viewCount&maxResults=5"
+curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_EquineHealthChannel&part=snippet&order=viewCount&maxResults=5"
 ```
 
 ```json
@@ -1395,7 +1395,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_TechC
       },
       "snippet": {
         "publishedAt": "2025-02-08T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Why I Left My $200K FAANG Job",
         "description": "After 3 years at a big tech company, I quit. Here's the real reason and what I'm doing instead.\\n\\n0:00 The Decision\\n4:00 What FAANG Was Like\\n10:00 The Breaking Point\\n16:00 Financial Preparation\\n2",
         "thumbnails": {
@@ -1420,7 +1420,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_TechC
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "liveBroadcastContent": "none"
       }
     },
@@ -1432,7 +1432,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_TechC
       },
       "snippet": {
         "publishedAt": "2025-03-01T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "How I'd Learn to Code in 2025 (If I Could Start Over)",
         "description": "If I could go back and restart my coding journey with what I know now, here's exactly what I'd do differently.\\n\\n0:00 My Original Path (Mistakes)\\n4:30 Step 1: Pick ONE Language\\n8:00 Step 2: Build P",
         "thumbnails": {
@@ -1446,7 +1446,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?q=career&channelId=UC_TechC
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_TechCraftAcademy&part=snippet&order=date&maxResults=5"
+curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_EquineHealthChannel&part=snippet&order=date&maxResults=5"
 ```
 
 ```json
@@ -1465,7 +1465,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_TechCraftAcade
       },
       "snippet": {
         "publishedAt": "2025-03-15T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "5 Projects That Got Me Hired as a Developer",
         "description": "Building a portfolio is the #1 way to stand out. Here are 5 real projects that helped me land my first dev job.\\n\\n0:00 Intro\\n2:15 Project 1: Full-Stack Todo App\\n8:30 Project 2: Real-time Chat\\n15:0",
         "thumbnails": {
@@ -1490,7 +1490,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_TechCraftAcade
             "height": 720
           }
         },
-        "channelTitle": "TechCraft Academy",
+        "channelTitle": "Equine Wellness Academy",
         "liveBroadcastContent": "none"
       }
     },
@@ -1502,7 +1502,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_TechCraftAcade
       },
       "snippet": {
         "publishedAt": "2025-03-13T14:00:00Z",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners - Complete Course 2025",
         "description": "Everything you need to start coding in Python from scratch. No experience required!\\n\\n0:00 Intro & Setup\\n3:20 Variables & Data Types\\n12:45 Control Flow\\n22:00 Functions\\n35:15 Lists & Dictionaries\\",
         "thumbnails": {
@@ -1516,7 +1516,7 @@ curl -X GET "http://localhost:8008/youtube/v3/search?channelId=UC_TechCraftAcade
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/search?q=xyznonexistent123&channelId=UC_TechCraftAcademy&part=snippet"
+curl -X GET "http://localhost:8008/youtube/v3/search?q=xyznonexistent123&channelId=UC_EquineHealthChannel&part=snippet"
 ```
 
 ```json
@@ -1546,7 +1546,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "1",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Film & Animation",
         "assignable": true
       }
@@ -1555,7 +1555,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "2",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Autos & Vehicles",
         "assignable": true
       }
@@ -1564,7 +1564,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "10",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Music",
         "assignable": true
       }
@@ -1573,7 +1573,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "15",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Pets & Animals",
         "assignable": true
       }
@@ -1582,7 +1582,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "17",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Sports",
         "assignable": true
       }
@@ -1591,7 +1591,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "20",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Gaming",
         "assignable": true
       }
@@ -1600,7 +1600,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "22",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "People & Blogs",
         "assignable": true
       }
@@ -1609,7 +1609,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "23",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Comedy",
         "assignable": true
       }
@@ -1618,7 +1618,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "24",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Entertainment",
         "assignable": true
       }
@@ -1627,7 +1627,7 @@ curl -X GET "http://localhost:8008/youtube/v3/videoCategories?regionCode=US&part
       "kind": "youtube#videoCategory",
       "id": "25",
       "snippet": {
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": 
 ... (truncated)
 ```
@@ -1691,7 +1691,7 @@ curl -X GET "http://localhost:8008/youtube/v3/captions?videoId=INVALID_VID_99&pa
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechCraftAcademy&part=snippet,contentDetails"
+curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_EquineHealthChannel&part=snippet,contentDetails"
 ```
 
 ```json
@@ -1703,7 +1703,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_001",
       "snippet": {
         "type": "singlePlaylist",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Python for Beginners",
         "position": 0
       },
@@ -1718,7 +1718,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_002",
       "snippet": {
         "type": "singlePlaylist",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Web Dev 2025",
         "position": 1
       },
@@ -1733,7 +1733,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_003",
       "snippet": {
         "type": "singlePlaylist",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Career Advice",
         "position": 2
       },
@@ -1748,7 +1748,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_004",
       "snippet": {
         "type": "popularUploads",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Popular Uploads",
         "position": 3
       },
@@ -1761,7 +1761,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_005",
       "snippet": {
         "type": "singlePlaylist",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "System Design",
         "position": 4
       },
@@ -1776,7 +1776,7 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=UC_TechC
       "id": "section_006",
       "snippet": {
         "type": "singlePlaylist",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": "UC_EquineHealthChannel",
         "title": "Shorts & Quick Tips",
         "position": 5
       },
@@ -1806,13 +1806,13 @@ curl -X GET "http://localhost:8008/youtube/v3/channelSections?channelId=INVALID_
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&metrics=views,estimatedMinutesWatched,subscribersGained"
+curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&metrics=views,estimatedMinutesWatched,subscribersGained"
 ```
 
 ```json
 {
   "kind": "youtubeAnalytics#resultTable",
-  "channelId": "UC_TechCraftAcademy",
+  "channelId": "UC_EquineHealthChannel",
   "period": "last28Days",
   "metrics": {
     "period": "last28Days",
@@ -1834,7 +1834,7 @@ curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_
 **Status:** 200
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&filters=video==vid_001&metrics=views"
+curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&filters=video==vid_001&metrics=views"
 ```
 
 ```json
@@ -1860,7 +1860,7 @@ curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_
 **Status:** 404
 
 ```bash
-curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_TechCraftAcademy&filters=video==INVALID_VID_99&metrics=views"
+curl -X GET "http://localhost:8008/youtube/analytics/v2/reports?ids=channel==UC_EquineHealthChannel&filters=video==INVALID_VID_99&metrics=views"
 ```
 
 ```json

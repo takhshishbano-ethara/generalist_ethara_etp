@@ -1867,12 +1867,12 @@ class Kensei(models.Model):
             test_results = self.env["kensei.test.result"].sudo().search([
                 ("kensei_id", "=", rec.id),
                 ("model_type", "!=", False),
-                ("session_index", ">", 0),
+                ("trajectory_index", ">", 0),
             ])
             for tr in test_results:
                 test_data = {
                     "model_type": tr.model_type,
-                    "session_index": tr.session_index,
+                    "session_index": tr.trajectory_index,
                     "status": tr.status,
                     "tests_total": tr.tests_total,
                     "tests_passed": tr.tests_passed,
@@ -1887,7 +1887,7 @@ class Kensei(models.Model):
                 }
                 files.append({
                     "key": "trajectories/%s/session_%02d_test.json" % (
-                        tr.model_type, tr.session_index
+                        tr.model_type, tr.trajectory_index
                     ),
                     "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
                     "content_type": "application/json",
@@ -2080,12 +2080,12 @@ class Kensei(models.Model):
         test_results = self.env["kensei.test.result"].sudo().search([
             ("kensei_id", "=", self.id),
             ("model_type", "!=", False),
-            ("session_index", ">", 0),
+            ("trajectory_index", ">", 0),
         ])
         for tr in test_results:
             test_data = {
                 "model_type": tr.model_type,
-                "session_index": tr.session_index,
+                "session_index": tr.trajectory_index,
                 "status": tr.status,
                 "tests_total": tr.tests_total,
                 "tests_passed": tr.tests_passed,
@@ -2100,7 +2100,7 @@ class Kensei(models.Model):
             }
             files_to_upload.append({
                 "key": "trajectories/%s/session_%02d_test.json" % (
-                    tr.model_type, tr.session_index
+                    tr.model_type, tr.trajectory_index
                 ),
                 "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
                 "content_type": "application/json",

@@ -1,0 +1,126 @@
+# MILO NeMo-RL Training Recipe
+# Model: NVIDIA-Nemotron-3-Nano-30B-A3B (30B MoE, 3B active params)
+# LoRA rank=64, alpha=256
+# Custom: GTPO loss + PRM step advantages + Docker sandbox environment + curriculum
+
+grpo:
+  num_prompts_per_step: 8
+  num_generations_per_prompt: 8
+  max_rollout_turns: 50
+  adv_estimator:
+    name: "milo_step"
+  reward_scaling:
+    enabled: false
+  reward_shaping:
+    enabled: false
+  use_leave_one_out_baseline: true
+
+loss_fn:
+  name: "milo_gtpo"
+  # DAPO-style asymmetric clip for token-level GTPO (arXiv:2511.14846)
+  clip_low: 0.2
+  clip_high: 0.28
+  dual_clip: true
+  dual_clip_coef: 5.0
+  kl_coef: 0.0
+  norm_adv_by_std: false
+  token_level_loss: true
+
+policy:
+  model_name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16
+  tokenizer:
+    name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  train_global_batch_size: 64
+  train_micro_batch_size: 1
+  logprob_batch_size: 1
+  max_total_sequence_length: 131072
+  dtensor_cfg:
+    enabled: true
+    tensor_parallel_size: 2
+    sequence_parallel: true
+    automodel_kwargs:
+      force_hf: true
+    lora_cfg:
+      enabled: true
+      dim: 64
+      alpha: 256
+      exclude_modules: ['*out_proj*']
+      match_all_linear: false
+      dropout: 0.0
+      dropout_position: "post"
+      lora_A_init: "xavier"
+      use_triton: false
+  optimizer:
+    name: adamw
+    lr: 3.0e-6
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+    grad_clip: 1.0
+  scheduler:
+    name: cosine
+    warmup_steps: 10
+    total_steps: 450
+    min_lr_ratio: 0.1
+  generation:
+    backend: vllm
+    vllm_cfg:
+      tensor_parallel_size: 2
+      max_model_len: 131072
+      gpu_memory_utilization: 0.85
+    temperature: 1.0
+    top_p: 1.0
+    max_new_tokens: 4096
+    colocated:
+      enabled: true
+  sequence_packing:
+    enabled: false
+
+data:
+  train:
+    dataset_name: "milo_curriculum"
+  default:
+    env_name: "milo_docker"
+
+env:
+  milo_docker:
+    max_concurrent_containers: 64
+    timeout_seconds: 1800
+    prm_mode: "bedrock"
+    num_generations_per_prompt: 8
+    partial_credit_enabled: true
+    partial_credit_alpha: 0.5
+    partial_credit_use_embeddings: true
+    embedding_region: "us-east-1"
+    format_penalty_enabled: true
+    format_penalty_value: -0.1
+    format_first_turn_tool_required: true
+    gated_reward_config:
+      gate_threshold: 0.0
+      outcome_pass: 1.0
+      outcome_fail: -0.1
+      outcome_empty: -0.2
+      outcome_timeout: -0.5
+      prm_weight: 0.3
+      length_penalty_weight: 0.1
+    prm_config:
+      mode: "bedrock"
+      shaping_alpha: 0.3
+      gtpo_gamma: 0.9
+      advantage_mode: "gtpo"
+      min_group_variance: 0.01
+
+checkpointing:
+  checkpoint_dir: results/milo-nemo-rl
+  save_every_n_steps: 10
+  max_to_keep: 20
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1
+
+logger:
+  wandb_enabled: false
+  tensorboard_enabled: true
+  wandb:
+    project: milo-rl
+    name: milo-nemo-rl

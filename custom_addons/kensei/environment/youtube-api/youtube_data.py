@@ -8,6 +8,12 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).parent
 
+# Load channel data early so coerce functions can reference it
+with open(DATA_DIR / "channel.json", encoding="utf-8") as _f:
+    _channel_raw = json.load(_f)
+_CHANNEL_ID = _channel_raw["id"]
+_CHANNEL_TITLE = _channel_raw["snippet"]["title"]
+
 
 def _load(filename):
     with open(DATA_DIR / filename, newline="", encoding="utf-8") as f:
@@ -39,7 +45,7 @@ def _coerce_videos(rows):
                     "high": {"url": thumb.replace("maxresdefault", "hqdefault") if thumb else "", "width": 480, "height": 360},
                     "maxres": {"url": thumb, "width": 1280, "height": 720},
                 },
-                "channelTitle": "TechCraft Academy",
+                "channelTitle": _CHANNEL_TITLE,
                 "tags": [t.strip() for t in r["tags"].split(",")] if r.get("tags") else [],
                 "categoryId": r.get("categoryId") or "",
                 "liveBroadcastContent": r.get("liveBroadcastContent") or "none",
@@ -88,7 +94,7 @@ def _coerce_playlists(rows):
                     "medium": {"url": f"https://i.ytimg.com/vi/playlist_{r['playlist_id']}/mqdefault.jpg", "width": 320, "height": 180},
                     "high": {"url": f"https://i.ytimg.com/vi/playlist_{r['playlist_id']}/hqdefault.jpg", "width": 480, "height": 360},
                 },
-                "channelTitle": "TechCraft Academy",
+                "channelTitle": _CHANNEL_TITLE,
             },
             "status": {
                 "privacyStatus": r["privacyStatus"],
@@ -120,7 +126,7 @@ def _coerce_playlist_items(rows):
                     "medium": {"url": f"https://i.ytimg.com/vi/{r['videoId']}/mqdefault.jpg", "width": 320, "height": 180},
                     "high": {"url": f"https://i.ytimg.com/vi/{r['videoId']}/hqdefault.jpg", "width": 480, "height": 360},
                 },
-                "channelTitle": "TechCraft Academy",
+                "channelTitle": _CHANNEL_TITLE,
             },
             "contentDetails": {
                 "videoId": r["videoId"],
@@ -178,9 +184,6 @@ _playlist_items = _coerce_playlist_items(_load("playlist_items.csv"))
 _comments = _coerce_comments(_load("comments.csv"))
 _captions = _coerce_captions(_load("captions.csv"))
 
-with open(DATA_DIR / "channel.json", encoding="utf-8") as _f:
-    _channel = json.load(_f)
-
 with open(DATA_DIR / "video_categories.json", encoding="utf-8") as _f:
     _video_categories = json.load(_f)
 
@@ -190,13 +193,12 @@ with open(DATA_DIR / "channel_sections.json", encoding="utf-8") as _f:
 with open(DATA_DIR / "analytics.json", encoding="utf-8") as _f:
     _analytics = json.load(_f)
 
-# Mutable in-memory stores
 _videos_store = deepcopy(_videos)
 _playlists_store = deepcopy(_playlists)
 _playlist_items_store = deepcopy(_playlist_items)
 _comments_store = deepcopy(_comments)
 _captions_store = deepcopy(_captions)
-_channel_store = deepcopy(_channel)
+_channel_store = deepcopy(_channel_raw)
 _video_categories_store = deepcopy(_video_categories)
 _channel_sections_store = deepcopy(_channel_sections)
 _analytics_store = deepcopy(_analytics)
@@ -339,7 +341,7 @@ def create_playlist(data: dict):
         "id": f"PL_{_next_playlist_id:03d}",
         "snippet": {
             "publishedAt": now,
-            "channelId": "UC_TechCraftAcademy",
+            "channelId": _CHANNEL_ID,
             "title": snippet["title"],
             "description": snippet.get("description", ""),
             "thumbnails": {
@@ -347,7 +349,7 @@ def create_playlist(data: dict):
                 "medium": {"url": f"https://i.ytimg.com/vi/playlist_PL_{_next_playlist_id:03d}/mqdefault.jpg", "width": 320, "height": 180},
                 "high": {"url": f"https://i.ytimg.com/vi/playlist_PL_{_next_playlist_id:03d}/hqdefault.jpg", "width": 480, "height": 360},
             },
-            "channelTitle": "TechCraft Academy",
+            "channelTitle": _CHANNEL_TITLE,
         },
         "status": {
             "privacyStatus": data.get("status", {}).get("privacyStatus", "public"),
@@ -436,7 +438,7 @@ def insert_playlist_item(data: dict):
         "id": f"PLI_{_next_playlist_item_id:03d}",
         "snippet": {
             "publishedAt": now,
-            "channelId": "UC_TechCraftAcademy",
+            "channelId": _CHANNEL_ID,
             "title": "",
             "playlistId": playlist_id,
             "position": position,
@@ -449,7 +451,7 @@ def insert_playlist_item(data: dict):
                 "medium": {"url": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg", "width": 320, "height": 180},
                 "high": {"url": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg", "width": 480, "height": 360},
             },
-            "channelTitle": "TechCraft Academy",
+            "channelTitle": _CHANNEL_TITLE,
         },
         "contentDetails": {
             "videoId": video_id,
@@ -535,7 +537,7 @@ def list_comment_threads(video_id: str = None, channel_id: str = None, max_resul
             "kind": "youtube#commentThread",
             "id": comment["id"],
             "snippet": {
-                "channelId": "UC_TechCraftAcademy",
+                "channelId": _CHANNEL_ID,
                 "videoId": comment["videoId"],
                 "topLevelComment": {
                     "kind": "youtube#comment",
@@ -572,7 +574,7 @@ def get_comment_thread(comment_id: str):
                 "kind": "youtube#commentThread",
                 "id": c["id"],
                 "snippet": {
-                    "channelId": "UC_TechCraftAcademy",
+                    "channelId": _CHANNEL_ID,
                     "videoId": c["videoId"],
                     "topLevelComment": {
                         "kind": "youtube#comment",
@@ -614,11 +616,11 @@ def insert_comment_thread(data: dict):
     comment = {
         "id": comment_id,
         "videoId": video_id,
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": _CHANNEL_ID,
         "parentId": None,
         "snippet": {
-            "authorDisplayName": "TechCraft Academy",
-            "authorChannelId": {"value": "UC_TechCraftAcademy"},
+            "authorDisplayName": _CHANNEL_TITLE,
+            "authorChannelId": {"value": _CHANNEL_ID},
             "textDisplay": text,
             "textOriginal": text,
             "likeCount": 0,
@@ -636,7 +638,7 @@ def insert_comment_thread(data: dict):
         "kind": "youtube#commentThread",
         "id": comment_id,
         "snippet": {
-            "channelId": "UC_TechCraftAcademy",
+            "channelId": _CHANNEL_ID,
             "videoId": video_id,
             "topLevelComment": {
                 "kind": "youtube#comment",
@@ -701,11 +703,11 @@ def insert_comment(data: dict):
     comment = {
         "id": comment_id,
         "videoId": video_id,
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": _CHANNEL_ID,
         "parentId": parent_id,
         "snippet": {
-            "authorDisplayName": "TechCraft Academy",
-            "authorChannelId": {"value": "UC_TechCraftAcademy"},
+            "authorDisplayName": _CHANNEL_TITLE,
+            "authorChannelId": {"value": _CHANNEL_ID},
             "textDisplay": text,
             "textOriginal": text,
             "likeCount": 0,
@@ -888,7 +890,7 @@ def list_captions(video_id: str):
 # ---------------------------------------------------------------------------
 
 def list_channel_sections(channel_id: str):
-    if channel_id != "UC_TechCraftAcademy":
+    if channel_id != _CHANNEL_ID:
         return {"error": f"Channel {channel_id} not found"}
     items = [{
         "kind": "youtube#channelSection",
@@ -910,7 +912,7 @@ def list_channel_sections(channel_id: str):
 def get_channel_analytics():
     return {
         "kind": "youtubeAnalytics#resultTable",
-        "channelId": "UC_TechCraftAcademy",
+        "channelId": _CHANNEL_ID,
         "period": _analytics_store["channel"]["period"],
         "metrics": _analytics_store["channel"],
     }
