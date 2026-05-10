@@ -42,7 +42,6 @@ class TrainingWizard extends Component {
             datasetInfo: null,
             loadingDatasets: false,
             loadingInfo: false,
-            rewardDescription: "",
             datasetConfigApplied: false,
             configSections: {
                 lora: true,
@@ -151,7 +150,7 @@ class TrainingWizard extends Component {
             case 0:
                 return this.state.wizardData.selectedModelId && this.state.wizardData.customName.trim();
             case 1:
-                return true;
+                return !!this.state.wizardData.dataset;
             case 2:
                 return this.state.trainingState.status === "completed";
             default:
@@ -199,7 +198,6 @@ class TrainingWizard extends Component {
         this.state.wizardData.dataset = dataset;
         this.state.datasetInfo = null;
         this.state.loadingInfo = true;
-        this.state.rewardDescription = "";
         this.state.datasetConfigApplied = false;
         try {
             const info = await this.rpc("/rl_gym/datasets/info", { repo_id: dataset.id });
@@ -216,14 +214,12 @@ class TrainingWizard extends Component {
         try {
             const defaults = await this.rpc("/rl_gym/config/dataset_defaults", { repo_id: repoId });
             if (defaults && typeof defaults === "object" && Object.keys(defaults).length > 0) {
-                const reward = defaults.reward_description || "";
                 Object.keys(defaults).forEach((k) => {
                     if (k === "reward_description") return;
                     if (k in this.state.wizardData.config) {
                         this.state.wizardData.config[k] = defaults[k];
                     }
                 });
-                this.state.rewardDescription = reward;
                 this.state.datasetConfigApplied = true;
                 setTimeout(() => {
                     this.state.datasetConfigApplied = false;
@@ -290,6 +286,7 @@ class TrainingWizard extends Component {
                 this.state.wizardData.configId = configResult.id;
             } catch (e) {
                 console.error("Save config/dataset failed:", e);
+                return;
             }
         }
         if (this.state.currentStep < 5) {

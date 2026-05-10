@@ -34,7 +34,6 @@ const CONFIG_SECTIONS = [
         label: "Policy",
         fields: [
             { key: "policy_type", label: "Policy Type", type: "select", options: [
-                { value: "gspo", label: "GSPO" },
                 { value: "gtpo", label: "GTPO" },
             ]},
             { key: "gspo_group_size", label: "Group Size", type: "number", step: 1 },
@@ -141,7 +140,6 @@ export class StepConfiguration extends Component {
         loadingDatasets: { type: Boolean },
         loadingInfo: { type: Boolean },
         sections: { type: Object },
-        rewardDescription: { type: String, optional: true },
         datasetConfigApplied: { type: Boolean, optional: true },
         onConfigChange: { type: Function },
         onDatasetSearch: { type: Function },
@@ -222,7 +220,8 @@ export class StepConfiguration extends Component {
         if (ev.target.type === "checkbox") {
             val = ev.target.checked;
         } else if (ev.target.type === "number" || ev.target.tagName === "INPUT" && ev.target.step) {
-            val = parseFloat(ev.target.value);
+            val = ev.target.value === "" ? 0 : parseFloat(ev.target.value);
+            if (isNaN(val)) val = 0;
         } else {
             val = ev.target.value;
         }

@@ -17,7 +17,6 @@ const CHART_DEFS = [
         title: "Loss Decomposition",
         datasets: [
             { key: "policy_loss", label: "Policy Loss", color: "#3b82f6", width: 1.8 },
-            { key: "value_loss", label: "Value Loss", color: "#f59e0b", width: 1.8 },
             { key: "loss", label: "Total Loss", color: "#ef4444", width: 1.2 },
         ],
         yTitle: "Loss",

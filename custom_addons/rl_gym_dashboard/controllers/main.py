@@ -310,7 +310,35 @@ class RlGymController(http.Controller):
         job = request.env['rl.training.job'].browse(int(job_id))
         if not job.exists():
             return {'error': 'Job not found'}
-        job.action_simulate_step()
+
+        metric = request.env['rl.training.metric'].search(
+            [('job_id', '=', job.id)],
+            order='step desc',
+            limit=1,
+        )
+        m = {}
+        if metric:
+            m = {
+                'loss': metric.loss,
+                'reward': metric.reward,
+                'gradient_norm': metric.gradient_norm,
+                'learning_rate': metric.learning_rate,
+                'entropy': metric.entropy,
+                'kl_divergence': metric.kl_divergence,
+                'tokens_per_second': metric.tokens_per_second,
+                'policy_loss': metric.policy_loss,
+                'value_loss': metric.value_loss,
+                'clip_fraction': metric.clip_fraction,
+                'reward_mean': metric.reward_mean,
+                'reward_std': metric.reward_std,
+                'advantage_mean': metric.advantage_mean,
+                'samples_per_second': metric.samples_per_second,
+                'gpu_memory_used': metric.gpu_memory_used,
+                'cpu_percent': metric.cpu_percent,
+                'memory_percent': metric.memory_percent,
+                'gpu_utilization': metric.gpu_utilization,
+            }
+
         return {
             'state': job.state,
             'current_step': job.current_step,
@@ -319,7 +347,8 @@ class RlGymController(http.Controller):
             'current_loss': job.current_loss,
             'current_reward': job.current_reward,
             'best_reward': job.best_reward,
-            'policy_type': job.config_id.policy_type if job.config_id else 'gspo',
+            'policy_type': job.config_id.policy_type if job.config_id else 'gtpo',
+            **m,
         }
 
     @http.route('/rl_gym/training/metrics', type='json', auth='user')
@@ -330,7 +359,8 @@ class RlGymController(http.Controller):
                 'entropy', 'kl_divergence', 'tokens_per_second',
                 'policy_loss', 'value_loss', 'clip_fraction',
                 'reward_mean', 'reward_std', 'advantage_mean',
-                'samples_per_second', 'gpu_memory_used'],
+                'samples_per_second', 'gpu_memory_used',
+                'cpu_percent', 'memory_percent', 'gpu_utilization'],
             order='step asc',
             limit=2000
         )
@@ -368,6 +398,14 @@ class RlGymController(http.Controller):
 
         try:
             import boto3
+            import os
+            safe_path = os.path.realpath(weight.file_path or '')
+            if not os.path.isfile(safe_path):
+                return {'error': 'Weight file not found on server'}
+            allowed_dirs = ['/tmp', '/var/lib/odoo', '/home']
+            if not any(safe_path.startswith(d) for d in allowed_dirs):
+                return {'error': 'File path not in allowed directory'}
+
             s3 = boto3.client(
                 's3',
                 aws_access_key_id=config['aws_access_key'],
@@ -377,7 +415,7 @@ class RlGymController(http.Controller):
 
             s3_key = f"models/{weight.job_id.name}/{weight.name}"
             s3.upload_file(
-                weight.file_path,
+                safe_path,
                 config['aws_bucket'],
                 s3_key,
             )
@@ -800,10 +838,10 @@ class RlGymController(http.Controller):
             'gpu_count': 8, 'precision': 'bf16',
             'tp_size': 2, 'max_model_len': 131072,
             'docker_containers': 64, 'docker_timeout': 1800, 'vllm_gpus': 2,
-            'reward_description': 'Binary exact-match + overlong penalty. GRPO+ARPO hybrid with length penalty at 70% max_turns.',
+            'reward_description': 'Binary exact-match + overlong penalty. GTPO+ARPO hybrid with length penalty at 70% max_turns.',
         },
         'ethara/Mars': {
-            'policy_type': 'gspo', 'learning_rate': 1e-6, 'batch_size': 64,
+            'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
             'gradient_accumulation': 8, 'max_steps': 300, 'warmup_steps': 10,
             'max_grad_norm': 1.0, 'weight_decay': 0.01,
             'lora_rank': 64, 'lora_alpha': 256, 'lora_dropout': 0.0,
@@ -830,7 +868,7 @@ class RlGymController(http.Controller):
             'gpu_count': 8, 'precision': 'bf16',
             'tp_size': 2, 'max_model_len': 131072,
             'docker_containers': 64, 'docker_timeout': 1800, 'vllm_gpus': 2,
-            'reward_description': 'Binary test-suite reward. Sequence-level GSPO with large effective batch (64×8=512 rollouts). No KL — pure on-policy.',
+            'reward_description': 'Binary test-suite reward. Sequence-level GTPO with large effective batch (64×8=512 rollouts). No KL — pure on-policy.',
         },
         'ethara/Vesta': {
             'policy_type': 'gtpo', 'learning_rate': 1e-6, 'batch_size': 64,
@@ -899,3 +937,66 @@ class RlGymController(http.Controller):
         if not repo_id:
             return {}
         return self.DATASET_CONFIGS.get(repo_id, {})
+
+    @http.route('/rl_gym/dashboard/runs', type='json', auth='user')
+    def get_dashboard_runs(self):
+        jobs = request.env['rl.training.job'].search_read(
+            [('state', 'in', ('completed', 'training', 'failed', 'cancelled'))],
+            ['name', 'state', 'model_id', 'config_id', 'current_step', 'total_steps',
+             'progress', 'current_loss', 'current_reward', 'best_reward',
+             'started_at', 'completed_at', 'elapsed_time'],
+            order='create_date desc',
+            limit=50
+        )
+        Metric = request.env['rl.training.metric']
+        result = []
+        for job in jobs:
+            job_id = job['id']
+            first_m = Metric.search_read([('job_id', '=', job_id)], ['loss', 'reward'], order='step asc', limit=1)
+            last_m = Metric.search_read([('job_id', '=', job_id)], ['loss', 'reward'], order='step desc', limit=1)
+            duration_label = ''
+            if job.get('started_at') and job.get('completed_at'):
+                try:
+                    delta = job['completed_at'] - job['started_at']
+                    secs = delta.total_seconds()
+                    hours = int(secs // 3600)
+                    mins = int((secs % 3600) // 60)
+                    duration_label = f"{hours}h {mins}m" if hours else f"{mins}m"
+                except Exception:
+                    duration_label = str(job.get('elapsed_time', ''))
+            elif job.get('started_at'):
+                duration_label = "Running..."
+            result.append({
+                'id': job['id'],
+                'name': job['name'],
+                'state': job['state'],
+                'model_name': job['model_id'][1] if job.get('model_id') else '',
+                'current_step': job['current_step'],
+                'total_steps': job['total_steps'],
+                'progress': job['progress'],
+                'best_reward': round(job['best_reward'], 4) if job.get('best_reward') else 0,
+                'duration_label': duration_label,
+                'first_loss': round(first_m[0]['loss'], 4) if first_m else None,
+                'last_loss': round(last_m[0]['loss'], 4) if last_m else None,
+                'first_reward': round(first_m[0]['reward'], 4) if first_m else None,
+                'last_reward': round(last_m[0]['reward'], 4) if last_m else None,
+            })
+        return result
+
+    @http.route('/rl_gym/dashboard/sparkline', type='json', auth='user')
+    def get_run_sparkline(self, job_id, max_points=50):
+        job_id = int(job_id)
+        metrics = request.env['rl.training.metric'].search_read(
+            [('job_id', '=', job_id)],
+            ['step', 'loss', 'reward'],
+            order='step asc'
+        )
+        if not metrics:
+            return {'steps': [], 'loss': [], 'reward': []}
+        step_size = max(1, len(metrics) // max_points)
+        sampled = metrics[::step_size][:max_points]
+        return {
+            'steps': [m['step'] for m in sampled],
+            'loss': [round(m['loss'], 4) for m in sampled],
+            'reward': [round(m['reward'], 4) for m in sampled],
+        }

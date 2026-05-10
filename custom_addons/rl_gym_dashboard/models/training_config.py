@@ -14,7 +14,6 @@ class RlTrainingConfig(models.Model):
 
     # Policy Type
     policy_type = fields.Selection([
-        ('gspo', 'GSPO'),
         ('gtpo', 'GTPO'),
     ], string='Policy Type', default='gtpo')
 

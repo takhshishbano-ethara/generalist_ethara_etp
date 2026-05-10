@@ -29,6 +29,5 @@ class RlTrainingModel(models.Model):
     base_model = fields.Char(string='Base Model',
                              help='Parent model if fine-tuned')
     recommended_policy = fields.Selection([
-        ('gspo', 'GSPO'),
         ('gtpo', 'GTPO'),
-    ], string='Recommended Policy', default='gspo')
+    ], string='Recommended Policy', default='gtpo')

@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <!-- ============ CLIENT ACTIONS (OWL components) ============ -->
+    <record id="action_runs_dashboard" model="ir.actions.client">
+        <field name="name">Training Dashboard</field>
+        <field name="tag">rl_gym_dashboard.runs_dashboard</field>
+    </record>
+
     <record id="action_rl_gym_dashboard" model="ir.actions.client">
         <field name="name">RL Training Monitor</field>
         <field name="tag">rl_gym_dashboard.main</field>
@@ -10,15 +16,26 @@
         <field name="tag">rl_gym_dashboard.training_wizard</field>
     </record>
 
+    <!-- ============ MENUS ============ -->
     <menuitem id="menu_rl_gym_root"
               name="RL Training"
-              action="action_training_wizard"
               sequence="205"/>
 
-    <!-- Training Monitor menu hidden - code preserved, just not shown to user -->
-    <!-- <menuitem id="menu_rl_gym_dashboard"
-              name="Training Monitor"
+    <menuitem id="menu_runs_dashboard"
+              name="Dashboard"
               parent="menu_rl_gym_root"
-              action="action_rl_gym_dashboard"
-              sequence="10"/> -->
+              action="action_runs_dashboard"
+              sequence="5"/>
+
+    <menuitem id="menu_training_wizard"
+              name="New Training"
+              parent="menu_rl_gym_root"
+              action="action_training_wizard"
+              sequence="10"/>
+
+    <menuitem id="menu_training_jobs"
+              name="All Jobs"
+              parent="menu_rl_gym_root"
+              action="action_training_job_list"
+              sequence="20"/>
 </odoo>

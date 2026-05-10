@@ -7,7 +7,7 @@
     <t t-name="rl_gym_dashboard.TrainingWizard">
         <div class="rl-wizard-container">
             <header class="rl-wizard-header">
-                <h1 class="rl-wizard-header__title">ML Training Wizard</h1>
+                <h1 class="rl-wizard-header__title">RL Training</h1>
                 <span class="rl-wizard-header__badge">6-Step Pipeline</span>
             </header>
 
@@ -52,7 +52,6 @@
                         loadingDatasets="state.loadingDatasets"
                         loadingInfo="state.loadingInfo"
                         sections="state.configSections"
-                        rewardDescription="state.rewardDescription"
                         datasetConfigApplied="state.datasetConfigApplied"
                         onConfigChange.bind="onConfigChange"
                         onDatasetSearch.bind="onDatasetSearch"
@@ -199,15 +198,7 @@
                     </button>
                 </div>
 
-                <t t-if="props.rewardDescription">
-                    <div class="rl-wizard-config__reward-info">
-                        <span class="rl-wizard-config__reward-icon">⚡</span>
-                        <div class="rl-wizard-config__reward-content">
-                            <span class="rl-wizard-config__reward-label">Reward Strategy</span>
-                            <span class="rl-wizard-config__reward-text" t-esc="props.rewardDescription"/>
-                        </div>
-                    </div>
-                </t>
+
 
                 <t t-foreach="configSections" t-as="section" t-key="section.key">
                     <div class="rl-wizard-config__section">
@@ -441,68 +432,219 @@
     <!-- Step 3: Training                                                    -->
     <!-- ================================================================== -->
     <t t-name="rl_gym_dashboard.TrainingWizard.StepTraining">
-        <div class="rl-wizard-training">
-            <!-- Status + Pause -->
-            <div class="rl-wizard-training__status">
-                <span t-att-class="'rl-wizard-training__status-badge rl-wizard-training__status-badge--' + state.status"
-                      t-esc="state.statusLabel"/>
-                <t t-if="state.status === 'training' or state.status === 'paused'">
-                    <button t-att-class="'rl-wizard-btn ' + (state.status === 'paused' ? 'rl-wizard-btn--success' : 'rl-wizard-btn--orange')"
-                            t-on-click="togglePause"
-                            style="padding: 6px 14px; font-size: 12px;">
-                        <t t-if="state.status === 'paused'">▶ Resume</t>
-                        <t t-else="">⏸ Pause</t>
-                    </button>
+        <div t-att-class="'rl-wb' + (state.sidebarOpen ? '' : ' rl-wb--sidebar-collapsed')">
+            <div class="rl-wb__sidebar">
+                <button class="rl-wb__sidebar-toggle" t-on-click="toggleSidebar">
+                    <t t-if="state.sidebarOpen">◀</t>
+                    <t t-else="">▶</t>
+                </button>
+                <t t-if="state.sidebarOpen">
+                    <div class="rl-wb__run-info">
+                        <div class="rl-wb__run-name" t-esc="props.jobName or 'training-run'"/>
+                        <span t-att-class="'rl-wb__badge rl-wb__badge--' + state.status" t-esc="state.statusLabel"/>
+                        <dl class="rl-wb__run-meta">
+                            <dt>Policy</dt><dd t-esc="state.policyType"/>
+                            <dt>Steps</dt><dd><t t-esc="state.currentStep"/>/<t t-esc="state.totalSteps"/></dd>
+                            <dt>Duration</dt><dd t-esc="state.duration"/>
+                            <dt>Best</dt><dd t-esc="state.bestReward"/>
+                        </dl>
+                    </div>
                 </t>
             </div>
 
-            <!-- Progress Bar -->
-            <div class="rl-wizard-training__progress">
-                <div class="rl-wizard-training__progress-bar">
-                    <div class="rl-wizard-training__progress-fill"
-                         t-attf-style="width: {{ state.progress }}%"/>
+            <div class="rl-wb__main">
+                <div class="rl-wb__topbar">
+                    <span t-att-class="'rl-wb__badge rl-wb__badge--' + state.status" t-esc="state.statusLabel"/>
+                    <div class="rl-wb__progress">
+                        <div class="rl-wb__progress-bar">
+                            <div class="rl-wb__progress-fill" t-attf-style="width: {{ state.progress }}%"/>
+                        </div>
+                        <span class="rl-wb__progress-text"><t t-esc="state.progress"/>% · Step <t t-esc="state.currentStep"/>/<t t-esc="state.totalSteps"/></span>
+                    </div>
+                    <div class="rl-wb__controls">
+                        <button t-if="state.status === 'training' or state.status === 'paused'"
+                                t-att-class="'rl-wb__btn ' + (state.status === 'paused' ? 'rl-wb__btn--success' : 'rl-wb__btn--warn')"
+                                t-on-click="togglePause">
+                            <t t-if="state.status === 'paused'">▶ Resume</t>
+                            <t t-else="">⏸ Pause</t>
+                        </button>
+                    </div>
                 </div>
-                <div class="rl-wizard-training__progress-text">
-                    <span><t t-esc="state.progress"/>%</span>
-                    <span>Step <t t-esc="state.currentStep"/> / <t t-esc="state.totalSteps"/></span>
+
+                <div class="rl-wb__tabs">
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'overview' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('overview')">Overview</button>
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'charts' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('charts')">Charts</button>
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'logs' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('logs')">Logs</button>
+                </div>
+
+                <div class="rl-wb__tab-content">
+                    <t t-if="state.activeTab === 'charts'">
+                        <div class="rl-wb__workspace-controls">
+                            <div class="rl-wb__control-group">
+                                <span class="rl-wb__control-label">Smoothing</span>
+                                <select class="rl-wb__select" t-on-change="onSmoothingTypeChange">
+                                    <option value="none" t-att-selected="state.smoothingType === 'none'">None</option>
+                                    <option value="ema" t-att-selected="state.smoothingType === 'ema'">EMA</option>
+                                    <option value="twema" t-att-selected="state.smoothingType === 'twema'">TW-EMA</option>
+                                    <option value="gaussian" t-att-selected="state.smoothingType === 'gaussian'">Gaussian</option>
+                                    <option value="running" t-att-selected="state.smoothingType === 'running'">Running Avg</option>
+                                </select>
+                            </div>
+                            <div class="rl-wb__control-group" t-if="state.smoothingType !== 'none'">
+                                <span class="rl-wb__control-label">Weight</span>
+                                <input type="range" class="rl-wb__slider" min="0" max="0.99" step="0.01"
+                                       t-att-value="state.smoothingWeight"
+                                       t-on-input="onSmoothingWeightChange"/>
+                                <span class="rl-wb__slider-value" t-esc="state.smoothingWeight.toFixed(2)"/>
+                            </div>
+                            <div class="rl-wb__control-group">
+                                <button t-att-class="'rl-wb__toggle' + (state.ignoreOutliers ? ' rl-wb__toggle--active' : '')"
+                                        t-on-click="toggleOutliers">Ignore Outliers</button>
+                            </div>
+                        </div>
+
+                        <div class="rl-wb__kpi-strip">
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Loss</span><span class="rl-wb__kpi-value" t-esc="state.currentLoss"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Reward</span><span class="rl-wb__kpi-value" t-esc="state.currentReward"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Best</span><span class="rl-wb__kpi-value" t-esc="state.bestReward"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">LR</span><span class="rl-wb__kpi-value" t-esc="state.learningRate"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Tok/s</span><span class="rl-wb__kpi-value" t-esc="state.tokensPerSec"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">GPU</span><span class="rl-wb__kpi-value" t-esc="state.gpuMem"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Policy</span><span class="rl-wb__kpi-value" t-esc="state.policyType"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">ETA</span><span class="rl-wb__kpi-value" t-esc="state.etaLabel"/></div>
+                        </div>
+
+                        <t t-foreach="state.sections" t-as="section" t-key="section_index">
+                            <div t-att-class="'rl-wb__section' + (section.pinned ? ' rl-wb__section--pinned' : '')">
+                                <div class="rl-wb__section-hdr" t-on-click="() => this.toggleSection(section_index)">
+                                    <span t-att-class="'rl-wb__chevron' + (section.open ? ' rl-wb__chevron--open' : '')">▸</span>
+                                    <span class="rl-wb__section-title" t-esc="section.title"/>
+                                    <span class="rl-wb__section-count"><t t-esc="getChartsForSection(section_index).length"/> charts</span>
+                                    <button t-att-class="'rl-wb__section-pin' + (section.pinned ? ' rl-wb__section-pin--active' : '')"
+                                            t-on-click.stop="() => this.togglePin(section_index)">📌</button>
+                                </div>
+                                <t t-if="section.open">
+                                    <div class="rl-wb__grid">
+                                        <t t-foreach="getChartsForSection(section_index)" t-as="cdef" t-key="cdef.id">
+                                            <div class="rl-wb__panel">
+                                                <div class="rl-wb__panel-header">
+                                                    <span class="rl-wb__panel-dot" t-attf-style="background: {{ cdef.lines[0].color }}"/>
+                                                    <span class="rl-wb__panel-title" t-esc="cdef.title"/>
+                                                    <button class="rl-wb__panel-expand" t-on-click="() => this.openFullscreen(cdef.id)">⛶</button>
+                                                </div>
+                                                <div class="rl-wb__panel-body">
+                                                    <canvas t-att-data-chart-id="cdef.id"/>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+                    </t>
+
+                    <t t-if="state.activeTab === 'overview'">
+                        <div class="rl-wb__overview">
+                            <div class="rl-wb__overview-grid">
+                                <div class="rl-wb__overview-card">
+                                    <h4>Run Config</h4>
+                                    <dl>
+                                        <dt>Job</dt><dd t-esc="props.jobName or 'training-run'"/>
+                                        <dt>Policy</dt><dd t-esc="state.policyType"/>
+                                        <dt>Total Steps</dt><dd t-esc="state.totalSteps"/>
+                                        <dt>Duration</dt><dd t-esc="state.duration"/>
+                                    </dl>
+                                </div>
+                                <div class="rl-wb__overview-card">
+                                    <h4>Summary Metrics</h4>
+                                    <dl>
+                                        <dt>Current Loss</dt><dd t-esc="state.currentLoss"/>
+                                        <dt>Current Reward</dt><dd t-esc="state.currentReward"/>
+                                        <dt>Best Reward</dt><dd t-esc="state.bestReward"/>
+                                        <dt>Learning Rate</dt><dd t-esc="state.learningRate"/>
+                                    </dl>
+                                </div>
+                                <div class="rl-wb__overview-card">
+                                    <h4>Performance</h4>
+                                    <dl>
+                                        <dt>Tokens/sec</dt><dd t-esc="state.tokensPerSec"/>
+                                        <dt>GPU Memory</dt><dd t-esc="state.gpuMem"/>
+                                        <dt>ETA</dt><dd t-esc="state.etaLabel"/>
+                                        <dt>Progress</dt><dd><t t-esc="state.progress"/>%</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <t t-if="state.activeTab === 'logs'">
+                        <div class="rl-wb__logs">
+                            <div class="rl-wb__logs-toolbar">
+                                <input type="text" class="rl-wb__logs-search" placeholder="Search logs..."
+                                       t-att-value="state.logSearch" t-on-input="onLogSearch"/>
+                                <select class="rl-wb__logs-filter" t-on-change="onLogFilterChange">
+                                    <option value="all" t-att-selected="state.logFilter === 'all'">All</option>
+                                    <option value="warn" t-att-selected="state.logFilter === 'warn'">Warnings+</option>
+                                    <option value="error" t-att-selected="state.logFilter === 'error'">Errors</option>
+                                </select>
+                                <button t-att-class="'rl-wb__toggle' + (state.logAutoScroll ? ' rl-wb__toggle--active' : '')"
+                                        t-on-click="toggleAutoScroll">Auto-scroll</button>
+                            </div>
+                            <div class="rl-wb__log" t-ref="logScroll" t-on-scroll="onLogScroll">
+                                <table class="rl-wb__log-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th><th>Step</th><th>Loss</th><th>Reward</th><th>LR</th>
+                                            <th>Grad</th><th>Entropy</th><th>KL</th><th>Clip</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="filteredLogs" t-as="row" t-key="row.step">
+                                            <tr t-att-class="'rl-wb__log-row--' + row.severity">
+                                                <td t-esc="row.timeLabel"/>
+                                                <td t-esc="row.step"/>
+                                                <td t-esc="row.loss"/>
+                                                <td t-esc="row.reward"/>
+                                                <td t-esc="row.lr"/>
+                                                <td t-esc="row.grad"/>
+                                                <td t-esc="row.entropy"/>
+                                                <td t-esc="row.kl"/>
+                                                <td t-esc="row.clip"/>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <t t-if="state.logNewCount > 0">
+                                <button class="rl-wb__logs-new-indicator" t-on-click="scrollToBottom">
+                                    <t t-esc="state.logNewCount"/> new entries ↓
+                                </button>
+                            </t>
+                        </div>
+                    </t>
                 </div>
             </div>
 
-            <!-- Chart -->
-            <div class="rl-wizard-training__chart-area">
-                <h3 class="rl-wizard-training__chart-title">Loss &amp; Reward</h3>
-                <div class="rl-wizard-training__chart-canvas">
-                    <canvas t-ref="trainingChart"/>
+            <t t-if="state.fullscreenChartId">
+                <div class="rl-wb__fullscreen-overlay" t-on-click="closeFullscreen">
+                    <div class="rl-wb__fullscreen-modal" t-on-click.stop="">
+                        <div class="rl-wb__fullscreen-header">
+                            <t t-set="fsDef" t-value="getFullscreenDef()"/>
+                            <t t-if="fsDef">
+                                <span class="rl-wb__panel-dot" t-attf-style="background: {{ fsDef.lines[0].color }}"/>
+                                <span class="rl-wb__fullscreen-title" t-esc="fsDef.title"/>
+                            </t>
+                            <button class="rl-wb__fullscreen-close" t-on-click="closeFullscreen">✕</button>
+                        </div>
+                        <div class="rl-wb__fullscreen-body">
+                            <canvas t-ref="fullscreenCanvas"/>
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Live Metrics -->
-            <div class="rl-wizard-training__metrics">
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Policy</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="state.policyType"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Loss</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentLoss)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Reward</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentReward)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Best Reward</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.bestReward)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Learning Rate</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="state.learningRate"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Tokens/sec</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="state.tokensPerSec"/>
-                </div>
-            </div>
+            </t>
         </div>
     </t>
 

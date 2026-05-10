@@ -2,7 +2,7 @@
     'name': 'RL Training Dashboard',
     'version': '19.0.2.0.0',
     'category': 'Productivity',
-    'summary': 'ML Model Training Platform with 6-Step Wizard',
+    'summary': 'RL Model Training Platform with 6-Step Wizard',
     'description': """
 RL Training Platform
 ====================
@@ -20,7 +20,7 @@ Features:
 - Live updating Chart.js graphs
 - KPI cards for key training metrics
 - HuggingFace dataset search and preview
-- LoRA/GSPO/Curriculum configuration
+- LoRA/GTPO/Curriculum configuration
 - S3 upload for trained weights
 - Inference playground
     """,
@@ -35,11 +35,17 @@ Features:
     'data': [
         'security/ir.model.access.csv',
         'data/seed_models.xml',
+        'views/rl_training_job_views.xml',
         'views/rl_gym_dashboard_menus.xml',
     ],
+    'post_init_hook': 'seed_demo_data',
     'assets': {
         'web.assets_backend': [
             'rl_gym_dashboard/static/src/scss/rl_dashboard.scss',
+            'rl_gym_dashboard/static/src/components/chart_utils.js',
+            'rl_gym_dashboard/static/src/components/runs_dashboard/runs_dashboard.scss',
+            'rl_gym_dashboard/static/src/components/runs_dashboard/runs_dashboard.js',
+            'rl_gym_dashboard/static/src/components/runs_dashboard/runs_dashboard.xml',
             'rl_gym_dashboard/static/src/components/dashboard/dashboard.js',
             'rl_gym_dashboard/static/src/components/dashboard/dashboard.xml',
             'rl_gym_dashboard/static/src/components/training_wizard/training_wizard.scss',
