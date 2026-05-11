@@ -43,8 +43,8 @@
   /* model semantic colors — split into ink + surface variants */
   --glm:           #2A5CB8;   /* blue ink · 5.9:1 */
   --glm-surface:   #E5EDFB;
-  --nova:          #5C3FB3;   /* purple ink · 7.2:1 */
-  --nova-surface:  #EEE4FB;
+  --kimi:          #5C3FB3;   /* purple ink · 7.2:1 */
+  --kimi-surface:  #EEE4FB;
 
   /* pass / fail */
   --pass:          #0E8F4B;   /* green ink · 4.6:1 on white */
@@ -752,7 +752,7 @@ hr.rule {
 .caption a { color: var(--accent); border-bottom: 1px solid var(--border-2); }
 .caption a:hover { border-color: var(--accent); }
 .tok-glm  { color: var(--glm); font-weight: 500; }
-.tok-nova { color: var(--nova); font-weight: 500; }
+.tok-kimi { color: var(--kimi); font-weight: 500; }
 
 /* ============================================================
    CHART TRIGGER + LIGHTBOX
@@ -1073,7 +1073,7 @@ hr.rule {
 .th-tests { width: 80px; text-align: center; white-space: nowrap; }
 .th-python { width: 100px; text-align: center; white-space: nowrap; }
 .th-glm,
-.th-nova { width: 22%; text-align: center; white-space: nowrap; }
+.th-kimi { width: 22%; text-align: center; white-space: nowrap; }
 .th-expand { width: 44px; text-align: center; cursor: default; }
 
 .viewer-table tbody tr {
@@ -1196,7 +1196,7 @@ hr.rule {
   color: var(--ink-3);
 }
 .kj-td-glm,
-.kj-td-nova { text-align: center; }
+.kj-td-kimi { text-align: center; }
 .kj-td-expand { text-align: center; }
 
 /* ── expand icon — both prefixed and unprefixed ── */
@@ -1601,8 +1601,8 @@ hr.rule {
   /* model semantic colors */
   --glm:             #89B5FF;
   --glm-surface:     rgba(137,181,255,0.14);
-  --nova:            #CDB0FF;
-  --nova-surface:    rgba(205,176,255,0.14);
+  --kimi:            #CDB0FF;
+  --kimi-surface:    rgba(205,176,255,0.14);
 
   /* pass / fail */
   --pass:            #5EE695;
@@ -1647,7 +1647,7 @@ hr.rule {
     --accent: #EE00EE;  --accent-2: #FF44FF;  --accent-bright: #EE00EE;
     --accent-surface: rgba(238,0,238,0.12);  --accent-on: #FFFFFF;
     --glm: #89B5FF;  --glm-surface: rgba(137,181,255,0.14);
-    --nova: #CDB0FF;  --nova-surface: rgba(205,176,255,0.14);
+    --kimi: #CDB0FF;  --kimi-surface: rgba(205,176,255,0.14);
     --pass: #5EE695;  --pass-surface: rgba(94,230,149,0.14);
     --fail: #FF8F8F;  --fail-surface: rgba(255,143,143,0.12);
     --warning: #FFD666;  --warning-surface: rgba(255,214,102,0.12);

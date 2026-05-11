@@ -14,7 +14,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": "aggregate-sales-sqlite-queries"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 155.56,
         "passed": false,
         "pass_at_1": "Fail",
@@ -37,7 +37,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "build-plugin-loader-system"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 943.66,
         "passed": false,
         "pass_at_1": "Fail",
@@ -60,7 +60,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "build-plugin-registry-cli"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 117.57,
         "passed": true,
         "pass_at_1": "Pass",
@@ -83,7 +83,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": "complex-sql-analytics-pipeline"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 1854.37,
         "passed": false,
         "pass_at_1": "Fail",
@@ -106,7 +106,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "complex-sql-window-analytics"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 103.49,
         "passed": false,
         "pass_at_1": "Fail",
@@ -129,7 +129,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "csv-column-extractor"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 42.81,
         "passed": true,
         "pass_at_1": "Pass",
@@ -152,7 +152,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "csv-column-extractor-6"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 33.48,
         "passed": false,
         "pass_at_1": "Fail",
@@ -175,7 +175,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "csv-pipeline-aggregator"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 129.67,
         "passed": true,
         "pass_at_1": "Pass",
@@ -198,7 +198,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": "custom-git-merge-driver-2"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 1819.61,
         "passed": false,
         "pass_at_1": "Fail",
@@ -221,7 +221,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": "fix-async-connection-pool"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 1827.22,
         "passed": false,
         "pass_at_1": "Fail",
@@ -244,7 +244,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "fix-broken-csv-parser"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 33.44,
         "passed": true,
         "pass_at_1": "Pass",
@@ -267,7 +267,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": "fix-corrupted-raft-consensus"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 1827.79,
         "passed": false,
         "pass_at_1": "Fail",
@@ -290,7 +290,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "fix-csv-parser-memory-leak"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 77.81,
         "passed": true,
         "pass_at_1": "Pass",
@@ -313,7 +313,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "fix-flask-session-auth-7"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 99.77,
         "passed": true,
         "pass_at_1": "Pass",
@@ -336,7 +336,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "fix-palindrome-checker"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 56.9,
         "passed": true,
         "pass_at_1": "Pass",
@@ -359,7 +359,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": "json-log-summarizer"
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 42.56,
         "passed": true,
         "pass_at_1": "Pass",
@@ -382,7 +382,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": ""
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 38.9,
         "passed": false,
         "pass_at_1": "Fail",
@@ -405,7 +405,7 @@
         "pass_at_1": "Fail",
         "trajectory_url": ""
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 53.41,
         "passed": false,
         "pass_at_1": "Fail",
@@ -428,7 +428,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": ""
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 1882.14,
         "passed": false,
         "pass_at_1": "Fail",
@@ -451,7 +451,7 @@
         "pass_at_1": "Pass",
         "trajectory_url": ""
       },
-      "Nova 2 Lite": {
+      "Kimi K2.5": {
         "time_seconds": 47.3,
         "passed": true,
         "pass_at_1": "Pass",
