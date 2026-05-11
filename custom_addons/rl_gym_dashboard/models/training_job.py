@@ -62,8 +62,26 @@ class TrainingRunner(threading.Thread):
                     job.action_simulate_step()
                     cr.commit()
                 except Exception:
-                    _logger.exception("TrainingRunner step error job=%s", job.id)
+                    _logger.exception("TrainingRunner step error job=%s step=%s, skipping",
+                                      job.id, job.current_step + 1)
                     cr.rollback()
+                    # Skip the failed step to avoid infinite retry loop
+                    try:
+                        with registry.cursor() as cr2:
+                            env2 = odoo.api.Environment(cr2, odoo.SUPERUSER_ID, {})
+                            stuck_job = env2['rl.training.job'].browse(job.id)
+                            next_step = stuck_job.current_step + 1
+                            if next_step >= stuck_job.total_steps:
+                                stuck_job.write({
+                                    'current_step': stuck_job.total_steps,
+                                    'state': 'completed',
+                                    'completed_at': fields.Datetime.now(),
+                                })
+                            else:
+                                stuck_job.write({'current_step': next_step})
+                            cr2.commit()
+                    except Exception:
+                        _logger.exception("TrainingRunner failed to skip step for job=%s", job.id)
 
 
 def start_training_runner(dbname):
@@ -75,6 +93,18 @@ def start_training_runner(dbname):
         _stop_event.clear()
         _runner_thread = TrainingRunner(dbname)
         _runner_thread.start()
+
+
+def ensure_runner_alive(dbname):
+    """Restart the daemon if it died (e.g. worker restart)."""
+    global _runner_thread
+    with _runner_lock:
+        if _runner_thread and _runner_thread.is_alive():
+            return
+        _stop_event.clear()
+        _runner_thread = TrainingRunner(dbname)
+        _runner_thread.start()
+        _logger.info("TrainingRunner auto-restarted for db=%s", dbname)
 
 
 class RlTrainingJob(models.Model):
@@ -155,7 +185,7 @@ class RlTrainingJob(models.Model):
             return False
 
         step = self.current_step + 1
-        total = self.total_steps
+        total = self.total_steps or 1
         t = step / total
 
         rng = random.Random(self.id * 104729 + step * 7919)
