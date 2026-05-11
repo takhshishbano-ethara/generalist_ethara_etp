@@ -6,8 +6,11 @@
             <t t-if="hasEntries">
                 <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
                     <div class="kensei-json-entry">
-                            <div class="kensei-json-entry-header">
+                            <div class="kensei-json-entry-header"
+                                 t-att-class="{'kensei-json-entry-header--expanded': isEntryExpanded(entry.index)}"
+                                 t-on-click="() => this.onToggleEntry(entry.index)">
                                 <span class="kensei-json-session-label">
+                                    <i t-attf-class="fa fa-chevron-#{isEntryExpanded(entry.index) ? 'down' : 'right'} kensei-json-chevron"/>
                                     Session <t t-esc="entry.index + 1"/>
                                     <t t-if="entry.timestamp">
                                         <span class="kensei-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
@@ -23,7 +26,7 @@
                                         <span class="badge bg-danger ms-2">Deleted — QC Failed</span>
                                     </t>
                                 </span>
-                                <div class="kensei-json-entry-actions">
+                                <div class="kensei-json-entry-actions" t-on-click.stop="">
                                     <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
                                     <t t-set="isQcCollapsed" t-value="state.qcCollapsed[entry.index]"/>
                                     <t t-if="!isGoldenField and hasQcResult and isQcCollapsed">
@@ -65,6 +68,7 @@
                                 </div>
                             </div>
 
+                            <t t-if="isEntryExpanded(entry.index)">
                             <t t-set="qc" t-value="state.qcResults[entry.index] || entry.qcResult"/>
                             <t t-if="qc and !state.qcCollapsed[entry.index]">
                                 <div t-attf-class="kensei-qc-result kensei-qc-#{qc.severity}">
@@ -95,7 +99,7 @@
                                     <t t-if="state.qcExpandedChecks[entry.index] and qc.checks and qc.checks.length">
                                         <div class="kensei-qc-checks">
                                             <t t-foreach="qc.checks" t-as="check" t-key="check.check">
-                                                <div t-attf-class="kensei-qc-check kensei-qc-check-#{check.verdict ? check.verdict.toLowerCase() : 'pass'}">
+                                                <div t-attf-class="kensei-qc-check kensei-qc-#{check.verdict ? check.verdict.toLowerCase() : 'pass'}">
                                                     <span class="kensei-qc-check-num" t-esc="check.check"/>
                                                     <span class="kensei-qc-check-name" t-esc="check.name"/>
                                                     <span t-attf-class="kensei-qc-check-verdict badge bg-#{check.verdict === 'PASS' ? 'success' : check.verdict === 'WARN' ? 'warning' : 'danger'}"
@@ -143,8 +147,9 @@
                                     Trajectory removed: <t t-esc="entry.deletedReason || 'QC failed'"/>
                                 </div>
                             </t>
-                            <t t-else="">
+                            <t t-elif="entry.html">
                                 <div class="kensei-json-entry-body" t-out="entry.html"/>
+                            </t>
                             </t>
                     </div>
                     <t t-if="!entry_last">

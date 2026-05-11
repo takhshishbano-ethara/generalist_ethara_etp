@@ -69,6 +69,7 @@ export class KenseiJsonField extends Component {
     setup() {
         this.state = useState({
             entries: [],
+            expandedKey: null,
             deleting: -1,
             editingIndex: -1,
             editBuffer: "",
@@ -121,6 +122,14 @@ export class KenseiJsonField extends Component {
             this._onQcTriggered,
         );
 
+        this._onTrajectoryExpanded = (ev) => {
+            this._handleTrajectoryExpanded(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "KENSEI:TRAJECTORY_EXPANDED",
+            this._onTrajectoryExpanded,
+        );
+
         onMounted(() => {
             this._autoResizeEditTextarea();
             this._resumePendingQc();
@@ -145,6 +154,10 @@ export class KenseiJsonField extends Component {
             this.env.bus.removeEventListener(
                 "KENSEI:QC_TRIGGERED",
                 this._onQcTriggered,
+            );
+            this.env.bus.removeEventListener(
+                "KENSEI:TRAJECTORY_EXPANDED",
+                this._onTrajectoryExpanded,
             );
         });
     }
@@ -297,10 +310,13 @@ export class KenseiJsonField extends Component {
         if (raw === this._lastRawValue) return;
         this._lastRawValue = raw;
         const parsed = parseEntries(raw);
+        const fieldName = this.props.name;
         this.state.entries = parsed.map((entry, idx) => {
             const tokensIn = Number.isFinite(entry.tokens_in) ? entry.tokens_in : null;
             const tokensOut = Number.isFinite(entry.tokens_out) ? entry.tokens_out : null;
             const hasTokens = tokensIn !== null || tokensOut !== null;
+            const entryKey = `${fieldName}_${idx}`;
+            const isExpanded = this.state.expandedKey === entryKey;
             return {
                 index: idx,
                 sessionId: entry.session_id || `session-${idx + 1}`,
@@ -308,7 +324,9 @@ export class KenseiJsonField extends Component {
                 trajectory: entry.trajectory,
                 html: entry.deleted
                     ? markup("")
-                    : markup(renderTrajectoryHtml(entry.trajectory)),
+                    : isExpanded
+                        ? markup(renderTrajectoryHtml(entry.trajectory))
+                        : null,
                 deleted: !!entry.deleted,
                 deletedReason: entry.deleted_reason || "",
                 qcStatus: entry.qc_status || null,
@@ -324,6 +342,56 @@ export class KenseiJsonField extends Component {
 
     formatNumber(n) {
         return new Intl.NumberFormat().format(n);
+    }
+
+    _handleTrajectoryExpanded(payload) {
+        if (!payload) return;
+        const { fieldName, index } = payload;
+        const theirKey = `${fieldName}_${index}`;
+        if (this.state.expandedKey && this.state.expandedKey !== theirKey) {
+            const prevIdx = parseInt(this.state.expandedKey.split("_").pop(), 10);
+            if (this.state.entries[prevIdx]) {
+                this.state.entries[prevIdx].html = null;
+            }
+            this.state.expandedKey = null;
+        }
+    }
+
+    onToggleEntry(index) {
+        const fieldName = this.props.name;
+        const entryKey = `${fieldName}_${index}`;
+
+        if (this.state.expandedKey === entryKey) {
+            if (this.state.entries[index]) {
+                this.state.entries[index].html = null;
+            }
+            this.state.expandedKey = null;
+            return;
+        }
+
+        if (this.state.expandedKey) {
+            const prevIdx = parseInt(this.state.expandedKey.split("_").pop(), 10);
+            if (this.state.entries[prevIdx]) {
+                this.state.entries[prevIdx].html = null;
+            }
+        }
+
+        if (this.state.entries[index] && !this.state.entries[index].deleted) {
+            this.state.entries[index].html = markup(
+                renderTrajectoryHtml(this.state.entries[index].trajectory)
+            );
+        }
+        this.state.expandedKey = entryKey;
+
+        this.env.bus.dispatchEvent(
+            new CustomEvent("KENSEI:TRAJECTORY_EXPANDED", {
+                detail: { fieldName, index },
+            })
+        );
+    }
+
+    isEntryExpanded(index) {
+        return this.state.expandedKey === `${this.props.name}_${index}`;
     }
 
     get hasEntries() {
