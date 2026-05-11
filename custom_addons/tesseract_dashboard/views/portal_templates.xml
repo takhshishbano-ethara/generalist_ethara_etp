@@ -289,7 +289,7 @@
     <div class="reveal">
       <p class="reveal-line">
         <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">4 of 20</b>.
-        <span class="tok-nova">Nova 2 Lite</span> resolves <b class="reveal-big">2 of 20</b>.
+        <span class="tok-qwen">Qwen3 VL</span> resolves <b class="reveal-big">2 of 20</b>.
       </p>
       <p class="reveal-cost mono">
         One model is <b>~9× more expensive</b> and <b>2× as effective</b>.
@@ -299,8 +299,8 @@
     <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Resolution rate by model full size">
-          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Nova 2 Lite at 2/20 (10%)" loading="lazy" />
-          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line_dark.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Nova 2 Lite at 2/20 (10%)" loading="lazy" />
+          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
+          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line_dark.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Resolution rate by model</figcaption>
@@ -330,8 +330,8 @@
         <p class="kpi-sub mono">4 of 20 resolved</p>
       </div>
       <div class="kpi-card">
-        <p class="kpi-label">Nova 2 Lite · Pass@1</p>
-        <p class="kpi-value"><span class="kpi-big tok-nova">10<small>%</small></span></p>
+        <p class="kpi-label">Qwen3 VL · Pass@1</p>
+        <p class="kpi-value"><span class="kpi-big tok-qwen">10<small>%</small></span></p>
         <p class="kpi-sub mono">2 of 20 resolved</p>
       </div>
       <div class="kpi-card kpi-card--accent">
@@ -355,14 +355,14 @@
     <div class="view-pane" id="view-matrix" role="tabpanel" aria-labelledby="vt-matrix-btn" tabindex="0">
       <div class="matrix-wrap">
         <table class="matrix" id="matrix" aria-describedby="matrix-desc">
-          <caption id="matrix-desc" class="sr-only">Pass/Fail matrix of 20 instances evaluated against two models: Kimi K2.5 and Nova 2 Lite. Filled cell means the model's patch resolved the issue.</caption>
+          <caption id="matrix-desc" class="sr-only">Pass/Fail matrix of 20 instances evaluated against two models: Kimi K2.5 and Qwen3 VL. Filled cell means the model's patch resolved the issue.</caption>
           <thead>
             <tr>
               <th scope="col" class="matrix-th-id">Instance</th>
               <th scope="col" class="matrix-th-meta">Lang</th>
               <th scope="col" class="matrix-th-meta">Diff</th>
               <th scope="col" class="matrix-th-cell"><span class="tok-kimi">Kimi K2.5</span></th>
-              <th scope="col" class="matrix-th-cell"><span class="tok-nova">Nova 2 Lite</span></th>
+              <th scope="col" class="matrix-th-cell"><span class="tok-qwen">Qwen3 VL</span></th>
               <th scope="col" class="matrix-th-expand" aria-label="Expand row"></th>
             </tr>
           </thead>
@@ -371,7 +371,7 @@
             <tr class="matrix-totals">
               <td colspan="3" class="matrix-totals-label">Totals</td>
               <td class="matrix-cell"><span class="total-chip total-chip--kimi" id="total-kimi">4 / 20</span></td>
-              <td class="matrix-cell"><span class="total-chip total-chip--nova" id="total-nova">2 / 20</span></td>
+              <td class="matrix-cell"><span class="total-chip total-chip--qwen" id="total-qwen">2 / 20</span></td>
               <td class="matrix-cell"></td>
             </tr>
           </tfoot>
@@ -395,7 +395,7 @@
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <p class="kpi-label"><span class="tok-qwen">Qwen3-VL</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Resolve Rate</dt><dd><b>18.2%</b></dd></div>
           <div class="glance-row"><dt>Visual Bug Fixes</dt><dd><b>12.4%</b></dd></div>

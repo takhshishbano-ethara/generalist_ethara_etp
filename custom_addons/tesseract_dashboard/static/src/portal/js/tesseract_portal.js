@@ -252,12 +252,12 @@
 
   // totals
   const totalKimi = instances.filter(i => i.runs['Kimi K2.5']?.pass_at_1 === 'Pass').length;
-  const totalNova = instances.filter(i => i.runs['Nova 2 Lite']?.pass_at_1 === 'Pass').length;
+  const totalQwen = instances.filter(i => i.runs['Qwen3 VL']?.pass_at_1 === 'Pass').length;
   const total = instances.length;
   const elKimi = document.getElementById('total-kimi');
-  const elNova = document.getElementById('total-nova');
+  const elQwen = document.getElementById('total-qwen');
   if (elKimi) elKimi.textContent = `${totalKimi} / ${total}`;
-  if (elNova) elNova.textContent = `${totalNova} / ${total}`;
+  if (elQwen) elQwen.textContent = `${totalQwen} / ${total}`;
 
   // ---------- VIEW TOGGLE (matrix / repo) ---------------------------------
   const tabs = document.querySelectorAll('.vt-btn');
@@ -382,7 +382,7 @@
           <td class="matrix-meta">${esc(inst.language)}</td>
           <td class="matrix-meta">${esc(inst.difficulty)}</td>
           ${tileHTML(inst, 'Kimi K2.5')}
-          ${tileHTML(inst, 'Nova 2 Lite')}
+          ${tileHTML(inst, 'Qwen3 VL')}
           <td class="matrix-expand">
             <span class="matrix-expand-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
@@ -395,7 +395,7 @@
               <div class="matrix-detail-grid">
                 ${instanceBlock(inst)}
                 ${detailBlock(inst, 'Kimi K2.5', 'kimi')}
-                ${detailBlock(inst, 'Nova 2 Lite', 'nova')}
+                ${detailBlock(inst, 'Qwen3 VL', 'qwen')}
               </div>
             </div>
           </td>
@@ -415,13 +415,13 @@
     }
     const list = Array.from(m.values()).map((g) => {
       const kimiPass = g.instances.filter(i => i.runs['Kimi K2.5']?.pass_at_1 === 'Pass').length;
-      const novaPass = g.instances.filter(i => i.runs['Nova 2 Lite']?.pass_at_1 === 'Pass').length;
-      return { ...g, kimiPass, novaPass, n: g.instances.length };
+      const qwenPass = g.instances.filter(i => i.runs['Qwen3 VL']?.pass_at_1 === 'Pass').length;
+      return { ...g, kimiPass, qwenPass, n: g.instances.length };
     });
     // sort: any-pass first, then by repo name
     list.sort((a, b) => {
-      const aScore = a.kimiPass + a.novaPass;
-      const bScore = b.kimiPass + b.novaPass;
+      const aScore = a.kimiPass + a.qwenPass;
+      const bScore = b.kimiPass + b.qwenPass;
       if (aScore !== bScore) return bScore - aScore;
       return a.repo.localeCompare(b.repo);
     });
@@ -453,7 +453,7 @@
           <span class="run-diff">${esc(inst.difficulty)}</span>
         </div>
         ${mk('Kimi K2.5', 'kimi')}
-        ${mk('Nova 2 Lite', 'nova')}
+        ${mk('Qwen3 VL', 'qwen')}
       </div>
     `;
   };
@@ -463,7 +463,7 @@
     if (!root) return;
     root.innerHTML = repoGroups.map((g, i) => {
       const kimiCls = g.kimiPass > 0 ? 'has-pass' : '';
-      const novaCls = g.novaPass > 0 ? 'has-pass' : '';
+      const qwenCls = g.qwenPass > 0 ? 'has-pass' : '';
       const open = g.repo === 'processing/p5.js';   // auto-expand the "look here" row
       const childrenId = `repo-children-${i}`;
       return `
@@ -473,7 +473,7 @@
             <span class="repo-name">${esc(g.repo)}</span>
             <span class="repo-lang">${esc(g.language)}</span>
             <span class="repo-score score-kimi ${kimiCls}">K <b>${g.kimiPass}/${g.n}</b></span>
-            <span class="repo-score score-nova ${novaCls}">N <b>${g.novaPass}/${g.n}</b></span>
+            <span class="repo-score score-qwen ${qwenCls}">Q <b>${g.qwenPass}/${g.n}</b></span>
           </button>
           <div class="repo-children" id="${childrenId}" ${open ? '' : 'hidden'}>
             ${g.instances.map(runCard).join('')}
@@ -495,7 +495,7 @@
 
   // ---------- MATRIX ROW EXPAND ------------------------------------------
   // Click anywhere on a row to expand its detail view (Instance + Kimi +
-  // Nova side-by-side). Click again to collapse. Only one row open at a
+  // Qwen side-by-side). Click again to collapse. Only one row open at a
   // time — opening another closes the previously open one.
   let openInstanceId = null;
 
