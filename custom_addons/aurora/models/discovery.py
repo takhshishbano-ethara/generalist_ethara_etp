@@ -296,7 +296,7 @@ class AuroraDiscovery(models.Model):
                     import re
                     repo_name = re.sub(r'_\d+(_to_\d+)?$', '', repo_name)
                     repo_name = re.sub(r'_v\d+[\d_.]*$', '', repo_name)
-                    repo_name = re.sub(r'_(era_?[a-z]|go\d+_\d+|gopath|premod|gopath_\w+)$', '', repo_name)
+                    repo_name = re.sub(r'_(era_?[a-z]|go\d+[\d_]*|gopath|premod|gopath_\w+)$', '', repo_name)
                     full_name = f"{org_dir}/{repo_name}"
                     if full_name in registry_repos:
                         continue
