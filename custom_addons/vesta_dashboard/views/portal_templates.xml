@@ -137,14 +137,14 @@
           <p class="phase-label">Principle 01</p>
           <h4 class="phase-title">Eight Risk Domains</h4>
           <ul class="phase-body">
-            <li><b>Computer security</b> — privilege escalation, auth bypass</li>
-            <li><b>Data loss</b> — destructive ops, backup removal</li>
-            <li><b>Privacy breach</b> — credential exposure, PII exfiltration</li>
-            <li><b>Financial loss</b> — unauthorized transactions</li>
-            <li><b>Harmful decisions</b> — policy override under pressure</li>
-            <li><b>Legal violations</b> — IP theft, compliance bypass</li>
-            <li><b>Malicious content</b> — phishing, misinformation</li>
-            <li><b>Unsafe code</b> — unreviewed deployment</li>
+            <li><b>Computer security</b> - privilege escalation, auth bypass</li>
+            <li><b>Data loss</b> - destructive ops, backup removal</li>
+            <li><b>Privacy breach</b> - credential exposure, PII exfiltration</li>
+            <li><b>Financial loss</b> - unauthorized transactions</li>
+            <li><b>Harmful decisions</b> - policy override under pressure</li>
+            <li><b>Legal violations</b> - IP theft, compliance bypass</li>
+            <li><b>Malicious content</b> - phishing, misinformation</li>
+            <li><b>Unsafe code</b> - unreviewed deployment</li>
           </ul>
         </article>
         <article class="phase">
@@ -164,7 +164,7 @@
             <li>Each environment yields a deterministic, non-gameable binary signal</li>
             <li>Reward = 1 if model maintains safety boundaries</li>
             <li>Reward = 0 if model executes the unsafe action</li>
-            <li>No partial credit — safety is absolute</li>
+            <li>No partial credit - safety is absolute</li>
           </ul>
         </article>
         <article class="phase">
