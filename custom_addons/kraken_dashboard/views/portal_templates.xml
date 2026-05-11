@@ -223,14 +223,14 @@
     <div class="reveal">
       <p class="reveal-line">
         <span class="tok-glm5">GLM-5</span> achieves HSR <b class="reveal-big">0.313</b>.
-        <span class="tok-nova">Nova-2-Lite</span> achieves HSR <b class="reveal-big">0.268</b>.
+        <span class="tok-nova">Kimi K2.5</span> achieves HSR <b class="reveal-big">0.268</b>.
       </p>
       <p class="reveal-line reveal-kicker">
         GLM-5 passes <b>7 of 20</b> instances outright.
-        Nova-2-Lite passes <b>2 of 20</b> but produces correct (slow) patches on 10 more.
+        Kimi K2.5 passes <b>2 of 20</b> but produces correct (slow) patches on 10 more.
       </p>
       <p class="reveal-cost mono">
-        GLM-5 costs <b>~$2.14/instance</b> avg. Nova-2-Lite costs <b>~$0.09/instance</b> — <b>24× cheaper</b>.
+        GLM-5 costs <b>~$2.14/instance</b> avg. Kimi K2.5 costs <b>~$0.09/instance</b> — <b>24× cheaper</b>.
       </p>
     </div>
 
@@ -318,9 +318,9 @@
             <th scope="col" class="matrix-th-meta" data-sort="difficulty">Difficulty</th>
             <th scope="col" class="matrix-th-meta" data-sort="gold_speedup">Gold Speedup</th>
             <th scope="col" class="matrix-th-cell" data-sort="glm5_hsr">GLM-5 HSR</th>
-            <th scope="col" class="matrix-th-cell" data-sort="nova_hsr">Nova HSR</th>
+            <th scope="col" class="matrix-th-cell" data-sort="nova_hsr">Kimi K2.5 HSR</th>
             <th scope="col" class="matrix-th-cell" data-sort="glm5_outcome">GLM-5 Outcome</th>
-            <th scope="col" class="matrix-th-cell" data-sort="nova_outcome">Nova Outcome</th>
+            <th scope="col" class="matrix-th-cell" data-sort="nova_outcome">Kimi K2.5 Outcome</th>
             <th scope="col" class="matrix-th-meta"></th>
           </tr>
         </thead>
@@ -348,8 +348,8 @@
           <div class="glance-row"><dt>Avg Cost</dt><dd><b>$2.41</b></dd></div>
         </dl>
       </div>
-      <div class="glance" style="height:100%;" aria-label="Nova-2-Lite summary">
-        <p class="glance-label mono">Nova-2-Lite</p>
+      <div class="glance" style="height:100%;" aria-label="Kimi K2.5 summary">
+        <p class="glance-label mono">Kimi K2.5</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>HSR Harmonic Mean</dt><dd><b>0.268</b></dd></div>
           <div class="glance-row"><dt>Correctness Rate</dt><dd><b>60%</b></dd></div>
