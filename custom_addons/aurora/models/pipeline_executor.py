@@ -174,6 +174,34 @@ def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> Non
 def _fail_pipeline(cr: Any, rec_id: int, step_field: str, exc: Union[str, Exception]) -> None:
     _update_pipeline(cr, rec_id, {step_field: "failed", "stage": "failed"})
     _append_log(cr, rec_id, f"FAILED ({step_field}): {exc}")
+    err_msg = str(exc).lower()
+    is_data_incompatible = (
+        "output file is empty" in err_msg
+        or "no pr file found" in err_msg
+        or "tag groups file not found" in err_msg
+    )
+    if is_data_incompatible:
+        _mark_discovery_incompatible(cr, rec_id, step_field, str(exc))
+
+
+def _mark_discovery_incompatible(cr: Any, rec_id: int, step_field: str, reason: str) -> None:
+    try:
+        cr.execute(
+            "SELECT github_org, github_repo FROM aurora_pipeline WHERE id = %s",
+            [rec_id],
+        )
+        row = cr.fetchone()
+        if not row:
+            return
+        org, repo = row
+        cr.execute(
+            "UPDATE aurora_discovery SET state = 'rejected', "
+            "rejection_reason = %s "
+            "WHERE github_org = %s AND github_repo = %s AND state != 'rejected'",
+            [f"Pipeline failed at {step_field}: {reason[:200]}", org, repo],
+        )
+    except Exception:
+        pass
 
 
 class _DbLogStream(io.TextIOBase):

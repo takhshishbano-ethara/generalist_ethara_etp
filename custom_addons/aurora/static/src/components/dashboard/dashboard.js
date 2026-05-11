@@ -25,6 +25,7 @@ export class AuroraDashboard extends Component {
             recent_pipelines: [],
             recent_evaluations: [],
             tokens: { active: 0, total: 0 },
+            discovery: { total: 0, validated: 0, promoted: 0, rejected: 0, new: 0 },
         });
         this._timer = null;
 
@@ -134,6 +135,18 @@ export class AuroraDashboard extends Component {
             res_model: "aurora.harness.staging",
             view_mode: "list,form",
             views: [[false, "list"], [false, "form"]],
+        });
+    }
+
+    openDiscovery(state) {
+        const domain = state ? [["state", "=", state]] : [];
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Discovered Repositories",
+            res_model: "aurora.discovery",
+            view_mode: "list,form",
+            views: [[false, "list"], [false, "form"]],
+            domain,
         });
     }
 

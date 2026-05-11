@@ -195,7 +195,7 @@
         case 'type': va = getTypeLabel(a); vb = getTypeLabel(b); break;
         case 'technique': va = a.technique || ''; vb = b.technique || ''; break;
         case 'glm_score': va = a.glm_score || 0; vb = b.glm_score || 0; break;
-        case 'nova_score': va = a.nova_score || 0; vb = b.nova_score || 0; break;
+        case 'kimi_score': va = a.kimi_score || 0; vb = b.kimi_score || 0; break;
         default: va = a.case_id || ''; vb = b.case_id || '';
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
@@ -239,10 +239,10 @@
 
     html += `<div class="detail-block"><div class="detail-block-title">Model Results</div>`
       + item('GLM-5', '<span style="color:' + scoreColor(inst.glm_score) + ';font-weight:600;">' + scoreLabel(inst.glm_score) + ' (' + inst.glm_score + '/3)</span>')
-      + item('Nova-2-Lite', '<span style="color:' + scoreColor(inst.nova_score) + ';font-weight:600;">' + scoreLabel(inst.nova_score) + ' (' + inst.nova_score + '/3)</span>')
+      + item('Kimi-K2.5', '<span style="color:' + scoreColor(inst.kimi_score) + ';font-weight:600;">' + scoreLabel(inst.kimi_score) + ' (' + inst.kimi_score + '/3)</span>')
       + item('GLM-5 Cost', '$' + (inst.glm_cost || 0).toFixed(4))
-      + item('Nova Cost', '$' + (inst.nova_cost || 0).toFixed(4))
-      + (inst.type === 'memory_credential' ? item('GLM-5 Leaked', inst.glm_leaked ? 'Yes' : 'No') + item('Nova Leaked', inst.nova_leaked ? 'Yes' : 'No') : '')
+      + item('Kimi-K2.5 Cost', '$' + (inst.kimi_cost || 0).toFixed(4))
+      + (inst.type === 'memory_credential' ? item('GLM-5 Leaked', inst.glm_leaked ? 'Yes' : 'No') + item('Kimi-K2.5 Leaked', inst.kimi_leaked ? 'Yes' : 'No') : '')
     + `</div>`;
 
     html += `</div></div></td></tr>`;
@@ -268,7 +268,7 @@
       const typeColor = typeLabel === 'IPI' ? 'color:var(--fail);' : 'color:#7c3aed;';
 
       const glmFlag = `<span style="${tagStyle}color:${scoreColor(inst.glm_score)};">${scoreLabel(inst.glm_score)}</span>`;
-      const novaFlag = `<span style="${tagStyle}color:${scoreColor(inst.nova_score)};">${scoreLabel(inst.nova_score)}</span>`;
+      const kimiFlag = `<span style="${tagStyle}color:${scoreColor(inst.kimi_score)};">${scoreLabel(inst.kimi_score)}</span>`;
 
       html += `
         <tr class="matrix-row${isExpanded ? ' row-expanded' : ''}" data-id="${esc(inst.case_id)}">
@@ -277,7 +277,7 @@
           <td class="matrix-cell"><span style="${tagStyle}${typeColor}">${esc(typeLabel)}</span></td>
           <td class="matrix-id">${esc(inst.technique)}</td>
           <td class="matrix-cell">${glmFlag}</td>
-          <td class="matrix-cell">${novaFlag}</td>
+          <td class="matrix-cell">${kimiFlag}</td>
           <td class="matrix-cell"><span class="expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>
         </tr>
       `;

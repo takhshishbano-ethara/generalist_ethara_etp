@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_discovery_view_list" model="ir.ui.view">
+        <field name="name">aurora.discovery.list</field>
+        <field name="model">aurora.discovery</field>
+        <field name="arch" type="xml">
+            <list string="Discovered Repositories" default_order="quality_score desc"
+                  decoration-success="state == 'validated'"
+                  decoration-info="state == 'enriching'"
+                  decoration-muted="state in ('rejected', 'skipped')"
+                  decoration-warning="state == 'promoted'">
+                <field name="full_name"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'validated'"
+                       decoration-info="state in ('new', 'enriching')"
+                       decoration-warning="state == 'promoted'"
+                       decoration-danger="state == 'rejected'"
+                       decoration-muted="state == 'skipped'"/>
+                <field name="stars"/>
+                <field name="quality_score" widget="progressbar"/>
+                <field name="primary_language"/>
+                <field name="language_pct" string="Lang %"/>
+                <field name="has_tests"/>
+                <field name="has_ci"/>
+                <field name="last_pushed"/>
+                <field name="source_tags" optional="hide"/>
+                <field name="user_id" widget="many2one_avatar_user" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="aurora_discovery_view_form" model="ir.ui.view">
+        <field name="name">aurora.discovery.form</field>
+        <field name="model">aurora.discovery</field>
+        <field name="arch" type="xml">
+            <form string="Discovery Record">
+                <header>
+                    <button name="action_enrich" string="Enrich" type="object"
+                            class="btn-primary" invisible="state != 'new'"/>
+                    <button name="action_promote_to_pipeline" string="Promote to Pipeline" type="object"
+                            class="btn-primary" invisible="state != 'validated'"/>
+                    <button name="action_reject" string="Reject" type="object"
+                            class="btn-secondary" invisible="state in ('promoted', 'rejected', 'skipped')"/>
+                    <field name="state" widget="statusbar" statusbar_visible="new,validated,promoted"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="full_name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="github_org"/>
+                            <field name="github_repo"/>
+                            <field name="primary_language"/>
+                            <field name="default_branch"/>
+                            <field name="license_spdx"/>
+                        </group>
+                        <group>
+                            <field name="stars"/>
+                            <field name="forks"/>
+                            <field name="open_issues"/>
+                            <field name="quality_score"/>
+                            <field name="language_pct"/>
+                            <field name="size_kb"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="has_tests"/>
+                            <field name="has_ci"/>
+                            <field name="auto_promote"/>
+                        </group>
+                        <group>
+                            <field name="source_tags"/>
+                            <field name="discovery_count"/>
+                            <field name="first_discovered"/>
+                            <field name="last_seen"/>
+                            <field name="last_pushed"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                    </group>
+                    <group invisible="state != 'rejected'">
+                        <field name="rejection_reason"/>
+                    </group>
+                    <group invisible="not pipeline_id">
+                        <field name="pipeline_id"/>
+                    </group>
+                    <notebook>
+                        <page string="Enrichment Log" invisible="not enrichment_log">
+                            <group>
+                                <field name="enrichment_status" widget="badge"/>
+                                <field name="last_enrichment"/>
+                            </group>
+                            <field name="enrichment_log" widget="text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="aurora_discovery_view_search" model="ir.ui.view">
+        <field name="name">aurora.discovery.search</field>
+        <field name="model">aurora.discovery</field>
+        <field name="arch" type="xml">
+            <search string="Search Discoveries">
+                <field name="full_name"/>
+                <field name="github_org"/>
+                <field name="github_repo"/>
+                <field name="primary_language"/>
+                <separator/>
+                <filter name="all_discovered" string="All Discovered" domain="[]"/>
+                <filter name="validated" string="Valid / Ready" domain="[('state', '=', 'validated')]"/>
+                <filter name="promoted" string="Already Used (Promoted)" domain="[('state', '=', 'promoted')]"/>
+                <filter name="rejected" string="Discarded (Rejected)" domain="[('state', '=', 'rejected')]"/>
+                <filter name="new" string="Pending Enrichment" domain="[('state', '=', 'new')]"/>
+                <filter name="skipped" string="Skipped" domain="[('state', '=', 'skipped')]"/>
+                <separator/>
+                <filter name="auto_promote" string="Auto-Promote Ready" domain="[('auto_promote', '=', True)]"/>
+                <filter name="has_tests" string="Has Tests" domain="[('has_tests', '=', True)]"/>
+                <filter name="has_ci" string="Has CI" domain="[('has_ci', '=', True)]"/>
+                <filter name="high_quality" string="High Quality (80+)" domain="[('quality_score', '&gt;=', 80)]"/>
+                <separator/>
+                <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                <filter name="group_language" string="Language" context="{'group_by': 'primary_language'}"/>
+                <filter name="group_source" string="Source" context="{'group_by': 'source_tags'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_aurora_discovery_list" model="ir.actions.act_window">
+        <field name="name">Discovered Repositories</field>
+        <field name="res_model">aurora.discovery</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="aurora_discovery_view_search"/>
+        <field name="context">{'search_default_all_discovered': 1, 'search_default_group_state': 1}</field>
+    </record>
+
+</odoo>

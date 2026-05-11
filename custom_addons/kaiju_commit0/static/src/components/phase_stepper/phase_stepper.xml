@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kaiju_commit0.Commit0Stepper">
+        <div class="c0-stepper">
+            <t t-foreach="phases" t-as="phase" t-key="phase.key">
+                <div t-att-class="'c0-step' + (phase.active ? ' c0-step-active' : '') + ' c0-step-' + phase.state">
+                    <div class="c0-step-indicator">
+                        <div class="c0-step-icon">
+                            <i t-if="phase.state === 'done'" class="fa fa-check"/>
+                            <i t-elif="phase.state === 'running'" class="fa fa-spinner fa-spin"/>
+                            <i t-elif="phase.state === 'failed'" class="fa fa-times"/>
+                            <i t-else="" t-att-class="'fa ' + phase.icon"/>
+                        </div>
+                        <div t-if="!phase.isLast" class="c0-step-connector"/>
+                    </div>
+                    <span class="c0-step-label"><t t-esc="phase.label"/></span>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

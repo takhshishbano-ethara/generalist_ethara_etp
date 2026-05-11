@@ -21,7 +21,7 @@
                     Each task instance defines a codebase containing a synthetic bug modeled after
                     established CWE categories, a natural-language problem statement, and a Docker
                     container providing a sandboxed execution environment. Two frontier models
-                    (Kimi K2.5, Nova 2 Lite) were evaluated across 20 instances spanning 7 CWE classes.
+                    (Kimi K2.5, GLM 5) were evaluated across 20 instances spanning 7 CWE classes.
                 </p>
             </section>
 
@@ -35,7 +35,7 @@
                     <div class="vk-metric-card">
                         <span class="vk-metric-value">2</span>
                         <span class="vk-metric-label">Frontier Models</span>
-                        <span class="vk-metric-detail">Kimi K2.5 &#x26; Nova 2 Lite</span>
+                        <span class="vk-metric-detail">Kimi K2.5 &#x26; GLM 5</span>
                     </div>
                     <div class="vk-metric-card">
                         <span class="vk-metric-value">16,756</span>

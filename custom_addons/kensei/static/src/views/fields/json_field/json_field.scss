@@ -16,8 +16,31 @@
         padding: 6px 10px;
         background: #181825;
         border: 1px solid #313244;
-        border-bottom: none;
-        border-radius: 6px 6px 0 0;
+        border-radius: 6px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.15s ease, border-color 0.15s ease;
+
+        &:hover {
+            background: #1e1e2e;
+            border-color: #45475a;
+        }
+
+        &--expanded {
+            border-bottom: none;
+            border-radius: 6px 6px 0 0;
+        }
+    }
+
+    .kensei-json-chevron {
+        margin-right: 6px;
+        font-size: 0.75em;
+        color: #6c7086;
+        transition: color 0.15s ease;
+    }
+
+    .kensei-json-entry-header:hover .kensei-json-chevron {
+        color: #89b4fa;
     }
 
     .kensei-json-session-label {
@@ -44,6 +67,7 @@
     .kensei-json-edit-btn,
     .kensei-json-delete-btn,
     .kensei-json-qc-btn,
+    .kensei-json-regen-btn,
     .kensei-json-taskdesc-btn,
     .kensei-json-abort-btn {
         background: none;

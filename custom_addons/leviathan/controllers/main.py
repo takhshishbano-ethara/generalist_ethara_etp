@@ -189,6 +189,16 @@ class LeviathanController(http.Controller):
             write_vals["state"] = "generating"
             record.write(write_vals)
 
+            # Notify browser of state change
+            try:
+                request.env["bus.bus"]._sendone(
+                    "leviathan_job_updates",
+                    "leviathan/job_state",
+                    {"id": record.id, "state": "generating"},
+                )
+            except Exception:
+                pass
+
             # Use postcommit to ensure data is committed before
             # background thread reads it (fixes race condition LG-3)
             db_name = request.env.cr.dbname

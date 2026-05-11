@@ -16,6 +16,11 @@
         "views/leviathan_job_views.xml",
         "views/menuitems.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            "leviathan/static/src/js/leviathan_bus.js",
+        ],
+    },
     "installable": True,
     "application": True,
     "license": "LGPL-3",

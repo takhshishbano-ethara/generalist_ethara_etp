@@ -138,6 +138,22 @@ class AuroraSettings(models.TransientModel):
         config_parameter="aurora.github_registry_write_token",
     )
 
+    aurora_discovery_min_stars = fields.Integer(
+        string="Discovery: Min Stars",
+        config_parameter="aurora.discovery_min_stars",
+        default=1000,
+    )
+    aurora_discovery_min_language_pct = fields.Float(
+        string="Discovery: Min Language %",
+        config_parameter="aurora.discovery_min_language_pct",
+        default=60.0,
+    )
+    aurora_discovery_auto_promote_threshold = fields.Integer(
+        string="Discovery: Auto-Promote Threshold",
+        config_parameter="aurora.discovery_auto_promote_threshold",
+        default=80,
+    )
+
     @api.onchange("aurora_lang_detection_mode")
     def _onchange_lang_detection_mode(self):
         running = self.env["aurora.pipeline"].sudo().search_count([

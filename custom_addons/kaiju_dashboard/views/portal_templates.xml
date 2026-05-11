@@ -79,13 +79,13 @@
     <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Nova-2-Lite) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
+        <p>Kaiju evaluates frontier AI coding models on whole-library generation from specification. Each instance pairs a specification PDF with hermetic build infrastructure (Dockerfile and setup scripts), requiring models to produce complete, functional implementations that pass comprehensive test suites. Two models (GLM-5 and Kimi K2.5) are evaluated through a three-stage pipeline: initial generation, lint refinement, and test refinement. Module-level pass rates are reported per stage and difficulty tier.</p>
       </div>
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
-          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Kimi K2.5)</dd></div>
           <!-- <div class="glance-row"><dt>Pipeline runs</dt><dd><b>40</b></dd></div> -->
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Stages</dt><dd><b>3</b> (Draft → Lint → Test)</dd></div>
@@ -109,7 +109,7 @@
       <div class="kpi-card">
         <p class="kpi-label">Frontier Models</p>
         <p class="kpi-value"><span class="kpi-big">2</span></p>
-        <p class="kpi-sub mono">GLM-5 &amp; Nova-2-Lite</p>
+        <p class="kpi-sub mono">GLM-5 &amp; Kimi K2.5</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Languages</p>
@@ -253,7 +253,7 @@
       </figure>
     </div>
 
-    <p class="section-desc">Distribution of best stage-3 pass rate (highest of GLM-5 and Nova-2-Lite) across all evaluated library instances.</p>
+    <p class="section-desc">Distribution of best stage-3 pass rate (highest of GLM-5 and Kimi K2.5) across all evaluated library instances.</p>
 
     <div class="kpi-row">
       <div class="kpi-card quality-clean">
@@ -321,7 +321,7 @@
           <option value="difficulty">Difficulty</option>
           <option value="test_count">Test Count</option>
           <option value="glm5_stage3">GLM-5 Pass Rate</option>
-          <option value="nova_stage3">Nova-2-Lite Pass Rate</option>
+          <option value="kimi_stage3">Kimi K2.5 Pass Rate</option>
         </select>
       </div>
       <div class="viewer-meta">
@@ -338,7 +338,7 @@
             <th class="th-tests">Tests</th>
             <th class="th-python">Python</th>
             <th class="th-glm">GLM-5 (s3)</th>
-            <th class="th-nova">Nova-2-Lite (s3)</th>
+            <th class="th-kimi">Kimi K2.5 (s3)</th>
             <th class="th-expand"></th>
           </tr>
         </thead>
@@ -355,7 +355,7 @@
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>12.8%</b></dd></div>
           <div class="glance-row"><dt>Draft Stage</dt><dd><b>31.4%</b></dd></div>

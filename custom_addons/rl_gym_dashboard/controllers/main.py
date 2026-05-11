@@ -8,6 +8,8 @@ import requests
 from odoo import http
 from odoo.http import request
 
+from ..models.training_job import ensure_runner_alive
+
 _logger = logging.getLogger(__name__)
 
 HF_API_BASE = 'https://huggingface.co/api'
@@ -310,6 +312,9 @@ class RlGymController(http.Controller):
         job = request.env['rl.training.job'].sudo().browse(int(job_id))
         if not job.exists():
             return {'error': 'Job not found'}
+
+        if job.state == 'training':
+            ensure_runner_alive(request.env.cr.dbname)
 
         metric = request.env['rl.training.metric'].sudo().search(
             [('job_id', '=', job.id)],

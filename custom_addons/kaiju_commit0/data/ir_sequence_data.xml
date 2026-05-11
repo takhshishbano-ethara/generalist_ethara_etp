@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_kaiju_commit0" model="ir.sequence">
+            <field name="name">Commit0 Build Sequence</field>
+            <field name="code">kaiju.commit0</field>
+            <field name="prefix">BLD-</field>
+            <field name="padding">4</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+        <record id="seq_kaiju_commit0_run" model="ir.sequence">
+            <field name="name">Commit0 Run Sequence</field>
+            <field name="code">kaiju.commit0.run</field>
+            <field name="prefix">RUN-</field>
+            <field name="padding">4</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+    </data>
+</odoo>
