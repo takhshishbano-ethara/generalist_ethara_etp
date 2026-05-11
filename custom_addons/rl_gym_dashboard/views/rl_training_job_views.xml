@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ==================== SEARCH VIEW ==================== -->
+    <record id="view_rl_training_job_search" model="ir.ui.view">
+        <field name="name">rl.training.job.search</field>
+        <field name="model">rl.training.job</field>
+        <field name="arch" type="xml">
+            <search string="Training Jobs">
+                <field name="name"/>
+                <field name="model_id"/>
+                <filter name="filter_training" string="Training"
+                        domain="[('state', '=', 'training')]"/>
+                <filter name="filter_completed" string="Completed"
+                        domain="[('state', '=', 'completed')]"/>
+                <filter name="filter_failed" string="Failed"
+                        domain="[('state', '=', 'failed')]"/>
+                <group>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_model" string="Model"
+                            context="{'group_by': 'model_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ==================== LIST VIEW ==================== -->
+    <record id="view_rl_training_job_list" model="ir.ui.view">
+        <field name="name">rl.training.job.list</field>
+        <field name="model">rl.training.job</field>
+        <field name="arch" type="xml">
+            <list string="Training Jobs"
+                  decoration-success="state == 'completed'"
+                  decoration-danger="state == 'failed'"
+                  decoration-warning="state == 'cancelled'"
+                  decoration-info="state == 'training'"
+                  decoration-muted="state == 'draft'"
+                  default_order="create_date desc"
+                  sample="1">
+                <field name="name"/>
+                <field name="model_id"/>
+                <field name="dataset_id" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'completed'"
+                       decoration-danger="state == 'failed'"
+                       decoration-warning="state == 'cancelled'"
+                       decoration-info="state == 'training'"/>
+                <field name="progress" widget="progressbar"/>
+                <field name="current_step" string="Step" optional="show"/>
+                <field name="total_steps" string="Total" optional="hide"/>
+                <field name="current_loss" string="Loss" optional="show" digits="[10,4]"/>
+                <field name="current_reward" string="Reward" optional="show" digits="[10,4]"/>
+                <field name="best_reward" string="Best Reward" optional="show" digits="[10,4]"/>
+                <field name="started_at" optional="show"/>
+                <field name="completed_at" optional="hide"/>
+                <field name="elapsed_time" string="Elapsed (s)" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ==================== FORM VIEW ==================== -->
+    <record id="view_rl_training_job_form" model="ir.ui.view">
+        <field name="name">rl.training.job.form</field>
+        <field name="model">rl.training.job</field>
+        <field name="arch" type="xml">
+            <form string="Training Job">
+                <header>
+                    <button name="action_configure" string="Configure"
+                            type="object" class="oe_highlight"
+                            invisible="state != 'draft'"/>
+                    <button name="action_start_training" string="Start Training"
+                            type="object" class="oe_highlight"
+                            invisible="state != 'configured'"/>
+                    <button name="action_simulate_step" string="Simulate Step"
+                            type="object"
+                            invisible="state != 'training'"/>
+                    <button name="action_cancel" string="Cancel"
+                            type="object" class="btn-secondary"
+                            invisible="state in ('completed', 'cancelled', 'failed')"/>
+                    <button name="action_reset_draft" string="Reset to Draft"
+                            type="object" class="btn-secondary"
+                            invisible="state not in ('cancelled', 'failed', 'completed')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,configured,training,completed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="e.g. nemotron-gtpo-v1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Configuration">
+                            <field name="model_id"/>
+                            <field name="config_id"/>
+                            <field name="dataset_id"/>
+                        </group>
+                        <group string="Training Progress">
+                            <field name="progress" widget="progressbar"/>
+                            <field name="current_step"/>
+                            <field name="total_steps"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Metrics">
+                            <field name="current_loss"/>
+                            <field name="current_reward"/>
+                            <field name="best_reward"/>
+                        </group>
+                        <group string="Timing">
+                            <field name="started_at"/>
+                            <field name="completed_at"/>
+                            <field name="elapsed_time" widget="float_time"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Training Metrics" name="metrics">
+                            <field name="metric_ids" readonly="1">
+                                <list string="Step-by-Step Metrics"
+                                      default_order="step desc">
+                                    <field name="step"/>
+                                    <field name="loss" digits="[10,6]"/>
+                                    <field name="reward" digits="[10,4]"/>
+                                    <field name="learning_rate" digits="[10,8]"/>
+                                    <field name="gradient_norm" digits="[10,4]" optional="show"/>
+                                    <field name="entropy" digits="[10,4]" optional="show"/>
+                                    <field name="kl_divergence" digits="[10,6]" optional="show"/>
+                                    <field name="clip_fraction" digits="[10,4]" optional="hide"/>
+                                    <field name="policy_loss" digits="[10,6]" optional="hide"/>
+                                    <field name="value_loss" digits="[10,6]" optional="hide"/>
+                                    <field name="reward_mean" digits="[10,4]" optional="hide"/>
+                                    <field name="reward_std" digits="[10,4]" optional="hide"/>
+                                    <field name="advantage_mean" digits="[10,4]" optional="hide"/>
+                                    <field name="tokens_per_second" optional="show"/>
+                                    <field name="samples_per_second" optional="hide"/>
+                                    <field name="gpu_memory_used" optional="hide"/>
+                                    <field name="timestamp" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Weights" name="weights">
+                            <field name="weight_ids" readonly="1">
+                                <list string="Checkpoints &amp; Weights">
+                                    <field name="name"/>
+                                    <field name="step" string="Step"/>
+                                    <field name="file_format"/>
+                                    <field name="file_size" string="Size (MB)"/>
+                                    <field name="upload_state" widget="badge"
+                                           decoration-success="upload_state == 'uploaded'"
+                                           decoration-danger="upload_state == 'failed'"
+                                           decoration-info="upload_state == 'uploading'"/>
+                                    <field name="s3_url" widget="url" string="S3 URL"
+                                           optional="show"/>
+                                    <field name="is_best" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Error Details" name="errors"
+                              invisible="state != 'failed'">
+                            <group>
+                                <field name="error_message" readonly="1" nolabel="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ==================== ACTION ==================== -->
+    <record id="action_training_job_list" model="ir.actions.act_window">
+        <field name="name">All Training Jobs</field>
+        <field name="res_model">rl.training.job</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_rl_training_job_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No training jobs yet
+            </p>
+            <p>
+                Start a new training run from the Training Wizard to see jobs listed here.
+            </p>
+        </field>
+    </record>
+
+</odoo>

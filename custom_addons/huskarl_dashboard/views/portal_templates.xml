@@ -17,6 +17,8 @@
             var saved = localStorage.getItem('huskarl:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -66,7 +68,8 @@
       <span class="badge">REINFORCEMENT</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">How well do AI agents solve hard terminal tasks in real environments?</p>
+    <p class="thesis">How well do AI agents solve hard terminal tasks — from file manipulation to system administration — in <em>real sandboxed environments</em>?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
@@ -76,7 +79,7 @@
     <div class="overview-grid">
       <div class="prose">
         <p>MARS is a reinforcement learning environment for training autonomous agents to resolve complex <b style="color:var(--accent);">CLI (command line interface)</b> tasks. Each task includes a containerized environment with a human curated problem based on real-world operational scenarios, a natural language problem description, and a Docker container for sandboxed execution. Reward signals are generated using test suites that verify the final container state against expected outcomes. Two frontier models were tested on 10,000 instances covering 6 task categories across 3 difficulty tiers.</p>
-        <p class="teaser">Keep scrolling. The results are in <a href="#results">§04</a>.</p>
+        <p class="teaser">Keep scrolling. The results are in <a href="#results">§05</a>.</p>
       </div>
 
       <aside class="glance" aria-label="At a glance">
@@ -99,63 +102,28 @@
     <div class="kpi-row" aria-label="Key benchmark metrics" style="grid-template-columns: repeat(4, 1fr);">
       <div class="kpi-card">
         <p class="kpi-label">Instances</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10000" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
         <p class="kpi-note mono">100% reward signal coverage</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models Used</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="2" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
         <p class="kpi-note mono">GLM-5 &amp; Nova-2-Lite</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Categories</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="6" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">6</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Difficulty Tiers</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="3" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">3</span></p>
         <p class="kpi-note mono">Easy, Medium, Hard</p>
       </div>
     </div>
   </section>
 
-  <section class="section" id="eval-pipeline" aria-labelledby="eval-pipeline-label">
-    <p class="section-label" id="eval-pipeline-label">§03 · Pipeline</p>
-    <p class="section-desc">Three stages turn a raw task into a scored RL environment.</p>
-
-    <div class="pipeline pipeline-b">
-      <article class="phase phase-exec">
-        <p class="phase-label">Phase 01</p>
-        <h4 class="phase-title">Environment Construction</h4>
-        <ul class="phase-body">
-          <li>Identify target real-world programming problems</li>
-          <li>Write human curated reward signals (deterministic test harnesses)</li>
-          <li>Package sandboxed runtimes with graded difficulty metadata</li>
-        </ul>
-      </article>
-      <article class="phase phase-exec">
-        <p class="phase-label">Phase 02</p>
-        <h4 class="phase-title">Agent Execution</h4>
-        <ul class="phase-body">
-          <li>Deploy frontier models into isolated environments</li>
-          <li>Agents produce solutions under resource constraints</li>
-          <li>Capture per-environment outputs</li>
-        </ul>
-      </article>
-      <article class="phase phase-exec">
-        <p class="phase-label">Phase 03</p>
-        <h4 class="phase-title">Reward Signal Evaluation</h4>
-        <ul class="phase-body">
-          <li>Execute reward signal harnesses against agent outputs</li>
-          <li>Score binary pass/fail per test case</li>
-          <li>Aggregate to environment-level and category-level pass rates</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
   <section class="section" id="methodology" aria-labelledby="methodology-label">
-    <p class="section-label" id="methodology-label">§03b · Methodology</p>
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
     <p class="section-desc">How the evaluation scores are computed.</p>
 
     <div class="pipeline-frame">
@@ -205,8 +173,43 @@
     </div>
   </section>
 
-  <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 · Results</p>
+  <section class="section" id="eval-pipeline" aria-labelledby="eval-pipeline-label">
+    <p class="section-label" id="eval-pipeline-label">§04 · Evaluation pipeline</p>
+    <p class="section-desc">Three stages turn a raw task into a scored RL environment.</p>
+
+    <div class="pipeline pipeline-b">
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 01</p>
+        <h4 class="phase-title">Environment Construction</h4>
+        <ul class="phase-body">
+          <li>Identify target real-world programming problems</li>
+          <li>Write human curated reward signals (deterministic test harnesses)</li>
+          <li>Package sandboxed runtimes with graded difficulty metadata</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 02</p>
+        <h4 class="phase-title">Agent Execution</h4>
+        <ul class="phase-body">
+          <li>Deploy frontier models into isolated environments</li>
+          <li>Agents produce solutions under resource constraints</li>
+          <li>Capture per-environment outputs</li>
+        </ul>
+      </article>
+      <article class="phase phase-exec">
+        <p class="phase-label">Phase 03</p>
+        <h4 class="phase-title">Reward Signal Evaluation</h4>
+        <ul class="phase-body">
+          <li>Execute reward signal harnesses against agent outputs</li>
+          <li>Score binary pass/fail per test case</li>
+          <li>Aggregate to environment-level and category-level pass rates</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="eval-pipeline" aria-labelledby="eval-pipeline-label">
+    <p class="section-label" id="results-label">§05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -310,7 +313,7 @@
   </section>
 
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">§05 · Dataset Viewer</p>
+    <p class="section-label" id="instances-label">§06 · Dataset Viewer</p>
     <p class="section-desc">Sample instances evaluated on GLM-5 and Nova-2-Lite.</p>
 
     <div style="display:flex; gap:12px; margin-top:1rem; margin-bottom:24px; flex-wrap:wrap;">
@@ -368,7 +371,7 @@
   </section>
 
   <section class="section" id="comparison" aria-labelledby="comparison-label">
-    <p class="section-label" id="comparison-label">§06 · Aggregate Performance</p>
+    <p class="section-label" id="comparison-label">§07 · Model comparison</p>
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
       <div class="glance" style="height:100%;" aria-label="GLM-5 summary">
@@ -396,20 +399,26 @@
   </section>
 
   <section class="section" id="resources" aria-labelledby="resources-label">
-    <p class="section-label" id="resources-label">§07 · Resources</p>
+    <p class="section-label" id="resources-label">§08 · Resources</p>
 
-    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/mars-results" target="_blank" rel="noopener" style="text-decoration:none;">
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" href="https://github.com/Ethara-Ai/mars-results" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
-        <p class="res-title">Source Repository</p>
+        <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/mars-results</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" href="https://huggingface.co/datasets/ethara/mars" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Dataset</p>
-        <p class="res-title">HuggingFace Dataset</p>
+      <a class="resource" href="https://huggingface.co/datasets/ethara/mars" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/mars</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2601.11868" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2601.11868</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>

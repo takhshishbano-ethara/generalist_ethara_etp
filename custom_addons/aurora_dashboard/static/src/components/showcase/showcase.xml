@@ -3,7 +3,7 @@
     <t t-name="aurora_dashboard.AuroraShowcase">
         <div class="au-showcase">
             <header class="au-showcase-header">
-                <span class="au-tag">RL ENVIRONMENT</span>
+                <span class="au-tag">LONG-HORIZON SOFTWARE EVOLUTION</span>
                 <h1 class="au-title">AURORA</h1>
                 <p class="au-subtitle">
                     Multi-Language Long-Horizon Software Evalution &#xB7; Milo-Bench Framework

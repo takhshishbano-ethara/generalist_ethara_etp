@@ -7,7 +7,7 @@
     <t t-name="rl_gym_dashboard.TrainingWizard">
         <div class="rl-wizard-container">
             <header class="rl-wizard-header">
-                <h1 class="rl-wizard-header__title">ML Training Wizard</h1>
+                <h1 class="rl-wizard-header__title">RL Training</h1>
                 <span class="rl-wizard-header__badge">6-Step Pipeline</span>
             </header>
 
@@ -52,6 +52,7 @@
                         loadingDatasets="state.loadingDatasets"
                         loadingInfo="state.loadingInfo"
                         sections="state.configSections"
+                        datasetConfigApplied="state.datasetConfigApplied"
                         onConfigChange.bind="onConfigChange"
                         onDatasetSearch.bind="onDatasetSearch"
                         onDatasetSelect.bind="onDatasetSelect"
@@ -65,6 +66,7 @@
                         modelId="state.wizardData.selectedModelId"
                         configId="state.wizardData.configId"
                         jobName="state.wizardData.customName"
+                        policyType="state.wizardData.config.policy_type"
                         rpc="rpc"/>
                 </t>
                 <t t-if="state.currentStep === 3">
@@ -181,7 +183,12 @@
     <t t-name="rl_gym_dashboard.TrainingWizard.StepConfiguration">
         <div class="rl-wizard-config">
             <!-- Left: Config Panel -->
-            <div class="rl-wizard-config__panel">
+            <div t-att-class="'rl-wizard-config__panel' + (props.datasetConfigApplied ? ' rl-wizard-config__panel--flash' : '')">
+                <t t-if="props.datasetConfigApplied">
+                    <div class="rl-wizard-config__notification">
+                        ✓ Config auto-populated from dataset recommendations
+                    </div>
+                </t>
                 <div class="rl-wizard-config__panel-title">
                     <span>Training Configuration</span>
                     <button class="rl-wizard-btn rl-wizard-btn--ghost"
@@ -190,6 +197,8 @@
                         Load Defaults
                     </button>
                 </div>
+
+
 
                 <t t-foreach="configSections" t-as="section" t-key="section.key">
                     <div class="rl-wizard-config__section">
@@ -204,14 +213,34 @@
                         <t t-if="isSectionOpen(section.key)">
                             <div class="rl-wizard-config__section-body">
                                 <t t-foreach="section.fields" t-as="field" t-key="field.key">
-                                    <div class="rl-wizard-config__field">
-                                        <label class="rl-wizard-config__field-label" t-esc="field.label"/>
-                                        <input t-att-type="field.type || 'number'"
-                                               class="rl-wizard-config__field-input"
-                                               t-att-value="getConfigValue(field.key)"
-                                               t-att-step="field.step || 'any'"
-                                               t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
-                                    </div>
+                                    <t t-if="isFieldVisible(field)">
+                                        <div class="rl-wizard-config__field">
+                                            <label class="rl-wizard-config__field-label" t-esc="field.label"/>
+                                            <t t-if="field.type === 'select'">
+                                                <select class="rl-wizard-config__field-input"
+                                                        t-on-change="(ev) => this.onSelectChange(field.key, ev)">
+                                                    <t t-foreach="field.options" t-as="opt" t-key="opt.value">
+                                                        <option t-att-value="opt.value"
+                                                                t-att-selected="getConfigValue(field.key) === opt.value"
+                                                                t-esc="opt.label"/>
+                                                    </t>
+                                                </select>
+                                            </t>
+                                            <t t-elif="field.type === 'checkbox'">
+                                                <input type="checkbox"
+                                                       class="rl-wizard-config__field-checkbox"
+                                                       t-att-checked="getConfigValue(field.key)"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                            <t t-else="">
+                                                <input t-att-type="field.type || 'number'"
+                                                       class="rl-wizard-config__field-input"
+                                                       t-att-value="getConfigValue(field.key)"
+                                                       t-att-step="field.step || 'any'"
+                                                       t-on-change="(ev) => this.onFieldChange(field.key, ev)"/>
+                                            </t>
+                                        </div>
+                                    </t>
                                 </t>
                             </div>
                         </t>
@@ -260,68 +289,111 @@
                     </div>
                 </t>
 
-                <!-- Dataset Preview -->
+                <!-- Dataset Preview Button -->
                 <t t-if="props.loadingInfo">
                     <div class="rl-wizard-loading">
                         <div class="rl-wizard-loading__spinner"/>
                         <span>Loading preview…</span>
                     </div>
                 </t>
-                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Data Preview</div>
-                        <table class="rl-wizard-dataset__preview-table">
-                            <thead>
-                                <tr>
-                                    <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
-                                        <th t-esc="col"/>
-                                    </t>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <t t-foreach="props.datasetInfo.preview.rows.slice(0, 5)" t-as="row" t-key="row_index">
-                                    <tr>
-                                        <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
-                                            <td t-esc="row[col]"/>
-                                        </t>
-                                    </tr>
-                                </t>
-                            </tbody>
-                        </table>
-                    </div>
+                <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Data
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.columns.length"/> columns · <t t-esc="(props.datasetInfo.preview.rows || []).length"/> rows
+                        </span>
+                    </button>
                 </t>
                 <t t-elif="props.datasetInfo and props.datasetInfo.preview and props.datasetInfo.preview.file_list">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Dataset Files</div>
-                        <p class="rl-wizard-dataset__preview-note" t-esc="props.datasetInfo.preview.note"/>
-                        <table class="rl-wizard-dataset__preview-table">
-                            <thead>
-                                <tr><th>File</th><th>Size</th></tr>
-                            </thead>
-                            <tbody>
-                                <t t-foreach="props.datasetInfo.preview.file_list.slice(0, 15)" t-as="f" t-key="f_index">
-                                    <tr>
-                                        <td t-esc="f.path"/>
-                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
-                                    </tr>
-                                </t>
-                            </tbody>
-                        </table>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.preview.total_files > 15">
-                            <t t-esc="'... and ' + (props.datasetInfo.preview.total_files - 15) + ' more files'"/>
-                        </p>
-                    </div>
+                    <button class="rl-wizard-dataset__preview-btn" t-on-click="() => this.openPreview()">
+                        ⊞ Preview Files
+                        <span class="rl-wizard-dataset__preview-btn-meta">
+                            <t t-esc="props.datasetInfo.preview.total_files || props.datasetInfo.preview.file_list.length"/> files
+                        </span>
+                    </button>
                 </t>
                 <t t-elif="props.datasetInfo and !props.datasetInfo.preview">
-                    <div class="rl-wizard-dataset__preview">
-                        <div class="rl-wizard-dataset__preview-title">Dataset Info</div>
-                        <p class="rl-wizard-dataset__preview-note">No preview available for this private dataset.</p>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.downloads">
-                            Downloads: <t t-esc="props.datasetInfo.downloads"/>
-                        </p>
-                        <p class="rl-wizard-dataset__preview-note" t-if="props.datasetInfo.tags and props.datasetInfo.tags.length">
-                            Tags: <t t-esc="props.datasetInfo.tags.join(', ')"/>
-                        </p>
+                    <div class="rl-wizard-dataset__no-preview">
+                        <span>No preview available</span>
+                        <span class="rl-wizard-dataset__no-preview-meta" t-if="props.datasetInfo.downloads">
+                            ↓ <t t-esc="props.datasetInfo.downloads"/>
+                        </span>
+                    </div>
+                </t>
+
+                <!-- Preview Modal -->
+                <t t-if="state.showPreviewModal">
+                    <div class="rl-wizard-modal-overlay" t-on-click="() => this.closePreview()">
+                        <div class="rl-wizard-modal" t-on-click.stop="">
+                            <div class="rl-wizard-modal__header">
+                                <span class="rl-wizard-modal__title">
+                                    Dataset Preview — <t t-esc="props.datasetInfo.name or props.datasetInfo.id or 'Dataset'"/>
+                                </span>
+                                <button class="rl-wizard-modal__close" t-on-click="() => this.closePreview()">✕</button>
+                            </div>
+                            <div class="rl-wizard-modal__body">
+                                <t t-if="props.datasetInfo.preview.columns and props.datasetInfo.preview.columns.length">
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="rl-wizard-modal__row-num">#</th>
+                                                    <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                        <th t-esc="col"/>
+                                                    </t>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="pagedRows" t-as="row" t-key="row_index">
+                                                    <tr>
+                                                        <td class="rl-wizard-modal__row-num" t-esc="state.previewPage * 10 + row_index + 1"/>
+                                                        <t t-foreach="props.datasetInfo.preview.columns" t-as="col" t-key="col">
+                                                            <td t-esc="row[col] != null ? ('' + row[col]).slice(0, 500) : ''"/>
+                                                        </t>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <!-- Pagination -->
+                                    <div class="rl-wizard-modal__pagination">
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage === 0"
+                                                t-on-click="() => this.prevPage()">← Prev</button>
+                                        <span class="rl-wizard-modal__page-info">
+                                            Page <t t-esc="state.previewPage + 1"/> of <t t-esc="totalPages"/>
+                                            <span class="rl-wizard-modal__page-rows">
+                                                (<t t-esc="totalRows"/> rows)
+                                            </span>
+                                        </span>
+                                        <button class="rl-wizard-modal__page-btn"
+                                                t-att-disabled="state.previewPage >= totalPages - 1"
+                                                t-on-click="() => this.nextPage()">Next →</button>
+                                    </div>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.note and (!props.datasetInfo.preview.columns or !props.datasetInfo.preview.columns.length)">
+                                    <p class="rl-wizard-modal__note" t-esc="props.datasetInfo.preview.note"/>
+                                </t>
+                                <t t-elif="props.datasetInfo.preview.file_list">
+                                    <p class="rl-wizard-modal__note" t-if="props.datasetInfo.preview.note" t-esc="props.datasetInfo.preview.note"/>
+                                    <div class="rl-wizard-modal__table-wrap">
+                                        <table class="rl-wizard-modal__table">
+                                            <thead>
+                                                <tr><th>File</th><th>Size</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="props.datasetInfo.preview.file_list" t-as="f" t-key="f_index">
+                                                    <tr>
+                                                        <td t-esc="f.path"/>
+                                                        <td t-esc="(f.size / 1024).toFixed(1) + ' KB'"/>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
                     </div>
                 </t>
 
@@ -360,64 +432,219 @@
     <!-- Step 3: Training                                                    -->
     <!-- ================================================================== -->
     <t t-name="rl_gym_dashboard.TrainingWizard.StepTraining">
-        <div class="rl-wizard-training">
-            <!-- Status + Pause -->
-            <div class="rl-wizard-training__status">
-                <span t-att-class="'rl-wizard-training__status-badge rl-wizard-training__status-badge--' + state.status"
-                      t-esc="state.statusLabel"/>
-                <t t-if="state.status === 'training' or state.status === 'paused'">
-                    <button t-att-class="'rl-wizard-btn ' + (state.status === 'paused' ? 'rl-wizard-btn--success' : 'rl-wizard-btn--orange')"
-                            t-on-click="togglePause"
-                            style="padding: 6px 14px; font-size: 12px;">
-                        <t t-if="state.status === 'paused'">▶ Resume</t>
-                        <t t-else="">⏸ Pause</t>
-                    </button>
+        <div t-att-class="'rl-wb' + (state.sidebarOpen ? '' : ' rl-wb--sidebar-collapsed')">
+            <div class="rl-wb__sidebar">
+                <button class="rl-wb__sidebar-toggle" t-on-click="toggleSidebar">
+                    <t t-if="state.sidebarOpen">◀</t>
+                    <t t-else="">▶</t>
+                </button>
+                <t t-if="state.sidebarOpen">
+                    <div class="rl-wb__run-info">
+                        <div class="rl-wb__run-name" t-esc="props.jobName or 'training-run'"/>
+                        <span t-att-class="'rl-wb__badge rl-wb__badge--' + state.status" t-esc="state.statusLabel"/>
+                        <dl class="rl-wb__run-meta">
+                            <dt>Policy</dt><dd t-esc="state.policyType"/>
+                            <dt>Steps</dt><dd><t t-esc="state.currentStep"/>/<t t-esc="state.totalSteps"/></dd>
+                            <dt>Duration</dt><dd t-esc="state.duration"/>
+                            <dt>Best</dt><dd t-esc="state.bestReward"/>
+                        </dl>
+                    </div>
                 </t>
             </div>
 
-            <!-- Progress Bar -->
-            <div class="rl-wizard-training__progress">
-                <div class="rl-wizard-training__progress-bar">
-                    <div class="rl-wizard-training__progress-fill"
-                         t-attf-style="width: {{ state.progress }}%"/>
+            <div class="rl-wb__main">
+                <div class="rl-wb__topbar">
+                    <span t-att-class="'rl-wb__badge rl-wb__badge--' + state.status" t-esc="state.statusLabel"/>
+                    <div class="rl-wb__progress">
+                        <div class="rl-wb__progress-bar">
+                            <div class="rl-wb__progress-fill" t-attf-style="width: {{ state.progress }}%"/>
+                        </div>
+                        <span class="rl-wb__progress-text"><t t-esc="state.progress"/>% · Step <t t-esc="state.currentStep"/>/<t t-esc="state.totalSteps"/></span>
+                    </div>
+                    <div class="rl-wb__controls">
+                        <button t-if="state.status === 'training' or state.status === 'paused'"
+                                t-att-class="'rl-wb__btn ' + (state.status === 'paused' ? 'rl-wb__btn--success' : 'rl-wb__btn--warn')"
+                                t-on-click="togglePause">
+                            <t t-if="state.status === 'paused'">▶ Resume</t>
+                            <t t-else="">⏸ Pause</t>
+                        </button>
+                    </div>
                 </div>
-                <div class="rl-wizard-training__progress-text">
-                    <span><t t-esc="state.progress"/>%</span>
-                    <span>Step <t t-esc="state.currentStep"/> / <t t-esc="state.totalSteps"/></span>
+
+                <div class="rl-wb__tabs">
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'overview' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('overview')">Overview</button>
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'charts' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('charts')">Charts</button>
+                    <button t-att-class="'rl-wb__tab' + (state.activeTab === 'logs' ? ' rl-wb__tab--active' : '')"
+                            t-on-click="() => this.setActiveTab('logs')">Logs</button>
+                </div>
+
+                <div class="rl-wb__tab-content">
+                    <t t-if="state.activeTab === 'charts'">
+                        <div class="rl-wb__workspace-controls">
+                            <div class="rl-wb__control-group">
+                                <span class="rl-wb__control-label">Smoothing</span>
+                                <select class="rl-wb__select" t-on-change="onSmoothingTypeChange">
+                                    <option value="none" t-att-selected="state.smoothingType === 'none'">None</option>
+                                    <option value="ema" t-att-selected="state.smoothingType === 'ema'">EMA</option>
+                                    <option value="twema" t-att-selected="state.smoothingType === 'twema'">TW-EMA</option>
+                                    <option value="gaussian" t-att-selected="state.smoothingType === 'gaussian'">Gaussian</option>
+                                    <option value="running" t-att-selected="state.smoothingType === 'running'">Running Avg</option>
+                                </select>
+                            </div>
+                            <div class="rl-wb__control-group" t-if="state.smoothingType !== 'none'">
+                                <span class="rl-wb__control-label">Weight</span>
+                                <input type="range" class="rl-wb__slider" min="0" max="0.99" step="0.01"
+                                       t-att-value="state.smoothingWeight"
+                                       t-on-input="onSmoothingWeightChange"/>
+                                <span class="rl-wb__slider-value" t-esc="state.smoothingWeight.toFixed(2)"/>
+                            </div>
+                            <div class="rl-wb__control-group">
+                                <button t-att-class="'rl-wb__toggle' + (state.ignoreOutliers ? ' rl-wb__toggle--active' : '')"
+                                        t-on-click="toggleOutliers">Ignore Outliers</button>
+                            </div>
+                        </div>
+
+                        <div class="rl-wb__kpi-strip">
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Loss</span><span class="rl-wb__kpi-value" t-esc="state.currentLoss"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Reward</span><span class="rl-wb__kpi-value" t-esc="state.currentReward"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Best</span><span class="rl-wb__kpi-value" t-esc="state.bestReward"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">LR</span><span class="rl-wb__kpi-value" t-esc="state.learningRate"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Tok/s</span><span class="rl-wb__kpi-value" t-esc="state.tokensPerSec"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">GPU</span><span class="rl-wb__kpi-value" t-esc="state.gpuMem"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">Policy</span><span class="rl-wb__kpi-value" t-esc="state.policyType"/></div>
+                            <div class="rl-wb__kpi"><span class="rl-wb__kpi-label">ETA</span><span class="rl-wb__kpi-value" t-esc="state.etaLabel"/></div>
+                        </div>
+
+                        <t t-foreach="state.sections" t-as="section" t-key="section_index">
+                            <div t-att-class="'rl-wb__section' + (section.pinned ? ' rl-wb__section--pinned' : '')">
+                                <div class="rl-wb__section-hdr" t-on-click="() => this.toggleSection(section_index)">
+                                    <span t-att-class="'rl-wb__chevron' + (section.open ? ' rl-wb__chevron--open' : '')">▸</span>
+                                    <span class="rl-wb__section-title" t-esc="section.title"/>
+                                    <span class="rl-wb__section-count"><t t-esc="getChartsForSection(section_index).length"/> charts</span>
+                                    <button t-att-class="'rl-wb__section-pin' + (section.pinned ? ' rl-wb__section-pin--active' : '')"
+                                            t-on-click.stop="() => this.togglePin(section_index)">📌</button>
+                                </div>
+                                <t t-if="section.open">
+                                    <div class="rl-wb__grid">
+                                        <t t-foreach="getChartsForSection(section_index)" t-as="cdef" t-key="cdef.id">
+                                            <div class="rl-wb__panel">
+                                                <div class="rl-wb__panel-header">
+                                                    <span class="rl-wb__panel-dot" t-attf-style="background: {{ cdef.lines[0].color }}"/>
+                                                    <span class="rl-wb__panel-title" t-esc="cdef.title"/>
+                                                    <button class="rl-wb__panel-expand" t-on-click="() => this.openFullscreen(cdef.id)">⛶</button>
+                                                </div>
+                                                <div class="rl-wb__panel-body">
+                                                    <canvas t-att-data-chart-id="cdef.id"/>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+                    </t>
+
+                    <t t-if="state.activeTab === 'overview'">
+                        <div class="rl-wb__overview">
+                            <div class="rl-wb__overview-grid">
+                                <div class="rl-wb__overview-card">
+                                    <h4>Run Config</h4>
+                                    <dl>
+                                        <dt>Job</dt><dd t-esc="props.jobName or 'training-run'"/>
+                                        <dt>Policy</dt><dd t-esc="state.policyType"/>
+                                        <dt>Total Steps</dt><dd t-esc="state.totalSteps"/>
+                                        <dt>Duration</dt><dd t-esc="state.duration"/>
+                                    </dl>
+                                </div>
+                                <div class="rl-wb__overview-card">
+                                    <h4>Summary Metrics</h4>
+                                    <dl>
+                                        <dt>Current Loss</dt><dd t-esc="state.currentLoss"/>
+                                        <dt>Current Reward</dt><dd t-esc="state.currentReward"/>
+                                        <dt>Best Reward</dt><dd t-esc="state.bestReward"/>
+                                        <dt>Learning Rate</dt><dd t-esc="state.learningRate"/>
+                                    </dl>
+                                </div>
+                                <div class="rl-wb__overview-card">
+                                    <h4>Performance</h4>
+                                    <dl>
+                                        <dt>Tokens/sec</dt><dd t-esc="state.tokensPerSec"/>
+                                        <dt>GPU Memory</dt><dd t-esc="state.gpuMem"/>
+                                        <dt>ETA</dt><dd t-esc="state.etaLabel"/>
+                                        <dt>Progress</dt><dd><t t-esc="state.progress"/>%</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <t t-if="state.activeTab === 'logs'">
+                        <div class="rl-wb__logs">
+                            <div class="rl-wb__logs-toolbar">
+                                <input type="text" class="rl-wb__logs-search" placeholder="Search logs..."
+                                       t-att-value="state.logSearch" t-on-input="onLogSearch"/>
+                                <select class="rl-wb__logs-filter" t-on-change="onLogFilterChange">
+                                    <option value="all" t-att-selected="state.logFilter === 'all'">All</option>
+                                    <option value="warn" t-att-selected="state.logFilter === 'warn'">Warnings+</option>
+                                    <option value="error" t-att-selected="state.logFilter === 'error'">Errors</option>
+                                </select>
+                                <button t-att-class="'rl-wb__toggle' + (state.logAutoScroll ? ' rl-wb__toggle--active' : '')"
+                                        t-on-click="toggleAutoScroll">Auto-scroll</button>
+                            </div>
+                            <div class="rl-wb__log" t-ref="logScroll" t-on-scroll="onLogScroll">
+                                <table class="rl-wb__log-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th><th>Step</th><th>Loss</th><th>Reward</th><th>LR</th>
+                                            <th>Grad</th><th>Entropy</th><th>KL</th><th>Clip</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="filteredLogs" t-as="row" t-key="row.step">
+                                            <tr t-att-class="'rl-wb__log-row--' + row.severity">
+                                                <td t-esc="row.timeLabel"/>
+                                                <td t-esc="row.step"/>
+                                                <td t-esc="row.loss"/>
+                                                <td t-esc="row.reward"/>
+                                                <td t-esc="row.lr"/>
+                                                <td t-esc="row.grad"/>
+                                                <td t-esc="row.entropy"/>
+                                                <td t-esc="row.kl"/>
+                                                <td t-esc="row.clip"/>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <t t-if="state.logNewCount > 0">
+                                <button class="rl-wb__logs-new-indicator" t-on-click="scrollToBottom">
+                                    <t t-esc="state.logNewCount"/> new entries ↓
+                                </button>
+                            </t>
+                        </div>
+                    </t>
                 </div>
             </div>
 
-            <!-- Chart -->
-            <div class="rl-wizard-training__chart-area">
-                <h3 class="rl-wizard-training__chart-title">Loss &amp; Reward</h3>
-                <div class="rl-wizard-training__chart-canvas">
-                    <canvas t-ref="trainingChart"/>
+            <t t-if="state.fullscreenChartId">
+                <div class="rl-wb__fullscreen-overlay" t-on-click="closeFullscreen">
+                    <div class="rl-wb__fullscreen-modal" t-on-click.stop="">
+                        <div class="rl-wb__fullscreen-header">
+                            <t t-set="fsDef" t-value="getFullscreenDef()"/>
+                            <t t-if="fsDef">
+                                <span class="rl-wb__panel-dot" t-attf-style="background: {{ fsDef.lines[0].color }}"/>
+                                <span class="rl-wb__fullscreen-title" t-esc="fsDef.title"/>
+                            </t>
+                            <button class="rl-wb__fullscreen-close" t-on-click="closeFullscreen">✕</button>
+                        </div>
+                        <div class="rl-wb__fullscreen-body">
+                            <canvas t-ref="fullscreenCanvas"/>
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Live Metrics -->
-            <div class="rl-wizard-training__metrics">
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Loss</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentLoss)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Reward</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.currentReward)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Best Reward</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="formatMetric(state.bestReward)"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Learning Rate</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="state.learningRate"/>
-                </div>
-                <div class="rl-wizard-training__metric">
-                    <span class="rl-wizard-training__metric-label">Tokens/sec</span>
-                    <span class="rl-wizard-training__metric-value" t-esc="state.tokensPerSec"/>
-                </div>
-            </div>
+            </t>
         </div>
     </t>
 
@@ -425,7 +652,7 @@
     <!-- Step 4: Metrics                                                     -->
     <!-- ================================================================== -->
     <t t-name="rl_gym_dashboard.TrainingWizard.StepMetrics">
-        <div class="rl-wizard-metrics">
+        <div class="rl-wizard-metrics" t-ref="metricsRoot">
             <t t-if="state.loading">
                 <div class="rl-wizard-loading">
                     <div class="rl-wizard-loading__spinner"/>
@@ -433,7 +660,6 @@
                 </div>
             </t>
             <t t-else="">
-                <!-- Summary Cards -->
                 <div class="rl-wizard-metrics__summary">
                     <div class="rl-wizard-metrics__summary-card">
                         <div class="rl-wizard-metrics__summary-label">Final Loss</div>
@@ -451,39 +677,42 @@
                         <div class="rl-wizard-metrics__summary-label">Avg Tokens/sec</div>
                         <div class="rl-wizard-metrics__summary-value" t-esc="state.avgTokensSec"/>
                     </div>
-                </div>
-
-                <!-- Toggle Buttons -->
-                <div class="rl-wizard-metrics__toggles">
-                    <t t-foreach="metricLines" t-as="ml" t-key="ml.key">
-                        <button t-att-class="'rl-wizard-metrics__toggle'
-                            + (state.visibleLines[ml.key] ? ' rl-wizard-metrics__toggle--active' : '')"
-                                t-on-click="() => this.toggleLine(ml.key)">
-                            <t t-esc="ml.label"/>
-                        </button>
-                    </t>
-                </div>
-
-                <!-- Chart -->
-                <div class="rl-wizard-metrics__chart-area">
-                    <div class="rl-wizard-metrics__chart-canvas">
-                        <canvas t-ref="metricsChart"/>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Avg GPU Mem</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.avgGpuMem"/>
+                    </div>
+                    <div class="rl-wizard-metrics__summary-card">
+                        <div class="rl-wizard-metrics__summary-label">Policy Loss (end)</div>
+                        <div class="rl-wizard-metrics__summary-value" t-esc="state.policyLossEnd"/>
                     </div>
                 </div>
 
-                <!-- Table -->
+                <div class="rl-wizard-metrics__charts-grid">
+                    <t t-foreach="chartDefs" t-as="def" t-key="def.id">
+                        <div class="rl-wizard-metrics__chart-card">
+                            <h4 class="rl-wizard-metrics__chart-title" t-esc="def.title"/>
+                            <div class="rl-wizard-metrics__chart-canvas">
+                                <canvas t-att-data-chart-id="def.id"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
                 <div class="rl-wizard-metrics__table-wrap">
                     <table class="rl-wizard-metrics__table">
                         <thead>
                             <tr>
                                 <th>Step</th>
                                 <th>Loss</th>
+                                <th>P.Loss</th>
+                                <th>V.Loss</th>
                                 <th>Reward</th>
-                                <th>Grad Norm</th>
-                                <th>LR</th>
+                                <th>Grad</th>
                                 <th>Entropy</th>
-                                <th>KL Div</th>
+                                <th>KL</th>
+                                <th>Clip</th>
                                 <th>Tok/s</th>
+                                <th>GPU</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -491,12 +720,15 @@
                                 <tr>
                                     <td t-esc="m.step"/>
                                     <td t-esc="fmtNum(m.loss)"/>
+                                    <td t-esc="fmtNum(m.policy_loss)"/>
+                                    <td t-esc="fmtNum(m.value_loss)"/>
                                     <td t-esc="fmtNum(m.reward)"/>
                                     <td t-esc="fmtNum(m.gradient_norm)"/>
-                                    <td t-esc="fmtSci(m.learning_rate)"/>
                                     <td t-esc="fmtNum(m.entropy)"/>
                                     <td t-esc="fmtNum(m.kl_divergence)"/>
+                                    <td t-esc="fmtNum(m.clip_fraction)"/>
                                     <td t-esc="Math.round(m.tokens_per_second)"/>
+                                    <td t-esc="(m.gpu_memory_used || 0).toFixed(1)"/>
                                 </tr>
                             </t>
                         </tbody>

@@ -64,6 +64,10 @@ class GSPOConfig:
     overlong_penalty: bool = True
     overlong_penalty_threshold: int = 10  # L_thr in turns
 
+    gtpo_gamma: float = 0.9
+    gtpo_ent_threshold: float = 0.7
+    gtpo_ent_scale: float = 0.1
+
 
 @dataclass
 class CurriculumPhaseConfig:

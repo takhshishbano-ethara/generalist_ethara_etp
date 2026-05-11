@@ -35,5 +35,10 @@ class RlTrainingMetric(models.Model):
     samples_per_second = fields.Float(string='Samples/Second')
     gpu_memory_used = fields.Float(string='GPU Memory (GB)', digits=(6, 2))
 
+    # System metrics
+    cpu_percent = fields.Float(string='CPU Usage (%)', digits=(6, 2))
+    memory_percent = fields.Float(string='Memory Usage (%)', digits=(6, 2))
+    gpu_utilization = fields.Float(string='GPU Utilization (%)', digits=(6, 2))
+
     timestamp = fields.Datetime(string='Timestamp',
                                 default=fields.Datetime.now)

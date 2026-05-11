@@ -28,3 +28,6 @@ class RlTrainingModel(models.Model):
     architecture = fields.Char(string='Architecture')
     base_model = fields.Char(string='Base Model',
                              help='Parent model if fine-tuned')
+    recommended_policy = fields.Selection([
+        ('gtpo', 'GTPO'),
+    ], string='Recommended Policy', default='gtpo')

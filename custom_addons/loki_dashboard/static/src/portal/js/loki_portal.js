@@ -8,7 +8,7 @@
   function currentTheme() {
     var explicit = root.getAttribute('data-theme');
     if (explicit === 'light' || explicit === 'dark') return explicit;
-    return prefersDark.matches ? 'dark' : 'light';
+    return 'dark';
   }
 
   function syncToggleBtn() {

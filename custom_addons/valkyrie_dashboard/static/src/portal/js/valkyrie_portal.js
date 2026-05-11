@@ -26,7 +26,7 @@
         function currentTheme() {
             var explicit = root.getAttribute("data-theme");
             if (explicit === "light" || explicit === "dark") return explicit;
-            return prefersDark.matches ? "dark" : "light";
+            return "dark";
         }
 
         function syncLabel() {
@@ -158,51 +158,6 @@
         }, { threshold: 0.08, rootMargin: "0px 0px -40px 0px" });
 
         sections.forEach(function (s) { obs.observe(s); });
-    }
-
-    // ========================================================
-    // Funnel counters — animate [data-target] from 0 to the
-    // final number when the funnel first scrolls into view.
-    // ========================================================
-    function initFunnelCounters() {
-        var nums = document.querySelectorAll(".vk-funnel-num[data-target]");
-        if (!nums.length || !window.IntersectionObserver) {
-            // Fallback: jump to final values
-            nums.forEach(function (el) {
-                el.textContent = el.getAttribute("data-target") || el.textContent;
-            });
-            return;
-        }
-        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-        var obs = new IntersectionObserver(function (entries) {
-            entries.forEach(function (e) {
-                if (!e.isIntersecting) return;
-                var el = e.target;
-                obs.unobserve(el);
-                var target = parseFloat(el.getAttribute("data-target"));
-                if (isNaN(target)) return;
-
-                if (reduced) {
-                    el.textContent = String(target);
-                    return;
-                }
-
-                var duration = 900;
-                var start = performance.now();
-                function tick(now) {
-                    var elapsed = now - start;
-                    var progress = Math.min(elapsed / duration, 1);
-                    var eased = 1 - Math.pow(1 - progress, 3);
-                    el.textContent = Math.round(target * eased).toLocaleString("en-US");
-                    if (progress < 1) requestAnimationFrame(tick);
-                    else el.textContent = Number(target).toLocaleString("en-US");
-                }
-                requestAnimationFrame(tick);
-            });
-        }, { threshold: 0.4 });
-
-        nums.forEach(function (el) { obs.observe(el); });
     }
 
     // ========================================================
@@ -561,7 +516,6 @@
         initScrollProgress();
         initThesisReveal();
         initSectionReveal();
-        initFunnelCounters();
         initLightbox();
         initDatasetViewer();
     }

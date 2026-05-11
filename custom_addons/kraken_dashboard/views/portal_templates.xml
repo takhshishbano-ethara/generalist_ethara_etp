@@ -17,6 +17,8 @@
             var saved = localStorage.getItem('kraken:theme');
             if (saved === 'light' || saved === 'dark') {
               document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
             }
           } catch(e) {}
         })();
@@ -67,23 +69,24 @@
     </div>
     <hr class="rule" />
     <p class="thesis">Can AI agents optimize code faster than <em>experts</em>?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
   <main id="main">
 
   <section class="section" id="overview" aria-labelledby="overview-label">
-    <p class="section-label" id="overview-label">§01 · The question</p>
+    <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
         <p>Kraken evaluates AI coding agents on their ability to optimize real-world Python code for runtime performance. Using the SWE-fficiency methodology, agents must investigate repository-level codebases, localize performance bottlenecks, and produce patches that match or exceed expert-level speedup all while maintaining correctness through the project's test suite. Each instance reconstructs a production pull request from 3000 open-source Python repositories, with automated timing harnesses and gold-standard speedup baselines for reproducible evaluation.</p>
-        <p class="teaser">Keep scrolling. The answer is in <a href="#results">§04</a>.</p>
+        <p class="teaser">Keep scrolling. The answer is in <a href="#results">§05</a>.</p>
       </div>
 
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Instances</dt><dd><b>10000</b></dd></div>
-          <div class="glance-row"><dt>Repositories</dt><dd><b>3000</b></dd></div>
+          <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
+          <div class="glance-row"><dt>Repositories</dt><dd><b>3,000</b></dd></div>
           <div class="glance-row"><dt>Language</dt><dd><b>Python</b></dd></div>
           <div class="glance-row"><dt>Models evaluated</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Methodology</dt><dd>SWE-fficiency</dd></div>
@@ -101,11 +104,11 @@
     <div class="kpi-row" aria-label="Key benchmark metrics" style="grid-template-columns: repeat(6, 1fr);">
       <div class="kpi-card">
         <p class="kpi-label">Instances</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="10000" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">10,000</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models Evaluated</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="2" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Max Gold Speedup</p>
@@ -117,18 +120,70 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Repos Covered</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="3000" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">3,000</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Difficulty Levels</p>
-        <p class="kpi-value"><span class="kpi-big"><span class="funnel-num" data-target="4" aria-hidden="true">0</span></span></p>
+        <p class="kpi-value"><span class="kpi-big">4</span></p>
       </div>
     </div>
   </section>
 
-  <!-- ================= §03 EVALUATION PIPELINE (3 steps) ================= -->
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-desc">How the metrics scores are computed.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">Scoring framework</p>
+        <h2 class="pipeline-title">Four principles govern the Kraken scoring system.</h2>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0; border:1px solid var(--border);">
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Speedup Ratio (SR)</h4>
+          <ul class="phase-body">
+            <li>SR = Speedup_LM / Speedup_Gold</li>
+            <li>A score of 1.0 means the agent matched the expert</li>
+            <li>Values above 1.0 indicate the agent <b>exceeded</b> expert performance</li>
+          </ul>
+        </article>
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Harmonic Mean</h4>
+          <ul class="phase-body">
+            <li>Individual SR values aggregated via harmonic mean</li>
+            <li>Penalizes inconsistency across instances</li>
+            <li>Prevents a single outlier from inflating the score</li>
+          </ul>
+        </article>
+        <article class="phase" style="border-right:1px solid var(--border);">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Correctness Gating</h4>
+          <ul class="phase-body">
+            <li>Patches must pass Covering Test Suite (CTS)</li>
+            <li>Failed patches penalized: SR = 1/Gold_Speedup</li>
+            <li>Correctness is <b>never</b> sacrificed for speed</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Pass@1 Protocol</h4>
+          <ul class="phase-body">
+            <li>Each model gets exactly <b>one attempt</b> per instance</li>
+            <li>Mirrors real-world single-submission workflow</li>
+            <li>No retry, no cherry-picking best runs</li>
+          </ul>
+        </article>
+    </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 EVALUATION PIPELINE (3 steps) ================= -->
   <section class="section" id="eval-pipeline" aria-labelledby="eval-pipeline-label">
-    <p class="section-label" id="eval-pipeline-label">§03 · Evaluation pipeline</p>
+    <p class="section-label" id="eval-pipeline-label">§04 · Evaluation pipeline</p>
     <p class="section-desc">Three steps from repository to scored result.</p>
 
     <div class="pipeline pipeline-b">
@@ -163,7 +218,7 @@
   </section>
 
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
-    <p class="section-label" id="results-label">§04 · Results</p>
+    <p class="section-label" id="results-label">§05 · Results</p>
 
     <div class="reveal">
       <p class="reveal-line">
@@ -227,11 +282,11 @@
         <figcaption>Fig. 5 — Per-Instance HSR</figcaption>
       </figure>
     </div>
-    <p class="caption">HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), difficulty analysis (Fig. 3), cost-efficiency (Fig. 4), and per-instance detail (Fig. 5). See <a href="#instances">§05</a> for per-instance receipts.</p>
+    <p class="caption">HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), difficulty analysis (Fig. 3), cost-efficiency (Fig. 4), and per-instance detail (Fig. 5). See <a href="#instances">§06</a> for per-instance receipts.</p>
   </section>
 
   <section class="section" id="instances" aria-labelledby="instances-label">
-    <p class="section-label" id="instances-label">§05 · Dataset Viewer</p>
+    <p class="section-label" id="instances-label">§06 · Dataset Viewer</p>
 
     <div style="display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap;">
       <input type="text" class="kr-dataset__search" placeholder="Search instances..." aria-label="Search instances" style="flex:1; min-width:200px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-2); color:var(--ink-2); font-family:var(--font-mono); font-size:var(--s-ui);"/>
@@ -277,9 +332,9 @@
     <script type="application/json" id="instances-data" t-out="instances_json"/>
   </section>
 
-  <!-- ================= §06 MODEL COMPARISON ================= -->
+  <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="comparison" aria-labelledby="comparison-label">
-    <p class="section-label" id="comparison-label">§06 · Model comparison</p>
+    <p class="section-label" id="comparison-label">§07 · Model comparison</p>
     <p class="section-desc">Head-to-head breakdown of both evaluated models on the Kraken dataset.</p>
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
@@ -306,80 +361,28 @@
     </div>
   </section>
 
-  <!-- ================= §07 METHODOLOGY ================= -->
-  <section class="section" id="methodology" aria-labelledby="methodology-label">
-    <p class="section-label" id="methodology-label">§07 · Methodology</p>
-    <p class="section-desc">How the metrics scores are computed.</p>
-
-    <div class="pipeline-frame">
-      <div class="pipeline-intro">
-        <p class="pipeline-eyebrow mono">Scoring framework</p>
-        <h2 class="pipeline-title">Four principles govern the Kraken scoring system.</h2>
-      </div>
-
-      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0; border:1px solid var(--border);">
-        <article class="phase" style="border-right:1px solid var(--border);">
-          <p class="phase-label">Principle 01</p>
-          <h4 class="phase-title">Speedup Ratio (SR)</h4>
-          <ul class="phase-body">
-            <li>SR = Speedup_LM / Speedup_Gold</li>
-            <li>A score of 1.0 means the agent matched the expert</li>
-            <li>Values above 1.0 indicate the agent <b>exceeded</b> expert performance</li>
-          </ul>
-        </article>
-        <article class="phase" style="border-right:1px solid var(--border);">
-          <p class="phase-label">Principle 02</p>
-          <h4 class="phase-title">Harmonic Mean</h4>
-          <ul class="phase-body">
-            <li>Individual SR values aggregated via harmonic mean</li>
-            <li>Penalizes inconsistency across instances</li>
-            <li>Prevents a single outlier from inflating the score</li>
-          </ul>
-        </article>
-        <article class="phase" style="border-right:1px solid var(--border);">
-          <p class="phase-label">Principle 03</p>
-          <h4 class="phase-title">Correctness Gating</h4>
-          <ul class="phase-body">
-            <li>Patches must pass Covering Test Suite (CTS)</li>
-            <li>Failed patches penalized: SR = 1/Gold_Speedup</li>
-            <li>Correctness is <b>never</b> sacrificed for speed</li>
-          </ul>
-        </article>
-        <article class="phase">
-          <p class="phase-label">Principle 04</p>
-          <h4 class="phase-title">Pass@1 Protocol</h4>
-          <ul class="phase-body">
-            <li>Each model gets exactly <b>one attempt</b> per instance</li>
-            <li>Mirrors real-world single-submission workflow</li>
-            <li>No retry, no cherry-picking best runs</li>
-          </ul>
-        </article>
-    </div>
-    </div>
-  </section>
-
   <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="resources-label">
-    <p class="section-label" id="resources-label">§08 ·  Resources</p>
+    <p class="section-label" id="resources-label">§08 · Resources</p>
 
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/Kraken-Dataset" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Code</p>
-        <p class="res-title">GitHub repository</p>
+      <a class="resource" href="https://github.com/Ethara-Ai/Kraken-Dataset" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Trajectories</p>
         <p class="res-url mono">github.com/Ethara-Ai/Kraken-Dataset</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" href="https://huggingface.co/datasets/ethara/Kraken" target="_blank" rel="noopener" style="text-decoration:none;">
-        <p class="res-label mono">Data</p>
-        <p class="res-title">Dataset on HuggingFace</p>
+      <a class="resource" href="https://huggingface.co/datasets/ethara/Kraken" target="_blank" rel="noopener">
+        <p class="res-label mono">HuggingFace</p>
+        <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/Kraken</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
-      <a class="resource" href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener" style="text-decoration:none;">
+      <a class="resource" href="https://arxiv.org/abs/2511.06090" target="_blank" rel="noopener">
         <p class="res-label mono">Paper</p>
         <p class="res-title">Research Paper</p>
         <p class="res-url mono">arxiv.org/abs/2511.06090</p>
-        <span class="res-arrow mono" aria-hidden="true">-&gt;</span>
+        <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>
   </section>

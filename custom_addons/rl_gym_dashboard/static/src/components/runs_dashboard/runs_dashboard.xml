@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="rl_gym_dashboard.RunsDashboard">
+        <div class="rl-runs" t-att-class="{ 'rl-runs--detail': state.view === 'detail' }">
+
+            <!-- LIST VIEW -->
+            <t t-if="state.view === 'list'">
+                <div class="rl-runs__header">
+                    <h1>RL Model Training</h1>
+                    <button class="rl-runs__btn-new" t-on-click="startNewTraining">Start New Training</button>
+                </div>
+
+                <div class="rl-runs__filters">
+                    <input type="text" class="rl-runs__search" placeholder="Search runs..."
+                           t-att-value="state.searchQuery" t-on-input="onSearchChange"/>
+                    <select class="rl-runs__select" t-on-change="onStateFilterChange">
+                        <option value="all">All States</option>
+                        <option value="completed">Completed</option>
+                        <option value="training">Training</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                    <select class="rl-runs__select" t-on-change="onSortChange">
+                        <option value="recent">Most Recent</option>
+                        <option value="reward">Best Reward</option>
+                        <option value="name">Name</option>
+                    </select>
+                </div>
+
+                <t t-if="state.loading">
+                    <div class="rl-runs__loading">
+                        <div class="rl-runs__spinner"/>
+                        Loading runs...
+                    </div>
+                </t>
+
+                <t t-elif="filteredRuns.length === 0">
+                    <div class="rl-runs__empty">
+                        <p>No training runs found</p>
+                        <p>Start a new training to see results here.</p>
+                    </div>
+                </t>
+
+                <t t-else="">
+                    <div class="rl-runs__grid">
+                        <t t-foreach="filteredRuns" t-as="run" t-key="run.id">
+                            <div class="rl-runs__card" t-on-click="() => this.openRunDetail(run)">
+                                <div class="rl-runs__card-header">
+                                    <span t-att-class="'rl-runs__state-dot rl-runs__state-dot--' + (run.state || 'completed')"/>
+                                    <span class="rl-runs__card-name" t-esc="run.name || 'Unnamed Run'"/>
+                                    <span t-att-class="'rl-runs__badge rl-runs__badge--' + (run.state || 'completed')" t-esc="run.state || 'completed'"/>
+                                </div>
+                                <div class="rl-runs__card-meta">
+                                    <span t-if="run.duration_label" t-esc="run.duration_label"/>
+                                    <span t-if="run.model_name" t-esc="run.model_name"/>
+                                </div>
+                                <div class="rl-runs__sparklines">
+                                    <div class="rl-runs__sparkline">
+                                        <span class="rl-runs__sparkline-label">Loss</span>
+                                        <canvas t-attf-data-spark-id="loss_{{ run.id }}"/>
+                                    </div>
+                                    <div class="rl-runs__sparkline">
+                                        <span class="rl-runs__sparkline-label">Reward</span>
+                                        <canvas t-attf-data-spark-id="reward_{{ run.id }}"/>
+                                    </div>
+                                </div>
+                                <div class="rl-runs__card-stats">
+                                    <span t-if="run.final_loss != null">Loss: <t t-esc="run.final_loss.toFixed(3)"/></span>
+                                    <span t-if="run.best_reward != null">Best: <t t-esc="run.best_reward.toFixed(3)"/></span>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+            </t>
+
+            <!-- DETAIL VIEW -->
+            <t t-if="state.view === 'detail'">
+                <div class="rl-wb">
+                    <div class="rl-wb__main">
+                        <div class="rl-runs__detail-topbar">
+                            <button class="rl-runs__detail-back" t-on-click="backToList">← Back</button>
+                            <span class="rl-wb__run-name" t-esc="state.selectedRun.name || 'Run Detail'"/>
+                            <span t-att-class="'rl-wb__badge rl-wb__badge--' + (state.selectedRun.state || 'completed')" t-esc="state.selectedRun.state || 'completed'"/>
+                            <span t-if="state.selectedRun.state === 'training'" class="rl-runs__live-dot"/>
+                        </div>
+
+                        <div class="rl-wb__progress" t-if="state.selectedRun.progress != null">
+                            <div class="rl-wb__progress-bar">
+                                <div class="rl-wb__progress-fill" t-attf-style="width: {{ Math.round(state.selectedRun.progress || 0) }}%"/>
+                            </div>
+                            <span class="rl-wb__progress-text">
+                                Step <t t-esc="state.selectedRun.current_step || 0"/> / <t t-esc="state.selectedRun.total_steps || '—'"/>
+                                — <t t-esc="Math.round(state.selectedRun.progress || 0)"/>%
+                            </span>
+                        </div>
+
+                        <t t-if="state.detailLoading">
+                            <div class="rl-runs__loading">
+                                <div class="rl-runs__spinner"/>
+                                Loading metrics...
+                            </div>
+                        </t>
+
+                        <t t-else="">
+                            <div class="rl-wb__workspace-controls">
+                                <div class="rl-wb__control-group">
+                                    <span class="rl-wb__control-label">Smoothing</span>
+                                    <select class="rl-wb__select" t-on-change="onSmoothingTypeChange">
+                                        <option value="ema" t-att-selected="state.smoothingType === 'ema'">EMA</option>
+                                        <option value="twema" t-att-selected="state.smoothingType === 'twema'">TWEMA</option>
+                                        <option value="gaussian" t-att-selected="state.smoothingType === 'gaussian'">Gaussian</option>
+                                        <option value="running" t-att-selected="state.smoothingType === 'running'">Running Avg</option>
+                                        <option value="none" t-att-selected="state.smoothingType === 'none'">None</option>
+                                    </select>
+                                </div>
+                                <div class="rl-wb__control-group">
+                                    <span class="rl-wb__control-label">Weight</span>
+                                    <input type="range" class="rl-wb__slider" min="0" max="0.99" step="0.01"
+                                           t-att-value="state.smoothingWeight" t-on-input="onSmoothingWeightChange"/>
+                                    <span class="rl-wb__slider-value" t-esc="state.smoothingWeight.toFixed(2)"/>
+                                </div>
+                                <div class="rl-wb__control-group">
+                                    <button t-att-class="'rl-wb__toggle' + (state.ignoreOutliers ? ' rl-wb__toggle--active' : '')"
+                                            t-on-click="toggleOutliers">Ignore Outliers</button>
+                                </div>
+                            </div>
+
+                            <div class="rl-wb__kpi-strip">
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">Loss</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('loss')"/>
+                                </div>
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">Reward</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('reward')"/>
+                                </div>
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">Best</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('best_reward')"/>
+                                </div>
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">LR</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('learning_rate')"/>
+                                </div>
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">Tok/s</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('tokens_per_second')"/>
+                                </div>
+                                <div class="rl-wb__kpi">
+                                    <span class="rl-wb__kpi-label">GPU</span>
+                                    <span class="rl-wb__kpi-value" t-esc="getKpi('gpu_memory_used')"/>
+                                </div>
+                            </div>
+
+                            <t t-foreach="state.sections" t-as="section" t-key="section_index">
+                                <div t-att-class="'rl-wb__section' + (section.pinned ? ' rl-wb__section--pinned' : '')">
+                                    <div class="rl-wb__section-hdr" t-on-click="() => this.toggleSection(section_index)">
+                                        <span t-att-class="'rl-wb__chevron' + (section.open ? ' rl-wb__chevron--open' : '')">▶</span>
+                                        <span class="rl-wb__section-title" t-esc="section.title"/>
+                                        <span class="rl-wb__section-count" t-esc="getChartsForSection(section_index).length + ' charts'"/>
+                                        <button class="rl-wb__section-pin"
+                                                t-att-class="'rl-wb__section-pin' + (section.pinned ? ' rl-wb__section-pin--active' : '')"
+                                                t-on-click.stop="() => this.togglePin(section_index)">📌</button>
+                                    </div>
+                                    <t t-if="section.open">
+                                        <div class="rl-wb__grid">
+                                            <t t-foreach="getChartsForSection(section_index)" t-as="chartDef" t-key="chartDef.id">
+                                                <div class="rl-wb__panel">
+                                                    <div class="rl-wb__panel-header">
+                                                        <span class="rl-wb__panel-dot" t-attf-style="background: {{ chartDef.lines[0].color }}"/>
+                                                        <span class="rl-wb__panel-title" t-esc="chartDef.title"/>
+                                                        <button class="rl-wb__panel-expand" t-on-click.stop="() => this.openFullscreen(chartDef.id)">⛶</button>
+                                                    </div>
+                                                    <div class="rl-wb__panel-body">
+                                                        <canvas t-att-data-chart-id="chartDef.id"/>
+                                                    </div>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+
+                        <!-- Weights + Inference for completed runs -->
+                        <t t-if="state.selectedRun.state === 'completed'">
+                            <!-- Weight Management Section -->
+                            <div class="rl-wb__section">
+                                <div class="rl-wb__section-hdr" t-on-click="() => this.state.weightsOpen = !this.state.weightsOpen">
+                                    <span t-att-class="'rl-wb__chevron' + (state.weightsOpen ? ' rl-wb__chevron--open' : '')">▶</span>
+                                    <span class="rl-wb__section-title">Weight Management</span>
+                                </div>
+                                <t t-if="state.weightsOpen">
+                                    <div class="rl-runs__action-panel">
+                                        <div class="rl-runs__action-card">
+                                            <h4>Save Weights to S3</h4>
+                                            <div class="rl-runs__action-info">
+                                                <span>Format: safetensors</span>
+                                                <span>Estimated size: ~2.4 GB</span>
+                                            </div>
+                                            <t t-if="state.weightUploading">
+                                                <div class="rl-runs__action-status">Uploading…</div>
+                                            </t>
+                                            <t t-elif="state.weightS3Url">
+                                                <div class="rl-runs__action-success">✓ Uploaded</div>
+                                                <div class="rl-runs__action-url">
+                                                    <span t-esc="state.weightS3Url"/>
+                                                    <button class="rl-wb__btn" t-on-click="copyWeightUrl">Copy</button>
+                                                </div>
+                                            </t>
+                                            <t t-else="">
+                                                <button class="rl-wb__btn rl-wb__btn--success" t-on-click="uploadWeights">
+                                                    ↑ Upload to S3
+                                                </button>
+                                            </t>
+                                            <t t-if="state.weightError">
+                                                <div class="rl-runs__action-error" t-esc="state.weightError"/>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
+                            </div>
+
+                            <!-- Inference Section -->
+                            <div class="rl-wb__section">
+                                <div class="rl-wb__section-hdr" t-on-click="() => this.state.inferenceOpen = !this.state.inferenceOpen">
+                                    <span t-att-class="'rl-wb__chevron' + (state.inferenceOpen ? ' rl-wb__chevron--open' : '')">▶</span>
+                                    <span class="rl-wb__section-title">Inference</span>
+                                </div>
+                                <t t-if="state.inferenceOpen">
+                                    <div class="rl-runs__action-panel">
+                                        <div class="rl-runs__inference-area">
+                                            <textarea class="rl-runs__inference-input" rows="4"
+                                                      placeholder="Enter prompt for inference..."
+                                                      t-att-value="state.inferencePrompt"
+                                                      t-on-input="(ev) => this.state.inferencePrompt = ev.target.value"/>
+                                            <div class="rl-runs__inference-controls">
+                                                <label>Max tokens: <input type="number" min="32" max="2048" step="32"
+                                                       t-att-value="state.inferenceMaxTokens"
+                                                       t-on-input="(ev) => this.state.inferenceMaxTokens = parseInt(ev.target.value)"/></label>
+                                                <label>Temperature: <input type="number" min="0" max="2" step="0.1"
+                                                       t-att-value="state.inferenceTemperature"
+                                                       t-on-input="(ev) => this.state.inferenceTemperature = parseFloat(ev.target.value)"/></label>
+                                                <button class="rl-wb__btn rl-wb__btn--success"
+                                                        t-att-disabled="!state.inferencePrompt || state.inferenceRunning"
+                                                        t-on-click="runInference">
+                                                    <t t-if="state.inferenceRunning">Running…</t>
+                                                    <t t-else="">▶ Run Inference</t>
+                                                </button>
+                                            </div>
+                                            <t t-if="state.inferenceResponse">
+                                                <div class="rl-runs__inference-response">
+                                                    <div class="rl-runs__inference-response-header">
+                                                        <span>Response</span>
+                                                        <span class="rl-runs__inference-meta">
+                                                            <t t-esc="state.inferenceResponse.tokens_used"/> tokens
+                                                        </span>
+                                                    </div>
+                                                    <pre class="rl-runs__inference-output" t-esc="state.inferenceResponse.response"/>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Fullscreen overlay -->
+                <t t-if="state.fullscreenChartId">
+                    <div class="rl-wb__fullscreen-overlay" t-on-click="closeFullscreen">
+                        <div class="rl-wb__fullscreen-modal" t-on-click.stop="">
+                            <div class="rl-wb__fullscreen-header">
+                                <span class="rl-wb__fullscreen-title" t-esc="getFullscreenDef() ? getFullscreenDef().title : ''"/>
+                                <button class="rl-wb__fullscreen-close" t-on-click="closeFullscreen">✕</button>
+                            </div>
+                            <div class="rl-wb__fullscreen-body">
+                                <canvas/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </div>
+    </t>
+</templates>

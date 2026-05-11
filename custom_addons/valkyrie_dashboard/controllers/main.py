@@ -20,7 +20,7 @@ class ValkyrieShowcaseController(http.Controller):
     don't fight the module's own design system.
     """
 
-    @http.route("/valkyrie", type="http", auth="public", website=True, sitemap=True)
+    @http.route(["/valkyrie", "/Valkyrie"], type="http", auth="public", website=True, sitemap=True)
     def showcase_page(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
         values = {
