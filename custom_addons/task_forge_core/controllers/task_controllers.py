@@ -44,6 +44,7 @@ Rules:
 def _check_text_with_kimi(text):
     result = call_kimi(GRAMMAR_CHECK_SYSTEM_PROMPT, text, temperature=0.1)
     raw_text = result.get('text', '')
+    usage = result.get('usage', {})
     _logger.info('Kimi raw response (%d chars): %s', len(raw_text), raw_text[:500])
 
     parsed = parse_json_response(raw_text)
@@ -60,6 +61,8 @@ def _check_text_with_kimi(text):
             'summary': {},
             'parse_error': 'Kimi returned a non-JSON response. Please try again.',
             'raw_response': raw_text[:500],
+            'input_tokens': usage.get('input_tokens', 0),
+            'output_tokens': usage.get('output_tokens', 0),
         }
 
     is_correct_raw = parsed.get('is_correct', False)
@@ -80,6 +83,8 @@ def _check_text_with_kimi(text):
         'issue_count': issue_count,
         'issues': parsed.get('issues', []),
         'summary': parsed.get('summary', {}),
+        'input_tokens': usage.get('input_tokens', 0),
+        'output_tokens': usage.get('output_tokens', 0),
     }
 
 
@@ -382,6 +387,10 @@ class TaskForgeTaskController(http.Controller):
                 self._pending_rubric_vals = None
 
             task.invalidate_recordset()
+            try:
+                task.action_qc_with_llm()
+            except Exception as e:
+                print(f"{e}")
 
             try:
                 msg = f'Task "{task.name}" has been completed.' if task.state == 'completed' else f'Blocker raised on task "{task.name}".'
@@ -519,9 +528,8 @@ class TaskForgeTaskController(http.Controller):
             return None
 
         project = task.project_id
-        if not project or not project.is_response_required:
-            return None
 
+        # Always persist responses when provided (even if project doesn't enforce them)
         raw_responses = kwargs.get('responses')
         if raw_responses:
             payload = []
@@ -558,7 +566,11 @@ class TaskForgeTaskController(http.Controller):
 
                 task.invalidate_recordset(['response_ids'])
 
-        unfilled = task.response_ids.filtered(lambda r: not r.value)
+        # Only enforce "all filled" validation when project requires responses
+        if not project or not project.is_response_required:
+            return None
+
+        unfilled = task.response_ids.filtered(lambda r: not r.value and not r.response_url)
         if unfilled:
             labels = ', '.join(unfilled.sorted('sequence').mapped('label'))
             return return_Response(
@@ -967,6 +979,9 @@ class TaskForgeTaskController(http.Controller):
             p_summary = p_data.get('summary') or {}
             j_summary = j_data.get('summary') or {}
 
+            total_input_tokens = p_data.get('input_tokens', 0) + j_data.get('input_tokens', 0)
+            total_output_tokens = p_data.get('output_tokens', 0) + j_data.get('output_tokens', 0)
+
             task.write({
                 'prompt_text': prompt or task.prompt_text,
                 'justification_text': justification or task.justification_text,
@@ -993,7 +1008,15 @@ class TaskForgeTaskController(http.Controller):
                 'justification_typography_count': j_summary.get('typography', 0),
                 'justification_capitalization_count': j_summary.get('capitalization', 0),
                 'justification_miscellaneous_count': j_summary.get('miscellaneous', 0),
+                'grammar_input_tokens': total_input_tokens,
+                'grammar_output_tokens': total_output_tokens,
             })
+
+            result['token_usage'] = {
+                'input_tokens': total_input_tokens,
+                'output_tokens': total_output_tokens,
+                'total_tokens': total_input_tokens + total_output_tokens,
+            }
 
             if result['is_perfect']:
                 return return_Response(message="No issues found.", status=200, data=result)

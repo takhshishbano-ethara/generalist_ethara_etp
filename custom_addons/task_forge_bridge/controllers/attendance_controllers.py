@@ -5,8 +5,45 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 from datetime import datetime, date, timedelta
 import json
+import requests as http_requests
+import logging
 
 from odoo import fields
+
+_logger = logging.getLogger(__name__)
+
+
+def _reverse_geocode(geo_coordinates):
+    """Convert 'lat,lng' to a human-readable location name using Nominatim."""
+    if not geo_coordinates or ',' not in geo_coordinates:
+        return ''
+    try:
+        parts = geo_coordinates.split(',')
+        lat = parts[0].strip()
+        lng = parts[1].strip()
+        if not lat or not lng:
+            return ''
+        resp = http_requests.get(
+            'https://nominatim.openstreetmap.org/reverse',
+            params={'lat': lat, 'lon': lng, 'format': 'json', 'zoom': 10},
+            headers={'User-Agent': 'EtharaETP/1.0'},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            address = data.get('address', {})
+            city = address.get('city') or address.get('town') or address.get('village') or address.get('county') or ''
+            state = address.get('state') or ''
+            if city and state:
+                return f"{city}, {state}"
+            elif city:
+                return city
+            elif state:
+                return state
+            return data.get('display_name', '')[:100] if data.get('display_name') else ''
+    except Exception as e:
+        _logger.warning('Reverse geocoding failed for %s: %s', geo_coordinates, str(e))
+    return ''
 class TaskForgeAttendanceController(http.Controller):
 
     @http.route('/api/v2/taskforge/attendance/punch_in', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -285,6 +322,16 @@ class TaskForgeAttendanceController(http.Controller):
         IST_OFFSET = timedelta(hours=5, minutes=30)
         check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and rec.attendance_status == 'present' else ""
         check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out and rec.attendance_status == 'present' else ""
+
+        location = rec.geo_location or ''
+        if not location and rec.geo_coordinates:
+            location = _reverse_geocode(rec.geo_coordinates)
+            if location:
+                try:
+                    rec.sudo().write({'geo_location': location})
+                except Exception:
+                    pass
+
         return {
             'id': rec.id if rec.id else 0,
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
@@ -295,7 +342,7 @@ class TaskForgeAttendanceController(http.Controller):
             'punch_in_time': str(check_in_ist),
             'punch_out_time': str(check_out_ist),
             'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0,
-            'location': rec.geo_location or '',
+            'location': location,
             'geo_coordinates': rec.geo_coordinates or '',
             'tasks_done': task_logs or 0,
         }
@@ -312,12 +359,8 @@ class TaskForgeAttendanceController(http.Controller):
             team_ids = employee._get_team_employee_ids()
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
-            target_date = kwargs.get('date') or fields.Date.today()
-            if isinstance(target_date, str):
-                target_date = fields.Date.from_string(target_date)
-            domain = [('check_in', '>=', datetime.combine(target_date, datetime.min.time())), ('check_in', '<', datetime.combine(target_date, datetime.max.time())), ('employee_id', 'in', team_ids)]
-            # if kwargs.get('date'):
-            #     domain = [('check_in', '>=', datetime.combine(kwargs.get('date'), datetime.min.time())), ('check_in', '<', datetime.combine(kwargs.get('date'), datetime.max.time())), ('employee_id', 'in', team_ids)]
+            domain = [('employee_id', 'in', team_ids)]
+
             date_param = kwargs.get('date')
             start_date_param = kwargs.get('start_date')
             end_date_param = kwargs.get('end_date')
@@ -333,6 +376,9 @@ class TaskForgeAttendanceController(http.Controller):
                     domain.append(('check_in', '>=', datetime.combine(stats_start, datetime.min.time())))
                 if stats_end:
                     domain.append(('check_in', '<', datetime.combine(stats_end + timedelta(days=1), datetime.min.time())))
+            else:
+                domain.append(('check_in', '>=', datetime.combine(today, datetime.min.time())))
+                domain.append(('check_in', '<', datetime.combine(today + timedelta(days=1), datetime.min.time())))
 
             if kwargs.get('search', ''):
                 search_key = kwargs.get('search', '').strip()

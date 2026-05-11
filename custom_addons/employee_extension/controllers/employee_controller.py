@@ -129,8 +129,8 @@ class EmployeeController(http.Controller):
             else:
                 employee = new_user.employee_id
                 new_user.employee_id.sudo().write(employee_vals)
-            if kwargs.get('project_id'):
-                ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
+            if jdata.get('project_id'):
+                ProjectRequest = request.env['project.project'].sudo().browse(int(jdata.get('project_id')))
                 emp_list = []
                 if ProjectRequest.exists():
                     if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,

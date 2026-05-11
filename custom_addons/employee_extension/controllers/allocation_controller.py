@@ -117,7 +117,16 @@ class AllocationController(http.Controller):
             jdata = kwargs.get('jdata')
             user = request.env.user
 
-            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
+            allowed_role_ids = [
+                request.env.ref('api_auth_gateway.role_cto_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            if not user.user_role or user.user_role.id not in allowed_role_ids:
                 return return_Response(message="Insufficient permissions to approve", status=403)
 
             AllocationRequest = request.env['employee.allocation.request'].sudo()
@@ -195,33 +204,69 @@ class AllocationController(http.Controller):
             jdata = kwargs.get('jdata')
             user = request.env.user
 
-            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
-                return return_Response(message="Insufficient permissions to approve", status=403)
+            allowed_role_ids = [
+                request.env.ref('api_auth_gateway.role_cto_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            if not user.user_role or user.user_role.id not in allowed_role_ids:
+                return return_Response(message="Insufficient permissions to allocate employees", status=403)
 
             ProjectRequest = request.env['project.project'].sudo()
             project = ProjectRequest.browse(jdata.get('project_id'))
 
             if not project.exists():
-                return return_Response(message="Product not found", status=404)
+                return return_Response(message="Project not found", status=404)
 
             employees = request.env['hr.employee'].sudo().search([('id', 'in', jdata.get('assign_employees'))])
+            if not employees:
+                return return_Response(message="No valid employees found", status=400)
+
             project_lead = project.project_lead.ids
             project_qc_reviewer = project.project_qc_reviewer.ids
             project_tasker = project.project_tasker.ids
 
             new_qr_ids = []
             new_tasker_ids = []
-            for emp in employees:
-                if emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
-                    project_lead.append(emp.id)
 
-                elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
+            pl_role_ids = [
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+            ]
+            qc_role_ids = [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            tasker_role_ids = [
+                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+            ]
+            unclassified = []
+            for emp in employees:
+                emp_role_id = emp.user_id.user_role.id if emp.user_id and emp.user_id.user_role else False
+                if emp_role_id and emp_role_id in pl_role_ids:
+                    project_lead.append(emp.id)
+                elif emp_role_id and emp_role_id in qc_role_ids:
                     project_qc_reviewer.append(emp.id)
                     new_qr_ids.append(emp.id)
-
-                elif emp.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                elif emp_role_id and emp_role_id in tasker_role_ids:
                     project_tasker.append(emp.id)
                     new_tasker_ids.append(emp.id)
+                else:
+                    unclassified.append(emp.name or str(emp.id))
+
+            if unclassified:
+                return return_Response(
+                    message=f"Could not determine role for employees: {', '.join(unclassified)}.",
+                    status=400
+                )
 
             hierarchy_errors = self._validate_team_hierarchy(
                 project,
@@ -251,8 +296,17 @@ class AllocationController(http.Controller):
         try:
             jdata = kwargs.get('jdata')
             user = request.env.user
-            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
-                return return_Response(message="Insufficient permissions to approve", status=403)
+            allowed_role_ids = [
+                request.env.ref('api_auth_gateway.role_cto_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            if not user.user_role or user.user_role.id not in allowed_role_ids:
+                return return_Response(message="Insufficient permissions to reject", status=403)
 
             AllocationRequest = request.env['employee.allocation.request'].sudo()
             allocation_request = AllocationRequest.browse(jdata.get('request_id'))
@@ -298,8 +352,17 @@ class AllocationController(http.Controller):
         try:
             jdata = kwargs.get('jdata')
             user = request.env.user
-            if user.user_role.id != request.env.ref('api_auth_gateway.role_cto_technical').id:
-                return return_Response(message="Insufficient permissions to approve", status=403)
+            allowed_role_ids = [
+                request.env.ref('api_auth_gateway.role_cto_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]
+            if not user.user_role or user.user_role.id not in allowed_role_ids:
+                return return_Response(message="Insufficient permissions", status=403)
 
             AllocationRequest = request.env['employee.allocation.request'].sudo()
             allocation_request = AllocationRequest.browse(int(jdata.get('request_id')))
