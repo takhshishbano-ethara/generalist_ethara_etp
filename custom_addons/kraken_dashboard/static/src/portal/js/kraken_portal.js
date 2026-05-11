@@ -429,10 +429,7 @@
 
   const openLightbox = (trigger) => {
     if (!lightbox) return;
-    const img = trigger.querySelector('img:not([style*="display: none"]):not(.chart-dark):not(.chart-light)') ||
-                trigger.querySelector('img.chart-dark:not([style*="display: none"])') ||
-                trigger.querySelector('img.chart-light:not([style*="display: none"])') ||
-                Array.from(trigger.querySelectorAll('img')).find(i => getComputedStyle(i).display !== 'none') ||
+    const img = Array.from(trigger.querySelectorAll('img')).find(i => getComputedStyle(i).display !== 'none') ||
                 trigger.querySelector('img');
     const figcap = trigger.closest('figure')?.querySelector('figcaption');
     if (!img) return;
