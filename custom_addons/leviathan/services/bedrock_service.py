@@ -70,28 +70,50 @@ def _call_bedrock_bearer(
         max_tokens,
     )
 
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-        resp = client.post(endpoint, json=payload, headers=headers)
+    last_exc = None
+    for attempt in range(3):
+        try:
+            with httpx.Client(timeout=httpx.Timeout(connect=30, read=DEFAULT_TIMEOUT, write=30, pool=30)) as client:
+                resp = client.post(endpoint, json=payload, headers=headers)
 
-    if resp.status_code != 200:
-        error_body = resp.text
-        _logger.error(
-            "Bedrock bearer API error [%d]: %s", resp.status_code, error_body
-        )
-        raise RuntimeError(
-            f"Bedrock API error [{resp.status_code}]: {error_body}"
-        )
+            if resp.status_code == 200:
+                data = resp.json()
+                _logger.info(
+                    "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+                    data.get("usage", {}).get("inputTokens", 0),
+                    data.get("usage", {}).get("outputTokens", 0),
+                    data.get("stopReason", "unknown"),
+                )
+                stop_reason = data.get("stopReason", "unknown")
+                if stop_reason == "max_tokens":
+                    _logger.warning(
+                        "Bedrock output truncated (hit max_tokens). "
+                        "PRD may be incomplete."
+                    )
+                return data["output"]["message"]["content"][0]["text"]
 
-    data = resp.json()
+            # Retryable server errors
+            if resp.status_code in (429, 500, 502, 503, 529):
+                _logger.warning(
+                    "Bedrock bearer API [%d] (attempt %d/3): %s",
+                    resp.status_code, attempt + 1, resp.text[:200],
+                )
+                last_exc = RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:200]}")
+                import time as _time
+                _time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                continue
 
-    _logger.info(
-        "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
-        data.get("usage", {}).get("inputTokens", 0),
-        data.get("usage", {}).get("outputTokens", 0),
-        data.get("stopReason", "unknown"),
-    )
+            # Non-retryable client errors
+            raise RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:500]}")
 
-    return data["output"]["message"]["content"][0]["text"]
+        except httpx.TimeoutException as exc:
+            _logger.warning("Bedrock bearer timeout (attempt %d/3): %s", attempt + 1, exc)
+            last_exc = RuntimeError(f"Bedrock timeout: {exc}")
+            import time as _time
+            _time.sleep(2 ** attempt)
+            continue
+
+    raise last_exc or RuntimeError("Bedrock bearer: all retries exhausted")
 
 
 def _get_bedrock_client(region: str, access_key_id: str = "", secret_access_key: str = ""):

@@ -78,14 +78,14 @@ class LeviathanController(http.Controller):
         if record.state != "extracting":
             _logger.info(
                 "Webhook for job %s ignored: state is '%s' "
-                "(expected 'extracting')",
+                "(expected 'extracting') -- idempotency guard",
                 job_id,
                 record.state,
             )
             return Response(
                 json.dumps({
                     "ignored": True,
-                    "reason": f"Job in state '{record.state}'",
+                    "reason": f"Job in state '{record.state}' (already processed)",
                 }),
                 status=200,
                 content_type="application/json",
@@ -117,6 +117,7 @@ class LeviathanController(http.Controller):
             artifacts = data.get("artifacts")
             screenshot_keys = data.get("screenshot_keys", [])
             asset_keys = data.get("asset_keys", [])
+            is_partial = data.get("partial", False)
 
             ICP = request.env["ir.config_parameter"].sudo()
             s3_bucket = ICP.get_param("leviathan.s3_bucket")
@@ -173,6 +174,17 @@ class LeviathanController(http.Controller):
                 write_vals["screenshot_keys"] = screenshot_keys
             if asset_keys:
                 write_vals["asset_keys"] = asset_keys
+            if is_partial:
+                _logger.warning(
+                    "Job %s received partial extraction data (deadline reached)",
+                    record.name,
+                )
+                write_vals.setdefault("error_message", "")
+                write_vals["error_message"] = (
+                    (write_vals["error_message"] or "") +
+                    "Warning: Extraction was partial (deadline reached). "
+                    "PRD generated on incomplete data."
+                )[:500]
 
             write_vals["state"] = "generating"
             record.write(write_vals)
