@@ -237,12 +237,20 @@ def _build_with_buildx(
             logger.info("Cleaned up temporary multi-arch OCI tar.")
 
 
+class DockerDaemonLostError(RuntimeError):
+    """Docker daemon unreachable — likely DinD sidecar OOMKilled or crashed."""
+
+
+_DEFAULT_RUN_TIMEOUT = 3600
+
+
 def run(
     image_full_name: str,
     run_command: str,
     output_path: Optional[Path] = None,
     global_env: Optional[list[str]] = None,
     volumes: Optional[Union[dict[str, str], list[str]]] = None,
+    timeout: int = _DEFAULT_RUN_TIMEOUT,
 ) -> str:
     container = None
     try:
@@ -257,18 +265,50 @@ def run(
             volumes=volumes,
         )
 
+        effective_timeout = timeout if timeout and timeout > 0 else None
+        try:
+            container.wait(timeout=effective_timeout)
+        except Exception as wait_exc:
+            exc_msg = str(wait_exc).lower()
+            if "timed out" in exc_msg or "timeout" in exc_msg:
+                logging.error(
+                    "Container for %s exceeded timeout (%ds), killing.",
+                    image_full_name, timeout,
+                )
+            elif "connection" in exc_msg or "refused" in exc_msg:
+                raise DockerDaemonLostError(
+                    f"Docker daemon lost while waiting for {image_full_name}: {wait_exc}"
+                ) from wait_exc
+            try:
+                container.kill()
+            except Exception:
+                pass
+
         output = ""
+        try:
+            raw_logs = container.logs(stdout=True, stderr=True)
+            output = raw_logs.decode("utf-8", errors="replace")
+        except docker.errors.APIError as log_exc:
+            exc_msg = str(log_exc).lower()
+            if "connection" in exc_msg or "refused" in exc_msg or "500" in exc_msg:
+                raise DockerDaemonLostError(
+                    f"Docker daemon lost while collecting logs for {image_full_name}: {log_exc}"
+                ) from log_exc
+            logging.warning("Failed to collect logs for %s: %s", image_full_name, log_exc)
+
         if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
-                for line in container.logs(stream=True, follow=True):
-                    line_decoded = line.decode("utf-8")
-                    f.write(line_decoded)
-                    output += line_decoded
-        else:
-            container.wait()
-            output = container.logs().decode("utf-8")
+                f.write(output)
 
         return output
+
+    except docker.errors.APIError as api_exc:
+        exc_msg = str(api_exc).lower()
+        if "connection" in exc_msg or "refused" in exc_msg or "500 server error" in exc_msg:
+            raise DockerDaemonLostError(
+                f"Docker daemon lost (possible DinD OOM) for {image_full_name}: {api_exc}"
+            ) from api_exc
+        raise
     finally:
         if container:
             try:

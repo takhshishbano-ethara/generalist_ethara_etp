@@ -26,6 +26,7 @@ def run_qc(
     region: str = "us-east-1",
     access_key_id: str = None,
     secret_access_key: str = None,
+    qc_system_prompt: str = "",
 ) -> dict:
     """Run QC: structural checks + LLM alignment review.
 
@@ -58,6 +59,7 @@ def run_qc(
         region=region,
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
+        qc_system_prompt=qc_system_prompt,
     )
 
     # Combine results
@@ -261,6 +263,9 @@ ISSUES: None.
 """
 
 
+DEFAULT_QC_SYSTEM_PROMPT = _QC_SYSTEM_PROMPT
+
+
 def _run_llm_alignment_check(
     prd_text: str,
     extraction_data: dict,
@@ -271,9 +276,13 @@ def _run_llm_alignment_check(
     region: str,
     access_key_id: str = None,
     secret_access_key: str = None,
+    qc_system_prompt: str = "",
 ) -> dict:
     """Call Bedrock to check PRD vs extraction data alignment."""
     from .bedrock_service import generate_prd as _call_bedrock
+
+    # Use custom prompt if provided, otherwise fall back to default
+    effective_prompt = qc_system_prompt or _QC_SYSTEM_PROMPT
 
     # Build a concise extraction summary (don't dump everything)
     extraction_summary = _summarize_extraction(extraction_data, site_discovery)
@@ -291,14 +300,22 @@ def _run_llm_alignment_check(
         response = _call_bedrock(
             inference_arn=inference_arn,
             region=region,
-            system_prompt=_QC_SYSTEM_PROMPT,
+            system_prompt=effective_prompt,
             messages=[{"role": "user", "content": user_message}],
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )
     except Exception as exc:
         _logger.exception("QC LLM call failed")
-        return {"report": f"LLM QC failed: {exc}", "issues": []}
+        # Fail-closed: LLM failure = not shippable (never silently pass)
+        return {
+            "report": f"LLM QC failed: {exc}",
+            "issues": [{
+                "severity": "critical",
+                "code": "LLM-FAIL",
+                "message": f"QC LLM evaluation failed: {exc}. Defaulting to NOT SHIPPABLE.",
+            }],
+        }
 
     # Parse the LLM response
     issues = _parse_llm_issues(response)

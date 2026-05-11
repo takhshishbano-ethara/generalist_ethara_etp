@@ -139,22 +139,50 @@ def trigger_extraction(
 
         _logger.info("Triggering extraction for URL=%s, job_id=%d", url, job_id)
 
-        with httpx.Client() as client:
-            resp = client.post(
-                endpoint,
-                content=payload,
-                headers=headers,
-                timeout=DEFAULT_TIMEOUT,
-            )
+        last_error = None
+        for attempt in range(3):
+            try:
+                with httpx.Client() as client:
+                    resp = client.post(
+                        endpoint,
+                        content=payload,
+                        headers=headers,
+                        timeout=DEFAULT_TIMEOUT,
+                    )
 
-        if resp.status_code < 300:
-            _json = resp.json()
-            _logger.info("Extraction triggered successfully: %s", _json)
-            return {"success": True, "extraction_id": _json.get("extraction_id")}
+                if resp.status_code < 300:
+                    _json = resp.json()
+                    _logger.info("Extraction triggered successfully: %s", _json)
+                    return {"success": True, "extraction_id": _json.get("extraction_id")}
 
-        error_text = resp.text
-        _logger.warning("Extraction service error %d: %s", resp.status_code, error_text)
-        return {"success": False, "error": f"Service returned {resp.status_code}"}
+                # Retryable server errors (Lambda cold start, transient)
+                if resp.status_code in (500, 502, 503, 504, 429):
+                    _logger.warning(
+                        "Extraction service [%d] (attempt %d/3): %s",
+                        resp.status_code, attempt + 1, resp.text[:200],
+                    )
+                    last_error = f"Service returned {resp.status_code}"
+                    import time as _time
+                    _time.sleep(3 * (attempt + 1))  # 3s, 6s, 9s
+                    continue
+
+                # Non-retryable
+                error_text = resp.text
+                _logger.warning("Extraction service error %d: %s", resp.status_code, error_text)
+                return {"success": False, "error": f"Service returned {resp.status_code}"}
+
+            except httpx.TimeoutException:
+                _logger.warning("Extraction timeout (attempt %d/3)", attempt + 1)
+                last_error = "Extraction service timeout"
+                continue
+            except httpx.HTTPError as exc:
+                _logger.warning("Extraction HTTP error (attempt %d/3): %s", attempt + 1, exc)
+                last_error = str(exc)
+                import time as _time
+                _time.sleep(3 * (attempt + 1))
+                continue
+
+        return {"success": False, "error": last_error or "All retries exhausted"}
 
     except httpx.TimeoutException:
         return {"success": False, "error": "Extraction service timeout"}

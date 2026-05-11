@@ -146,7 +146,7 @@ def score_prd(prd_text: str, category: str = "Normal Website") -> dict:
     else:
         normalized = round(raw_total)
 
-    result["total_score"] = min(normalized, 100)
+    result["total_score"] = max(0, min(normalized, 100))
 
     # Apply grade caps
     grade_caps = []

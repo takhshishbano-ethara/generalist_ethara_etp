@@ -223,7 +223,7 @@
   }
 
   const totalGlm5 = instances.filter(i => i.runs['GLM-5']?.pass_at_1 === 'Pass').length;
-  const totalNova = instances.filter(i => i.runs['Nova-2-Lite']?.pass_at_1 === 'Pass').length;
+  const totalNova = instances.filter(i => i.runs['Kimi K2.5']?.pass_at_1 === 'Pass').length;
   const total = instances.length;
   const elGlm5 = document.getElementById('total-glm5');
   const elNova = document.getElementById('total-nova');
@@ -274,9 +274,9 @@
           va = order[a.difficulty] || 0; vb = order[b.difficulty] || 0; break;
         case 'gold_speedup': va = a.gold_speedup; vb = b.gold_speedup; break;
         case 'glm5_hsr': va = a.runs['GLM-5']?.hsr || 0; vb = b.runs['GLM-5']?.hsr || 0; break;
-        case 'nova_hsr': va = a.runs['Nova-2-Lite']?.hsr || 0; vb = b.runs['Nova-2-Lite']?.hsr || 0; break;
+        case 'nova_hsr': va = a.runs['Kimi K2.5']?.hsr || 0; vb = b.runs['Kimi K2.5']?.hsr || 0; break;
         case 'glm5_outcome': va = a.runs['GLM-5']?.outcome || ''; vb = b.runs['GLM-5']?.outcome || ''; break;
-        case 'nova_outcome': va = a.runs['Nova-2-Lite']?.outcome || ''; vb = b.runs['Nova-2-Lite']?.outcome || ''; break;
+        case 'nova_outcome': va = a.runs['Kimi K2.5']?.outcome || ''; vb = b.runs['Kimi K2.5']?.outcome || ''; break;
         default: va = a.instance_id; vb = b.instance_id;
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
@@ -290,7 +290,7 @@
 
   function renderDetailRow(inst) {
     const glm5 = inst.runs['GLM-5'] || {};
-    const nova = inst.runs['Nova-2-Lite'] || {};
+    const nova = inst.runs['Kimi K2.5'] || {};
     const outcomeColor = (o) => o === 'pass' ? 'var(--pass)' : (o === 'correct_but_slow' ? 'var(--accent)' : 'var(--fail)');
     const item = (k, v) => `<div class="detail-row-item"><span class="detail-key">${esc(k)}</span><span class="detail-val">${v}</span></div>`;
 
@@ -319,7 +319,7 @@
         + item('Language', esc(inst.language))
       + `</div>`
       + modelBlock('GLM-5', glm5)
-      + modelBlock('Nova-2-Lite', nova)
+      + modelBlock('Kimi K2.5', nova)
       + `</div></div></td></tr>`;
   }
 
@@ -336,7 +336,7 @@
     let html = '';
     page.forEach((inst, i) => {
       const glm5 = inst.runs['GLM-5'];
-      const nova = inst.runs['Nova-2-Lite'];
+      const nova = inst.runs['Kimi K2.5'];
       const glm5Outcome = glm5?.outcome || 'fail';
       const novaOutcome = nova?.outcome || 'fail';
       const tagStyle = 'display:inline-flex;align-items:center;justify-content:center;max-width:100%;min-height:34px;text-align:center;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;padding:3px 5px;border:1px solid currentColor;white-space:normal;line-height:1.3;box-sizing:border-box;';
