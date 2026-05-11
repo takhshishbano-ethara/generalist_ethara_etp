@@ -65,7 +65,9 @@ RUN pip install --upgrade pip setuptools wheel \
     'dataclasses_json>=0.6' \
     'python-dotenv>=1.0' \
     'openpyxl>=3.1' \
-    'packaging>=23.0'
+    'packaging>=23.0' \
+    'rjsmin>=1.2' \
+    'pyOpenSSL>=24.0'
 
 # ---------- runtime stage ----------
 FROM python:3.12-slim-bookworm
