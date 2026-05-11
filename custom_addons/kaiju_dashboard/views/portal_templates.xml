@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Kaiju · Library Generation from Scratch · Ethara AI</title>
+      <title>Kaiju · Library Generation from Scratch · Ethara.AI</title>
       <meta name="description" content="Kaiju evaluates frontier AI coding models on whole-library generation from specification, measuring module-level pass rates across a multi-stage refinement pipeline."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -69,7 +69,7 @@
     </div>
     <hr class="rule" />
     <p class="thesis">Can AI models architect and generate complete, functional libraries from nothing but a <em>natural language specification</em>?</p>
-    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara.AI</a></p>
   </header>
 
   <main id="main">
