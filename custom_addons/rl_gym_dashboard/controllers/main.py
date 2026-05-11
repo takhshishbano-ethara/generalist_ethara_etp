@@ -20,7 +20,7 @@ class RlGymController(http.Controller):
             'rl_gym_dashboard.hf_token', default=''
         )
 
-    @http.route('/rl_gym/models', type='json', auth='user')
+    @http.route('/rl_gym/models', type='json', auth='public', cors='*')
     def get_models(self):
         models = request.env['rl.training.model'].search_read(
             [('active', '=', True)],
@@ -30,7 +30,7 @@ class RlGymController(http.Controller):
         )
         return models
 
-    @http.route('/rl_gym/datasets/search', type='json', auth='user')
+    @http.route('/rl_gym/datasets/search', type='json', auth='public', cors='*')
     def search_datasets(self, query='', author='ethara'):
         headers = {'Authorization': f'Bearer {self._get_hf_token()}'}
         params = {'author': author, 'search': query, 'limit': 50}
@@ -54,7 +54,7 @@ class RlGymController(http.Controller):
             _logger.warning('HuggingFace API error: %s', e)
             return {'error': str(e)}
 
-    @http.route('/rl_gym/datasets/info', type='json', auth='user')
+    @http.route('/rl_gym/datasets/info', type='json', auth='public', cors='*')
     def get_dataset_info(self, repo_id):
         headers = {'Authorization': f'Bearer {self._get_hf_token()}'}
         try:
@@ -281,12 +281,12 @@ class RlGymController(http.Controller):
             truncated.append(preview_row)
         return truncated
 
-    @http.route('/rl_gym/datasets/save', type='json', auth='user')
+    @http.route('/rl_gym/datasets/save', type='json', auth='public', cors='*')
     def save_dataset(self, values):
         dataset = request.env['rl.training.dataset'].create(values)
         return {'id': dataset.id, 'name': dataset.name}
 
-    @http.route('/rl_gym/training/create_job', type='json', auth='user')
+    @http.route('/rl_gym/training/create_job', type='json', auth='public', cors='*')
     def create_training_job(self, values, model_id=None, config_id=None):
         vals = dict(values or {})
         if model_id:
@@ -297,7 +297,7 @@ class RlGymController(http.Controller):
         job = request.env['rl.training.job'].create(vals)
         return {'id': job.id, 'name': job.name, 'state': job.state}
 
-    @http.route('/rl_gym/training/start', type='json', auth='user')
+    @http.route('/rl_gym/training/start', type='json', auth='public', cors='*')
     def start_training(self, job_id):
         job = request.env['rl.training.job'].browse(int(job_id))
         if not job.exists():
@@ -305,7 +305,7 @@ class RlGymController(http.Controller):
         job.action_start_training()
         return {'state': job.state, 'started_at': str(job.started_at)}
 
-    @http.route('/rl_gym/training/step', type='json', auth='user')
+    @http.route('/rl_gym/training/step', type='json', auth='public', cors='*')
     def training_step(self, job_id):
         job = request.env['rl.training.job'].browse(int(job_id))
         if not job.exists():
@@ -351,7 +351,7 @@ class RlGymController(http.Controller):
             **m,
         }
 
-    @http.route('/rl_gym/training/metrics', type='json', auth='user')
+    @http.route('/rl_gym/training/metrics', type='json', auth='public', cors='*')
     def get_training_metrics(self, job_id, since_step=0):
         metrics = request.env['rl.training.metric'].search_read(
             [('job_id', '=', int(job_id)), ('step', '>', int(since_step))],
@@ -366,7 +366,7 @@ class RlGymController(http.Controller):
         )
         return metrics
 
-    @http.route('/rl_gym/training/status', type='json', auth='user')
+    @http.route('/rl_gym/training/status', type='json', auth='public', cors='*')
     def get_training_status(self, job_id):
         job = request.env['rl.training.job'].browse(int(job_id))
         if not job.exists():
@@ -384,7 +384,7 @@ class RlGymController(http.Controller):
             'completed_at': str(job.completed_at) if job.completed_at else None,
         }
 
-    @http.route('/rl_gym/weights/upload', type='json', auth='user')
+    @http.route('/rl_gym/weights/upload', type='json', auth='public', cors='*')
     def upload_weights(self, weight_id):
         weight = request.env['rl.training.weight'].browse(int(weight_id))
         if not weight.exists():
@@ -437,12 +437,12 @@ class RlGymController(http.Controller):
             })
             return {'error': str(e)}
 
-    @http.route('/rl_gym/weights/create', type='json', auth='user')
+    @http.route('/rl_gym/weights/create', type='json', auth='public', cors='*')
     def create_weight(self, values):
         weight = request.env['rl.training.weight'].create(values)
         return {'id': weight.id, 'name': weight.name}
 
-    @http.route('/rl_gym/inference/run', type='json', auth='user')
+    @http.route('/rl_gym/inference/run', type='json', auth='public', cors='*')
     def run_inference(self, job_id, prompt, max_tokens=256, temperature=0.7):
         job = request.env['rl.training.job'].browse(int(job_id))
         if not job.exists():
@@ -475,7 +475,7 @@ class RlGymController(http.Controller):
         idx = int(hashlib.md5(prompt.encode()).hexdigest(), 16) % len(responses)
         return responses[idx]
 
-    @http.route('/rl_gym/config/save', type='json', auth='user')
+    @http.route('/rl_gym/config/save', type='json', auth='public', cors='*')
     def save_config(self, values, model_id=None, job_name=''):
         # Map frontend field names to model field names
         field_map = {
@@ -497,7 +497,7 @@ class RlGymController(http.Controller):
         config = request.env['rl.training.config'].create(mapped)
         return {'id': config.id, 'name': config.name}
 
-    @http.route('/rl_gym/config/defaults', type='json', auth='user')
+    @http.route('/rl_gym/config/defaults', type='json', auth='public', cors='*')
     def get_config_defaults(self, model_id=None):
         MODEL_DEFAULTS = {
             'nemotron': {
@@ -932,13 +932,13 @@ class RlGymController(http.Controller):
         },
     }
 
-    @http.route('/rl_gym/config/dataset_defaults', type='json', auth='user')
+    @http.route('/rl_gym/config/dataset_defaults', type='json', auth='public', cors='*')
     def get_dataset_defaults(self, repo_id=None):
         if not repo_id:
             return {}
         return self.DATASET_CONFIGS.get(repo_id, {})
 
-    @http.route('/rl_gym/dashboard/runs', type='json', auth='user')
+    @http.route('/rl_gym/dashboard/runs', type='json', auth='public', cors='*')
     def get_dashboard_runs(self):
         jobs = request.env['rl.training.job'].search_read(
             [('state', 'in', ('completed', 'training', 'failed', 'cancelled'))],
@@ -983,7 +983,7 @@ class RlGymController(http.Controller):
             })
         return result
 
-    @http.route('/rl_gym/dashboard/sparkline', type='json', auth='user')
+    @http.route('/rl_gym/dashboard/sparkline', type='json', auth='public', cors='*')
     def get_run_sparkline(self, job_id, max_points=50):
         job_id = int(job_id)
         metrics = request.env['rl.training.metric'].search_read(
