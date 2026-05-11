@@ -205,6 +205,26 @@ class AuroraEvaluation(models.Model):
         help="Incrementing run number chosen for this evaluation's S3 layout: "
              "{folder}/aurora_phase2/{org}__{repo}/run_{N}/pr-{pr}/<artifact>.",
     )
+    s3_base_uri = fields.Char(
+        string="S3 Path",
+        compute="_compute_s3_base_uri",
+    )
+
+    @api.depends("s3_run_number", "pipeline_id.github_org", "pipeline_id.github_repo")
+    def _compute_s3_base_uri(self):
+        from .pipeline import S3_BUCKET, S3_AURORA_PREFIX
+        for rec in self:
+            if rec.s3_run_number and rec.pipeline_id:
+                org = rec.pipeline_id.github_org or ""
+                repo = rec.pipeline_id.github_repo or ""
+                if org and repo:
+                    prefix = S3_AURORA_PREFIX.strip("/")
+                    rec.s3_base_uri = (
+                        f"s3://{S3_BUCKET}/{prefix}/aurora_phase2/"
+                        f"{org}__{repo}/run_{rec.s3_run_number}"
+                    )
+                    continue
+            rec.s3_base_uri = False
 
     @api.depends("instance_ids")
     def _compute_instance_count(self):

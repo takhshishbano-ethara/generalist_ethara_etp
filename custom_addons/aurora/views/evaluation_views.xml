@@ -267,6 +267,9 @@
                         <div class="aurora-paths-header"><i class="fa fa-folder-open-o" title="Paths"/> Output Paths</div>
                         <div class="aurora-paths-body">
                             <group>
+                                <field name="s3_base_uri" readonly="1" invisible="not s3_base_uri"
+                                       string="S3 Base Path"/>
+                                <field name="s3_run_number" readonly="1" invisible="not s3_run_number"/>
                                 <field name="output_dir" readonly="1"/>
                                 <field name="patch_file" readonly="1" invisible="not patch_file"/>
                                 <field name="workdir" readonly="1" invisible="not workdir"/>
