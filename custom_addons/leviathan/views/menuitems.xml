@@ -14,7 +14,15 @@
               sequence="10"
               groups="group_leviathan_admin"/>
 
-    <!-- Tasker sees "My Tasks" (own jobs, no create) — hidden from admins -->
+    <!-- Admin sees "Pool" (unassigned jobs) -->
+    <menuitem id="menu_leviathan_pool"
+              name="Pool"
+              parent="menu_leviathan_root"
+              action="action_leviathan_pool"
+              sequence="15"
+              groups="group_leviathan_admin"/>
+
+    <!-- Tasker sees "My Tasks" (own jobs, no create) -->
     <menuitem id="menu_leviathan_jobs_tasker"
               name="My Tasks"
               parent="menu_leviathan_root"
@@ -27,6 +35,12 @@
               parent="menu_leviathan_root"
               sequence="90"
               groups="group_leviathan_admin"/>
+
+    <menuitem id="menu_leviathan_import"
+              name="Import URLs"
+              parent="menu_leviathan_config"
+              action="action_leviathan_import_wizard"
+              sequence="5"/>
 
     <menuitem id="menu_leviathan_settings"
               name="Settings"

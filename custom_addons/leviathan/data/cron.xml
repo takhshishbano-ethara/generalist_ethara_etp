@@ -16,4 +16,14 @@
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>
+
+    <record id="ir_cron_leviathan_pool_assign" model="ir.cron">
+        <field name="name">Leviathan: Auto-assign Pool Jobs</field>
+        <field name="model_id" ref="model_leviathan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_auto_assign_pool()</field>
+        <field name="interval_number">2</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>

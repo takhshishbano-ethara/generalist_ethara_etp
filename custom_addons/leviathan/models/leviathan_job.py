@@ -31,6 +31,7 @@ class LeviathanJob(models.Model):
     site_name = fields.Char(string="Site Name")
     state = fields.Selection(
         [
+            ("pool", "Pool"),
             ("draft", "Draft"),
             ("queued", "Queued"),
             ("extracting", "Extracting"),
@@ -43,7 +44,7 @@ class LeviathanJob(models.Model):
             ("cancelled", "Cancelled"),
         ],
         string="Status",
-        default="draft",
+        default="pool",
         required=True,
         tracking=True,
     )
@@ -97,7 +98,6 @@ class LeviathanJob(models.Model):
     user_id = fields.Many2one(
         "res.users",
         string="Tasker",
-        default=lambda self: self.env.user,
     )
     company_id = fields.Many2one(
         "res.company",
@@ -329,11 +329,73 @@ class LeviathanJob(models.Model):
                 vals["name"] = (
                     self.env["ir.sequence"].next_by_code("leviathan.job") or "New"
                 )
+            # If user_id is set and state is pool, auto-promote to draft
+            if vals.get("user_id") and vals.get("state", "pool") == "pool":
+                vals["state"] = "draft"
         return super().create(vals_list)
 
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+
+    def action_assign_task(self):
+        """Auto-assign THIS job to the tasker with the most open slots."""
+        self.ensure_one()
+        if self.state != "pool":
+            raise UserError("Can only assign jobs from the Pool.")
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
+
+        # Find taskers
+        user_group = self.env.ref("leviathan.group_leviathan_user")
+        admin_group = self.env.ref("leviathan.group_leviathan_admin")
+        all_users = self.env["res.users"].sudo().search([
+            ("all_group_ids", "in", user_group.id),
+            ("active", "=", True),
+        ])
+        admin_users = self.env["res.users"].sudo().search([
+            ("all_group_ids", "in", admin_group.id),
+        ])
+        taskers = all_users - admin_users
+
+        if not taskers:
+            raise UserError("No taskers available. Add users to the Leviathan User group.")
+
+        # Find tasker with most open slots
+        best_tasker = None
+        best_open = 0
+        active_states = ("draft", "queued", "extracting", "generating", "scoring")
+        for tasker in taskers:
+            active_count = self.sudo().search_count([
+                ("user_id", "=", tasker.id),
+                ("state", "in", active_states),
+            ])
+            open_slots = max_active - active_count
+            if open_slots > best_open:
+                best_open = open_slots
+                best_tasker = tasker
+
+        if not best_tasker:
+            raise UserError("All taskers are at capacity (%d active jobs each)." % max_active)
+
+        self.write({"user_id": best_tasker.id, "state": "draft"})
+        self._notify_state_change("draft")
+
+    def action_assign_user(self):
+        """Admin assigns a pool job to the selected user."""
+        self.ensure_one()
+        if self.state != "pool":
+            raise UserError("Can only assign jobs from the Pool.")
+        if not self.user_id:
+            raise UserError("Please select a user to assign this job to.")
+        self.write({"state": "draft"})
+        self._notify_state_change("draft")
+
+    def action_assign_tasks(self):
+        """Admin triggers pool distribution to all taskers now."""
+        self._cron_auto_assign_pool()
+        return {"type": "ir.actions.client", "tag": "reload"}
 
     def action_queue(self):
         self.ensure_one()
@@ -408,6 +470,8 @@ class LeviathanJob(models.Model):
                 "Review the QC report or rerun QC before submitting."
             )
         self.write({"state": "submitted"})
+        # Auto-assign next pool job to this tasker
+        self._auto_assign_for_user(self.user_id)
 
     def action_retry(self):
         """Reset a failed/cancelled job to draft for re-queuing."""
@@ -1199,6 +1263,95 @@ class LeviathanJob(models.Model):
             lines.append("Minor improvements needed across all sections.")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Pool: Auto-Assignment
+    # ------------------------------------------------------------------
+
+    _ACTIVE_STATES = ("draft", "queued", "extracting", "generating", "scoring", "done")
+
+    def _auto_assign_for_user(self, user):
+        """Assign pool jobs to a specific user until they hit max active."""
+        if not user:
+            return
+        ICP = self.env["ir.config_parameter"].sudo()
+        max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
+        if max_active <= 0:
+            return
+
+        active_count = self.sudo().search_count([
+            ("user_id", "=", user.id),
+            ("state", "in", self._ACTIVE_STATES),
+        ])
+        slots = max_active - active_count
+        if slots <= 0:
+            return
+
+        pool_jobs = self.sudo().search(
+            [("state", "=", "pool")],
+            order="create_date asc",
+            limit=slots,
+        )
+        for job in pool_jobs:
+            job.write({"user_id": user.id, "state": "draft"})
+            job._notify_state_change("draft")
+
+    @api.model
+    def _cron_auto_assign_pool(self):
+        """Cron: distribute pool jobs to all taskers with open slots."""
+        self.env.cr.execute("SELECT pg_try_advisory_lock(987654322)")
+        locked = self.env.cr.fetchone()
+        if not locked or not locked[0]:
+            return
+
+        try:
+            ICP = self.env["ir.config_parameter"].sudo()
+            max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
+            if max_active <= 0:
+                return
+
+            # Find all taskers (user group but not admin-only)
+            user_group = self.env.ref("leviathan.group_leviathan_user")
+            admin_group = self.env.ref("leviathan.group_leviathan_admin")
+            all_users = self.env["res.users"].sudo().search([
+                ("all_group_ids", "in", user_group.id),
+                ("active", "=", True),
+            ])
+            # Exclude admins (they manage, not do tasks)
+            admin_users = self.env["res.users"].sudo().search([
+                ("all_group_ids", "in", admin_group.id),
+            ])
+            taskers = all_users - admin_users
+
+            pool_jobs = self.sudo().search(
+                [("state", "=", "pool")],
+                order="create_date asc",
+            )
+            if not pool_jobs:
+                return
+
+            pool_idx = 0
+            for tasker in taskers:
+                if pool_idx >= len(pool_jobs):
+                    break
+                active_count = self.sudo().search_count([
+                    ("user_id", "=", tasker.id),
+                    ("state", "in", self._ACTIVE_STATES),
+                ])
+                slots = max_active - active_count
+                for _ in range(slots):
+                    if pool_idx >= len(pool_jobs):
+                        break
+                    pool_jobs[pool_idx].write({
+                        "user_id": tasker.id,
+                        "state": "draft",
+                    })
+                    pool_idx += 1
+
+            if pool_idx > 0:
+                _logger.info("Pool auto-assign: distributed %d jobs", pool_idx)
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(987654322)")
 
     # ------------------------------------------------------------------
     # Cron: Watchdog

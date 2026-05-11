@@ -24,17 +24,48 @@
         </field>
     </record>
 
+    <!-- Import Wizard -->
+    <record id="leviathan_import_wizard_view" model="ir.ui.view">
+        <field name="name">leviathan.import.wizard.form</field>
+        <field name="model">leviathan.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import URLs">
+                <group>
+                    <div class="alert alert-info" role="alert">
+                        <p class="mb-1">Upload a CSV file with website URLs to add to the pool.</p>
+                        <p class="mb-0"><strong>Required column:</strong> <code>url</code><br/>
+                        <strong>Optional column:</strong> <code>category</code> (must match an existing category name)</p>
+                    </div>
+                    <field name="csv_file" filename="csv_filename"/>
+                    <field name="csv_filename" invisible="1"/>
+                    <field name="auto_assign"/>
+                </group>
+                <footer>
+                    <button name="action_import" type="object" string="Import" class="oe_highlight"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_leviathan_import_wizard" model="ir.actions.act_window">
+        <field name="name">Import URLs</field>
+        <field name="res_model">leviathan.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
     <!-- List View -->
     <record id="leviathan_job_view_tree" model="ir.ui.view">
         <field name="name">leviathan.job.list</field>
         <field name="model">leviathan.job</field>
         <field name="arch" type="xml">
-            <list decoration-danger="state == 'failed'" decoration-muted="state == 'cancelled'" decoration-success="state == 'done'">
+            <list decoration-danger="state == 'failed'" decoration-muted="state in ('cancelled','pool')" decoration-success="state == 'done'">
                 <field name="name"/>
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('queued','extracting','generating','scoring')" decoration-success="state == 'done'" decoration-danger="state == 'failed'"/>
+                <field name="state" widget="badge" decoration-info="state in ('queued','extracting','generating','scoring')" decoration-success="state == 'done'" decoration-danger="state == 'failed'" decoration-muted="state == 'pool'"/>
                 <field name="score"/>
                 <field name="grade"/>
                 <field name="qc_verdict"/>
@@ -52,8 +83,11 @@
             <form>
                 <field name="is_admin" invisible="1"/>
                 <header>
-                    <!-- Draft: Queue -->
-                    <button name="action_queue" type="object" string="Queue" class="oe_highlight" invisible="state != 'draft'"/>
+                    <!-- Pool: auto-assign this job to a tasker with open slots -->
+                    <button name="action_assign_task" type="object" string="Assign" class="oe_highlight" invisible="state != 'pool' or not is_admin"/>
+
+                    <!-- Draft: Run -->
+                    <button name="action_queue" type="object" string="Run" class="oe_highlight" invisible="state != 'draft'"/>
 
                     <!-- Done: primary actions -->
                     <button name="action_download_zip" type="object" string="Download ZIP" class="oe_highlight" invisible="state != 'done' or not prd_text"/>
@@ -64,11 +98,16 @@
                     <button name="action_retry" type="object" string="Retry" class="oe_highlight" invisible="state not in ('failed','cancelled')" confirm="Reset job to draft for re-queuing?"/>
 
                     <!-- Cancel (in-progress states) -->
-                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('draft','done','failed','cancelled','submitted')"/>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('pool','draft','done','failed','cancelled','submitted')"/>
 
-                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,extracting,generating,scoring,done"/>
+                    <field name="state" widget="statusbar" statusbar_visible="pool,draft,queued,extracting,generating,scoring,done"/>
                 </header>
                 <sheet>
+                    <!-- Pool Banner -->
+                    <div class="alert alert-secondary" role="alert" invisible="state != 'pool'">
+                        <strong>Pool</strong> -- This job is unassigned. It will be auto-assigned to a tasker, or an admin can assign it manually.
+                    </div>
+
                     <!-- QC Failure Banner -->
                     <div class="alert alert-warning" role="alert" invisible="qc_verdict != 'not_shippable'">
                         <strong>QC Failed</strong> -- PRD not shippable.
@@ -85,7 +124,7 @@
                             <field name="url" widget="url"/>
                             <field name="site_name"/>
                             <field name="category_id"/>
-                            <field name="user_id" readonly="not is_admin or state != 'draft'" options="{'no_create': True}"/>
+                            <field name="user_id" readonly="not is_admin or state not in ('pool', 'draft')" options="{'no_create': True}"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                         </group>
                         <group>
@@ -112,13 +151,11 @@
 
                         <!-- TAB 3: Quality -->
                         <page string="Quality" invisible="not score_report_json and not qc_report">
-                            <!-- Action buttons inside the tab -->
                             <div class="mb-3" invisible="state != 'done'">
                                 <button name="action_regenerate_with_qc_feedback" type="object" string="Retry with QC Feedback" class="btn btn-sm btn-warning me-1" invisible="qc_verdict == 'shippable'" confirm="Regenerate PRD incorporating QC failure feedback?"/>
                                 <button name="action_rerun_qc" type="object" string="Rerun QC" class="btn btn-sm btn-info me-1" confirm="Re-evaluate QC on the current PRD text?"/>
                             </div>
 
-                            <!-- Verdict banner -->
                             <div class="alert alert-success mb-3" role="alert" invisible="qc_verdict != 'shippable'">
                                 <strong>SHIPPABLE</strong> -- PRD passed all QC checks.
                             </div>
@@ -126,10 +163,7 @@
                                 <strong>NOT SHIPPABLE</strong> -- Issues below must be resolved.
                             </div>
 
-                            <!-- Formatted score report -->
                             <field name="score_report_html" readonly="1" nolabel="1" invisible="not score_report_json"/>
-
-                            <!-- QC Report text -->
                             <separator string="QC Report" invisible="not qc_report"/>
                             <field name="qc_report" readonly="1" invisible="not qc_report"/>
                         </page>
@@ -193,9 +227,11 @@
                 <field name="category_id"/>
                 <filter name="my_jobs" string="My Jobs" domain="[('user_id','=',uid)]"/>
                 <separator/>
+                <filter name="pool" string="Pool (Unassigned)" domain="[('state','=','pool')]"/>
                 <filter name="draft" string="Draft" domain="[('state','=','draft')]"/>
                 <filter name="in_progress" string="In Progress" domain="[('state','in',('queued','extracting','generating','scoring'))]"/>
                 <filter name="done" string="Done" domain="[('state','=','done')]"/>
+                <filter name="submitted" string="Submitted" domain="[('state','=','submitted')]"/>
                 <filter name="qc_failed" string="QC Failed" domain="[('qc_verdict','=','not_shippable')]"/>
                 <filter name="failed" string="Failed" domain="[('state','=','failed')]"/>
                 <group>
@@ -215,6 +251,35 @@
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="leviathan_job_view_search"/>
         <field name="context">{}</field>
+    </record>
+
+    <!-- Pool List View (with Assign Tasks button) -->
+    <record id="leviathan_job_pool_view_tree" model="ir.ui.view">
+        <field name="name">leviathan.job.pool.list</field>
+        <field name="model">leviathan.job</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="state == 'pool'">
+                <header>
+                    <button name="action_assign_tasks" type="object" string="Assign Tasks" class="oe_highlight"/>
+                </header>
+                <field name="name"/>
+                <field name="url" widget="url"/>
+                <field name="category_id"/>
+                <field name="state" widget="badge"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Action: Admin Pool view (unassigned only) -->
+    <record id="action_leviathan_pool" model="ir.actions.act_window">
+        <field name="name">Job Pool</field>
+        <field name="res_model">leviathan.job</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="leviathan_job_pool_view_tree"/>
+        <field name="search_view_id" ref="leviathan_job_view_search"/>
+        <field name="domain">[('state','=','pool')]</field>
+        <field name="context">{'default_state': 'pool'}</field>
     </record>
 
     <!-- Action: Tasker (sees own, cannot create) -->
