@@ -105,7 +105,7 @@ class TaskForgeBlocker(models.Model):
             vals['qr_notes'] = notes
         self.write(vals)
         self._log_escalation('qr', 'tasker', 'no_issue', notes=notes or '')
-        self.task_id.write({'state': 'returned'})
+        self.task_id.write({'state': 'in_progress'})
 
         if self.employee_id.user_id:
             self.env['kubera.notification'].sudo().create({

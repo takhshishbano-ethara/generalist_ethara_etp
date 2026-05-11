@@ -433,6 +433,7 @@ class ProjectController(http.Controller):
             }
 
             date_fields = {'date_start', 'date'}
+            selection_fields = {'project_category', 'project_type', 'y_project_type'}
             for kwarg_key, odoo_field in field_mapping.items():
                 if kwarg_key in kwargs:
                     val = kwargs.get(kwarg_key)
@@ -441,6 +442,10 @@ class ProjectController(http.Controller):
                     elif odoo_field in date_fields:
                         if val:
                             vals[odoo_field] = val
+                        else:
+                            vals[odoo_field] = False
+                    elif odoo_field in selection_fields:
+                        vals[odoo_field] = val if val else False
                     else:
                         vals[odoo_field] = val
 

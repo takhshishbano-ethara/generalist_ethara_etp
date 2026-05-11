@@ -159,7 +159,7 @@
         case "instance_id": va = a.instance_id; vb = b.instance_id; break;
         case "domain": va = a.domain; vb = b.domain; break;
         case "task": va = a.task; vb = b.task; break;
-        case "nova": va = a.runs["Nova-2-Lite"]?.correct ? 1 : 0; vb = b.runs["Nova-2-Lite"]?.correct ? 1 : 0; break;
+        case "nova": va = a.runs["Qwen3 VL"]?.correct ? 1 : 0; vb = b.runs["Qwen3 VL"]?.correct ? 1 : 0; break;
         case "kimi": va = a.runs["Kimi K2.5"]?.correct ? 1 : 0; vb = b.runs["Kimi K2.5"]?.correct ? 1 : 0; break;
         default: va = a.instance_id; vb = b.instance_id;
       }
@@ -195,7 +195,7 @@
         + item("Golden Answer", '<b>' + esc(inst.golden_answer) + '</b>')
         + (inst.image_url ? '<div style="margin-top:12px;"><button type="button" class="view-image-btn" data-img="' + esc(inst.image_url) + '" data-alt="' + esc(inst.task) + '" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-family:var(--font-mono);font-size:var(--s-ui);letter-spacing:0.04em;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;transition:background 0.15s,color 0.15s;">View Image</button></div>' : '')
       + '</div>'
-      + modelBlock("Nova-2-Lite", inst.runs["Nova-2-Lite"], "tok-nova")
+      + modelBlock("Qwen3 VL", inst.runs["Qwen3 VL"], "tok-nova")
       + modelBlock("Kimi K2.5", inst.runs["Kimi K2.5"], "tok-kimi")
       + '</div></div></td></tr>';
   }
@@ -213,7 +213,7 @@
     let html = "";
     page.forEach((inst, i) => {
       const kimi = inst.runs["Kimi K2.5"];
-      const nova = inst.runs["Nova-2-Lite"];
+      const nova = inst.runs["Qwen3 VL"];
       const isExpanded = inst.instance_id === expandedId;
       const tileStyle = 'display:inline-flex;align-items:center;justify-content:center;min-width:56px;min-height:28px;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:4px 8px;border:1px solid currentColor;';
 

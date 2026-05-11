@@ -129,8 +129,8 @@ class EmployeeController(http.Controller):
             else:
                 employee = new_user.employee_id
                 new_user.employee_id.sudo().write(employee_vals)
-            if kwargs.get('project_id'):
-                ProjectRequest = request.env['project.project'].sudo().browse(int(kwargs.get('project_id')))
+            if jdata.get('project_id'):
+                ProjectRequest = request.env['project.project'].sudo().browse(int(jdata.get('project_id')))
                 emp_list = []
                 if ProjectRequest.exists():
                     if employee.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id,
@@ -1167,18 +1167,52 @@ class EmployeeController(http.Controller):
     def get_on_bench_employees(self, **kwargs):
         temp = []
         try:
-            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
-            assign_employee = []
+            user = request.env.user
+            employee = user.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
+
+            role = employee._get_task_forge_role()
+            Employee = request.env['hr.employee'].sudo()
+
+            if role == 'admin':
+                team_ids = Employee.search([('task_forge_active', '=', True)]).ids
+            elif role == 'pl':
+                team_ids = Employee.search([
+                    ('task_forge_pl_id', '=', employee.id),
+                    ('task_forge_active', '=', True),
+                ]).ids
+            elif role in ('qr', 'ql'):
+                team_ids = Employee.search([
+                    ('task_forge_qr_id', '=', employee.id),
+                    ('task_forge_active', '=', True),
+                ]).ids
+            else:
+                return return_Response(message="Insufficient permissions", status=403)
+
+            active_projects = request.env['project.project'].sudo().search([
+                ('non_stemp_project_status', 'in', ['not_started', 'production'])
+            ])
+            assigned_ids = set()
             for ap in active_projects:
-                assign_employee.extend(ap.project_lead.ids)
-                assign_employee.extend(ap.project_qc_reviewer.ids)
-                assign_employee.extend(ap.project_tasker.ids)
-            domain = [('id', 'not in', assign_employee)]
+                assigned_ids.update(ap.project_lead.ids)
+                assigned_ids.update(ap.project_qc_reviewer.ids)
+                assigned_ids.update(ap.project_tasker.ids)
+            user_roles = [request.env.ref('api_auth_gateway.role_qc_stem').id,
+                             request.env.ref('api_auth_gateway.role_qc_technical').id,
+                             request.env.ref('api_auth_gateway.role_pl_stem').id,
+                             request.env.ref('api_auth_gateway.role_pl_technical').id,
+                             request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                             request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                             request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                             request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                             request.env.ref('api_auth_gateway.role_tasker_non_stem').id]
+            domain = [('id', 'in', team_ids), ('id', 'not in', list(assigned_ids)), ('user_id.user_role', 'in', user_roles)]
 
             if kwargs.get('role_id'):
                 domain.append(('user_id.user_role', '=', int(kwargs.get('role_id'))))
 
-            employees = self.env['hr.employee'].sudo().search(domain)
+            employees = Employee.search(domain)
             temp = [{
                 'id': emp.id or 0,
                 'name': emp.name or "",

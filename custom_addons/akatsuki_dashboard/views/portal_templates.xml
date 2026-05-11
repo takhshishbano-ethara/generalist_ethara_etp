@@ -32,7 +32,7 @@
 
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
       <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=5" defer="defer"/>
+      <script src="/akatsuki_dashboard/static/src/portal/js/akatsuki_portal.js?v=6" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -222,10 +222,10 @@
     <div class="reveal">
       <p class="reveal-line">
         <span class="tok-kimi">Kimi K2.5</span> resolves <b class="reveal-big">14 of 20</b>.
-        <span class="tok-nova">Nova-2-Lite</span> resolves <b class="reveal-big">5 of 20</b>.
+        <span class="tok-nova">Qwen3 VL</span> resolves <b class="reveal-big">5 of 20</b>.
       </p>
       <p class="reveal-cost mono">
-        Kimi is <b>2.8&#xD7; more accurate</b> but Nova uses <b>~2&#xD7; more tool calls</b> per instance (13.1 vs 6.2 avg).
+        Kimi is <b>2.8&#xD7; more accurate</b> but Qwen3 VL uses <b>~2&#xD7; more tool calls</b> per instance (13.1 vs 6.2 avg).
       </p>
     </div>
 
@@ -240,8 +240,8 @@
       </figure>
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Failure Mode Distribution full size">
-          <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/failure_line_light.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Nova 2 Lite across seven failure categories" loading="lazy" />
-          <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/failure_line_dark.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Nova 2 Lite across seven failure categories" loading="lazy" />
+          <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/failure_line_light.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Qwen3 VL across seven failure categories" loading="lazy" />
+          <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/failure_line_dark.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Qwen3 VL across seven failure categories" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 2 &#x2014; Failure Mode Distribution (% of instances)</figcaption>
@@ -292,7 +292,7 @@
             <th scope="col" data-sort="domain">Domain</th>
             <th scope="col" data-sort="task">Task</th>
             <th scope="col" style="text-align:center;">Golden</th>
-            <th scope="col" data-sort="nova" style="text-align:center;"><span class="tok-nova">Nova</span></th>
+            <th scope="col" data-sort="nova" style="text-align:center;"><span class="tok-nova">Qwen3 VL</span></th>
             <th scope="col" data-sort="kimi" style="text-align:center;"><span class="tok-kimi">Kimi</span></th>
             <th scope="col"></th>
           </tr>
@@ -312,7 +312,7 @@
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <p class="kpi-label"><span class="tok-nova">Qwen3 VL</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>25%</b> (5/20)</dd></div>
           <div class="glance-row"><dt>V-axis Score</dt><dd><b>0.244</b></dd></div>

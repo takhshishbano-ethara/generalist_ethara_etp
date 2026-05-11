@@ -1251,3 +1251,182 @@ class TaskForgeExportController(http.Controller):
         except Exception as e:
             _logger.error('Export blocker detail failed: %s', str(e))
             return return_Response(message=str(e), status=400)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Project Health Export
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @http.route('/api/v2/taskforge/export/project_health', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def export_project_health(self, **kwargs):
+        try:
+            import xlsxwriter
+            from odoo.addons.task_forge_core.controllers.main_dashboard import (
+                _parse_range, _category_domain, OPEN_BLOCKER_STATES,
+                HEALTH_AT_RISK_BLOCKERS, HEALTH_AT_RISK_OVERDUE,
+                HEALTH_WARNING_BLOCKERS, HEALTH_WARNING_OVERDUE,
+            )
+
+            user = request.env.user
+            if not user.employee_id:
+                return return_Response(message="Employee not found", status=404)
+
+            Project = request.env['project.project'].sudo()
+            TaskLog = request.env['task.forge.log'].sudo()
+            Blocker = request.env['task.forge.blocker'].sudo()
+
+            date_from, date_to = _parse_range(kwargs)
+
+            proj_domain = [('task_forge_status', '=', 'live')]
+            proj_domain += _category_domain(kwargs)
+
+            search = (kwargs.get('search') or '').strip()
+            if search:
+                proj_domain.append(('name', 'ilike', search))
+
+            health_filter = kwargs.get('health')
+
+            projects = Project.search(proj_domain, order='name asc')
+            proj_ids = projects.ids
+
+            if proj_ids:
+                completed_rows = TaskLog.read_group(
+                    domain=[
+                        ('project_id', 'in', proj_ids),
+                        ('state', '=', 'completed'),
+                        ('date', '>=', date_from),
+                        ('date', '<=', date_to),
+                    ],
+                    fields=['project_id', 'time_taken_mins:sum', 'quality_score:avg'],
+                    groupby=['project_id'],
+                    lazy=False,
+                )
+                pending_rows = TaskLog.read_group(
+                    domain=[
+                        ('project_id', 'in', proj_ids),
+                        ('state', 'in', ['in_progress', 'ack', 'escalated', 'returned', 'blocker']),
+                    ],
+                    fields=['project_id'],
+                    groupby=['project_id'],
+                    lazy=False,
+                )
+                overdue_rows = TaskLog.read_group(
+                    domain=[
+                        ('project_id', 'in', proj_ids),
+                        ('state', '=', 'overdue'),
+                    ],
+                    fields=['project_id'],
+                    groupby=['project_id'],
+                    lazy=False,
+                )
+            else:
+                completed_rows = pending_rows = overdue_rows = []
+
+            def _by_proj(rows, field='__count'):
+                out = {}
+                for r in rows:
+                    pid = r.get('project_id')
+                    if isinstance(pid, tuple):
+                        pid = pid[0]
+                    out[pid] = r.get(field, 0)
+                return out
+
+            completed_by = _by_proj(completed_rows, '__count')
+            mins_by = _by_proj(completed_rows, 'time_taken_mins')
+            quality_by = _by_proj(completed_rows, 'quality_score')
+            pending_by = _by_proj(pending_rows, '__count')
+            overdue_by = _by_proj(overdue_rows, '__count')
+
+            items = []
+            for proj in projects:
+                completed = completed_by.get(proj.id, 0) or 0
+                pending = pending_by.get(proj.id, 0) or 0
+                overdue = overdue_by.get(proj.id, 0) or 0
+                total_mins = mins_by.get(proj.id, 0) or 0
+                avg_quality = quality_by.get(proj.id, 0) or 0
+
+                blockers_open = Blocker.search_count([
+                    ('state', 'in', OPEN_BLOCKER_STATES),
+                    ('project_id', '=', proj.id),
+                ])
+
+                if (blockers_open > HEALTH_AT_RISK_BLOCKERS or overdue > HEALTH_AT_RISK_OVERDUE):
+                    health = 'At Risk'
+                elif (blockers_open > HEALTH_WARNING_BLOCKERS or overdue > HEALTH_WARNING_OVERDUE):
+                    health = 'Warning'
+                else:
+                    health = 'Healthy'
+
+                if health_filter and health_filter.lower() != health.lower().replace(' ', '_'):
+                    continue
+
+                tasker_ids = set(proj.project_tasker.ids)
+                qr_ids = set(proj.project_qc_reviewer.ids)
+                pl_ids = set(proj.project_lead.ids)
+                members = len(tasker_ids | qr_ids | pl_ids)
+
+                aht_min = round(total_mins / completed, 1) if completed else 0
+                hours_total = round(total_mins / 60.0, 1) if total_mins else 0
+                quality_pct = round(avg_quality, 0) if avg_quality else 0
+
+                cat_map = {'stem': 'Stem', 'non_stem': 'Non Stem', 'technical': 'Technical'}
+                category_label = cat_map.get(proj.project_category, '-') if hasattr(proj, 'project_category') else '-'
+
+                items.append({
+                    'project_name': proj.name or '',
+                    'category': category_label,
+                    'members': members,
+                    'completed': completed,
+                    'pending': pending,
+                    'overdue': overdue,
+                    'blockers_open': blockers_open,
+                    'quality_percent': quality_pct,
+                    'aht_min': aht_min,
+                    'hours_total': hours_total,
+                    'health': health,
+                })
+
+            output = io.BytesIO()
+            wb = xlsxwriter.Workbook(output, {'in_memory': True})
+            fmt = self._get_formats(wb)
+            ws = wb.add_worksheet('Project Health')
+
+            headers = ['#', 'Project Name', 'Category', 'Members', 'Completed',
+                       'Pending', 'Overdue', 'Open Blockers', 'Quality %',
+                       'AHT (min)', 'Total Hours', 'Health']
+            col_types = ['num', 'str', 'str', 'num', 'num',
+                         'num', 'num', 'num', 'num',
+                         'num', 'num', 'status']
+            widths = [5, 35, 14, 10, 12, 10, 10, 14, 11, 11, 13, 12]
+
+            self._write_title_banner(ws, fmt, 'Project Health Report (%s to %s)' % (date_from.isoformat(), date_to.isoformat()), len(headers))
+            self._write_headers(ws, fmt, headers)
+            for i, w in enumerate(widths):
+                ws.set_column(i, i, w)
+
+            for idx, item in enumerate(items, 1):
+                row = [
+                    idx,
+                    item['project_name'],
+                    item['category'],
+                    item['members'],
+                    item['completed'],
+                    item['pending'],
+                    item['overdue'],
+                    item['blockers_open'],
+                    item['quality_percent'],
+                    item['aht_min'],
+                    item['hours_total'],
+                    item['health'],
+                ]
+                self._write_row(ws, fmt, idx + 3, row, col_types)
+
+            ws.autofilter(3, 0, 3 + len(items), len(headers) - 1)
+            ws.freeze_panes(4, 2)
+            s3_url = self._finalize_and_upload(wb, output, 'project_health_report')
+
+            return return_Response(message="Project health report generated", status=200,
+                                   data={'download_url': s3_url})
+        except Exception as e:
+            _logger.error('Export project health failed: %s', str(e))
+            return return_Response(message=str(e), status=400)

@@ -6,11 +6,21 @@
               groups="group_leviathan_user"
               web_icon="leviathan,static/description/icon.png"/>
 
-    <menuitem id="menu_leviathan_jobs"
+    <!-- Admin sees "Jobs" (all jobs, can create) -->
+    <menuitem id="menu_leviathan_jobs_admin"
               name="Jobs"
               parent="menu_leviathan_root"
               action="action_leviathan_job"
-              sequence="10"/>
+              sequence="10"
+              groups="group_leviathan_admin"/>
+
+    <!-- Tasker sees "My Tasks" (own jobs, no create) — hidden from admins -->
+    <menuitem id="menu_leviathan_jobs_tasker"
+              name="My Tasks"
+              parent="menu_leviathan_root"
+              action="action_leviathan_job_tasker"
+              sequence="11"
+              groups="group_leviathan_user"/>
 
     <menuitem id="menu_leviathan_config"
               name="Configuration"

@@ -352,6 +352,9 @@ class TaskForgeLog(models.Model):
     justification_capitalization_count = fields.Integer(string='Justification Capitalization Errors', default=0)
     justification_miscellaneous_count = fields.Integer(string='Justification Miscellaneous Errors', default=0)
 
+    grammar_input_tokens = fields.Integer(string='Grammar Input Tokens', default=0)
+    grammar_output_tokens = fields.Integer(string='Grammar Output Tokens', default=0)
+
     blocker_ids = fields.One2many('task.forge.blocker', 'task_id', string='Blockers')
     bug_report_ids = fields.One2many('task.forge.bug.report', 'task_id', string='Bug Reports')
     rubric_rating_ids = fields.One2many(

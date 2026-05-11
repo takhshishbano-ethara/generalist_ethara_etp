@@ -151,7 +151,8 @@ class TestGetClient(TestCase):
         from odoo.addons.aurora.models.s3_storage import _get_client
         _get_client({"region": "ap-south-1"})
         kwargs = mock_client.call_args[1]
-        self.assertEqual(kwargs["endpoint_url"], "https://s3.ap-south-1.amazonaws.com")
+        self.assertNotIn("endpoint_url", kwargs)
+        self.assertEqual(kwargs["region_name"], "ap-south-1")
 
 
 class TestGetTransferConfig(TestCase):

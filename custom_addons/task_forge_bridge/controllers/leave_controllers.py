@@ -364,6 +364,9 @@ class TaskForgeLeaveController(http.Controller):
 
             leave.action_refuse()
 
+            if not leave.first_approver_id:
+                leave.sudo().write({'first_approver_id': approver_employee.id})
+
             request.env['kubera.notification'].sudo().create({
                 'title': 'Leave Rejected',
                 'message': f'Your leave from {leave.date_from} to {leave.date_to} has been rejected.',

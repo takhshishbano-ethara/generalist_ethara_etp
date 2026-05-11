@@ -13,7 +13,7 @@ _DATA_PATH = os.path.join(
 
 MODEL_MAP = {
     'glm5': 'GLM-5',
-    'nova': 'Nova-2-Lite',
+    'nova': 'Kimi K2.5',
 }
 
 

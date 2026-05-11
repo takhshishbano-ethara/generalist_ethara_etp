@@ -1,5 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- Rerun Wizard -->
+    <record id="leviathan_rerun_wizard_view" model="ir.ui.view">
+        <field name="name">leviathan.rerun.wizard.form</field>
+        <field name="model">leviathan.rerun.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Rerun Pipeline">
+                <group>
+                    <div class="alert alert-info" role="alert">
+                        <strong>Do you want to re-extract the website?</strong>
+                        <ul class="mb-0 mt-2">
+                            <li><strong>No</strong> -- Keep existing extraction data, regenerate PRD and re-run QC</li>
+                            <li><strong>Yes</strong> -- Re-extract the website from scratch, then regenerate PRD and QC</li>
+                        </ul>
+                    </div>
+                </group>
+                <footer>
+                    <button name="action_rerun_generate_only" type="object" string="No, just regenerate" class="oe_highlight"/>
+                    <button name="action_rerun_full" type="object" string="Yes, re-extract" class="btn-secondary"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
     <!-- List View -->
     <record id="leviathan_job_view_tree" model="ir.ui.view">
         <field name="name">leviathan.job.list</field>
@@ -7,7 +31,7 @@
         <field name="arch" type="xml">
             <list decoration-danger="state == 'failed'" decoration-muted="state == 'cancelled'" decoration-success="state == 'done'">
                 <field name="name"/>
-                <field name="url"/>
+                <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
                 <field name="state" widget="badge" decoration-info="state in ('queued','extracting','generating','scoring')" decoration-success="state == 'done'" decoration-danger="state == 'failed'"/>
@@ -26,105 +50,129 @@
         <field name="model">leviathan.job</field>
         <field name="arch" type="xml">
             <form>
+                <field name="is_admin" invisible="1"/>
                 <header>
+                    <!-- Draft: Queue -->
                     <button name="action_queue" type="object" string="Queue" class="oe_highlight" invisible="state != 'draft'"/>
-                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('done','failed','cancelled','submitted')"/>
-                    <button name="action_retry" type="object" string="Retry (Full)" invisible="state not in ('failed','cancelled')" confirm="This will re-extract and regenerate from scratch. Continue?"/>
-                    <button name="action_regenerate_with_qc_feedback" type="object" string="Regenerate PRD (with QC Feedback)" class="btn-warning" invisible="state != 'done' or qc_verdict == 'shippable'" confirm="This will regenerate the PRD using QC failure reasons as feedback. Continue?"/>
-                    <button name="action_save_prd_edit" type="object" string="Save PRD Edits" class="oe_highlight" invisible="state != 'done'"/>
-                    <button name="action_download_zip" type="object" string="Download ZIP" class="oe_highlight" invisible="not prd_text"/>
-                    <button name="action_mark_submitted" type="object" string="Mark Submitted" class="btn-success" invisible="state != 'done'"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,extracting,generating,scoring,done,submitted"/>
+
+                    <!-- Done: primary actions -->
+                    <button name="action_download_zip" type="object" string="Download ZIP" class="oe_highlight" invisible="state != 'done' or not prd_text"/>
+                    <button name="action_open_rerun_wizard" type="object" string="Rerun" class="btn-secondary" invisible="state != 'done'"/>
+                    <button name="action_mark_submitted" type="object" string="Submit" class="btn-success" invisible="state != 'done'"/>
+
+                    <!-- Failed: retry -->
+                    <button name="action_retry" type="object" string="Retry" class="oe_highlight" invisible="state not in ('failed','cancelled')" confirm="Reset job to draft for re-queuing?"/>
+
+                    <!-- Cancel (in-progress states) -->
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('draft','done','failed','cancelled','submitted')"/>
+
+                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,extracting,generating,scoring,done"/>
                 </header>
                 <sheet>
                     <!-- QC Failure Banner -->
                     <div class="alert alert-warning" role="alert" invisible="qc_verdict != 'not_shippable'">
-                        <strong>⚠️ QC Failed — PRD Not Shippable</strong>
-                        <p class="mb-0">Review the QC Report tab for specific issues. You can either:
-                            (1) Edit the PRD directly in the Editor tab below,
-                            (2) Click "Regenerate PRD (with QC Feedback)" to auto-fix via LLM.</p>
-                    </div>
-                    <div class="alert alert-info" role="alert" invisible="qc_verdict != 'fixes'">
-                        <strong>ℹ️ QC: Shippable with Fixes</strong>
-                        <p class="mb-0">Minor issues found. Edit the PRD in the Editor tab or regenerate.</p>
+                        <strong>QC Failed</strong> -- PRD not shippable.
+                        Use the Quality tab actions to retry with QC feedback or rerun QC after editing.
                     </div>
 
                     <div class="oe_title">
-                        <h1>
-                            <field name="name" readonly="1"/>
-                        </h1>
+                        <h1><field name="name" readonly="1"/></h1>
                     </div>
+
+                    <!-- Top summary -->
                     <group>
                         <group>
                             <field name="url" widget="url"/>
                             <field name="site_name"/>
                             <field name="category_id"/>
-                            <field name="user_id"/>
+                            <field name="user_id" readonly="not is_admin or state != 'draft'" options="{'no_create': True}"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                         </group>
                         <group>
                             <field name="score"/>
                             <field name="grade"/>
                             <field name="qc_verdict"/>
-                            <field name="llm_attempts"/>
                             <field name="duration_seconds"/>
-                            <field name="page_count"/>
                         </group>
                     </group>
+
                     <notebook>
-                        <!-- PRD Editor (HTML - editable by tasker) -->
+                        <!-- TAB 1: PRD Editor -->
                         <page string="PRD Editor" invisible="not prd_text">
+                            <div class="mb-2" invisible="state != 'done'">
+                                <button name="action_save_prd_edit" type="object" string="Save Edits" class="btn btn-sm btn-primary me-1"/>
+                            </div>
                             <field name="prd_text_html" widget="html"/>
                         </page>
-                        <!-- PRD Raw (read-only markdown) -->
+
+                        <!-- TAB 2: PRD Raw -->
                         <page string="PRD (Raw)" invisible="not prd_text">
                             <field name="prd_text" readonly="1"/>
                         </page>
-                        <!-- QC Report (prominent when failed) -->
-                        <page string="⚠️ QC Report" invisible="not qc_report" badge="qc_verdict">
-                            <div class="alert alert-danger mb-3" invisible="qc_verdict != 'not_shippable'">
-                                <strong>VERDICT: NOT SHIPPABLE</strong> — The issues below must be resolved before submission.
+
+                        <!-- TAB 3: Quality -->
+                        <page string="Quality" invisible="not score_report_json and not qc_report">
+                            <!-- Action buttons inside the tab -->
+                            <div class="mb-3" invisible="state != 'done'">
+                                <button name="action_regenerate_with_qc_feedback" type="object" string="Retry with QC Feedback" class="btn btn-sm btn-warning me-1" invisible="qc_verdict == 'shippable'" confirm="Regenerate PRD incorporating QC failure feedback?"/>
+                                <button name="action_rerun_qc" type="object" string="Rerun QC" class="btn btn-sm btn-info me-1" confirm="Re-evaluate QC on the current PRD text?"/>
                             </div>
-                            <field name="qc_report" readonly="1"/>
+
+                            <!-- Verdict banner -->
+                            <div class="alert alert-success mb-3" role="alert" invisible="qc_verdict != 'shippable'">
+                                <strong>SHIPPABLE</strong> -- PRD passed all QC checks.
+                            </div>
+                            <div class="alert alert-danger mb-3" role="alert" invisible="qc_verdict != 'not_shippable'">
+                                <strong>NOT SHIPPABLE</strong> -- Issues below must be resolved.
+                            </div>
+
+                            <!-- Formatted score report -->
+                            <field name="score_report_html" readonly="1" nolabel="1" invisible="not score_report_json"/>
+
+                            <!-- QC Report text -->
+                            <separator string="QC Report" invisible="not qc_report"/>
+                            <field name="qc_report" readonly="1" invisible="not qc_report"/>
                         </page>
-                        <!-- Score Breakdown -->
-                        <page string="Score Report" invisible="not score_report_json">
-                            <field name="score_report_json" widget="json"/>
-                        </page>
-                        <!-- Screenshots & Assets -->
-                        <page string="Screenshots &amp; Assets" invisible="not screenshot_keys and not asset_keys">
-                            <group string="Screenshots">
-                                <field name="screenshot_keys" widget="json" readonly="1"/>
+
+                        <!-- TAB 4: Assets -->
+                        <page string="Assets" invisible="not screenshot_keys and not asset_keys">
+                            <group string="Screenshots" invisible="not screenshot_keys">
+                                <field name="screenshot_urls_html" readonly="1" nolabel="1"/>
                             </group>
-                            <group string="Assets">
-                                <field name="asset_keys" widget="json" readonly="1"/>
+                            <group string="Collected Assets" invisible="not asset_keys">
+                                <field name="asset_urls_html" readonly="1" nolabel="1"/>
                             </group>
-                            <group string="Artifacts">
-                                <field name="artifacts_url" widget="url"/>
+                            <group string="Artifacts Folder" invisible="not artifacts_url">
+                                <field name="artifacts_url" widget="url" nolabel="1"/>
                             </group>
                         </page>
-                        <!-- Extraction Data (raw prompt sent to LLM) -->
-                        <page string="Extraction Data" invisible="not prd_prompt">
-                            <field name="prd_prompt" readonly="1"/>
-                        </page>
-                        <!-- Technical / Debug -->
-                        <page string="Technical">
+
+                        <!-- TAB 5: Pipeline -->
+                        <page string="Pipeline">
                             <group>
-                                <group>
+                                <group string="Timing">
+                                    <field name="started_at" readonly="1"/>
+                                    <field name="completed_at" readonly="1"/>
+                                    <field name="duration_seconds" readonly="1"/>
+                                    <field name="last_heartbeat" readonly="1"/>
+                                </group>
+                                <group string="Extraction">
+                                    <field name="page_count" readonly="1"/>
                                     <field name="tech_stack" readonly="1"/>
-                                    <field name="prd_url" widget="url"/>
-                                    <field name="deliverables_url" widget="url"/>
-                                </group>
-                                <group>
-                                    <field name="started_at"/>
-                                    <field name="completed_at"/>
-                                    <field name="last_heartbeat"/>
-                                    <field name="error_message" invisible="state != 'failed'"/>
+                                    <field name="llm_attempts" readonly="1"/>
                                 </group>
                             </group>
-                            <group string="Site Discovery (JSON)" invisible="not site_discovery_json">
-                                <field name="site_discovery_json" widget="json" readonly="1"/>
+                            <group string="Links" invisible="not prd_url and not deliverables_url">
+                                <field name="prd_url" widget="url"/>
+                                <field name="deliverables_url" widget="url"/>
                             </group>
+                            <group string="Error" invisible="state != 'failed'">
+                                <field name="error_message" readonly="1" nolabel="1"/>
+                            </group>
+                            <separator string="Extraction Data (sent to LLM)" invisible="not prd_prompt"/>
+                            <field name="prd_prompt" readonly="1" invisible="not prd_prompt"/>
+                            <separator string="Site Discovery" invisible="not site_discovery_json"/>
+                            <field name="site_discovery_json" widget="json" readonly="1" invisible="not site_discovery_json"/>
                         </page>
                     </notebook>
                 </sheet>
@@ -160,12 +208,21 @@
         </field>
     </record>
 
-    <!-- Action -->
+    <!-- Action: Admin (sees all, can create) -->
     <record id="action_leviathan_job" model="ir.actions.act_window">
         <field name="name">Leviathan Jobs</field>
         <field name="res_model">leviathan.job</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="leviathan_job_view_search"/>
-        <field name="context">{'search_default_my_jobs': 1}</field>
+        <field name="context">{}</field>
+    </record>
+
+    <!-- Action: Tasker (sees own, cannot create) -->
+    <record id="action_leviathan_job_tasker" model="ir.actions.act_window">
+        <field name="name">My Tasks</field>
+        <field name="res_model">leviathan.job</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="leviathan_job_view_search"/>
+        <field name="context">{'search_default_my_jobs': 1, 'create': False}</field>
     </record>
 </odoo>

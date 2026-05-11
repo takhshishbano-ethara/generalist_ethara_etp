@@ -34,7 +34,7 @@
                     <div class="kr-backend-model__stat">Pass@1: <strong>7/20</strong></div>
                 </div>
                 <div class="kr-backend-model">
-                    <h3>Nova-2-Lite</h3>
+                    <h3>Kimi K2.5</h3>
                     <div class="kr-backend-model__stat">HSR: <strong>0.268</strong></div>
                     <div class="kr-backend-model__stat">Correctness: <strong>55%</strong></div>
                     <div class="kr-backend-model__stat">Pass@1: <strong>2/20</strong></div>

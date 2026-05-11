@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 
 from odoo import api, fields, models
@@ -21,6 +22,10 @@ except ImportError:
 
 _k8s_config_lock = threading.Lock()
 _k8s_config_loaded = False
+_k8s_config_loaded_at = 0.0
+
+# Reload K8s config every 50 minutes to handle SA token expiry (default 1h).
+_K8S_CONFIG_MAX_AGE = 3000
 
 # ---------------------------------------------------------------------------
 # Phase 2 infrastructure constants (DinD-enabled pods for Docker builds).
@@ -52,17 +57,18 @@ def _get_env(key: str, default: str = "") -> str:
 
 
 def _load_k8s_config():
-    global _k8s_config_loaded
-    if _k8s_config_loaded:
+    global _k8s_config_loaded, _k8s_config_loaded_at
+    if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
         return
     with _k8s_config_lock:
-        if _k8s_config_loaded:
+        if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
             return
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
             k8s_config.load_kube_config()
         _k8s_config_loaded = True
+        _k8s_config_loaded_at = time.time()
 
 EVAL_STAGE_SELECTION = [
     ("draft", "Draft"),
@@ -567,6 +573,9 @@ class AuroraEvaluation(models.Model):
         if s3_endpoint:
             env_vars.append(k8s_client.V1EnvVar(name="AURORA_S3_ENDPOINT", value=s3_endpoint))
 
+        if os.environ.get("AURORA_LOCAL_MODE"):
+            env_vars.append(k8s_client.V1EnvVar(name="AURORA_LOCAL_MODE", value="1"))
+
         harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
         harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
@@ -664,7 +673,7 @@ class AuroraEvaluation(models.Model):
             spec=k8s_client.V1JobSpec(
                 ttl_seconds_after_finished=600,
                 active_deadline_seconds=EVAL_DEADLINE_SECONDS,
-                backoff_limit=0,
+                backoff_limit=1,
                 template=k8s_client.V1PodTemplateSpec(
                     metadata=k8s_client.V1ObjectMeta(
                         labels=labels,

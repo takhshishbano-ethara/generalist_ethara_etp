@@ -43,8 +43,8 @@
   /* model semantic colors — split into ink + surface variants */
   --kimi:          #2A5CB8;   /* blue ink · 5.9:1 */
   --kimi-surface:  #E5EDFB;
-  --nova:          #5C3FB3;   /* purple ink · 7.2:1 */
-  --nova-surface:  #EEE4FB;
+  --qwen:          #5C3FB3;   /* purple ink · 7.2:1 */
+  --qwen-surface:  #EEE4FB;
 
   /* pass / fail */
   --pass:          #0E8F4B;   /* green ink · 4.6:1 on white */
@@ -703,7 +703,7 @@ hr.rule {
 .caption a { color: var(--accent); border-bottom: 1px solid var(--border-2); }
 .caption a:hover { border-color: var(--accent); }
 .tok-kimi { color: var(--kimi); font-weight: 500; }
-.tok-nova { color: var(--nova); font-weight: 500; }
+.tok-qwen { color: var(--qwen); font-weight: 500; }
 
 /* ---------- §05 KPI cards ------------------------------- */
 .kpi-row {
@@ -878,7 +878,7 @@ hr.rule {
   color: var(--accent);
 }
 
-/* Expanded-detail row — 3-column grid: Instance / Kimi / Nova.
+/* Expanded-detail row — 3-column grid: Instance / Kimi / Qwen.
    Same diluted lime wash as the row above for visual continuity. */
 .matrix-detail-row td {
   padding: 0;
@@ -918,7 +918,7 @@ hr.rule {
   border-bottom: 1px dashed var(--border);
 }
 .matrix-detail-title.tok-kimi { color: var(--kimi); }
-.matrix-detail-title.tok-nova { color: var(--nova); }
+.matrix-detail-title.tok-qwen { color: var(--qwen); }
 .matrix-detail-item {
   display: flex;
   justify-content: space-between;
@@ -1085,7 +1085,7 @@ hr.rule {
   letter-spacing: 0.04em;
 }
 .total-chip--kimi { color: var(--kimi); }
-.total-chip--nova { color: var(--nova); }
+.total-chip--qwen { color: var(--qwen); }
 
 .matrix-hint {
   margin-top: 14px;
@@ -1151,10 +1151,10 @@ hr.rule {
   color: var(--ink-2);
 }
 .repo-score.score-kimi b,
-.repo-score.score-nova b { font-weight: 600; }
+.repo-score.score-qwen b { font-weight: 600; }
 .repo-score.has-pass { color: var(--accent); }
 .repo-score.score-kimi.has-pass { color: var(--accent); }
-.repo-score.score-nova.has-pass { color: var(--accent); }
+.repo-score.score-qwen.has-pass { color: var(--accent); }
 
 @media (max-width: 640px) {
   .repo-head {
@@ -1222,7 +1222,7 @@ hr.rule {
   margin-bottom: 4px;
 }
 .run-model--kimi .run-model-head { color: var(--kimi); }
-.run-model--nova .run-model-head { color: var(--nova); }
+.run-model--qwen .run-model-head { color: var(--qwen); }
 .run-stat { color: var(--ink-3); font-size: 11px; letter-spacing: 0.04em; }
 .run-val { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 12px; }
 .run-pass {
@@ -1379,8 +1379,8 @@ hr.rule {
   /* model semantic colors */
   --kimi:            #89B5FF;
   --kimi-surface:    rgba(137,181,255,0.14);
-  --nova:            #CDB0FF;
-  --nova-surface:    rgba(205,176,255,0.14);
+  --qwen:            #CDB0FF;
+  --qwen-surface:    rgba(205,176,255,0.14);
 
   /* pass / fail */
   --pass:            #5EE695;
@@ -1422,7 +1422,7 @@ hr.rule {
     --accent: #EE00EE;  --accent-2: #FF44FF;  --accent-bright: #EE00EE;
     --accent-surface: rgba(238,0,238,0.12);  --accent-on: #FFFFFF;
     --kimi: #89B5FF;  --kimi-surface: rgba(137,181,255,0.14);
-    --nova: #CDB0FF;  --nova-surface: rgba(205,176,255,0.14);
+    --qwen: #CDB0FF;  --qwen-surface: rgba(205,176,255,0.14);
     --pass: #5EE695;  --pass-surface: rgba(94,230,149,0.14);
     --fail: #FF8F8F;  --fail-surface: rgba(255,143,143,0.12);
     --easy: #A1A7B6;  --medium: #DDE3EE;  --hard: #CDB0FF;  --expert: #FF8F8F;
