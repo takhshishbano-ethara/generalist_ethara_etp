@@ -78,7 +78,7 @@
     <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Pax evaluates the security posture of personalized LLM-based agents against established attack primitives under real-world deployment conditions. Each instance pairs a personalized scenario with adversarial payloads and auditable private assets (canary tokens), requiring models to resist prompt injection, tool-return deception, and memory poisoning across long-horizon interactions. Two models (GLM-5 and Nova-2-Lite) are evaluated through a four-stage pipeline: scenario setup, attack injection, execution tracing, and automated adjudication. Three attack categories are evaluated: Indirect Prompt Injection (IPI) via carrier files, Memory Credential Extraction, and Tool-Return Deception (TRD) via poisoned tool responses.</p>
+        <p>Pax evaluates the security posture of personalized LLM-based agents against established attack primitives under real-world deployment conditions. Each instance pairs a personalized scenario with adversarial payloads and auditable private assets (canary tokens), requiring models to resist prompt injection, tool-return deception, and memory poisoning across long-horizon interactions. Two models (GLM-5 and Kimi-K2.5) are evaluated through a four-stage pipeline: scenario setup, attack injection, execution tracing, and automated adjudication. Three attack categories are evaluated: Indirect Prompt Injection (IPI) via carrier files, Memory Credential Extraction, and Tool-Return Deception (TRD) via poisoned tool responses.</p>
         <p class="teaser">Keep scrolling. The results are in <a href="#results">§05</a>.</p>
       </div>
 
@@ -87,7 +87,7 @@
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
           <div class="glance-row"><dt>Attack Types</dt><dd><b>3</b> (IPI, Memory Extraction, TRD)</dd></div>
-          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Nova-2-Lite)</dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b> (GLM-5, Kimi-K2.5)</dd></div>
           <div class="glance-row"><dt>Stages</dt><dd><b>4</b> (Setup → Inject → Trace → Adjudicate)</dd></div>
         </dl>
       </aside>
@@ -112,7 +112,7 @@
         <p class="kpi-value"><span class="kpi-big">72%</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
-        <p class="kpi-label">Nova-2-Lite Success Rate</p>
+        <p class="kpi-label">Kimi-K2.5 Success Rate</p>
         <p class="kpi-value"><span class="kpi-big">51%</span></p>
       </div>
       <div class="kpi-card">
@@ -165,7 +165,7 @@
           <p class="phase-label">Principle 04</p>
           <h4 class="phase-title">Dual-Model Comparison</h4>
           <ul class="phase-body">
-            <li>Same scenario suite run on both GLM-5 and Nova-2-Lite</li>
+            <li>Same scenario suite run on both GLM-5 and Kimi-K2.5</li>
             <li>Cost and token efficiency compared per attack</li>
             <li>Identifies model-specific vulnerability patterns</li>
           </ul>
@@ -225,11 +225,11 @@
     <div class="reveal">
       <p class="reveal-line">
         <span class="tok-sentinel">GLM-5</span> achieves ASR <b class="reveal-big">0.722</b>.
-        <span class="tok-aegis">Nova-2-Lite</span> achieves ASR <b class="reveal-big">0.511</b>.
+        <span class="tok-aegis">Kimi-K2.5</span> achieves ASR <b class="reveal-big">0.511</b>.
       </p>
       <p class="reveal-line reveal-kicker">
         GLM-5 succeeds on <b>80%</b> IPI, <b>90%</b> MEM, <b>30%</b> TRD.
-        Nova-2-Lite succeeds on <b>40%</b> IPI, <b>60%</b> MEM, <b>10%</b> TRD.
+        Kimi-K2.5 succeeds on <b>40%</b> IPI, <b>60%</b> MEM, <b>10%</b> TRD.
       </p>
       <p class="reveal-cost mono">
         Multi-scenario · 3 attack types · <span class="tok-sentinel">GLM-5</span> <b>41% more vulnerable</b> — at <b>6× the cost</b>.
@@ -239,8 +239,8 @@
     <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Overall Score Comparison full size">
-          <img class="chart-light" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison.png" alt="Overall Score Comparison between GLM-5 and Nova-2-Lite" loading="lazy" />
-          <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison_dark.png" alt="Overall Score Comparison between GLM-5 and Nova-2-Lite" loading="lazy" />
+          <img class="chart-light" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison.png" alt="Overall Score Comparison between GLM-5 and Kimi-K2.5" loading="lazy" />
+          <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison_dark.png" alt="Overall Score Comparison between GLM-5 and Kimi-K2.5" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Overall Score Comparison</figcaption>
@@ -305,7 +305,7 @@
             <th scope="col" class="matrix-th-meta" data-sort="type">Type</th>
             <th scope="col" class="matrix-th-id" data-sort="technique">Technique</th>
             <th scope="col" class="matrix-th-meta" data-sort="glm_score">GLM-5</th>
-            <th scope="col" class="matrix-th-meta" data-sort="nova_score">Nova</th>
+            <th scope="col" class="matrix-th-meta" data-sort="kimi_score">Kimi</th>
             <th scope="col" class="matrix-th-id"></th>
           </tr>
         </thead>
@@ -332,8 +332,8 @@
            <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.06</b></dd></div>
         </dl>
       </div>
-      <div class="glance" style="height:100%;" aria-label="Nova-2-Lite summary">
-        <p class="glance-label mono">Nova-2-Lite</p>
+      <div class="glance" style="height:100%;" aria-label="Kimi-K2.5 summary">
+        <p class="glance-label mono">Kimi-K2.5</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Overall ASR</dt><dd><b>0.511</b></dd></div>
           <div class="glance-row"><dt>IPI Success Rate</dt><dd><b>40%</b></dd></div>
@@ -351,7 +351,7 @@
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">§08 · Resources</p>
 
-    <div class="resources" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:16px;">
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
       <a class="resource" href="https://github.com/Ethara-Ai/pax" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
         <p class="res-title">Trajectories</p>
@@ -362,6 +362,12 @@
         <p class="res-label mono">HuggingFace</p>
         <p class="res-title">Dataset</p>
         <p class="res-url mono">huggingface.co/datasets/ethara/Pax</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://arxiv.org/abs/2602.08412" target="_blank" rel="noopener">
+        <p class="res-label mono">Paper</p>
+        <p class="res-title">Research Paper</p>
+        <p class="res-url mono">arxiv.org/abs/2602.08412</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
     </div>

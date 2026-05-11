@@ -24,22 +24,22 @@ def _load_instances():
     for case_dir in case_dirs:
         case_path = os.path.join(_DATASET_DIR, case_dir)
         glm_file = os.path.join(case_path, 'glm', case_dir + '.json')
-        nova_file = os.path.join(case_path, 'nova', case_dir + '.json')
+        kimi_file = os.path.join(case_path, 'kimi', case_dir + '.json')
         glm_data = {}
-        nova_data = {}
+        kimi_data = {}
         if os.path.exists(glm_file):
             try:
                 with open(glm_file, 'r', encoding='utf-8') as f:
                     glm_data = json.load(f)
             except (IOError, json.JSONDecodeError):
                 pass
-        if os.path.exists(nova_file):
+        if os.path.exists(kimi_file):
             try:
-                with open(nova_file, 'r', encoding='utf-8') as f:
-                    nova_data = json.load(f)
+                with open(kimi_file, 'r', encoding='utf-8') as f:
+                    kimi_data = json.load(f)
             except (IOError, json.JSONDecodeError):
                 pass
-        base = glm_data or nova_data
+        base = glm_data or kimi_data
         if not base:
             continue
         combined = {
@@ -56,11 +56,11 @@ def _load_instances():
             'target_domain': base.get('target_domain', ''),
             'poisoned_tool': base.get('poisoned_tool', ''),
             'glm_score': glm_data.get('score', 0),
-            'nova_score': nova_data.get('score', 0),
+            'kimi_score': kimi_data.get('score', 0),
             'glm_cost': glm_data.get('cost_usd', 0),
-            'nova_cost': nova_data.get('cost_usd', 0),
+            'kimi_cost': kimi_data.get('cost_usd', 0),
             'glm_leaked': glm_data.get('leaked', False),
-            'nova_leaked': nova_data.get('leaked', False),
+            'kimi_leaked': kimi_data.get('leaked', False),
         }
         instances.append(combined)
     return instances
