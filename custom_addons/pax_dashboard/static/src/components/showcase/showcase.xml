@@ -36,7 +36,7 @@
                     <div class="sr-backend-model__stat">Avg Cost: <strong>$0.06</strong></div>
                 </div>
                 <div class="sr-backend-model">
-                    <h3>Nova-2-Lite</h3>
+                    <h3>Kimi-K2.5</h3>
                     <div class="sr-backend-model__stat">Overall ASR: <strong>0.511</strong></div>
                     <div class="sr-backend-model__stat">IPI Success Rate: <strong>40%</strong></div>
                     <div class="sr-backend-model__stat">MEM Leak Rate: <strong>60%</strong></div>
