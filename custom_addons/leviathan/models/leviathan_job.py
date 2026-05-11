@@ -445,7 +445,7 @@ class LeviathanJob(models.Model):
         if self.state != "done":
             raise UserError("Can only rerun from Done state.")
 
-        re_extract = self._context.get("re_extract", False)
+        re_extract = self.env.context.get("re_extract", False)
 
         if re_extract or not self.prd_prompt:
             # Full pipeline: reset everything, go to draft, auto-queue
@@ -797,6 +797,17 @@ class LeviathanJob(models.Model):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _notify_state_change(self, state):
+        """Send bus notification for state change (works from ORM context)."""
+        try:
+            self.env["bus.bus"]._sendone(
+                "leviathan_job_updates",
+                "leviathan/job_state",
+                {"id": self.id, "state": state},
+            )
+        except Exception:
+            pass
+
     def _mark_failed(self, error_msg):
         """Mark job as failed. Safe to call from cron/controller contexts."""
         self.write({
@@ -804,6 +815,7 @@ class LeviathanJob(models.Model):
             "error_message": str(error_msg)[:500],
             "completed_at": fields.Datetime.now(),
         })
+        self._notify_state_change("failed")
 
     def _mark_done(self, started, duration):
         self.write({
@@ -812,6 +824,7 @@ class LeviathanJob(models.Model):
             "completed_at": fields.Datetime.now(),
             "duration_seconds": duration.total_seconds() if duration else 0,
         })
+        self._notify_state_change("done")
 
     def _log_pipeline_event(self, message):
         try:
@@ -870,6 +883,14 @@ class LeviathanJob(models.Model):
                 }
 
                 record.write({"state": "extracting"})
+                try:
+                    env["bus.bus"]._sendone(
+                        "leviathan_job_updates",
+                        "leviathan/job_state",
+                        {"id": record_id, "state": "extracting"},
+                    )
+                except Exception:
+                    pass
                 cr.commit()
 
             result = trigger_extraction(
@@ -1112,16 +1133,14 @@ class LeviathanJob(models.Model):
                     "duration_seconds": duration,
                 })
 
-                if job_data["partner_id"]:
-                    try:
-                        partner = env["res.partner"].browse(job_data["partner_id"])
-                        env["bus.bus"]._sendone(
-                            partner,
-                            "leviathan/job_done",
-                            {"id": record_id, "name": job_data["name"]},
-                        )
-                    except Exception:
-                        _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
+                try:
+                    env["bus.bus"]._sendone(
+                        "leviathan_job_updates",
+                        "leviathan/job_done",
+                        {"id": record_id, "name": job_data["name"]},
+                    )
+                except Exception:
+                    _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
 
                 cr.commit()
 
@@ -1143,6 +1162,16 @@ class LeviathanJob(models.Model):
             record = env[self._name].browse(record_id)
             if record.exists():
                 record.write(vals)
+                # Notify browser of state change so form refreshes
+                if "state" in vals:
+                    try:
+                        env["bus.bus"]._sendone(
+                            "leviathan_job_updates",
+                            "leviathan/job_state",
+                            {"id": record_id, "state": vals["state"]},
+                        )
+                    except Exception:
+                        pass
             cr.commit()
 
     def _build_feedback(self, score_report):
