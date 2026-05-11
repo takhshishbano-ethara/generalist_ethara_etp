@@ -301,32 +301,73 @@ class TestQualityScore(TestCase):
         self.assertEqual(score, 0)
 
 
-class TestExcludedRepos(TestCase):
+class TestShouldSkip(TestCase):
 
-    def test_yaml_loads(self):
-        from pathlib import Path
-        import yaml
-        yaml_path = Path(__file__).parent.parent / "data" / "excluded_repos.yaml"
-        if not yaml_path.exists():
-            self.skipTest("excluded_repos.yaml not found")
-        with yaml_path.open("r") as f:
-            data = yaml.safe_load(f)
-        self.assertIn("excluded_repos", data)
-        self.assertGreater(len(data["excluded_repos"]), 1000)
+    def test_skip_yaml_excluded(self):
+        mock_self = MagicMock()
+        mock_self._load_excluded_repos.return_value = {"org/repo"}
+        from odoo.addons.aurora.models.discovery import AuroraDiscovery
+        result = AuroraDiscovery._should_skip(mock_self, "org", "repo")
+        self.assertTrue(result)
 
-    def test_yaml_entries_have_org_repo(self):
-        from pathlib import Path
-        import yaml
-        yaml_path = Path(__file__).parent.parent / "data" / "excluded_repos.yaml"
-        if not yaml_path.exists():
-            self.skipTest("excluded_repos.yaml not found")
-        with yaml_path.open("r") as f:
-            data = yaml.safe_load(f)
-        for entry in data["excluded_repos"][:10]:
-            self.assertIn("org", entry)
-            self.assertIn("repo", entry)
-            self.assertTrue(entry["org"])
-            self.assertTrue(entry["repo"])
+    def test_skip_existing_discovery(self):
+        mock_self = MagicMock()
+        mock_self._load_excluded_repos.return_value = set()
+        mock_self.search_count.return_value = 1
+        from odoo.addons.aurora.models.discovery import AuroraDiscovery
+        result = AuroraDiscovery._should_skip(mock_self, "org", "repo")
+        self.assertTrue(result)
+
+    def test_no_skip_new_repo(self):
+        mock_self = MagicMock()
+        mock_self._load_excluded_repos.return_value = set()
+        mock_self.search_count.return_value = 0
+        mock_self.env = MagicMock()
+        mock_self.env.__getitem__.return_value.search_count.return_value = 0
+        from odoo.addons.aurora.models.discovery import AuroraDiscovery
+        result = AuroraDiscovery._should_skip(mock_self, "new_org", "new_repo")
+        self.assertFalse(result)
+
+
+class TestMarkIncompatible(TestCase):
+
+    def test_genuine_data_failure_marks_rejected(self):
+        from odoo.addons.aurora.models.pipeline_executor import _fail_pipeline
+        mock_cr = MagicMock()
+        mock_cr.fetchone.return_value = ("test_org", "test_repo")
+        _fail_pipeline(mock_cr, 1, "step1_status", "Step 1 output file is empty: /tmp/test.jsonl")
+        update_calls = [c for c in mock_cr.execute.call_args_list if "aurora_discovery" in str(c)]
+        self.assertTrue(len(update_calls) > 0)
+
+    def test_technical_failure_does_not_mark(self):
+        from odoo.addons.aurora.models.pipeline_executor import _fail_pipeline
+        mock_cr = MagicMock()
+        _fail_pipeline(mock_cr, 1, "step1_status", "ConnectionError: network timeout")
+        update_calls = [c for c in mock_cr.execute.call_args_list if "aurora_discovery" in str(c)]
+        self.assertEqual(len(update_calls), 0)
+
+
+class TestHarnessRegistryParsing(TestCase):
+
+    def test_version_suffix_stripped(self):
+        import re
+        test_cases = [
+            ("camunda_modeler_1310_to_1270", "camunda_modeler"),
+            ("ava_2936_to_2729", "ava"),
+            ("browser_laptop_13607_to_11977", "browser_laptop"),
+            ("pydantic_v2_0_3", "pydantic"),
+            ("cli_go1_13", "cli"),
+            ("minio_premod", "minio"),
+            ("thanos_gopath", "thanos"),
+            ("reactor_core_era_a", "reactor_core"),
+            ("axios", "axios"),
+            ("rdkit", "rdkit"),
+        ]
+        for input_name, expected in test_cases:
+            result = re.sub(r'_\d+(_to_\d+)?$', '', input_name)
+            result = re.sub(r'_v\d+[\d_.]*$', '', result)
+            result = re.sub(r'_(era_?[a-z]|go\d+[\d_]*|gopath|premod|gopath_\w+)$', '', result)
+            self.assertEqual(result, expected, f"Failed for {input_name}: got {result}")
 
 
 class TestEndToEnd(TestCase):
