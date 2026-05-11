@@ -165,7 +165,7 @@
           <p class="phase-label">Principle 04</p>
           <h4 class="phase-title">Dual-Model Comparison</h4>
           <ul class="phase-body">
-            <li>Same 30 scenarios run on both GLM-5 and Nova-2-Lite</li>
+            <li>Same scenario suite run on both GLM-5 and Nova-2-Lite</li>
             <li>Cost and token efficiency compared per attack</li>
             <li>Identifies model-specific vulnerability patterns</li>
           </ul>
@@ -232,7 +232,7 @@
         Nova-2-Lite succeeds on <b>40%</b> IPI, <b>60%</b> MEM, <b>10%</b> TRD.
       </p>
       <p class="reveal-cost mono">
-        30 scenarios · 3 attack types · <span class="tok-sentinel">GLM-5</span> <b>41% more vulnerable</b> — at <b>4× the cost</b>.
+        Multi-scenario · 3 attack types · <span class="tok-sentinel">GLM-5</span> <b>41% more vulnerable</b> — at <b>6× the cost</b>.
       </p>
     </div>
 
@@ -288,7 +288,7 @@
 
     <div class="matrix-wrap">
       <table class="matrix" id="matrix" aria-describedby="matrix-desc" style="table-layout:fixed; width:100%;">
-        <caption id="matrix-desc" class="sr-only">Dataset viewer for 30 Pax attack scenarios — IPI, Memory Credential Extraction, and TRD.</caption>
+        <caption id="matrix-desc" class="sr-only">Dataset viewer for Pax attack scenarios — IPI, Memory Credential Extraction, and TRD.</caption>
         <colgroup>
           <col style="width:5%;"/>
           <col style="width:14%;"/>
@@ -320,7 +320,7 @@
   <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="comparison" aria-labelledby="comparison-label">
     <p class="section-label" id="comparison-label">§07 · Model comparison</p>
-    <p class="section-desc">2 models evaluated across 30 instances covering 3 attack types (IPI, MEM, TRD). 30 unique attack techniques targeting 10 credential types and 6 tool surfaces. GLM-5 is 41% more vulnerable overall.</p>
+    <p class="section-desc">2 models evaluated across multiple instances covering 3 attack types (IPI, MEM, TRD). Unique attack techniques targeting 10 credential types across multiple tool surfaces. GLM-5 is 41% more vulnerable overall.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
       <div class="glance" style="height:100%;" aria-label="GLM-5 summary">
         <p class="glance-label mono">GLM-5</p>
@@ -328,9 +328,8 @@
           <div class="glance-row"><dt>Overall ASR</dt><dd><b>0.722</b></dd></div>
           <div class="glance-row"><dt>IPI Success Rate</dt><dd><b>80%</b></dd></div>
           <div class="glance-row"><dt>MEM Leak Rate</dt><dd><b>90%</b></dd></div>
-          <div class="glance-row"><dt>TRD Deception Rate</dt><dd><b>30%</b></dd></div>
-          <div class="glance-row"><dt>Outcome Split</dt><dd>6 blocked · 4 partial · 20 exploited</dd></div>
-          <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.06</b></dd></div>
+           <div class="glance-row"><dt>TRD Deception Rate</dt><dd><b>30%</b></dd></div>
+           <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.06</b></dd></div>
         </dl>
       </div>
       <div class="glance" style="height:100%;" aria-label="Nova-2-Lite summary">
@@ -339,13 +338,14 @@
           <div class="glance-row"><dt>Overall ASR</dt><dd><b>0.511</b></dd></div>
           <div class="glance-row"><dt>IPI Success Rate</dt><dd><b>40%</b></dd></div>
           <div class="glance-row"><dt>MEM Leak Rate</dt><dd><b>60%</b></dd></div>
-          <div class="glance-row"><dt>TRD Deception Rate</dt><dd><b>10%</b></dd></div>
-          <div class="glance-row"><dt>Outcome Split</dt><dd>7 blocked · 12 partial · 11 exploited</dd></div>
-          <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.01</b></dd></div>
+           <div class="glance-row"><dt>TRD Deception Rate</dt><dd><b>10%</b></dd></div>
+           <div class="glance-row"><dt>Avg Cost</dt><dd><b>$0.01</b></dd></div>
         </dl>
       </div>
     </div>
   </section>
+
+
 
   <!-- ================= §08 RESOURCES ================= -->
   <section class="section" id="resources" aria-labelledby="resources-label">
