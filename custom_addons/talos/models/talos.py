@@ -1709,6 +1709,194 @@ class Talos(models.Model):
         task.write(vals)
         return True
 
+    # ------------------------------------------------------------------
+    # S3 Trajectory Upload
+    # ------------------------------------------------------------------
+
+    _TRAJECTORY_FIELDS = {
+        "claude": "claude_trajectory",
+        "glm": "glm_trajectory",
+        "onePA": "onePA_trajectory",
+        "onePB": "onePB_trajectory",
+        "onePC": "onePC_trajectory",
+        "onePD": "onePD_trajectory",
+        "golden": "golden_trajectory",
+        "golden_manual": "golden_trajectory_manual",
+    }
+
+    def _collect_trajectory_files(self):
+        """Return list of {key, data, content_type} for non-empty trajectory fields."""
+        files = []
+        for traj_name, field_name in self._TRAJECTORY_FIELDS.items():
+            traj_data = getattr(self, field_name, None)
+            if not traj_data:
+                continue
+            try:
+                sessions = json.loads(traj_data)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(sessions, list):
+                sessions = [sessions]
+            for idx, session_entry in enumerate(sessions, start=1):
+                session_json = json.dumps(session_entry, indent=2, ensure_ascii=False)
+                files.append({
+                    "key": "trajectories/%s/session_%02d.json" % (traj_name, idx),
+                    "data": session_json.encode("utf-8"),
+                    "content_type": "application/json",
+                })
+        return files
+
+    def action_upload_trajectories(self):
+        """Upload trajectory fields for a single task to S3."""
+        self.ensure_one()
+        from .talos_sandbox_k8s import S3_BUCKET, S3_TALOS_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("talos.s3_bucket") or S3_BUCKET
+        region = icp.get_param("talos.s3_region") or "us-east-1"
+        prefix = icp.get_param("talos.s3_prefix") or S3_TALOS_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Talos.")
+
+        files = self._collect_trajectory_files()
+        if not files:
+            raise UserError("No trajectory data to upload for this task.")
+
+        task_id = self.task_id or str(self.id)
+        s3_task_prefix = "%s/trajectories/%s" % (prefix, task_id)
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload_single(bkt, rgn, pfx, upload_files, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                for fm in upload_files:
+                    key = "%s/%s" % (pfx, fm["key"])
+                    s3.put_object(
+                        Bucket=bkt,
+                        Key=key,
+                        Body=fm["data"],
+                        ContentType=fm["content_type"],
+                    )
+                _logger.info(
+                    "Talos trajectory upload: %d files → s3://%s/%s/",
+                    len(upload_files), bkt, pfx,
+                )
+            except Exception:
+                _logger.exception("Talos trajectory upload failed for %s", pfx)
+
+        thread = threading.Thread(
+            target=_upload_single,
+            args=(bucket, region, s3_task_prefix, files, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Trajectory Upload Started",
+                "message": "Uploading %d trajectory file(s) to S3." % len(files),
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
+    def action_mass_upload_trajectories(self):
+        """Upload trajectory fields for multiple selected tasks to S3."""
+        from .talos_sandbox_k8s import S3_BUCKET, S3_TALOS_PREFIX
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("talos.s3_bucket") or S3_BUCKET
+        region = icp.get_param("talos.s3_region") or "us-east-1"
+        prefix = icp.get_param("talos.s3_prefix") or S3_TALOS_PREFIX
+
+        if not bucket:
+            raise UserError("S3 bucket not configured. Go to Settings → Talos.")
+
+        skipped = []
+        all_uploads = []
+
+        for rec in self:
+            files = rec._collect_trajectory_files()
+            if not files:
+                skipped.append(rec.task_id or str(rec.id))
+                continue
+            task_id = rec.task_id or str(rec.id)
+            s3_task_prefix = "%s/trajectories/%s" % (prefix, task_id)
+            all_uploads.append((s3_task_prefix, files))
+
+        if not all_uploads:
+            raise UserError(
+                "No trajectory data to upload. All selected tasks have empty trajectory fields."
+            )
+
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        def _upload_batch(bkt, rgn, uploads, ak, sk):
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
+                client_kwargs = {
+                    "region_name": rgn,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if ak and sk:
+                    client_kwargs["aws_access_key_id"] = ak
+                    client_kwargs["aws_secret_access_key"] = sk
+                s3 = boto3.client("s3", **client_kwargs)
+                total = 0
+                for pfx, files in uploads:
+                    for fm in files:
+                        key = "%s/%s" % (pfx, fm["key"])
+                        s3.put_object(
+                            Bucket=bkt,
+                            Key=key,
+                            Body=fm["data"],
+                            ContentType=fm["content_type"],
+                        )
+                    total += 1
+                _logger.info("Talos trajectory mass upload: %d tasks → s3://%s/", total, bkt)
+            except Exception:
+                _logger.exception("Talos trajectory mass upload failed")
+
+        thread = threading.Thread(
+            target=_upload_batch,
+            args=(bucket, region, all_uploads, access_key, secret_key),
+            daemon=True,
+        )
+        thread.start()
+
+        msg = "Uploading trajectories for %d task(s) to S3." % len(all_uploads)
+        if skipped:
+            msg += " Skipped %d (no trajectory data): %s" % (
+                len(skipped), ", ".join(skipped[:5])
+            )
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Mass Trajectory Upload Started",
+                "message": msg,
+                "type": "info",
+                "sticky": False,
+            },
+        }
+
 
 class TalosTurn(models.Model):
     _name = "talos.turn"

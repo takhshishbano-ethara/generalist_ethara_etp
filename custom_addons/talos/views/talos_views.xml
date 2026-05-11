@@ -46,6 +46,10 @@
                       string="Generate Golden"
                       invisible="golden_input_mode != 'ai'"
                       confirm="This will call the LLM to generate golden trajectories. Continue?"/>
+              <button class="oe_stat_button" name="action_upload_trajectories"
+                      type="object" icon="fa-cloud-upload"
+                      string="Upload Trajectories"
+                      confirm="Upload all non-empty trajectory fields to S3?"/>
             </div>
             <group>
               <group string="Task Details">
@@ -201,6 +205,17 @@
       <field name="state">code</field>
       <field name="code">
 action = records.action_publish_auto_process()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="talos_action_upload_trajectories">
+      <field name="name">Upload Trajectories to S3</field>
+      <field name="model_id" ref="model_talos_talos"/>
+      <field name="binding_model_id" ref="model_talos_talos"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records.action_mass_upload_trajectories()
       </field>
     </record>
 
