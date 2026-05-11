@@ -118,8 +118,8 @@
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
           <div class="glance-row"><dt>Instances</dt><dd><b>10,000</b></dd></div>
-          <div class="glance-row"><dt>Models</dt><dd><b>3</b></dd></div>
-          <div class="glance-row"><dt>Trajectories</dt><dd><b>90,000</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
+          <div class="glance-row"><dt>Trajectories</dt><dd><b>60,000</b></dd></div>
           <div class="glance-row"><dt>Phases</dt><dd><b>3</b></dd></div>
           <div class="glance-row"><dt>Languages</dt><dd><b>8</b></dd></div>
           <div class="glance-row"><dt>Runtime</dt><dd>Hermetic · Docker</dd></div>
@@ -141,13 +141,13 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models Evaluated</p>
-        <p class="kpi-value"><span class="kpi-big">3</span></p>
-        <p class="kpi-sub mono">Claude Opus 4.6 · GLM 5 · Kimi K2.5</p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
+        <p class="kpi-sub mono">GLM 5 · Kimi K2.5</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Trajectories Generated</p>
-        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
-        <p class="kpi-sub mono">3 models × 3 seeds × 10,000 instances</p>
+        <p class="kpi-value"><span class="kpi-big">60,000</span></p>
+        <p class="kpi-sub mono">2 models × 3 seeds × 10,000 instances</p>
       </div>
     </div>
   </section>
@@ -165,7 +165,7 @@
           <ul class="phase-body">
             <li>Tasks span multi-step, multi-commit evolution chains across entire repositories</li>
             <li>Each trajectory requires understanding of full codebase context and history</li>
-            <li>90,000 trajectories generated across 10,000 instances</li>
+            <li>60,000 trajectories generated across 10,000 instances</li>
           </ul>
         </article>
         <article class="phase">
@@ -188,9 +188,9 @@
         </article>
         <article class="phase">
           <p class="phase-label">Principle 04</p>
-          <h4 class="phase-title">Three-Model Evaluation</h4>
+          <h4 class="phase-title">Two-Model Evaluation</h4>
           <ul class="phase-body">
-            <li>Claude Opus 4.6, GLM 5, and Kimi K2.5 evaluated head-to-head</li>
+            <li>GLM 5 and Kimi K2.5 evaluated head-to-head</li>
             <li>Each model gets exactly one attempt per instance (Pass@1)</li>
             <li>No retries — measures true first-attempt evolution capability</li>
           </ul>
@@ -205,7 +205,7 @@
     <div class="pipeline-frame">
       <div class="pipeline-intro">
         <p class="pipeline-eyebrow mono">The method</p>
-        <h2 class="pipeline-title">Three phases turn raw repositories into scored long-horizon software evolution benchmarks.</h2>
+        <h2 class="pipeline-title">Three phases turn raw repositories into scored long-horizon software evolution framework.</h2>
       </div>
 
       <div class="pipeline">
@@ -224,7 +224,7 @@
           <h4 class="phase-title">Agent Interaction</h4>
           <ul class="phase-body">
             <li>Run AI agents in sandboxed Docker environments</li>
-            <li>3 models × 3 seeds × 10,000 instances</li>
+            <li>2 models × 3 seeds × 10,000 instances</li>
             <li>Agents receive issue context and produce git diff patches</li>
             <li>Tool-use interaction across long-horizon sequences</li>
           </ul>
@@ -249,25 +249,25 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        Pass@3 by PR horizon range for three frontier models (Claude Opus 4.6, Kimi K2.5, GLM 5).
+        Pass@3 by PR horizon range for two frontier models (Kimi K2.5, GLM 5).
       </p>
       <p class="reveal-line reveal-kicker">
-        All models show sharp performance degradation as horizon increases from ~65% at 2–5 PRs to near 0% beyond 40 PRs.
+        All models show sharp performance degradation as horizon increases from ~60% at 2–5 PRs to near 0% beyond 40 PRs.
       </p>
     </div>
 
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
-          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
-          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range — all three models" loading="lazy"/>
+          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range — both models" loading="lazy"/>
+          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range — both models" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
         <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>
       </figure>
     </div>
 
-    <p class="section-desc">Distribution of best Pass@3 rate (highest of Claude Opus 4.6, Kimi K2.5, and GLM 5).</p>
+    <p class="section-desc">Distribution of best Pass@3 rate (highest of Kimi K2.5 and GLM 5).</p>
 
     <div class="quality-grid">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
@@ -293,7 +293,7 @@
     </div>
 
     <div class="confidence-strip" data-animate="fade-up">
-      <span class="au-confidence-big">34.2%</span>
+      <span class="au-confidence-big">29.3%</span>
       <span class="confidence-lbl mono">Mean Pass Rate</span>
     </div>
   </section>
@@ -310,15 +310,15 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Models</p>
-        <p class="kpi-value"><span class="kpi-big">3</span></p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Total Runs</p>
-        <p class="kpi-value"><span class="kpi-big">90,000</span></p>
+        <p class="kpi-value"><span class="kpi-big">60,000</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Mean Pass Rate</p>
-        <p class="kpi-value"><span class="kpi-big">34.2<small>%</small></span></p>
+        <p class="kpi-value"><span class="kpi-big">29.3<small>%</small></span></p>
       </div>
     </div>
 
@@ -344,8 +344,7 @@
           <option value="instance_id">Instance (A-Z)</option>
           <option value="pr_range">PR Range</option>
           <option value="language">Language</option>
-          <option value="claude_pass" selected="selected">Claude Opus</option>
-          <option value="glm_pass">GLM 5</option>
+          <option value="glm_pass" selected="selected">GLM 5</option>
           <option value="kimi_pass">Kimi K2.5</option>
         </select>
         <button type="button" id="au-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
@@ -363,7 +362,6 @@
             <th class="eth-instance">Instance</th>
             <th class="eth-prrange">PR Range</th>
             <th class="eth-lang">Language</th>
-            <th class="eth-claude">Claude Opus 4.6</th>
             <th class="eth-glm">GLM 5</th>
             <th class="eth-kimi">Kimi K2.5</th>
             <th class="eth-repo">Repo</th>
@@ -379,18 +377,9 @@
   <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="models" aria-labelledby="models-label">
     <p class="section-label" id="models-label">§07 · Model comparison</p>
-    <p class="section-desc">Head-to-head breakdown of all three evaluated frontier models on long-horizon evolution tasks.</p>
+    <p class="section-desc">Head-to-head breakdown of both evaluated frontier models on long-horizon evolution tasks.</p>
 
-    <div class="kpi-row" style="grid-template-columns: repeat(3, 1fr);">
-      <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Claude Opus 4.6</span></p>
-        <dl class="glance-list" style="margin-top: 12px;">
-          <div class="glance-row"><dt>Overall Pass Rate</dt><dd><b>42.1%</b></dd></div>
-          <div class="glance-row"><dt>Short Trajectories</dt><dd><b>58.3%</b></dd></div>
-          <div class="glance-row"><dt>Long Trajectories</dt><dd><b>26.8%</b></dd></div>
-          <div class="glance-row"><dt>Avg Cost/Instance</dt><dd><b>~$0.14</b></dd></div>
-        </dl>
-      </div>
+    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
         <p class="kpi-label"><span class="tok-kimi">Kimi K2.5</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
