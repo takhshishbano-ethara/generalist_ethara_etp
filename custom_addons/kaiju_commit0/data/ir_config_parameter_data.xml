@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="kaiju_config_argo_server_url" model="ir.config_parameter">
+            <field name="key">kaiju.argo_server_url</field>
+            <field name="value">https://argo-workflows-server.argo.svc.cluster.local:2746</field>
+        </record>
+
+        <record id="kaiju_config_argo_namespace" model="ir.config_parameter">
+            <field name="key">kaiju.argo_namespace</field>
+            <field name="value">argo</field>
+        </record>
+
+        <record id="kaiju_config_argo_token_path" model="ir.config_parameter">
+            <field name="key">kaiju.argo_token_path</field>
+            <field name="value">/var/run/secrets/kubernetes.io/serviceaccount/token</field>
+        </record>
+
+        <record id="kaiju_config_argo_verify_tls" model="ir.config_parameter">
+            <field name="key">kaiju.argo_verify_tls</field>
+            <field name="value">false</field>
+        </record>
+
+        <record id="kaiju_config_odoo_internal_url" model="ir.config_parameter">
+            <field name="key">kaiju.odoo_internal_url</field>
+            <field name="value">http://odoo-web.odoo.svc:8069</field>
+        </record>
+
+        <record id="kaiju_config_webhook_token" model="ir.config_parameter">
+            <field name="key">kaiju.webhook_token</field>
+            <field name="value">CHANGE-ME-generate-a-secure-token</field>
+        </record>
+
+    </data>
+</odoo>

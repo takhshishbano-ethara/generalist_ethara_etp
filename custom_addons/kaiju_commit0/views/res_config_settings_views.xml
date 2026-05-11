@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_kaiju" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.kaiju</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Kaiju Commit0" string="Kaiju Commit0" name="kaiju_commit0">
+                    <block title="Argo Workflows Connection">
+                        <setting string="Argo Server URL" help="In-cluster URL of the Argo Workflows server">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_argo_server_url" class="col-lg-3"/>
+                                    <field name="kaiju_argo_server_url"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Argo Namespace" help="Kubernetes namespace where workflows run">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_argo_namespace" class="col-lg-3"/>
+                                    <field name="kaiju_argo_namespace"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="SA Token Path" help="Path to the mounted Kubernetes SA token for Argo API auth">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_argo_token_path" class="col-lg-3"/>
+                                    <field name="kaiju_argo_token_path"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Verify TLS" help="Enable TLS certificate verification for Argo Server connection">
+                            <div class="content-group">
+                                <field name="kaiju_argo_verify_tls"/>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Callbacks">
+                        <setting string="Odoo Internal URL" help="In-cluster URL that Argo exit handlers use to call back into Odoo">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_odoo_internal_url" class="col-lg-3"/>
+                                    <field name="kaiju_odoo_internal_url"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook Token" help="Shared secret for authenticating pipeline callbacks (Bearer token)">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_webhook_token" class="col-lg-3"/>
+                                    <field name="kaiju_webhook_token" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_kaiju_settings" model="ir.actions.act_window">
+        <field name="name">Kaiju Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">main</field>
+        <field name="context">{'module': 'kaiju_commit0'}</field>
+    </record>
+</odoo>

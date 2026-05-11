@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_kaiju_commit0_all,kaiju.commit0.all,model_kaiju_commit0,base.group_user,1,1,1,1
+access_kaiju_commit0_run_all,kaiju.commit0.run.all,model_kaiju_commit0_run,base.group_user,1,1,1,1
+access_kaiju_commit0_import_wizard,kaiju.commit0.import.wizard.all,model_kaiju_commit0_import_wizard,base.group_user,1,1,1,1

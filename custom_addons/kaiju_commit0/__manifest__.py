@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+{
+    "name": "Kaiju Commit0",
+    "version": "19.0.5.0.0",
+    "category": "Technical",
+    "summary": "Commit0 evaluation runner — 2-phase pipeline (Build → Run) with Argo integration",
+    "license": "LGPL-3",
+    "depends": ["base", "web"],
+    "data": [
+        "security/kaiju_commit0_security.xml",
+        "security/ir.model.access.csv",
+        "data/ir_sequence_data.xml",
+        "data/ir_config_parameter_data.xml",
+        "data/ir_cron_data.xml",
+        "wizard/import_csv_wizard_views.xml",
+        "views/kaiju_commit0_views.xml",
+        "views/kaiju_commit0_run_views.xml",
+        "views/res_config_settings_views.xml",
+        "views/kaiju_commit0_menus.xml",
+    ],
+    "assets": {
+        "web.assets_backend": [
+            "kaiju_commit0/static/src/components/terminal_viewer/terminal_viewer.js",
+            "kaiju_commit0/static/src/components/terminal_viewer/terminal_viewer.xml",
+            "kaiju_commit0/static/src/components/terminal_viewer/terminal_viewer.scss",
+            "kaiju_commit0/static/src/components/phase_stepper/phase_stepper.js",
+            "kaiju_commit0/static/src/components/phase_stepper/phase_stepper.xml",
+            "kaiju_commit0/static/src/components/phase_stepper/phase_stepper.scss",
+            "kaiju_commit0/static/src/components/phase_stepper/form_layout.scss",
+        ],
+    },
+    "installable": True,
+    "application": True,
+    "auto_install": False,
+}
