@@ -43,8 +43,8 @@
   /* model semantic colors */
   --vk-kimi:          #2A5CB8;
   --vk-kimi-surface:  #E5EDFB;
-  --vk-nova:          #5C3FB3;
-  --vk-nova-surface:  #EEE4FB;
+  --vk-glm5:          #5C3FB3;
+  --vk-glm5-surface:  #EEE4FB;
 
   /* pass / fail */
   --vk-pass:          #0E8F4B;
@@ -594,13 +594,6 @@ body:has(.vk-portal) .o_footer_copyright {
 }
 .vk-reveal-kicker { color: var(--vk-ink-2); }
 .vk-reveal-kicker b { color: var(--vk-ink); }
-.vk-reveal-cost {
-  margin-top: 22px !important;
-  font-size: var(--vk-s-small);
-  color: var(--vk-ink-3);
-  letter-spacing: 0.02em;
-}
-.vk-reveal-cost b { color: var(--vk-ink); font-weight: 500; }
 
 /* charts */
 .vk-charts {
@@ -661,7 +654,7 @@ body:has(.vk-portal) .o_footer_copyright {
 .vk-caption a { color: var(--vk-accent); border-bottom: 1px solid var(--vk-border-2); }
 .vk-caption a:hover { border-color: var(--vk-accent); }
 .vk-tok-kimi { color: var(--vk-kimi); font-weight: 500; }
-.vk-tok-nova { color: var(--vk-nova); font-weight: 500; }
+.vk-tok-glm5 { color: var(--vk-glm5); font-weight: 500; }
 
 /* chart trigger + zoom hint */
 .vk-chart-trigger {
@@ -889,14 +882,14 @@ body:has(.vk-portal) .o_footer_copyright {
 .vk-matrix .vk-th-cwe      { width: 120px; }
 .vk-matrix .vk-th-tests    { width: 72px;  text-align: center; }
 .vk-matrix .vk-th-kimi,
-.vk-matrix .vk-th-nova     { width: 112px; text-align: center; }
+.vk-matrix .vk-th-glm5     { width: 112px; text-align: center; }
 .vk-matrix .vk-th-expand   { width: 44px;  text-align: center; }
 
 /* Numeric + badge columns center-align their td values */
 .vk-matrix tbody td.vk-td-diff,
 .vk-matrix tbody td.vk-td-tests,
 .vk-matrix tbody td.vk-td-kimi,
-.vk-matrix tbody td.vk-td-nova,
+.vk-matrix tbody td.vk-td-glm5,
 .vk-matrix tbody td.vk-td-expand { text-align: center; }
 
 .vk-matrix tbody tr {
@@ -1343,8 +1336,8 @@ body:has(.vk-portal) .o_footer_copyright {
 
   --vk-kimi:            #89B5FF;
   --vk-kimi-surface:    rgba(137,181,255,0.14);
-  --vk-nova:            #CDB0FF;
-  --vk-nova-surface:    rgba(205,176,255,0.14);
+  --vk-glm5:            #CDB0FF;
+  --vk-glm5-surface:    rgba(205,176,255,0.14);
 
   --vk-pass:            #5EE695;
   --vk-pass-surface:    rgba(94,230,149,0.14);
@@ -1375,7 +1368,7 @@ body:has(.vk-portal) .o_footer_copyright {
     --vk-accent: #EE00EE;  --vk-accent-2: #FF44FF;  --vk-accent-bright: #EE00EE;
     --vk-accent-surface: rgba(238,0,238,0.12);  --vk-accent-on: #FFFFFF;
     --vk-kimi: #89B5FF;  --vk-kimi-surface: rgba(137,181,255,0.14);
-    --vk-nova: #CDB0FF;  --vk-nova-surface: rgba(205,176,255,0.14);
+    --vk-glm5: #CDB0FF;  --vk-glm5-surface: rgba(205,176,255,0.14);
     --vk-pass: #5EE695;  --vk-pass-surface: rgba(94,230,149,0.14);
     --vk-fail: #FF8F8F;  --vk-fail-surface: rgba(255,143,143,0.12);
     --vk-easy: #5EE695;  --vk-medium: #FFBE5C;  --vk-hard: #FF8F8F;

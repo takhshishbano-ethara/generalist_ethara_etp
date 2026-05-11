@@ -195,12 +195,12 @@
         case 'glm5_time':
           va = a.models['GLM-5']?.time_seconds || 0;
           vb = b.models['GLM-5']?.time_seconds || 0; break;
-        case 'nova_result':
-          va = a.models['Nova 2 Lite']?.passed ? 1 : 0;
-          vb = b.models['Nova 2 Lite']?.passed ? 1 : 0; break;
-        case 'nova_time':
-          va = a.models['Nova 2 Lite']?.time_seconds || 0;
-          vb = b.models['Nova 2 Lite']?.time_seconds || 0; break;
+        case 'kimi_result':
+          va = a.models['Kimi K2.5']?.passed ? 1 : 0;
+          vb = b.models['Kimi K2.5']?.passed ? 1 : 0; break;
+        case 'kimi_time':
+          va = a.models['Kimi K2.5']?.time_seconds || 0;
+          vb = b.models['Kimi K2.5']?.time_seconds || 0; break;
         default: va = a.serial; vb = b.serial;
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
@@ -215,7 +215,7 @@
   function renderDetailRow(inst) {
     const item = (k, v) => `<div class="detail-row-item"><span class="detail-key">${esc(k)}</span><span class="detail-val">${v}</span></div>`;
     const glm = inst.models['GLM-5'] || {};
-    const nova = inst.models['Nova 2 Lite'] || {};
+    const kimi = inst.models['Kimi K2.5'] || {};
 
     return `<tr class="detail-row" data-detail-for="${esc(inst.instance_id)}"><td colspan="9"><div class="detail-content"><div class="detail-grid">`
       + `<div class="detail-block"><div class="detail-block-title">Instance</div>`
@@ -230,9 +230,9 @@
         + item('Result', `<b style="color:${glm.passed ? 'var(--pass)' : 'var(--fail)'}">${glm.passed ? 'PASS' : 'FAIL'}</b>`)
         + item('Time', fmtTime(glm.time_seconds))
       + `</div>`
-      + `<div class="detail-block"><div class="detail-block-title">Nova-2-Lite</div>`
-        + item('Result', `<b style="color:${nova.passed ? 'var(--pass)' : 'var(--fail)'}">${nova.passed ? 'PASS' : 'FAIL'}</b>`)
-        + item('Time', fmtTime(nova.time_seconds))
+      + `<div class="detail-block"><div class="detail-block-title">Kimi K2.5</div>`
+        + item('Result', `<b style="color:${kimi.passed ? 'var(--pass)' : 'var(--fail)'}">${kimi.passed ? 'PASS' : 'FAIL'}</b>`)
+        + item('Time', fmtTime(kimi.time_seconds))
       + `</div>`
       + `</div></div></td></tr>`;
   }
@@ -253,7 +253,7 @@
       const diffColors = { easy:'color:var(--pass);', medium:'color:#D4A017;', hard:'color:var(--fail);' };
       const diffStyle = diffColors[(inst.difficulty || '').toLowerCase()] || 'color:var(--ink-3);';
       const glm = inst.models['GLM-5'] || {};
-      const nova = inst.models['Nova 2 Lite'] || {};
+      const kimi = inst.models['Kimi K2.5'] || {};
       const isExpanded = inst.instance_id === expandedId;
       html += `
         <tr class="matrix-row${isExpanded ? ' row-expanded' : ''}" data-id="${esc(inst.instance_id)}">
@@ -263,8 +263,8 @@
           <td class="matrix-meta"><span style="${tagStyle}${diffStyle}">${esc(inst.difficulty)}</span></td>
           <td class="matrix-cell"><span class="tile-btn ${outcomeClass(glm.passed)}" style="${tagStyle}">${outcomeLabel(glm.passed)}</span></td>
           <td class="matrix-cell mono" style="font-size:11px;">${fmtTime(glm.time_seconds)}</td>
-          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(nova.passed)}" style="${tagStyle}">${outcomeLabel(nova.passed)}</span></td>
-          <td class="matrix-cell mono" style="font-size:11px;">${fmtTime(nova.time_seconds)}</td>
+          <td class="matrix-cell"><span class="tile-btn ${outcomeClass(kimi.passed)}" style="${tagStyle}">${outcomeLabel(kimi.passed)}</span></td>
+          <td class="matrix-cell mono" style="font-size:11px;">${fmtTime(kimi.time_seconds)}</td>
           <td class="matrix-meta" style="font-size:11px;">${esc(inst.language)}</td>
         </tr>
       `;
