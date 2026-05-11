@@ -2,6 +2,7 @@ import concurrent.futures
 import glob
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -531,6 +532,8 @@ class EvalConfig:
             )
             return
 
+        _local_mode = os.environ.get("AURORA_LOCAL_MODE") == "1"
+
         def run_and_save_output(
             image_full_name: str, run_command: str, output_path: Path
         ):
@@ -538,18 +541,37 @@ class EvalConfig:
             self.logger.info(
                 f"Running {image_full_name} with command: {run_command}..."
             )
-            output = docker_util.run(
-                image_full_name,
-                wrapped_command,
-                output_path,
-                self.global_env,
-                volumes={
-                    str(fix_patch_path): {
-                        "bind": instance.dependency().fix_patch_path(),
-                        "mode": "rw",
-                    }
-                },
-            )
+            volumes = None if _local_mode else {
+                str(fix_patch_path): {
+                    "bind": instance.dependency().fix_patch_path(),
+                    "mode": "rw",
+                }
+            }
+            try:
+                output = docker_util.run(
+                    image_full_name,
+                    wrapped_command,
+                    output_path,
+                    self.global_env,
+                    volumes=volumes,
+                )
+            except Exception as exc:
+                if volumes and ("not a directory" in str(exc).lower()
+                                or "overlay" in str(exc).lower()):
+                    self.logger.warning(
+                        "Bind-mount failed for %s (%s), retrying without volumes "
+                        "(fix.patch was COPYed at build time).",
+                        image_full_name, exc,
+                    )
+                    output = docker_util.run(
+                        image_full_name,
+                        wrapped_command,
+                        output_path,
+                        self.global_env,
+                        volumes=None,
+                    )
+                else:
+                    raise
             return output
 
         run_and_save_output(
@@ -586,6 +608,13 @@ class EvalConfig:
                     instance = futures[future]
                     try:
                         future.result()
+                    except docker_util.DockerDaemonLostError as e:
+                        self.logger.error(
+                            f"Docker daemon lost during {instance.pr.id}: {e}. "
+                            "Aborting remaining instances."
+                        )
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
                     except Exception as e:
                         self.logger.error(
                             f"Error running instance {instance.pr.id}: {e}"

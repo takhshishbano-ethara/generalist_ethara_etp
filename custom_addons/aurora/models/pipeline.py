@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
 
 from github import Auth, Github, GithubException
@@ -24,6 +25,8 @@ except ImportError:
 
 _k8s_config_lock = threading.Lock()
 _k8s_config_loaded = False
+_k8s_config_loaded_at = 0.0
+_K8S_CONFIG_MAX_AGE = 3000
 
 # Track locally-spawned pipeline threads for lifecycle management.
 _local_threads: dict[int, threading.Thread] = {}
@@ -70,18 +73,18 @@ def _get_env(key: str, default: str = "") -> str:
 
 
 def _load_k8s_config():
-    global _k8s_config_loaded
-    if _k8s_config_loaded:
+    global _k8s_config_loaded, _k8s_config_loaded_at
+    if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
         return
     with _k8s_config_lock:
-        # Double-check after acquiring lock
-        if _k8s_config_loaded:
+        if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
             return
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
             k8s_config.load_kube_config()
         _k8s_config_loaded = True
+        _k8s_config_loaded_at = time.time()
 
 _SAFE_GITHUB_NAME = re.compile(r'^[a-zA-Z0-9._-]+$')
 
@@ -602,7 +605,7 @@ class AuroraPipeline(models.Model):
             spec=k8s_client.V1JobSpec(
                 ttl_seconds_after_finished=600,
                 active_deadline_seconds=DEADLINE_SECONDS,
-                backoff_limit=0,
+                backoff_limit=1,
                 template=k8s_client.V1PodTemplateSpec(
                     metadata=k8s_client.V1ObjectMeta(
                         labels=labels,

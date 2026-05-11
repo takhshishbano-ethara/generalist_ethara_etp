@@ -148,6 +148,7 @@ class TestDockerUtilRun(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b"output"
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         run("img:v1", "cmd")
         container.remove.assert_called_once_with(force=True)
@@ -157,6 +158,7 @@ class TestDockerUtilRun(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b"hello world"
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         result = run("img", "cmd")
         self.assertEqual(result, "hello world")
@@ -166,6 +168,7 @@ class TestDockerUtilRun(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         run("img", "cmd")
         kwargs = mock_dc.containers.run.call_args[1]
@@ -176,6 +179,7 @@ class TestDockerUtilRun(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         run("img", "cmd", global_env=["VAR=val"])
         kwargs = mock_dc.containers.run.call_args[1]
@@ -186,6 +190,7 @@ class TestDockerUtilRun(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         vols = {"/host": "/container"}
         run("img", "cmd", volumes=vols)

@@ -26,7 +26,6 @@ def _get_client(s3_config: dict):
     endpoint_override = os.environ.get("AURORA_S3_ENDPOINT", "").strip()
     client_kwargs = {
         "region_name": region,
-        "endpoint_url": endpoint_override or f"https://s3.{region}.amazonaws.com",
         "config": Config(
             retries={"mode": "standard", "max_attempts": 5},
             connect_timeout=30,
@@ -34,6 +33,8 @@ def _get_client(s3_config: dict):
             max_pool_connections=10,
         ),
     }
+    if endpoint_override:
+        client_kwargs["endpoint_url"] = endpoint_override
     access_key = s3_config.get("access_key")
     secret_key = s3_config.get("secret_key")
     if access_key and secret_key:

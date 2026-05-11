@@ -302,7 +302,7 @@ _create_odoo_stubs()
 
 # Add custom_addons to sys.path so `odoo.addons.aurora` resolves correctly.
 # This conftest lives at custom_addons/conftest.py.
-_custom_addons = str(Path(__file__).resolve().parent)
+_custom_addons = str(Path(__file__).resolve().parent.parent.parent)
 if _custom_addons not in sys.path:
     sys.path.insert(0, _custom_addons)
 

@@ -601,7 +601,8 @@ class TestDockerRunDeep(TestCase):
     def test_run_with_output_path_writes_file(self, mock_dc):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
-        container.logs.return_value = iter([b"data\n"])
+        container.logs.return_value = b"data\n"
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
             path = Path(f.name)
@@ -617,15 +618,18 @@ class TestDockerRunDeep(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b"output"
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
-        run("img:v1", "cmd", output_path=None)
+        result = run("img:v1", "cmd", output_path=None)
         container.wait.assert_called_once()
+        self.assertEqual(result, "output")
 
     @patch("odoo.addons.aurora.tools.harness.docker_util.docker_client")
     def test_run_remove_failure_does_not_raise(self, mock_dc):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b"output"
+        container.wait.return_value = {"StatusCode": 0}
         container.remove.side_effect = RuntimeError("cannot remove")
         mock_dc.containers.run.return_value = container
         result = run("img:v1", "cmd")
@@ -636,6 +640,7 @@ class TestDockerRunDeep(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         run("img", "cmd")
         kwargs = mock_dc.containers.run.call_args[1]
@@ -646,6 +651,7 @@ class TestDockerRunDeep(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         run("img", "cmd", volumes=None)
         kwargs = mock_dc.containers.run.call_args[1]
@@ -656,6 +662,7 @@ class TestDockerRunDeep(TestCase):
         from odoo.addons.aurora.tools.harness.docker_util import run
         container = MagicMock()
         container.logs.return_value = b""
+        container.wait.return_value = {"StatusCode": 0}
         mock_dc.containers.run.return_value = container
         vols = ["/host:/container:ro"]
         run("img", "cmd", volumes=vols)

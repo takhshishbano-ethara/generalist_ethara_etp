@@ -110,6 +110,25 @@ def _wait_for_docker(timeout: int = 120):
     )
 
 
+def _ensure_docker_ready(timeout: int = 60):
+    """Quick Docker readiness re-check between stages (handles DinD restart)."""
+    import subprocess
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        time.sleep(5)
+    raise RuntimeError(
+        f"Docker daemon not available after {timeout}s re-check (possible DinD restart)."
+    )
+
+
 def _setup_buildx_builder():
     """Create a buildx builder that leverages QEMU binfmt for multi-arch builds."""
     import subprocess
@@ -249,14 +268,27 @@ def _read_eval_config(conn, rec_id: int) -> dict:
 def _lease_tokens(db_name: str, rec_id: int, count: int = 1) -> list[str]:
     """Lease GitHub tokens from the pool (same pattern as run_pipeline.py)."""
     from odoo.addons.aurora.models.github_token import AuroraGithubToken
-    conn = _open_cursor(db_name)
-    try:
-        with conn.cursor() as cur:
-            tokens = AuroraGithubToken.lease_tokens(cur, rec_id, count=count)
-            conn.commit()
-        return tokens
-    finally:
-        conn.close()
+    last_exc = None
+    for attempt in range(3):
+        conn = None
+        try:
+            conn = _open_cursor(db_name)
+            with conn.cursor() as cur:
+                tokens = AuroraGithubToken.lease_tokens(cur, rec_id, count=count)
+                conn.commit()
+            return tokens
+        except Exception as exc:
+            last_exc = exc
+            _logger.warning("Token lease attempt %d failed: %s", attempt + 1, exc)
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    raise last_exc
 
 
 def _release_tokens(db_name: str, rec_id: int) -> None:
@@ -303,23 +335,35 @@ def _generate_patch_file(dataset_path: str, output_path: str) -> str:
     """
     import json as _json
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    total_lines = 0
+    error_lines = 0
     with open(dataset_path, "r", encoding="utf-8") as f_in, \
          open(output_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
             line = line.strip()
             if not line:
                 continue
-            entry = _json.loads(line)
+            total_lines += 1
+            try:
+                entry = _json.loads(line)
+            except (ValueError, _json.JSONDecodeError) as e:
+                error_lines += 1
+                _logger.warning("Skipping corrupt dataset line %d: %s", total_lines, e)
+                continue
             number = _resolve_entry_number(entry)
             if number is None:
                 continue
             patch_entry = {
-                "org": entry["org"],
-                "repo": entry["repo"],
+                "org": entry.get("org", ""),
+                "repo": entry.get("repo", ""),
                 "number": number,
                 "fix_patch": entry.get("fix_patch", ""),
             }
             f_out.write(_json.dumps(patch_entry, ensure_ascii=False) + "\n")
+    if total_lines > 0 and error_lines / total_lines > 0.5:
+        raise RuntimeError(
+            f"Dataset appears corrupted: {error_lines}/{total_lines} lines failed to parse"
+        )
     return output_path
 
 
@@ -402,13 +446,26 @@ def run_evaluation(db_name: str, rec_id: int):
     heartbeat_stop = threading.Event()
 
     def _heartbeat_loop():
+        consecutive_failures = 0
         while not heartbeat_stop.wait(timeout=60):
             hb_conn = None
             try:
                 hb_conn = _open_cursor(db_name)
                 _heartbeat(hb_conn, rec_id, None)
+                consecutive_failures = 0
             except Exception:
-                _logger.debug("Heartbeat write failed", exc_info=True)
+                consecutive_failures += 1
+                if consecutive_failures >= 5:
+                    _logger.error(
+                        "Heartbeat failed %d consecutive times — "
+                        "watchdog may kill this evaluation",
+                        consecutive_failures,
+                    )
+                else:
+                    _logger.debug("Heartbeat write failed (attempt %d)", consecutive_failures)
+                if consecutive_failures > 3:
+                    backoff = min(30 * consecutive_failures, 300)
+                    heartbeat_stop.wait(timeout=backoff)
             finally:
                 if hb_conn is not None:
                     try:
@@ -629,6 +686,7 @@ def run_evaluation(db_name: str, rec_id: int):
 
         # ── Stage 2: Run Instances ────────────────────────────────────────
         _check_cancelled()
+        _ensure_docker_ready(timeout=60)
         _update_eval(conn, rec_id, {
             "stage": "running_instances",
             "run_status": "running",

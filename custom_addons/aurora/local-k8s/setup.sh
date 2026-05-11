@@ -9,15 +9,16 @@ set -euo pipefail
 #   brew install --cask docker   (Docker Desktop for building images)
 #
 # Usage:
-#   ./local-k8s/setup.sh up      # Start everything
-#   ./local-k8s/setup.sh down    # Tear down everything
-#   ./local-k8s/setup.sh status  # Show pod/service status
-#   ./local-k8s/setup.sh logs    # Tail Odoo logs
-#   ./local-k8s/setup.sh build   # Rebuild worker image only
+#   ./custom_addons/aurora/local-k8s/setup.sh up      # Start everything
+#   ./custom_addons/aurora/local-k8s/setup.sh down    # Tear down everything
+#   ./custom_addons/aurora/local-k8s/setup.sh status  # Show pod/service status
+#   ./custom_addons/aurora/local-k8s/setup.sh logs    # Tail Odoo logs
+#   ./custom_addons/aurora/local-k8s/setup.sh build   # Rebuild worker image only
 ##############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AURORA_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$AURORA_ROOT/../.." && pwd)"
 MANIFESTS="$SCRIPT_DIR/manifests"
 CLUSTER_NAME="aurora-local"
 K8S_VERSION="v1.29.0"
@@ -120,7 +121,7 @@ create_secrets() {
 
     if [[ -z "$GITHUB_TOKEN" ]]; then
         warn "GITHUB_TOKEN not set. Pipeline won't be able to fetch PRs."
-        warn "Set it: export GITHUB_TOKEN=ghp_xxx && ./local-k8s/setup.sh up"
+        warn "Set it: export GITHUB_TOKEN=ghp_xxx && ./custom_addons/aurora/local-k8s/setup.sh up"
     fi
 
     cat <<EOF | kubectl apply --context="$CLUSTER_NAME" -f -
@@ -254,7 +255,7 @@ case "${1:-help}" in
         echo "  logs    Tail Odoo server logs"
         echo "  build   Rebuild aurora-worker image in Minikube"
         echo "  run     Trigger pipeline (default: colinhacks/zod)"
-        echo "          ./local-k8s/setup.sh run [org] [repo] [lang]"
+        echo "          ./custom_addons/aurora/local-k8s/setup.sh run [org] [repo] [lang]"
         exit 1
         ;;
 esac
