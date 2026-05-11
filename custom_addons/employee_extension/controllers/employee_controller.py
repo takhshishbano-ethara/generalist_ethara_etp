@@ -1198,8 +1198,16 @@ class EmployeeController(http.Controller):
                 assigned_ids.update(ap.project_lead.ids)
                 assigned_ids.update(ap.project_qc_reviewer.ids)
                 assigned_ids.update(ap.project_tasker.ids)
-
-            domain = [('id', 'in', team_ids), ('id', 'not in', list(assigned_ids))]
+            user_roles = [request.env.ref('api_auth_gateway.role_qc_stem').id,
+                             request.env.ref('api_auth_gateway.role_qc_technical').id,
+                             request.env.ref('api_auth_gateway.role_pl_stem').id,
+                             request.env.ref('api_auth_gateway.role_pl_technical').id,
+                             request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+                             request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+                             request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                             request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                             request.env.ref('api_auth_gateway.role_tasker_non_stem').id]
+            domain = [('id', 'in', team_ids), ('id', 'not in', list(assigned_ids)), ('user_id.user_role', 'in', user_roles)]
 
             if kwargs.get('role_id'):
                 domain.append(('user_id.user_role', '=', int(kwargs.get('role_id'))))
