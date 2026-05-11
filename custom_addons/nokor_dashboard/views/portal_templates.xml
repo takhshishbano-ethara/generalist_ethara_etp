@@ -46,11 +46,11 @@
       <!-- Terra editorial stylesheet served as a static asset
            (bypasses web.assets_frontend so Bootstrap/portal chrome
            does not override the design). -->
-      <link rel="stylesheet" href="/nokor_dashboard/static/src/portal/css/nokor_portal.css?v=11"/>
+      <link rel="stylesheet" href="/nokor_dashboard/static/src/portal/css/nokor_portal.css?v=12"/>
 
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
-      <script src="/nokor_dashboard/static/src/portal/js/nokor_portal.js?v=11" defer="defer"/>
+      <script src="/nokor_dashboard/static/src/portal/js/nokor_portal.js?v=12" defer="defer"/>
     </head>
     <body>
       <a class="skip-link" href="#main">Skip to content</a>
@@ -238,7 +238,7 @@
         <span class="result-detail mono" id="nk-kimi-detail">Loading...</span>
       </div>
       <div class="result-card">
-        <span class="result-model mono">Nova-2-Lite</span>
+        <span class="result-model mono">Qwen3-VL</span>
         <span class="result-score" id="nk-nova-score">—</span>
         <span class="result-detail mono" id="nk-nova-detail">Loading...</span>
       </div>
@@ -251,7 +251,7 @@
           <img class="nk-chart-dark" src="/nokor_dashboard/static/src/portal/img/gaia_performance_dark.png" alt="GAIA Performance. Model accuracy across difficulty levels"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1. GAIA performance comparison across difficulty levels (Kimi K2.5 vs Nova-2-Lite)</figcaption>
+        <figcaption>Fig. 1. GAIA performance comparison across difficulty levels (Kimi K2.5 vs Qwen3-VL)</figcaption>
       </figure>
     </div>
 
@@ -272,7 +272,7 @@
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-hard-nova-pct">—</span>
             <span class="dist-kpi-detail" id="nk-dist-hard-nova-pass">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-hard-combined-pct">—</span>
@@ -296,7 +296,7 @@
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-vhard-nova-pct">—</span>
             <span class="dist-kpi-detail" id="nk-dist-vhard-nova-pass">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-vhard-combined-pct">—</span>
@@ -320,7 +320,7 @@
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-expert-nova-pct">—</span>
             <span class="dist-kpi-detail" id="nk-dist-expert-nova-pass">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-dist-expert-combined-pct">—</span>
@@ -354,7 +354,7 @@
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-kpi-hard-nova">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-hard-fail">—</span>
@@ -375,7 +375,7 @@
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-kpi-vhard-nova">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-vhard-fail">—</span>
@@ -396,7 +396,7 @@
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num" id="nk-kpi-expert-nova">—</span>
-            <span class="dist-kpi-lbl">Nova-2-Lite</span>
+            <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
             <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-expert-fail">—</span>
@@ -424,7 +424,7 @@
           <option value="level">Difficulty</option>
           <option value="category">Category</option>
           <option value="kimi_pass" selected="selected">Kimi K2.5</option>
-          <option value="nova_pass">Nova-2-Lite</option>
+          <option value="qwen3_pass">Qwen3-VL</option>
         </select>
         <button type="button" id="nk-eval-sort-dir-btn" class="sort-dir-btn" title="Descending – click to reverse">↓</button>
       </div>
@@ -442,7 +442,7 @@
             <th class="eth-level">Difficulty</th>
             <th class="eth-modality">Category</th>
             <th class="eth-kimi">Kimi K2.5</th>
-            <th class="eth-nova">Nova-2-Lite</th>
+            <th class="eth-nova">Qwen3-VL</th>
             <th class="eth-expand"></th>
           </tr>
         </thead>
@@ -470,7 +470,7 @@
         </dl>
       </div>
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <p class="kpi-label"><span class="tok-nova">Qwen3-VL</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Accuracy</dt><dd><b>10%</b> (2/20)</dd></div>
           <div class="glance-row"><dt>Hard</dt><dd><b>25%</b> (1/4)</dd></div>
@@ -489,7 +489,7 @@
           <tr>
             <th scope="col">Category</th>
             <th scope="col" style="text-align:center;"><span class="tok-kimi">Kimi K2.5</span></th>
-            <th scope="col" style="text-align:center;"><span class="tok-nova">Nova-2-Lite</span></th>
+            <th scope="col" style="text-align:center;"><span class="tok-nova">Qwen3-VL</span></th>
           </tr>
         </thead>
         <tbody>
