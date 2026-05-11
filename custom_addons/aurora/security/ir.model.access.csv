@@ -16,3 +16,7 @@ access_aurora_pipeline_preview_admin,aurora.pipeline.preview.admin,model_aurora_
 access_aurora_pipeline_preview_user,aurora.pipeline.preview.user,model_aurora_pipeline_preview,group_aurora_user,1,1,1,1
 access_aurora_registry_wizard_admin,aurora.registry.wizard.admin,model_aurora_registry_wizard,group_aurora_admin,1,1,1,1
 access_aurora_registry_wizard_user,aurora.registry.wizard.user,model_aurora_registry_wizard,group_aurora_user,1,1,1,1
+access_aurora_discovery_admin,aurora.discovery.admin,model_aurora_discovery,group_aurora_admin,1,1,1,1
+access_aurora_discovery_user,aurora.discovery.user,model_aurora_discovery,group_aurora_user,1,1,0,0
+access_aurora_discovery_wizard_admin,aurora.discovery.wizard.admin,model_aurora_discovery_wizard,group_aurora_admin,1,1,1,1
+access_aurora_discovery_wizard_user,aurora.discovery.wizard.user,model_aurora_discovery_wizard,group_aurora_user,1,1,1,1

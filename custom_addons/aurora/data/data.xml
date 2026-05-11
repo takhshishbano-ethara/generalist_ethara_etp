@@ -86,5 +86,44 @@
             <field name="interval_type">minutes</field>
             <field name="active">True</field>
         </record>
+
+        <record id="seq_aurora_discovery" model="ir.sequence">
+            <field name="name">Aurora Discovery</field>
+            <field name="code">aurora.discovery</field>
+            <field name="prefix">DISC-</field>
+            <field name="padding">5</field>
+            <field name="company_id" eval="False"/>
+        </record>
+
+        <record id="ir_cron_discovery_enrich" model="ir.cron">
+            <field name="name">Aurora: Enrich Pending Discoveries</field>
+            <field name="model_id" ref="model_aurora_discovery"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_enrich_pending()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_discovery_auto_promote" model="ir.cron">
+            <field name="name">Aurora: Auto-Promote Discoveries</field>
+            <field name="model_id" ref="model_aurora_discovery"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_auto_promote()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+        </record>
+
+        <record id="ir_cron_discovery_run" model="ir.cron">
+            <field name="name">Aurora: Nightly Repo Discovery</field>
+            <field name="model_id" ref="model_aurora_discovery"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_run_discovery()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall">2026-05-12 00:00:00</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>
