@@ -21,6 +21,7 @@
             "leviathan/static/src/js/leviathan_bus.js",
             "leviathan/static/src/js/leviathan_list.js",
             "leviathan/static/src/xml/leviathan_list.xml",
+            "leviathan/static/src/scss/leviathan_statusbar.scss",
         ],
     },
     "installable": True,

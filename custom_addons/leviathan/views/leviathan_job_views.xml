@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- Start Task Wizard -->
+    <record id="leviathan_start_task_wizard_view" model="ir.ui.view">
+        <field name="name">leviathan.start.task.wizard.form</field>
+        <field name="model">leviathan.start.task.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Start Task">
+                <group>
+                    <div class="alert alert-info" role="alert">
+                        <p class="mb-0">Pick a category to get a matching task, or leave empty for any available task.</p>
+                    </div>
+                    <field name="category_id" placeholder="Any category"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Start Task" class="oe_highlight"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_leviathan_start_task_wizard" model="ir.actions.act_window">
+        <field name="name">Start Task</field>
+        <field name="res_model">leviathan.start.task.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
     <!-- Rerun Wizard -->
     <record id="leviathan_rerun_wizard_view" model="ir.ui.view">
         <field name="name">leviathan.rerun.wizard.form</field>
@@ -105,6 +132,8 @@
 
                     <field name="state" widget="statusbar" statusbar_visible="not_assigned,draft,extracting,generating,scoring,done"/>
                 </header>
+                <!-- Pipeline progress indicator (in-progress states only) -->
+                <field name="stage_progress_html" readonly="1" nolabel="1" invisible="state not in ('extracting','generating','scoring','done','submitted','failed','cancelled')" class="w-100 px-3 pt-2"/>
                 <sheet>
                     <!-- Not Assigned Banner -->
                     <div class="alert alert-secondary" role="alert" invisible="state != 'not_assigned'">
@@ -179,9 +208,7 @@
                             <group string="Collected Assets" invisible="not asset_keys">
                                 <field name="asset_urls_html" readonly="1" nolabel="1"/>
                             </group>
-                            <group string="Artifacts Folder" invisible="not artifacts_url">
-                                <field name="artifacts_url" widget="url" nolabel="1"/>
-                            </group>
+
                         </page>
 
                         <!-- TAB 5: Pipeline -->
