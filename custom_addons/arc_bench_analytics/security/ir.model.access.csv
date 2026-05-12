@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_arc_bench_session_user,arc.bench.session.user,model_arc_bench_session,arc_bench_analytics.group_arc_bench_user,1,1,1,0
+access_arc_bench_session_admin,arc.bench.session.admin,model_arc_bench_session,arc_bench_analytics.group_arc_bench_admin,1,1,1,1
+access_arc_bench_game_result_user,arc.bench.game.result.user,model_arc_bench_game_result,arc_bench_analytics.group_arc_bench_user,1,0,0,0
+access_arc_bench_game_result_admin,arc.bench.game.result.admin,model_arc_bench_game_result,arc_bench_analytics.group_arc_bench_admin,1,1,1,1
+access_arc_bench_model_result_user,arc.bench.model.result.user,model_arc_bench_model_result,arc_bench_analytics.group_arc_bench_user,1,0,0,0
+access_arc_bench_model_result_admin,arc.bench.model.result.admin,model_arc_bench_model_result,arc_bench_analytics.group_arc_bench_admin,1,1,1,1
+access_arc_bench_run_user,arc.bench.run.user,model_arc_bench_run,arc_bench_analytics.group_arc_bench_user,1,0,0,0
+access_arc_bench_run_admin,arc.bench.run.admin,model_arc_bench_run,arc_bench_analytics.group_arc_bench_admin,1,1,1,1

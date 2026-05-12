@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_arc_bench_root"
+              name="ARC Bench"
+              sequence="82"
+              web_icon="arc_bench_analytics,static/description/icon.png"/>
+
+    <menuitem id="menu_arc_bench_sessions"
+              name="Analysis Sessions"
+              parent="menu_arc_bench_root"
+              action="action_arc_bench_session"
+              sequence="10"/>
+
+    <menuitem id="menu_arc_bench_game_results"
+              name="Game Results"
+              parent="menu_arc_bench_root"
+              action="action_arc_bench_game_result"
+              sequence="15"/>
+
+</odoo>

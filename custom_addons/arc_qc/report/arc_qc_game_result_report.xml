@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="action_report_game_result_findings" model="ir.actions.report">
+        <field name="name">Game QC Report</field>
+        <field name="model">arc.qc.game.result</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">arc_qc.report_game_result_findings</field>
+        <field name="report_file">arc_qc.report_game_result_findings</field>
+        <field name="print_report_name">'QC_Report_%s' % object.game_id</field>
+        <field name="paperformat_id" ref="base.paperformat_euro"/>
+    </record>
+
+</odoo>

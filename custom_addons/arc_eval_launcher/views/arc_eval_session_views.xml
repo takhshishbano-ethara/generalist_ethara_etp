@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_arc_eval_session_list" model="ir.ui.view">
+        <field name="name">arc.eval.session.list</field>
+        <field name="model">arc.eval.session</field>
+        <field name="arch" type="xml">
+            <list string="Eval Sessions" decoration-danger="state == 'failed'">
+                <field name="launched_at"/>
+                <field name="external_session_id"/>
+                <field name="state"/>
+                <field name="launched_by"/>
+                <field name="game_ids" widget="many2many_tags"/>
+                <field name="model_ids" widget="many2many_tags"/>
+                <field name="num_runs"/>
+                <field name="max_steps"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_arc_eval_session_form" model="ir.ui.view">
+        <field name="name">arc.eval.session.form</field>
+        <field name="model">arc.eval.session</field>
+        <field name="arch" type="xml">
+            <form string="Eval Session" create="false" edit="false">
+                <header>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="external_session_id"/>
+                            <field name="launched_at"/>
+                            <field name="launched_by"/>
+                            <field name="api_base"/>
+                        </group>
+                        <group>
+                            <field name="num_runs"/>
+                            <field name="max_steps"/>
+                            <field name="context_window"/>
+                            <field name="with_images"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Parallelism">
+                            <field name="parallel_games"/>
+                            <field name="parallel_runs"/>
+                            <field name="sequential_models"/>
+                        </group>
+                        <group string="Budget">
+                            <field name="budget_global_usd"/>
+                            <field name="budget_per_game_usd"/>
+                        </group>
+                    </group>
+                    <group string="Targets">
+                        <field name="game_ids" widget="many2many_tags"/>
+                        <field name="model_ids" widget="many2many_tags"/>
+                    </group>
+                    <notebook>
+                        <page string="Request Payload">
+                            <field name="request_payload" widget="text"/>
+                        </page>
+                        <page string="Response">
+                            <field name="response_payload" widget="text"/>
+                        </page>
+                        <page string="Error"
+                              invisible="state != 'failed'">
+                            <field name="error_message" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_arc_eval_session_search" model="ir.ui.view">
+        <field name="name">arc.eval.session.search</field>
+        <field name="model">arc.eval.session</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="external_session_id"/>
+                <field name="launched_by"/>
+                <field name="game_ids"/>
+                <field name="model_ids"/>
+                <field name="api_base"/>
+                <separator/>
+                <filter string="Launched" name="filter_launched" domain="[('state', '=', 'launched')]"/>
+                <filter string="Failed" name="filter_failed" domain="[('state', '=', 'failed')]"/>
+                <separator/>
+                <filter string="My Sessions" name="filter_my_sessions" domain="[('launched_by', '=', uid)]"/>
+                <filter string="With Images" name="filter_with_images" domain="[('with_images', '=', True)]"/>
+                <separator/>
+                <filter string="Today" name="filter_today" domain="[('launched_at', '&gt;=', (context_today()).strftime('%Y-%m-%d'))]"/>
+                <filter string="This Week" name="filter_this_week" domain="[('launched_at', '&gt;=', (context_today() - datetime.timedelta(days=context_today().weekday())).strftime('%Y-%m-%d'))]"/>
+                <filter string="This Month" name="filter_this_month" domain="[('launched_at', '&gt;=', context_today().strftime('%Y-%m-01'))]"/>
+                <separator/>
+                <group>
+                    <filter string="State" name="groupby_state" context="{'group_by': 'state'}"/>
+                    <filter string="Launched By" name="groupby_launched_by" context="{'group_by': 'launched_by'}"/>
+                    <filter string="Launch Date" name="groupby_launched_at" context="{'group_by': 'launched_at'}"/>
+                    <filter string="Launch Month" name="groupby_launched_month" context="{'group_by': 'launched_at:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_arc_eval_session" model="ir.actions.act_window">
+        <field name="name">Eval Sessions</field>
+        <field name="res_model">arc.eval.session</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_arc_eval_session_search"/>
+        <field name="context">{'search_default_filter_my_sessions': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No eval sessions yet. Launch one from the "Launch Eval" wizard.
+            </p>
+        </field>
+    </record>
+
+</odoo>

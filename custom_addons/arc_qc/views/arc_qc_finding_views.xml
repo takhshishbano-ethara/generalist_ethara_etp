@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===================== LIST VIEW ===================== -->
+    <record id="view_arc_qc_finding_list" model="ir.ui.view">
+        <field name="name">arc.qc.finding.list</field>
+        <field name="model">arc.qc.finding</field>
+        <field name="arch" type="xml">
+            <list string="QC Findings"
+                  decoration-danger="severity == 'critical'"
+                  decoration-warning="severity == 'high'"
+                  limit="200">
+                <field name="session_id"/>
+                <field name="game_id"/>
+                <field name="severity"/>
+                <field name="phase"/>
+                <field name="code"/>
+                <field name="message"/>
+                <field name="file_path"/>
+                <field name="line_number"/>
+                <field name="spec_ref"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ===================== FORM VIEW ===================== -->
+    <record id="view_arc_qc_finding_form" model="ir.ui.view">
+        <field name="name">arc.qc.finding.form</field>
+        <field name="model">arc.qc.finding</field>
+        <field name="arch" type="xml">
+            <form string="QC Finding" create="false" edit="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="session_id"/>
+                            <field name="game_id"/>
+                            <field name="severity"/>
+                            <field name="phase"/>
+                            <field name="code"/>
+                            <field name="spec_ref"/>
+                        </group>
+                        <group>
+                            <field name="file_path"/>
+                            <field name="line_number"/>
+                            <field name="field_name"/>
+                            <field name="expected"/>
+                            <field name="actual"/>
+                        </group>
+                    </group>
+                    <group string="Message">
+                        <field name="message" nolabel="1" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ===================== SEARCH VIEW ===================== -->
+    <record id="view_arc_qc_finding_search" model="ir.ui.view">
+        <field name="name">arc.qc.finding.search</field>
+        <field name="model">arc.qc.finding</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="message"/>
+                <field name="code"/>
+                <field name="phase"/>
+                <field name="game_id"/>
+                <field name="session_id"/>
+                <separator/>
+                <filter string="Critical" name="filter_critical" domain="[('severity', '=', 'critical')]"/>
+                <filter string="High" name="filter_high" domain="[('severity', '=', 'high')]"/>
+                <filter string="Medium" name="filter_medium" domain="[('severity', '=', 'medium')]"/>
+                <filter string="Low" name="filter_low" domain="[('severity', '=', 'low')]"/>
+                <separator/>
+                <group>
+                    <filter string="Code" name="groupby_code" context="{'group_by': 'code'}"/>
+                    <filter string="Severity" name="groupby_severity" context="{'group_by': 'severity'}"/>
+                    <filter string="Game" name="groupby_game" context="{'group_by': 'game_id'}"/>
+                    <filter string="Phase" name="groupby_phase" context="{'group_by': 'phase'}"/>
+                    <filter string="Session" name="groupby_session" context="{'group_by': 'session_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ===================== ACTION ===================== -->
+    <record id="action_arc_qc_finding" model="ir.actions.act_window">
+        <field name="name">QC Findings</field>
+        <field name="res_model">arc.qc.finding</field>
+        <field name="view_mode">list,form,pivot</field>
+        <field name="search_view_id" ref="view_arc_qc_finding_search"/>
+        <field name="context">{'search_default_groupby_code': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No QC findings yet. Run a QC session to generate findings.
+            </p>
+        </field>
+    </record>
+
+    <!-- ===================== PIVOT VIEW ===================== -->
+    <record id="view_arc_qc_finding_pivot" model="ir.ui.view">
+        <field name="name">arc.qc.finding.pivot</field>
+        <field name="model">arc.qc.finding</field>
+        <field name="arch" type="xml">
+            <pivot string="Findings Analysis">
+                <field name="code" type="row"/>
+                <field name="severity" type="col"/>
+            </pivot>
+        </field>
+    </record>
+
+</odoo>

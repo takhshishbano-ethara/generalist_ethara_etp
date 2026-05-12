@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===================== LIST VIEW ===================== -->
+    <record id="view_arc_bench_session_list" model="ir.ui.view">
+        <field name="name">arc.bench.session.list</field>
+        <field name="model">arc.bench.session</field>
+        <field name="arch" type="xml">
+            <list string="Analysis Sessions"
+                  decoration-success="state == 'done'"
+                  decoration-danger="state == 'error'">
+                <field name="name"/>
+                <field name="source_type"/>
+                <field name="state"/>
+                <field name="game_count"/>
+                <field name="model_count"/>
+                <field name="duration_seconds" widget="float_time"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ===================== FORM VIEW ===================== -->
+    <record id="view_arc_bench_session_form" model="ir.ui.view">
+        <field name="name">arc.bench.session.form</field>
+        <field name="model">arc.bench.session</field>
+        <field name="arch" type="xml">
+            <form string="Analysis Session">
+                <header>
+                    <button name="action_run_analysis"
+                            string="Run Analysis"
+                            type="object"
+                            class="oe_highlight"
+                            invisible="state not in ('draft', 'error')"/>
+                    <button name="action_reset_draft"
+                            string="Reset to Draft"
+                            type="object"
+                            invisible="state in ('draft', 'running')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,running,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+
+                    <!-- Error banner -->
+                    <div class="alert alert-danger" role="alert"
+                         invisible="state != 'error'">
+                        <strong>Error</strong> — Analysis failed.
+                        <field name="error_message" readonly="1"/>
+                    </div>
+
+                    <group>
+                        <group string="Source">
+                            <field name="source_type" widget="radio"/>
+                            <field name="session_path"
+                                   invisible="source_type != 'local'"/>
+                            <field name="repo_url"
+                                   invisible="source_type != 'git'"/>
+                            <field name="repo_token"
+                                   invisible="source_type != 'git'"
+                                   password="True"/>
+                            <field name="repo_branch"
+                                   invisible="source_type != 'git'"/>
+                        </group>
+                        <group string="Configuration">
+                            <field name="script_path"
+                                   placeholder="Leave blank for default bundled script"/>
+                            <field name="expected_runs"/>
+                            <field name="max_steps"/>
+                        </group>
+                    </group>
+
+                    <group string="Results" invisible="state not in ('done',)">
+                        <group>
+                            <field name="game_count"/>
+                            <field name="model_count"/>
+                            <field name="duration_seconds" widget="float_time"/>
+                        </group>
+                    </group>
+
+                    <notebook invisible="state not in ('done',)">
+                        <page string="Game Results" name="game_results">
+                            <field name="game_result_ids">
+                                <list>
+                                    <field name="game_id"/>
+                                    <field name="model_count"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Script Log" name="script_log">
+                            <field name="script_log" readonly="1" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ===================== ACTION ===================== -->
+    <record id="action_arc_bench_session" model="ir.actions.act_window">
+        <field name="name">Analysis Sessions</field>
+        <field name="res_model">arc.bench.session</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

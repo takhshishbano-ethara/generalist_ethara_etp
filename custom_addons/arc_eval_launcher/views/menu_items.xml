@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_arc_eval_root"
+              name="ARC Evals"
+              sequence="80"
+              web_icon="arc_eval_launcher,static/description/icon.png"/>
+
+    <menuitem id="menu_arc_eval_sessions"
+              name="Sessions"
+              parent="menu_arc_eval_root"
+              action="action_arc_eval_session"
+              sequence="10"/>
+
+    <menuitem id="menu_arc_eval_launch"
+              name="Launch Eval"
+              parent="menu_arc_eval_root"
+              action="action_arc_eval_launch_wizard"
+              sequence="20"/>
+
+    <menuitem id="menu_arc_eval_games"
+              name="Games"
+              parent="menu_arc_eval_root"
+              action="action_arc_eval_game"
+              sequence="30"/>
+
+    <menuitem id="menu_arc_eval_models"
+              name="Models"
+              parent="menu_arc_eval_root"
+              action="action_arc_eval_model"
+              sequence="40"/>
+
+</odoo>

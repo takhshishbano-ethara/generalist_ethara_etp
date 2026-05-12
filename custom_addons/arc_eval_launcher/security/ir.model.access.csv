@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_arc_eval_game_user,arc.eval.game.user,model_arc_eval_game,arc_eval_launcher.group_arc_eval_user,1,0,0,0
+access_arc_eval_game_admin,arc.eval.game.admin,model_arc_eval_game,arc_eval_launcher.group_arc_eval_admin,1,1,1,1
+access_arc_eval_model_user,arc.eval.model.user,model_arc_eval_model,arc_eval_launcher.group_arc_eval_user,1,0,0,0
+access_arc_eval_model_admin,arc.eval.model.admin,model_arc_eval_model,arc_eval_launcher.group_arc_eval_admin,1,1,1,1
+access_arc_eval_session_user,arc.eval.session.user,model_arc_eval_session,arc_eval_launcher.group_arc_eval_user,1,1,1,0
+access_arc_eval_session_admin,arc.eval.session.admin,model_arc_eval_session,arc_eval_launcher.group_arc_eval_admin,1,1,1,1
+access_arc_eval_launch_wizard_user,arc.eval.launch.wizard.user,model_arc_eval_launch_wizard,arc_eval_launcher.group_arc_eval_user,1,1,1,1
+access_arc_eval_launch_wizard_admin,arc.eval.launch.wizard.admin,model_arc_eval_launch_wizard,arc_eval_launcher.group_arc_eval_admin,1,1,1,1

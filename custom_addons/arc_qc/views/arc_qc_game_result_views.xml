@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===================== FORM VIEW ===================== -->
+    <record id="view_arc_qc_game_result_form" model="ir.ui.view">
+        <field name="name">arc.qc.game.result.form</field>
+        <field name="model">arc.qc.game.result</field>
+        <field name="arch" type="xml">
+            <form string="Game QC Result" create="false" edit="false">
+                <header>
+                    <button name="action_print_report"
+                            type="object"
+                            string="Download Report"
+                            icon="fa-file-pdf-o"
+                            class="btn-secondary"
+                            invisible="finding_count == 0"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="game_id" readonly="1"/>
+                        </h1>
+                    </div>
+
+                    <!-- Verdict banner -->
+                    <div class="alert alert-danger" role="alert"
+                         invisible="verdict != 'block'">
+                        <strong>BLOCK</strong> — This game does not pass QC.
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="verdict != 'conditional_ship'">
+                        <strong>CONDITIONAL SHIP</strong> — Minor issues detected.
+                    </div>
+                    <div class="alert alert-success" role="alert"
+                         invisible="verdict != 'ship'">
+                        <strong>SHIP</strong> — This game passes all QC checks.
+                    </div>
+
+                    <!-- Phase check summary -->
+                    <field name="summary_html" nolabel="1"/>
+
+                    <group>
+                        <group string="Game Info">
+                            <field name="session_id"/>
+                            <field name="game_path"/>
+                            <field name="verdict"/>
+                            <field name="passed"/>
+                            <field name="models_found"/>
+                            <field name="models_expected"/>
+                        </group>
+                        <group string="Statistics">
+                            <field name="runs_checked"/>
+                            <field name="steps_checked"/>
+                            <field name="critical_count"/>
+                            <field name="high_count"/>
+                            <field name="medium_count"/>
+                            <field name="low_count"/>
+                            <field name="finding_count"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Findings" name="findings">
+                            <field name="finding_ids" nolabel="1">
+                                <list decoration-danger="severity == 'critical'"
+                                      decoration-warning="severity == 'high'"
+                                      limit="200">
+                                    <field name="severity"/>
+                                    <field name="phase"/>
+                                    <field name="code"/>
+                                    <field name="message"/>
+                                    <field name="file_path"/>
+                                    <field name="line_number"/>
+                                    <field name="spec_ref"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ===================== LIST VIEW ===================== -->
+    <record id="view_arc_qc_game_result_list" model="ir.ui.view">
+        <field name="name">arc.qc.game.result.list</field>
+        <field name="model">arc.qc.game.result</field>
+        <field name="arch" type="xml">
+            <list string="Game Results"
+                  decoration-danger="verdict == 'block'"
+                  decoration-warning="verdict == 'conditional_ship'"
+                  decoration-success="verdict == 'ship'">
+                <field name="passed" widget="boolean"/>
+                <field name="game_id"/>
+                <field name="session_id"/>
+                <field name="verdict"/>
+                <field name="models_found"/>
+                <field name="runs_checked"/>
+                <field name="steps_checked"/>
+                <field name="critical_count"/>
+                <field name="high_count"/>
+                <field name="medium_count"/>
+                <field name="low_count"/>
+                <field name="finding_count"/>
+                <button name="action_print_report"
+                        type="object"
+                        icon="fa-file-pdf-o"
+                        title="Download Report"
+                        invisible="finding_count == 0"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ===================== SEARCH VIEW ===================== -->
+    <record id="view_arc_qc_game_result_search" model="ir.ui.view">
+        <field name="name">arc.qc.game.result.search</field>
+        <field name="model">arc.qc.game.result</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="game_id"/>
+                <field name="session_id"/>
+                <separator/>
+                <filter string="Passed" name="filter_passed" domain="[('verdict', '=', 'ship')]"/>
+                <filter string="Failed" name="filter_failed" domain="[('verdict', '=', 'block')]"/>
+                <filter string="Conditional" name="filter_conditional" domain="[('verdict', '=', 'conditional_ship')]"/>
+                <separator/>
+                <group>
+                    <filter string="Verdict" name="groupby_verdict" context="{'group_by': 'verdict'}"/>
+                    <filter string="Session" name="groupby_session" context="{'group_by': 'session_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ===================== ACTION ===================== -->
+    <record id="action_arc_qc_game_result" model="ir.actions.act_window">
+        <field name="name">Game Results</field>
+        <field name="res_model">arc.qc.game.result</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_arc_qc_game_result_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No game results yet. Run a QC session to generate results.
+            </p>
+        </field>
+    </record>
+
+</odoo>
