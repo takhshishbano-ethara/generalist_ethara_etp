@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_arc_eval" model="ir.module.category">
+        <field name="name">ARC Eval</field>
+        <field name="sequence">20</field>
+    </record>
+
+    <record id="privilege_arc_eval" model="res.groups.privilege">
+        <field name="name">ARC Eval Launcher</field>
+        <field name="category_id" ref="module_category_arc_eval"/>
+    </record>
+
+    <record id="group_arc_eval_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="privilege_id" ref="privilege_arc_eval"/>
+        <field name="comment">Can view games, models, and sessions. Can launch eval runs.</field>
+    </record>
+
+    <record id="group_arc_eval_admin" model="res.groups">
+        <field name="name">Administrator</field>
+        <field name="privilege_id" ref="privilege_arc_eval"/>
+        <field name="implied_ids" eval="[(4, ref('group_arc_eval_user'))]"/>
+        <field name="comment">Full access: refresh catalog, manage sessions, edit cached records.</field>
+    </record>
+
+    <!-- Assign admin group to base admin user via res.users side (Odoo 19: res.groups.users removed) -->
+    <record id="base.user_admin" model="res.users">
+        <field name="group_ids" eval="[(4, ref('arc_eval_launcher.group_arc_eval_admin'))]"/>
+    </record>
+
+    <!-- Record Rules: arc.eval.session -->
+
+    <record id="rule_arc_eval_session_user_own" model="ir.rule">
+        <field name="name">ARC Eval Session: User sees own launches</field>
+        <field name="model_id" ref="model_arc_eval_session"/>
+        <field name="domain_force">[('launched_by', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_arc_eval_user'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="rule_arc_eval_session_admin" model="ir.rule">
+        <field name="name">ARC Eval Session: Admin full access</field>
+        <field name="model_id" ref="model_arc_eval_session"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_arc_eval_admin'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+</odoo>

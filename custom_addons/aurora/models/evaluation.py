@@ -42,11 +42,13 @@ EVAL_DIND_IMAGE = "docker:27-dind"
 EVAL_BINFMT_IMAGE = "tonistiigi/binfmt:latest"
 EVAL_CPU_REQUEST = "500m" if os.environ.get("AURORA_LOCAL_MODE") else "2"
 EVAL_MEMORY_REQUEST = "1Gi" if os.environ.get("AURORA_LOCAL_MODE") else "4Gi"
-EVAL_MEMORY_LIMIT = "3Gi" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
+EVAL_MEMORY_LIMIT = "" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
 EVAL_DIND_CPU_REQUEST = "500m" if os.environ.get("AURORA_LOCAL_MODE") else "2"
-EVAL_DIND_MEMORY_REQUEST = "1Gi" if os.environ.get("AURORA_LOCAL_MODE") else "4Gi"
-EVAL_DIND_MEMORY_LIMIT = "3Gi" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
+EVAL_DIND_MEMORY_REQUEST = "2Gi" if os.environ.get("AURORA_LOCAL_MODE") else "4Gi"
+EVAL_DIND_MEMORY_LIMIT = "" if os.environ.get("AURORA_LOCAL_MODE") else "8Gi"
 EVAL_DEADLINE_SECONDS = 28800  # 8 hours
+EVAL_WORKSPACE_SIZE = "20Gi" if os.environ.get("AURORA_LOCAL_MODE") else "100Gi"
+EVAL_DIND_STORAGE_SIZE = "20Gi" if os.environ.get("AURORA_LOCAL_MODE") else "100Gi"
 EVAL_WORKER_SCRIPT = "/opt/odoo/custom_addons/aurora/worker/run_evaluation.py"
 EVAL_ODOO_CONF_PATH = "/etc/odoo/odoo.conf"
 EVAL_WORKSPACE_PATH = "/tmp/aurora_output"
@@ -185,6 +187,26 @@ class AuroraEvaluation(models.Model):
     error_instances = fields.Integer(string="Errors", readonly=True)
 
     final_report_file = fields.Char(string="Final Report", readonly=True)
+    dataset_jsonl_url = fields.Char(
+        string="Dataset JSONL",
+        readonly=True,
+        help="S3 URL of the Phase 2 evaluation dataset JSONL produced during report generation.",
+    )
+    base_dockerfile_content = fields.Text(
+        string="Base Dockerfile",
+        readonly=True,
+        help="Content of the base Docker image Dockerfile (shared across all PR instances).",
+    )
+    base_dockerfile_s3_uri = fields.Char(
+        string="Base Dockerfile S3 URI",
+        readonly=True,
+        help="S3 URI of the uploaded base image Dockerfile.",
+    )
+    show_base_dockerfile = fields.Boolean(
+        string="Show Base Dockerfile",
+        default=False,
+        store=False,
+    )
     missing_registries = fields.Text(
         string="Missing Harness Registries",
         readonly=True,
@@ -205,6 +227,26 @@ class AuroraEvaluation(models.Model):
         help="Incrementing run number chosen for this evaluation's S3 layout: "
              "{folder}/aurora_phase2/{org}__{repo}/run_{N}/pr-{pr}/<artifact>.",
     )
+    s3_base_uri = fields.Char(
+        string="S3 Path",
+        compute="_compute_s3_base_uri",
+    )
+
+    @api.depends("s3_run_number", "pipeline_id.github_org", "pipeline_id.github_repo")
+    def _compute_s3_base_uri(self):
+        from .pipeline import S3_BUCKET, S3_AURORA_PREFIX
+        for rec in self:
+            if rec.s3_run_number and rec.pipeline_id:
+                org = rec.pipeline_id.github_org or ""
+                repo = rec.pipeline_id.github_repo or ""
+                if org and repo:
+                    prefix = S3_AURORA_PREFIX.strip("/")
+                    rec.s3_base_uri = (
+                        f"s3://{S3_BUCKET}/{prefix}/aurora_phase2/"
+                        f"{org}__{repo}/run_{rec.s3_run_number}"
+                    )
+                    continue
+            rec.s3_base_uri = False
 
     @api.depends("instance_ids")
     def _compute_instance_count(self):
@@ -606,14 +648,66 @@ class AuroraEvaluation(models.Model):
             ],
             resources=k8s_client.V1ResourceRequirements(
                 requests={"cpu": EVAL_CPU_REQUEST, "memory": EVAL_MEMORY_REQUEST},
-                limits={"memory": EVAL_MEMORY_LIMIT},
+                limits={"memory": EVAL_MEMORY_LIMIT} if EVAL_MEMORY_LIMIT else None,
             ),
         )
+
+        # In local mode on ARM64 (Apple Silicon), we must:
+        # 1. Switch iptables to legacy mode (Minikube lacks nf_tables kernel modules)
+        # 2. Unregister Rosetta (which Docker Desktop registers for amd64 emulation)
+        # 3. Register QEMU handlers inside DinD so amd64 image builds work correctly.
+        # Rosetta crashes inside nested DinD namespaces, so QEMU must replace it.
+        # Production path is unchanged — uses standard DinD entrypoint + binfmt init container.
+        dind_command = None
+        dind_args = None
+        if os.environ.get("AURORA_LOCAL_MODE"):
+            dind_command = ["/bin/sh", "-c"]
+            dind_args = [
+                # Switch to iptables-legacy (nf_tables not available in Minikube)
+                "update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null"
+                " || ln -sf /sbin/iptables-legacy /sbin/iptables 2>/dev/null"
+                " || true;"
+                " update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null"
+                " || ln -sf /sbin/ip6tables-legacy /sbin/ip6tables 2>/dev/null"
+                " || true;"
+                # Start dockerd in background with full networking (iptables-legacy works)
+                " dockerd"
+                " --host=tcp://0.0.0.0:2375"
+                " --host=unix:///var/run/docker.sock"
+                " --tls=false"
+                " --storage-driver=overlay2 &"
+                " DOCKERD_PID=$!;"
+                # Wait for dockerd to be ready
+                " for i in $(seq 1 60); do"
+                " docker -H unix:///var/run/docker.sock info >/dev/null 2>&1 && break;"
+                " sleep 1; done;"
+                " if ! docker -H unix:///var/run/docker.sock info >/dev/null 2>&1; then"
+                " echo 'FATAL: dockerd failed to start'; exit 1; fi;"
+                # Unregister ALL x86_64/amd64 binfmt handlers (Rosetta + stale QEMU)
+                " echo 'Removing existing binfmt handlers...';"
+                " for f in x86_64 rosetta rosetta-wrapper qemu-x86_64 i386; do"
+                " [ -f /proc/sys/fs/binfmt_misc/$f ] && echo -1 > /proc/sys/fs/binfmt_misc/$f;"
+                " done;"
+                # Register QEMU via tonistiigi/binfmt (fresh, no conflicts)
+                " docker -H unix:///var/run/docker.sock run --rm --privileged"
+                " --platform linux/arm64 tonistiigi/binfmt:latest --install amd64"
+                " && echo 'QEMU binfmt registered for amd64.'"
+                " || { echo 'FATAL: binfmt registration failed'; exit 1; };"
+                # Verify the new handler uses QEMU, not Rosetta
+                " echo 'Verification:';"
+                " cat /proc/sys/fs/binfmt_misc/qemu-x86_64 2>/dev/null"
+                " || cat /proc/sys/fs/binfmt_misc/x86_64 2>/dev/null"
+                " || echo 'WARNING: no x86_64 handler found';"
+                " echo 'DinD ready.';"
+                " wait $DOCKERD_PID"
+            ]
 
         dind_container = k8s_client.V1Container(
             name="dind",
             image=EVAL_DIND_IMAGE,
             image_pull_policy="IfNotPresent",
+            command=dind_command,
+            args=dind_args,
             env=[
                 k8s_client.V1EnvVar(name="DOCKER_TLS_CERTDIR", value=""),
             ],
@@ -630,7 +724,7 @@ class AuroraEvaluation(models.Model):
             ],
             resources=k8s_client.V1ResourceRequirements(
                 requests={"cpu": EVAL_DIND_CPU_REQUEST, "memory": EVAL_DIND_MEMORY_REQUEST},
-                limits={"memory": EVAL_DIND_MEMORY_LIMIT},
+                limits={"memory": EVAL_DIND_MEMORY_LIMIT} if EVAL_DIND_MEMORY_LIMIT else None,
             ),
         )
 
@@ -642,25 +736,30 @@ class AuroraEvaluation(models.Model):
             k8s_client.V1Volume(
                 name="workspace",
                 empty_dir=k8s_client.V1EmptyDirVolumeSource(
-                    size_limit="100Gi",
+                    size_limit=EVAL_WORKSPACE_SIZE,
                 ),
             ),
             k8s_client.V1Volume(
                 name="dind-storage",
                 empty_dir=k8s_client.V1EmptyDirVolumeSource(
-                    size_limit="100Gi",
+                    size_limit=EVAL_DIND_STORAGE_SIZE,
                 ),
             ),
         ]
 
-        # Init container: register QEMU binfmt handlers for multi-arch buildx.
-        # Required for cross-platform Docker builds (e.g. linux/arm64 on amd64 nodes).
-        binfmt_init_container = k8s_client.V1Container(
-            name="binfmt-setup",
-            image=EVAL_BINFMT_IMAGE,
-            args=["--install", "all"],
-            security_context=k8s_client.V1SecurityContext(privileged=True),
-        )
+        # In production (x86_64), binfmt init container registers QEMU at node level
+        # for cross-arch builds. In local mode (ARM64 Mac), we skip this because
+        # QEMU is registered inside the DinD sidecar (see dind_command above).
+        init_containers = []
+        if not os.environ.get("AURORA_LOCAL_MODE"):
+            binfmt_init_container = k8s_client.V1Container(
+                name="binfmt-setup",
+                image=EVAL_BINFMT_IMAGE,
+                image_pull_policy=EVAL_IMAGE_PULL_POLICY,
+                args=["--install", "all"],
+                security_context=k8s_client.V1SecurityContext(privileged=True),
+            )
+            init_containers = [binfmt_init_container]
 
         job = k8s_client.V1Job(
             api_version="batch/v1",
@@ -683,7 +782,7 @@ class AuroraEvaluation(models.Model):
                         service_account_name=EVAL_SERVICE_ACCOUNT,
                         restart_policy="Never",
                         node_selector=EVAL_NODE_SELECTOR,
-                        init_containers=[binfmt_init_container],
+                        init_containers=init_containers,
                         containers=[worker_container, dind_container],
                         volumes=volumes,
                     ),
@@ -700,14 +799,34 @@ class AuroraEvaluation(models.Model):
         if self.stage in EVAL_TERMINAL_STATES:
             raise UserError("Cannot cancel a finished evaluation.")
         evaluation_executor.request_cancel(self.id)
+        self._delete_evaluation_job()
         self._cleanup_k8s_resources()
         self.write({"stage": "failed"})
         self.message_post(body="Evaluation cancelled by user.")
+
+    def _delete_evaluation_job(self):
+        if not K8S_AVAILABLE:
+            return
+        try:
+            _load_k8s_config()
+            batch_v1 = k8s_client.BatchV1Api()
+            batch_v1.delete_collection_namespaced_job(
+                namespace=EVAL_NAMESPACE,
+                label_selector=f"evaluation-id={self.id}",
+                body=k8s_client.V1DeleteOptions(propagation_policy="Foreground"),
+            )
+            _logger.info("Deleted K8s Job for evaluation %s", self.id)
+        except Exception:
+            _logger.warning(
+                "Failed to delete K8s Job for evaluation %s (may already be gone)",
+                self.id, exc_info=True,
+            )
 
     def action_reset_to_draft(self):
         self.ensure_one()
         if self.stage not in EVAL_TERMINAL_STATES:
             raise UserError("Only finished/failed evaluations can be reset.")
+        self.instance_ids.unlink()
         self.write({
             "stage": "draft",
             "build_status": "idle",
@@ -719,8 +838,12 @@ class AuroraEvaluation(models.Model):
             "unresolved_instances": 0,
             "error_instances": 0,
             "final_report_file": False,
+            "dataset_jsonl_url": False,
             "patch_file": False,
             "missing_registries": False,
+            "base_dockerfile_content": False,
+            "base_dockerfile_s3_uri": False,
+            "dataset_file": self.pipeline_id.step6_file if self.pipeline_id else False,
         })
 
     def action_regenerate_report(self):
@@ -778,8 +901,27 @@ class AuroraEvaluation(models.Model):
                         "resolved_instances": fr.get("resolved_instances", 0),
                         "unresolved_instances": fr.get("unresolved_instances", 0),
                         "error_instances": fr.get("error_instances", 0),
-                        "final_report_file": str(final_report_path),
                     })
+                    from . import artifact_collector, s3_storage
+                    s3_config = artifact_collector.load_s3_config()
+                    if s3_storage.is_configured(s3_config):
+                        s3_folder = (s3_config.get("folder") or "").strip("/")
+                        phase = "aurora_phase2"
+                        org = self.pipeline_id.github_org or "unknown"
+                        repo = self.pipeline_id.github_repo or "unknown"
+                        run_number = self.s3_run_number or 1
+                        s3_key = s3_storage.build_s3_key(
+                            org, repo, run_number,
+                            "final_report.json", folder=s3_folder, phase=phase,
+                        )
+                        try:
+                            url = s3_storage.upload_file(s3_config, str(final_report_path), s3_key)
+                            vals["final_report_file"] = url
+                        except Exception:
+                            _logger.warning("Failed to upload final_report.json to S3 during regen", exc_info=True)
+                            vals["final_report_file"] = str(final_report_path)
+                    else:
+                        vals["final_report_file"] = str(final_report_path)
 
                 regen_cr = self.env.registry.cursor()
                 from odoo import api, SUPERUSER_ID

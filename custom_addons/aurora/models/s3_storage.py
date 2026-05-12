@@ -64,6 +64,13 @@ def validate_credentials(s3_config: dict) -> None:
     client.head_bucket(Bucket=s3_config["bucket"])
 
 
+def build_url(bucket: str, region: str, s3_key: str) -> str:
+    endpoint_override = os.environ.get("AURORA_S3_ENDPOINT", "").strip()
+    if endpoint_override:
+        return f"{endpoint_override.rstrip('/')}/{bucket}/{s3_key}"
+    return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
+
+
 def _build_base_prefix(org: str, repo: str, folder: str = "", phase: str = "aurora_phase1") -> str:
     folder = folder.strip("/") if folder else ""
     phase = phase.strip("/") if phase else "aurora_phase1"
@@ -124,7 +131,7 @@ def upload_file(
                 "S3 upload: %s completed in %.1fs (%.1f MB/s)",
                 filename, elapsed, speed_mbps,
             )
-            return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
+            return build_url(bucket, region, s3_key)
         except Exception as exc:
             elapsed = time.monotonic() - t0
             last_error = exc

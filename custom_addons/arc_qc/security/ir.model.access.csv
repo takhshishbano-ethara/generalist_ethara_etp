@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_arc_qc_session_user,arc.qc.session.user,model_arc_qc_session,arc_qc.group_arc_qc_user,1,1,1,0
+access_arc_qc_session_admin,arc.qc.session.admin,model_arc_qc_session,arc_qc.group_arc_qc_admin,1,1,1,1
+access_arc_qc_game_result_user,arc.qc.game.result.user,model_arc_qc_game_result,arc_qc.group_arc_qc_user,1,0,0,0
+access_arc_qc_game_result_admin,arc.qc.game.result.admin,model_arc_qc_game_result,arc_qc.group_arc_qc_admin,1,1,1,1
+access_arc_qc_model_result_user,arc.qc.model.result.user,model_arc_qc_model_result,arc_qc.group_arc_qc_user,1,0,0,0
+access_arc_qc_model_result_admin,arc.qc.model.result.admin,model_arc_qc_model_result,arc_qc.group_arc_qc_admin,1,1,1,1
+access_arc_qc_finding_user,arc.qc.finding.user,model_arc_qc_finding,arc_qc.group_arc_qc_user,1,0,0,0
+access_arc_qc_finding_admin,arc.qc.finding.admin,model_arc_qc_finding,arc_qc.group_arc_qc_admin,1,1,1,1

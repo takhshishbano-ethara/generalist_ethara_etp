@@ -4,8 +4,13 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ make && rm -rf /var/lib/apt/lists/*
 
-COPY odoo-requirements.txt /tmp/odoo-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/odoo-requirements.txt && rm /tmp/odoo-requirements.txt
+# Install full Odoo runtime deps from src/requirements.txt
+# Filter out packages that need unavailable system libs or are too heavy
+COPY src/requirements.txt /tmp/odoo-src-requirements.txt
+
+RUN grep -v -E "python-ldap|pyusb|pyserial|language-tool-python|psycopg2==" /tmp/odoo-src-requirements.txt > /tmp/filtered-requirements.txt \
+    && pip install --no-cache-dir -r /tmp/filtered-requirements.txt \
+    && rm /tmp/odoo-src-requirements.txt /tmp/filtered-requirements.txt
 
 USER odoo
 

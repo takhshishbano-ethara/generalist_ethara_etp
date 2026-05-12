@@ -258,7 +258,7 @@
                 '<td class="vk-td-cwe">' + esc(cweDisplay(d.vulnerability_type)) + '</td>' +
                 '<td class="vk-td-tests">' + esc(d.fail_to_pass_count) + '</td>' +
                 '<td class="vk-td-kimi">' + passBadge(d.kimi_pass_at_1) + '</td>' +
-                '<td class="vk-td-nova">' + passBadge(d.nova_pass_at_1) + '</td>' +
+                '<td class="vk-td-glm5">' + passBadge(d.glm5_pass_at_1) + '</td>' +
                 '<td class="vk-td-expand"><span class="vk-expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
             '</tr>'
         );
@@ -287,13 +287,11 @@
                                 '<div class="vk-detail-block-title">Kimi K2.5</div>' +
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Result</span><span class="vk-detail-val">' + passBadge(d.kimi_pass_at_1) + '</span></div>' +
                                 '<div class="vk-detail-row-item"><span class="vk-detail-key">Time (s)</span><span class="vk-detail-val">' + esc(parseFloat(d.kimi_time || 0).toFixed(1)) + '</span></div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Cost ($)</span><span class="vk-detail-val">' + esc(d.kimi_cost || "0") + '</span></div>' +
                             '</div>' +
                             '<div class="vk-detail-block">' +
-                                '<div class="vk-detail-block-title">Nova 2 Lite</div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Result</span><span class="vk-detail-val">' + passBadge(d.nova_pass_at_1) + '</span></div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Time (s)</span><span class="vk-detail-val">' + esc(parseFloat(d.nova_time || 0).toFixed(1)) + '</span></div>' +
-                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Cost ($)</span><span class="vk-detail-val">' + esc(d.nova_cost || "0") + '</span></div>' +
+                                '<div class="vk-detail-block-title">GLM 5</div>' +
+                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Result</span><span class="vk-detail-val">' + passBadge(d.glm5_pass_at_1) + '</span></div>' +
+                                '<div class="vk-detail-row-item"><span class="vk-detail-key">Time (s)</span><span class="vk-detail-val">' + esc(parseFloat(d.glm5_time || 0).toFixed(1)) + '</span></div>' +
                             '</div>' +
                         '</div>' +
                         (repoUrl ? '<div class="vk-detail-links"><a class="vk-detail-link" href="' + esc(repoUrl) + '" target="_blank" rel="noopener">Repository</a></div>' : '') +
@@ -417,7 +415,7 @@
                 return (av - bv) * dir;
             }
 
-            if (key === "kimi_pass_at_1" || key === "nova_pass_at_1") {
+            if (key === "kimi_pass_at_1" || key === "glm5_pass_at_1") {
                 av = av === "Pass" ? 1 : 0;
                 bv = bv === "Pass" ? 1 : 0;
                 return (bv - av) * dir;  // passes first

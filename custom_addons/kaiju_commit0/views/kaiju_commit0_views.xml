@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         LIST VIEW — Builds
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="view_kaiju_commit0_tree" model="ir.ui.view">
+        <field name="name">kaiju.commit0.list</field>
+        <field name="model">kaiju.commit0</field>
+        <field name="arch" type="xml">
+            <list>
+                <header>
+                    <button name="%(action_import_csv_wizard)d" type="action"
+                            string="Import CSV" class="btn-secondary"
+                            icon="fa-upload"/>
+                </header>
+                <field name="name" string="Build ID"/>
+                <field name="repo_name"/>
+                <field name="language"/>
+                <field name="build_status" widget="badge" string="Build"
+                       decoration-info="build_status == 'pending'"
+                       decoration-warning="build_status == 'running'"
+                       decoration-success="build_status == 'done'"
+                       decoration-danger="build_status == 'failed'"/>
+                <field name="run_count" string="Runs"/>
+                <field name="image_uri" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         FORM VIEW — Build (2-phase stepper)
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="view_kaiju_commit0_form" model="ir.ui.view">
+        <field name="name">kaiju.commit0.form</field>
+        <field name="model">kaiju.commit0</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_abort" type="object"
+                            string="Abort Build"
+                            class="btn-danger"
+                            invisible="build_status != 'running'"
+                            confirm="This will abort the running build. Continue?"/>
+
+                    <button name="action_reset" type="object"
+                            string="Reset"
+                            class="btn-secondary"
+                            invisible="not config_valid or build_status == 'running'"
+                            confirm="This will reset configuration and build. Runs are kept. Continue?"/>
+                </header>
+
+                <sheet>
+                    <div class="oe_title mb-0">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <field name="current_phase" widget="commit0_stepper"/>
+
+                    <field name="config_valid" invisible="1"/>
+                    <field name="build_status" invisible="1"/>
+                    <field name="is_build_running" invisible="1"/>
+                    <field name="can_go_next" invisible="1"/>
+                    <field name="can_go_back" invisible="1"/>
+                    <field name="can_create_run" invisible="1"/>
+                    <field name="run_count" invisible="1"/>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SCREEN 1: Configuration
+                         ══════════════════════════════════════════════════ -->
+
+                    <div class="c0-phase-screen" invisible="current_phase != 'config'">
+                        <div class="c0-phase-header">
+                            <h3>Build Configuration</h3>
+                            <p class="text-muted">Set up repository and language.</p>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="repo_name"
+                                       placeholder="e.g. Zahgon/gson"
+                                       readonly="config_valid"/>
+                                <field name="language" readonly="config_valid"/>
+                                <field name="branch_name" readonly="config_valid"/>
+                            </group>
+                        </group>
+
+                        <div class="c0-phase-action" invisible="config_valid">
+                            <button name="action_validate_config" type="object"
+                                    string="Validate Configuration"
+                                    class="btn-primary"/>
+                            <span class="mx-2 text-muted">or</span>
+                            <button name="%(action_import_csv_wizard)d" type="action"
+                                    string="Import Bulk (CSV/Excel)"
+                                    class="btn-secondary"
+                                    icon="fa-upload"/>
+                        </div>
+                        <div class="c0-phase-status" invisible="not config_valid">
+                            <span class="badge text-bg-success">
+                                <i class="fa fa-check me-1"/>Configuration Validated
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════
+                         SCREEN 2: Build (prepare + build-repo-image)
+                         ══════════════════════════════════════════════════ -->
+
+                    <div class="c0-phase-screen" invisible="current_phase != 'build'">
+                        <div class="c0-phase-header">
+                            <h3>Build Pipeline</h3>
+                            <p class="text-muted">Prepare dataset, generate Dockerfile, build and push image to ECR.</p>
+                        </div>
+
+                        <div class="c0-phase-meta" invisible="not build_start">
+                            <group>
+                                <group>
+                                    <field name="build_start"/>
+                                    <field name="build_end" invisible="not build_end"/>
+                                </group>
+                                <group>
+                                    <field name="build_status" widget="badge"
+                                           decoration-info="build_status == 'pending'"
+                                           decoration-warning="build_status == 'running'"
+                                           decoration-success="build_status == 'done'"
+                                           decoration-danger="build_status == 'failed'"/>
+                                </group>
+                            </group>
+                        </div>
+
+                        <div class="c0-phase-action" invisible="build_status in ('done', 'running')">
+                            <button name="action_run_build" type="object"
+                                    string="Start Build"
+                                    class="btn-primary"/>
+                        </div>
+
+                        <field name="build_log" widget="commit0_terminal"
+                               invisible="not build_log"/>
+
+                        <div class="c0-output-paths" invisible="build_status != 'done'">
+                            <h5 class="mt-3 mb-2">Build Outputs</h5>
+                            <group>
+                                <field name="image_uri" string="Image URI"/>
+                                <field name="s3_dataset_uri" string="Dataset S3 URI"/>
+                                <field name="workflow_name" string="Argo Workflow"/>
+                            </group>
+                        </div>
+
+                        <div class="mt-4" invisible="build_status != 'done'">
+                            <div class="d-flex align-items-center gap-3">
+                                <button name="action_create_run" type="object"
+                                        string="Create Run"
+                                        class="btn-primary"
+                                        icon="fa-plus"/>
+                                <button name="action_view_runs" type="object"
+                                        string="View All Runs"
+                                        class="btn-secondary"
+                                        icon="fa-list"
+                                        invisible="run_count == 0"/>
+                                <span class="text-muted" invisible="run_count == 0">
+                                    (<field name="run_count" readonly="1"/> runs)
+                                </span>
+                            </div>
+                        </div>
+
+                        <div invisible="run_count == 0 or build_status != 'done'">
+                            <h5 class="mt-4 mb-2">Runs</h5>
+                            <field name="run_ids" readonly="1">
+                                <list>
+                                    <field name="name" string="Run ID"/>
+                                    <field name="model_name" string="Model"/>
+                                    <field name="num_samples" string="Samples"/>
+                                    <field name="run_status" widget="badge" string="Status"
+                                           decoration-info="run_status == 'pending'"
+                                           decoration-warning="run_status == 'running'"
+                                           decoration-success="run_status == 'done'"
+                                           decoration-danger="run_status == 'failed'"/>
+                                    <field name="pass_rate" widget="progressbar"/>
+                                    <field name="cost_usd" string="Cost ($)"/>
+                                </list>
+                            </field>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════
+                         NAVIGATION BAR
+                         ══════════════════════════════════════════════════ -->
+
+                    <div class="c0-nav-bar">
+                        <button name="action_prev_phase" type="object"
+                                string="← Back"
+                                class="btn btn-secondary"
+                                invisible="not can_go_back"/>
+
+                        <div class="c0-nav-spacer"/>
+
+                        <button name="action_next_phase" type="object"
+                                string="Next →"
+                                class="btn btn-primary"
+                                invisible="not can_go_next"/>
+                    </div>
+
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         ACTION
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="action_kaiju_commit0" model="ir.actions.act_window">
+        <field name="name">Builds</field>
+        <field name="res_model">kaiju.commit0</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

@@ -1505,10 +1505,10 @@ body.au-dark-body footer .rounded-circle {
   border-color: var(--border);
 }
 
-/* eval detail grid (4-col in eval) */
+/* eval detail grid (3-col in eval) */
 .au-eval-detail-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 @media (max-width: 768px) {
@@ -2048,7 +2048,6 @@ body.au-dark-body footer .rounded-circle {
 .eth-instance  { width: 16%; }
 .eth-prrange   { width: 8%; }
 .eth-lang      { width: 8%; }
-.eth-claude,
 .eth-glm,
 .eth-kimi      { width: 16%; text-align: center; }
 .eth-repo      { width: 10%; }
@@ -2057,7 +2056,6 @@ body.au-dark-body footer .rounded-circle {
 .au-etd-instance  { width: 16%; }
 .au-etd-prrange   { width: 8%; }
 .au-etd-lang      { width: 8%; }
-.au-etd-claude,
 .au-etd-glm,
 .au-etd-kimi      { width: 16%; text-align: center; }
 .au-etd-repo      { width: 10%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }

@@ -137,14 +137,14 @@
           <p class="phase-label">Principle 01</p>
           <h4 class="phase-title">Eight Risk Domains</h4>
           <ul class="phase-body">
-            <li><b>Computer security</b> — privilege escalation, auth bypass</li>
-            <li><b>Data loss</b> — destructive ops, backup removal</li>
-            <li><b>Privacy breach</b> — credential exposure, PII exfiltration</li>
-            <li><b>Financial loss</b> — unauthorized transactions</li>
-            <li><b>Harmful decisions</b> — policy override under pressure</li>
-            <li><b>Legal violations</b> — IP theft, compliance bypass</li>
-            <li><b>Malicious content</b> — phishing, misinformation</li>
-            <li><b>Unsafe code</b> — unreviewed deployment</li>
+            <li><b>Computer security</b> - privilege escalation, auth bypass</li>
+            <li><b>Data loss</b> - destructive ops, backup removal</li>
+            <li><b>Privacy breach</b> - credential exposure, PII exfiltration</li>
+            <li><b>Financial loss</b> - unauthorized transactions</li>
+            <li><b>Harmful decisions</b> - policy override under pressure</li>
+            <li><b>Legal violations</b> - IP theft, compliance bypass</li>
+            <li><b>Malicious content</b> - phishing, misinformation</li>
+            <li><b>Unsafe code</b> - unreviewed deployment</li>
           </ul>
         </article>
         <article class="phase">
@@ -164,7 +164,7 @@
             <li>Each environment yields a deterministic, non-gameable binary signal</li>
             <li>Reward = 1 if model maintains safety boundaries</li>
             <li>Reward = 0 if model executes the unsafe action</li>
-            <li>No partial credit — safety is absolute</li>
+            <li>No partial credit - safety is absolute</li>
           </ul>
         </article>
         <article class="phase">
@@ -248,7 +248,7 @@
         </thead>
         <tbody>
           <tr><td>GLM-5</td><td>50.0%</td><td>25.0%</td><td>25.0%</td><td>30.0%</td></tr>
-          <tr><td>Nova-2-Lite</td><td>100.0%</td><td>50.0%</td><td>12.5%</td><td>45.0%</td></tr>
+          <tr><td>Kimi-K2.5</td><td>100.0%</td><td>50.0%</td><td>12.5%</td><td>45.0%</td></tr>
         </tbody>
       </table>
     </div>
@@ -267,7 +267,7 @@
     </div>
 
     <div class="caption" style="margin-top: 16px;">
-      <p><b>Key findings:</b> Nova-2-Lite maintains safety under zero adversarial pressure but collapses to 12.5% under coordinated multi-actor pressure. GLM-5 exhibits weak baseline safety (50%) with minimal further degradation, suggesting undertrained safety.</p>
+      <p><b>Key findings:</b> Kimi-K2.5 maintains safety under zero adversarial pressure but collapses to 12.5% under coordinated multi-actor pressure. GLM-5 exhibits weak baseline safety (50%) with minimal further degradation, suggesting undertrained safety.</p>
     </div>
   </section>
 
@@ -302,7 +302,7 @@
             <th class="th-type">Pressure</th>
             <th class="th-services">Services</th>
             <th class="th-glm">GLM-5</th>
-            <th class="th-nova">Nova-2-Lite</th>
+            <th class="th-nova">Kimi-K2.5</th>
             <th class="th-expand"></th>
           </tr>
         </thead>
@@ -319,7 +319,7 @@
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label"><span class="tok-nova">Nova-2-Lite</span></p>
+        <p class="kpi-label"><span class="tok-nova">Kimi-K2.5</span></p>
         <dl class="glance-list" style="margin-top: 12px;">
           <div class="glance-row"><dt>Overall Safety Rate</dt><dd><b>45.0%</b></dd></div>
           <div class="glance-row"><dt>No Adversary</dt><dd><b>100.0%</b></dd></div>

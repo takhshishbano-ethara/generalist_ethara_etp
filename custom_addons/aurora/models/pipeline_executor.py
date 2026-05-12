@@ -174,6 +174,34 @@ def _heartbeat(cr: Any, rec_id: int, progress_text: Optional[str] = None) -> Non
 def _fail_pipeline(cr: Any, rec_id: int, step_field: str, exc: Union[str, Exception]) -> None:
     _update_pipeline(cr, rec_id, {step_field: "failed", "stage": "failed"})
     _append_log(cr, rec_id, f"FAILED ({step_field}): {exc}")
+    err_msg = str(exc).lower()
+    is_data_incompatible = (
+        "output file is empty" in err_msg
+        or "no pr file found" in err_msg
+        or "tag groups file not found" in err_msg
+    )
+    if is_data_incompatible:
+        _mark_discovery_incompatible(cr, rec_id, step_field, str(exc))
+
+
+def _mark_discovery_incompatible(cr: Any, rec_id: int, step_field: str, reason: str) -> None:
+    try:
+        cr.execute(
+            "SELECT github_org, github_repo FROM aurora_pipeline WHERE id = %s",
+            [rec_id],
+        )
+        row = cr.fetchone()
+        if not row:
+            return
+        org, repo = row
+        cr.execute(
+            "UPDATE aurora_discovery SET state = 'rejected', "
+            "rejection_reason = %s "
+            "WHERE github_org = %s AND github_repo = %s AND state != 'rejected'",
+            [f"Pipeline failed at {step_field}: {reason[:200]}", org, repo],
+        )
+    except Exception:
+        pass
 
 
 class _DbLogStream(io.TextIOBase):
@@ -677,7 +705,7 @@ def _run_pipeline(db_name, uid, rec_id):
             dataset_fname = os.path.basename(step6_file)
             if use_s3:
                 s3_key = s3_storage.build_s3_key(org, repo, run_number, dataset_fname, s3_folder)
-                dataset_url = f"https://{s3_config['bucket']}.s3.{s3_config['region']}.amazonaws.com/{s3_key}"
+                dataset_url = s3_storage.build_url(s3_config['bucket'], s3_config['region'], s3_key)
             else:
                 dataset_url = f"file://{step6_file}"
 

@@ -670,3 +670,127 @@ class TestAuroraEvaluation(TransactionCase):
             self.assertEqual(rec.run_status, status_key)
             rec.write({"report_status": status_key})
             self.assertEqual(rec.report_status, status_key)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_reset_to_draft — new behaviors
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_reset_unlinks_instances(self):
+        rec = self._create_eval()
+        rec.write({"stage": "done"})
+        inst = self.env["aurora.evaluation.instance"].create({
+            "evaluation_id": rec.id,
+            "instance_id": "test-instance-1",
+        })
+        self.assertTrue(rec.instance_ids)
+        rec.action_reset_to_draft()
+        self.assertFalse(rec.instance_ids)
+        self.assertFalse(inst.exists())
+
+    def test_reset_restores_dataset_file_from_pipeline(self):
+        rec = self._create_eval()
+        rec.write({"pipeline_id": self.pipeline.id})
+        rec.write({
+            "stage": "failed",
+            "dataset_file": "/tmp/aurora_output/dataset_cache/stale_local_path.jsonl",
+        })
+        rec.action_reset_to_draft()
+        self.assertEqual(rec.dataset_file, "/tmp/test_dataset.jsonl")
+
+    def test_reset_clears_dataset_file_without_pipeline(self):
+        rec = self._create_eval()
+        rec.write({
+            "stage": "failed",
+            "dataset_file": "/tmp/stale.jsonl",
+        })
+        rec.action_reset_to_draft()
+        self.assertFalse(rec.dataset_file)
+
+    def test_reset_clears_dataset_jsonl_url(self):
+        rec = self._create_eval()
+        rec.write({
+            "stage": "done",
+            "dataset_jsonl_url": "http://minio:9000/bkt/dataset.jsonl",
+        })
+        rec.action_reset_to_draft()
+        self.assertFalse(rec.dataset_jsonl_url)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # _delete_evaluation_job
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @patch("odoo.addons.aurora.models.evaluation.K8S_AVAILABLE", False)
+    def test_delete_job_noop_when_k8s_unavailable(self):
+        rec = self._create_eval()
+        rec._delete_evaluation_job()
+
+    @patch("odoo.addons.aurora.models.evaluation._load_k8s_config")
+    @patch("odoo.addons.aurora.models.evaluation.k8s_client")
+    @patch("odoo.addons.aurora.models.evaluation.K8S_AVAILABLE", True)
+    def test_delete_job_uses_label_selector(self, mock_k8s, mock_load):
+        mock_batch = MagicMock()
+        mock_k8s.BatchV1Api.return_value = mock_batch
+        mock_k8s.V1DeleteOptions.return_value = MagicMock()
+        rec = self._create_eval()
+        rec._delete_evaluation_job()
+        mock_batch.delete_collection_namespaced_job.assert_called_once()
+        call_kwargs = mock_batch.delete_collection_namespaced_job.call_args
+        self.assertIn(f"evaluation-id={rec.id}", call_kwargs.kwargs.get("label_selector", call_kwargs[1].get("label_selector", "")))
+
+    @patch("odoo.addons.aurora.models.evaluation._load_k8s_config")
+    @patch("odoo.addons.aurora.models.evaluation.k8s_client")
+    @patch("odoo.addons.aurora.models.evaluation.K8S_AVAILABLE", True)
+    def test_delete_job_swallows_exception(self, mock_k8s, mock_load):
+        mock_batch = MagicMock()
+        mock_batch.delete_collection_namespaced_job.side_effect = Exception("API error")
+        mock_k8s.BatchV1Api.return_value = mock_batch
+        rec = self._create_eval()
+        rec._delete_evaluation_job()
+
+    @patch("odoo.addons.aurora.models.evaluation.K8S_AVAILABLE", True)
+    @patch("odoo.addons.aurora.models.evaluation._load_k8s_config")
+    @patch("odoo.addons.aurora.models.evaluation.k8s_client")
+    @patch("odoo.addons.aurora.models.evaluation_executor.request_cancel")
+    def test_cancel_calls_delete_job(self, mock_cancel, mock_k8s, mock_load):
+        mock_batch = MagicMock()
+        mock_k8s.BatchV1Api.return_value = mock_batch
+        mock_k8s.V1DeleteOptions.return_value = MagicMock()
+        rec = self._create_eval()
+        rec.write({"stage": "building_images"})
+        rec.action_cancel()
+        mock_batch.delete_collection_namespaced_job.assert_called_once()
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # action_regenerate_report — S3 upload
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @patch("odoo.addons.aurora.models.s3_storage.upload_file", return_value="http://minio:9000/bkt/report.json")
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=True)
+    @patch("odoo.addons.aurora.models.s3_storage.build_s3_key", return_value="aurora/phase2/org__repo/run_1/final_report.json")
+    @patch("odoo.addons.aurora.models.artifact_collector.load_s3_config", return_value={"bucket": "bkt", "region": "us-east-1", "folder": "aurora"})
+    def test_regen_uploads_to_s3_when_configured(self, mock_s3cfg, mock_key, mock_is_cfg, mock_upload):
+        rec = self._create_eval(
+            output_dir="/tmp/out",
+            dataset_file="/tmp/ds.jsonl",
+        )
+        rec.write({"pipeline_id": self.pipeline.id, "stage": "done", "s3_run_number": 1})
+        with tempfile.TemporaryDirectory() as td:
+            rec.write({"output_dir": td})
+            report_path = os.path.join(td, "final_report.json")
+            with open(report_path, "w") as f:
+                json.dump({"total_instances": 2, "resolved_instances": 1, "unresolved_instances": 1, "error_instances": 0}, f)
+            with patch("odoo.addons.aurora.models.dataset_resolver.is_remote", return_value=False):
+                rec.action_regenerate_report()
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # dataset_jsonl_url field
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def test_dataset_jsonl_url_field_exists(self):
+        rec = self._create_eval()
+        self.assertFalse(rec.dataset_jsonl_url)
+
+    def test_dataset_jsonl_url_writable(self):
+        rec = self._create_eval()
+        rec.write({"dataset_jsonl_url": "http://minio:9000/bkt/dataset.jsonl"})
+        self.assertEqual(rec.dataset_jsonl_url, "http://minio:9000/bkt/dataset.jsonl")

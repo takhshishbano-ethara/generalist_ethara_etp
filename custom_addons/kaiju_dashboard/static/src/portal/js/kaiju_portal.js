@@ -307,7 +307,7 @@
         '<td class="kj-td-tests">' + d.test_count + '</td>' +
         '<td class="kj-td-python">' + esc(d.setup_python) + '</td>' +
         '<td class="kj-td-glm">' + passRateCell(d.glm5_stage3) + '</td>' +
-        '<td class="kj-td-nova">' + passRateCell(d.nova_stage3) + '</td>' +
+        '<td class="kj-td-kimi">' + passRateCell(d.kimi_stage3) + '</td>' +
         '<td class="kj-td-expand"><span class="kj-expand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></span></td>' +
       '</tr>'
     );
@@ -337,12 +337,12 @@
                 '<div class="kj-detail-row-item"><span class="kj-detail-key">Time (s)</span><span class="kj-detail-val">' + esc(d.glm5_time) + '</span></div>' +
               '</div>' +
               '<div class="kj-detail-block">' +
-                '<div class="kj-detail-block-title">Nova-2-Lite</div>' +
-                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 1</span><span class="kj-detail-val">' + passFloat(d.nova_stage1).toFixed(1) + '%</span></div>' +
-                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 2</span><span class="kj-detail-val">' + passFloat(d.nova_stage2).toFixed(1) + '%</span></div>' +
-                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 3</span><span class="kj-detail-val">' + passFloat(d.nova_stage3).toFixed(1) + '%</span></div>' +
-                '<div class="kj-detail-row-item"><span class="kj-detail-key">Files Changed</span><span class="kj-detail-val">' + esc(d.nova_files) + '</span></div>' +
-                '<div class="kj-detail-row-item"><span class="kj-detail-key">Time (s)</span><span class="kj-detail-val">' + esc(d.nova_time) + '</span></div>' +
+                '<div class="kj-detail-block-title">Kimi K2.5</div>' +
+                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 1</span><span class="kj-detail-val">' + passFloat(d.kimi_stage1).toFixed(1) + '%</span></div>' +
+                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 2</span><span class="kj-detail-val">' + passFloat(d.kimi_stage2).toFixed(1) + '%</span></div>' +
+                '<div class="kj-detail-row-item"><span class="kj-detail-key">Stage 3</span><span class="kj-detail-val">' + passFloat(d.kimi_stage3).toFixed(1) + '%</span></div>' +
+                '<div class="kj-detail-row-item"><span class="kj-detail-key">Files Changed</span><span class="kj-detail-val">' + esc(d.kimi_files) + '</span></div>' +
+                '<div class="kj-detail-row-item"><span class="kj-detail-key">Time (s)</span><span class="kj-detail-val">' + esc(d.kimi_time) + '</span></div>' +
               '</div>' +
             '</div>' +
             (d.repo_path ? '<div class="kj-detail-links" style="margin-top:16px"><a class="kj-detail-link" href="' + esc(d.repo_path) + '" target="_blank" rel="noopener">Fork Repository</a>' + (d.original_repo ? '<a class="kj-detail-link" href="' + esc(d.original_repo) + '" target="_blank" rel="noopener">Original Repository</a>' : '') + '</div>' : '') +
@@ -451,7 +451,7 @@
     var numericKeys = {
       test_count: true,
       glm5_stage3: true,
-      nova_stage3: true,
+      kimi_stage3: true,
     };
 
     filteredData.sort(function (a, b) {

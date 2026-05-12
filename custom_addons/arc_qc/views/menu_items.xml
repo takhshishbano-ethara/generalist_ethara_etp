@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Dashboard client action -->
+    <record id="action_arc_qc_dashboard" model="ir.actions.client">
+        <field name="name">QC Dashboard</field>
+        <field name="tag">arc_qc_dashboard</field>
+    </record>
+
+    <menuitem id="menu_arc_qc_root"
+              name="ARC QC"
+              sequence="81"
+              web_icon="arc_qc,static/description/icon.png"/>
+
+    <menuitem id="menu_arc_qc_dashboard"
+              name="Dashboard"
+              parent="menu_arc_qc_root"
+              action="action_arc_qc_dashboard"
+              sequence="5"/>
+
+    <menuitem id="menu_arc_qc_sessions"
+              name="QC Sessions"
+              parent="menu_arc_qc_root"
+              action="action_arc_qc_session"
+              sequence="10"/>
+
+    <menuitem id="menu_arc_qc_game_results"
+              name="Game Results"
+              parent="menu_arc_qc_root"
+              action="action_arc_qc_game_result"
+              sequence="15"/>
+
+    <menuitem id="menu_arc_qc_findings"
+              name="Findings"
+              parent="menu_arc_qc_root"
+              action="action_arc_qc_finding"
+              sequence="20"/>
+
+</odoo>

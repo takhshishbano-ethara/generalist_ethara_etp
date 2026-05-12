@@ -31,8 +31,8 @@ _ALLOWED_COLUMNS = frozenset({
     "stage", "build_status", "run_status", "report_status",
     "log", "last_heartbeat", "progress_text",
     "total_instances", "resolved_instances", "unresolved_instances",
-    "error_instances", "final_report_file", "missing_registries",
-    "s3_run_number",
+    "error_instances", "final_report_file", "dataset_jsonl_url", "missing_registries",
+    "s3_run_number", "base_dockerfile_content", "base_dockerfile_s3_uri",
 })
 
 _MAX_LOG_SIZE = 2_000_000
@@ -485,7 +485,11 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
     from ..tools.harness.constant import (
         BUILD_IMAGE_WORKDIR, BUILD_IMAGE_LOG_FILE,
     )
+    from ..tools.harness.image import Image
+
     oci_tar_dir = eval_config.output_tar
+    collected_base_dirs: set[str] = set()
+
     for instance in eval_config.instances:
         pr = instance.pr
         image = instance.dependency()
@@ -551,6 +555,31 @@ def _populate_build_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,
                     vals["oci_tar_s3_uri"] = s3_uri
 
         _update_instance(cr, instance_id, vals)
+
+        if not collected_base_dirs and hasattr(image, "dependency"):
+            base_image = image.dependency()
+            if isinstance(base_image, Image):
+                base_workdir_name = base_image.workdir()
+                if base_workdir_name not in collected_base_dirs:
+                    collected_base_dirs.add(base_workdir_name)
+                    base_dir = Path(workdir) / pr.org / pr.repo / BUILD_IMAGE_WORKDIR / base_workdir_name
+                    base_df_name = base_image.dockerfile_name() if hasattr(base_image, "dockerfile_name") else "Dockerfile"
+                    base_df_path = base_dir / base_df_name
+                    if base_df_path.exists():
+                        base_vals: dict[str, Any] = {}
+                        content = _read_capped(str(base_df_path), _INLINE_DOCKERFILE_CAP)
+                        if content is not None:
+                            base_vals["base_dockerfile_content"] = content
+                        base_s3_key = s3_storage.build_s3_key(
+                            pr.org, pr.repo, run_number,
+                            f"base/{base_df_name}",
+                            folder=s3_folder, phase=phase,
+                        )
+                        s3_uri = _upload_artifact(s3_config, use_s3, str(base_df_path), base_s3_key)
+                        if s3_uri:
+                            base_vals["base_dockerfile_s3_uri"] = s3_uri
+                        if base_vals:
+                            _update_eval(cr, rec_id, base_vals)
 
 
 def _populate_run_artifacts(cr: Any, rec_id: int, workdir: str, eval_config,

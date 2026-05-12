@@ -82,6 +82,16 @@
                             <span class="aurora-dash-mini"><t t-esc="state.tokens.total"/> total</span>
                         </div>
                     </div>
+                    <div class="aurora-dash-stat-card aurora-dash-stat-evaluations" t-on-click="() => this.openDiscovery()">
+                        <div class="aurora-dash-stat-icon"><i class="fa fa-search"/></div>
+                        <div class="aurora-dash-stat-num"><t t-esc="state.discovery.total"/></div>
+                        <div class="aurora-dash-stat-label">Discovery</div>
+                        <div class="aurora-dash-stat-breakdown">
+                            <span class="aurora-dash-mini aurora-dash-mini-done"><t t-esc="state.discovery.validated"/> ready</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-running"><t t-esc="state.discovery.promoted"/> used</span>
+                            <span class="aurora-dash-mini aurora-dash-mini-failed"><t t-esc="state.discovery.rejected"/> rejected</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="aurora-dash-panels">

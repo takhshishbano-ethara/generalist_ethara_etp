@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kaiju_commit0.Commit0Terminal">
+        <div t-att-class="'c0-terminal ' + themeClass">
+            <div class="c0-toolbar">
+                <div class="c0-toolbar-left">
+                    <span class="c0-title">
+                        <i class="fa fa-terminal me-1"/>Terminal
+                    </span>
+                    <span t-if="lines.length > 0" class="c0-badge">
+                        <t t-esc="lines.length"/>/<t t-esc="allLines.length"/> lines
+                    </span>
+                    <span t-if="isRevealing" class="c0-badge c0-badge-live">
+                        <i class="fa fa-circle me-1"/>LIVE
+                    </span>
+                </div>
+                <div class="c0-toolbar-right">
+                    <button t-on-click="onCopy" class="c0-btn" title="Copy"
+                            t-att-disabled="isEmpty">
+                        <i t-att-class="state.copied ? 'fa fa-check' : 'fa fa-clipboard'"/>
+                    </button>
+                    <button t-on-click="toggleTheme" class="c0-btn" title="Toggle theme">
+                        <i t-att-class="state.darkTheme ? 'fa fa-sun-o' : 'fa fa-moon-o'"/>
+                    </button>
+                </div>
+            </div>
+            <div class="c0-body" t-ref="termContainer">
+                <t t-if="isEmpty">
+                    <div class="c0-empty">
+                        <i class="fa fa-terminal fa-2x mb-2"/>
+                        <div>No output yet.</div>
+                    </div>
+                </t>
+                <t t-else="">
+                    <table class="c0-table">
+                        <tbody>
+                            <t t-foreach="lines" t-as="line" t-key="line_index">
+                                <tr t-att-class="'c0-row ' + lineClass(line)">
+                                    <td class="c0-gutter"><t t-esc="line_index + 1"/></td>
+                                    <td class="c0-content"><pre><t t-esc="line"/></pre></td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

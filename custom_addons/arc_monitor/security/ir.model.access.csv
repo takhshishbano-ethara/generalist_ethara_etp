@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_arc_monitor_scan_user,arc.monitor.scan.user,model_arc_monitor_scan,arc_monitor.group_arc_monitor_user,1,1,1,0
+access_arc_monitor_scan_admin,arc.monitor.scan.admin,model_arc_monitor_scan,arc_monitor.group_arc_monitor_admin,1,1,1,1

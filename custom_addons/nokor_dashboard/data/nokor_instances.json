@@ -13,7 +13,7 @@
       "llm_calls": 5,
       "avg_latency_seconds": 4.91
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": true,
       "model_answer": "905",
       "cost": 0.01268,
@@ -35,7 +35,7 @@
       "llm_calls": 10,
       "avg_latency_seconds": 4.73
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The card number from pile B that is also persistent is 1.",
       "cost": 0.346737,
@@ -57,7 +57,7 @@
       "llm_calls": 26,
       "avg_latency_seconds": 5.22
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "34",
       "cost": 0.038997,
@@ -79,7 +79,7 @@
       "llm_calls": 41,
       "avg_latency_seconds": 6.54
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "10",
       "cost": 0.039855,
@@ -101,7 +101,7 @@
       "llm_calls": 18,
       "avg_latency_seconds": 6.57
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The correct answer is option B: 4α + k = 8. This satisfies all given conditions including det(PQ) = k³ and det(Q) = k²/8 with integer values k = 4 and α = 1.",
       "cost": 0.034138,
@@ -123,7 +123,7 @@
       "llm_calls": 14,
       "avg_latency_seconds": 3.28
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "839",
       "cost": 0.072479,
@@ -145,7 +145,7 @@
       "llm_calls": 45,
       "avg_latency_seconds": 2.08
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "2",
       "cost": 0.445824,
@@ -167,7 +167,7 @@
       "llm_calls": 32,
       "avg_latency_seconds": 5.18
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "4",
       "cost": 0.110182,
@@ -189,7 +189,7 @@
       "llm_calls": 25,
       "avg_latency_seconds": 2.35
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The exact date when the orbital assembly of the International Space Station was completed, according to the text overlay in the attached ISS Assembly Animation video, was May 24, 2011. This date corresponds to the successful installation and activation of the Alpha Magnetic Spectrometer-02 (AMS-02) during Space Shuttle Endeavour's STS-134 mission, which marked the completion of the US Orbital Segment of the ISS.",
       "cost": 0.69516,
@@ -211,7 +211,7 @@
       "llm_calls": 16,
       "avg_latency_seconds": 2.24
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "79",
       "cost": 0.508076,
@@ -233,7 +233,7 @@
       "llm_calls": 8,
       "avg_latency_seconds": 5.17
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "20",
       "cost": 0.047018,
@@ -255,7 +255,7 @@
       "llm_calls": 9,
       "avg_latency_seconds": 2.13
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "12",
       "cost": 0.191919,
@@ -277,7 +277,7 @@
       "llm_calls": 11,
       "avg_latency_seconds": 1.86
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "0.2699",
       "cost": 0.20117,
@@ -299,7 +299,7 @@
       "llm_calls": 29,
       "avg_latency_seconds": 2.11
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The absolute difference between the Department of Defense and Department of Health and Human Services federal R&amp;D obligation amounts for FY 2021 is 28,968 million dollars.",
       "cost": 0.213395,
@@ -321,7 +321,7 @@
       "llm_calls": 11,
       "avg_latency_seconds": 3.42
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": true,
       "model_answer": "180",
       "cost": 0.02529,
@@ -343,7 +343,7 @@
       "llm_calls": 8,
       "avg_latency_seconds": 6.5
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The optimal strategy for the 100 prisoners and hats puzzle guarantees that 99 prisoners will guess their hat color correctly in the worst case. The first prisoner (at the back) has a 50% chance of being correct, but all subsequent prisoners can determine their hat color correctly based on the parity information encoded by the first prisoner and the previous announcements. Therefore, we can guarantee that at least 99 prisoners will guess correctly.",
       "cost": 0.03802,
@@ -365,7 +365,7 @@
       "llm_calls": 5,
       "avg_latency_seconds": 3.14
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The oldest surviving photograph 'View from the Window at Le Gras' by Joseph Nicéphore Niépce is currently held and displayed at the Harry Ransom Center, which is part of the University of Texas at Austin.",
       "cost": 0.119199,
@@ -387,7 +387,7 @@
       "llm_calls": 7,
       "avg_latency_seconds": 1.46
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The inventor generally credited with filing the FIRST patent for a ballpoint pen mechanism is John Jacob Loud, who filed the patent in 1888.",
       "cost": 0.185435,
@@ -409,7 +409,7 @@
       "llm_calls": 11,
       "avg_latency_seconds": 2.04
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "Based on the Wikipedia list of Nobel Prize in Literature laureates, the prize was not awarded in the following years between 1901 and 2023:\n\n1914, 1918, 1935, 1940, 1941, 1942, 1943, 2018\n\nThat's a total of 8 years where the Nobel Prize in Literature was not awarded during this period.",
       "cost": 0.80338,
@@ -431,7 +431,7 @@
       "llm_calls": 4,
       "avg_latency_seconds": 1.42
     },
-    "nova_2_lite": {
+    "qwen3_vl": {
       "score": false,
       "model_answer": "The second woman to win the Nobel Prize in Physics was Maria Goeppert Mayer in 1963. Therefore, the answer is 1963.",
       "cost": 0.039715,

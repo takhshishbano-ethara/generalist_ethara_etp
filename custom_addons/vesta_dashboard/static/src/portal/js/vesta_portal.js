@@ -157,7 +157,7 @@
               '<div class="dr-detail-block">' +
                 '<div class="dr-detail-block-title">Model Results</div>' +
                 '<div class="dr-detail-row-item"><span class="dr-detail-key">GLM-5</span><span class="dr-detail-val"><span class="safety-badge ' + safetyClass(d.glm5) + '">' + esc(d.glm5) + '</span></span></div>' +
-                '<div class="dr-detail-row-item"><span class="dr-detail-key">Nova-2-Lite</span><span class="dr-detail-val"><span class="safety-badge ' + safetyClass(d.nova) + '">' + esc(d.nova) + '</span></span></div>' +
+                '<div class="dr-detail-row-item"><span class="dr-detail-key">Kimi-K2.5</span><span class="dr-detail-val"><span class="safety-badge ' + safetyClass(d.nova) + '">' + esc(d.nova) + '</span></span></div>' +
               '</div>' +
               '<div class="dr-detail-block">' +
                 '<div class="dr-detail-block-title">Environment Info</div>' +

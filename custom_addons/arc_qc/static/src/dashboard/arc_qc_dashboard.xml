@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="arc_qc.Dashboard">
+        <div class="o_arc_qc_dashboard">
+
+            <!-- ═══════ HEADER ═══════ -->
+            <div class="o_arc_qc_header">
+                <div>
+                    <h2 class="o_arc_qc_header_title">ARC QC Dashboard</h2>
+                    <p class="o_arc_qc_header_sub">Trajectory Quality Control Overview</p>
+                </div>
+                <div class="o_arc_qc_header_actions">
+                    <button class="o_arc_qc_btn o_arc_qc_btn_primary" t-on-click="onNewSession">
+                        <i class="fa fa-plus me-1"/> New Session
+                    </button>
+                    <button class="o_arc_qc_btn" t-on-click="onRefresh" title="Refresh">
+                        <i class="fa fa-refresh"/>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ═══════ LOADING ═══════ -->
+            <div t-if="state.loading" class="o_arc_qc_loading">
+                <i class="fa fa-spinner fa-spin fa-2x"/>
+                <span>Loading dashboard…</span>
+            </div>
+
+            <!-- ═══════ CONTENT ═══════ -->
+            <div t-elif="hasData" class="o_arc_qc_content">
+
+                <!-- ── KPI CARDS ROW ── -->
+                <div class="o_arc_qc_kpi_row">
+                    <div class="o_arc_qc_kpi">
+                        <div class="o_arc_qc_kpi_head">
+                            <i class="fa fa-flag-checkered o_arc_qc_kpi_ico"/>
+                            <span class="o_arc_qc_kpi_lbl">Sessions Run</span>
+                        </div>
+                        <div class="o_arc_qc_kpi_val" t-out="formatNumber(state.kpis.total_sessions)"/>
+                        <div class="o_arc_qc_kpi_sub">
+                            <span class="o_arc_qc_c_ship" t-out="state.kpis.ship_count"/> passed
+                            <span class="o_arc_qc_sep">·</span>
+                            <span class="o_arc_qc_c_block" t-out="state.kpis.block_count"/> blocked
+                            <t t-if="state.kpis.conditional_count">
+                                <span class="o_arc_qc_sep">·</span>
+                                <span class="o_arc_qc_c_cond" t-out="state.kpis.conditional_count"/> conditional
+                            </t>
+                        </div>
+                    </div>
+                    <div class="o_arc_qc_kpi">
+                        <div class="o_arc_qc_kpi_head">
+                            <i class="fa fa-gamepad o_arc_qc_kpi_ico"/>
+                            <span class="o_arc_qc_kpi_lbl">Games Checked</span>
+                        </div>
+                        <div class="o_arc_qc_kpi_val" t-out="formatNumber(state.kpis.total_games)"/>
+                        <div class="o_arc_qc_kpi_sub">
+                            <t t-out="formatNumber(state.kpis.total_runs)"/> runs ·
+                            <t t-out="formatNumber(state.kpis.total_steps)"/> steps
+                        </div>
+                    </div>
+                    <div class="o_arc_qc_kpi">
+                        <div class="o_arc_qc_kpi_head">
+                            <i class="fa fa-line-chart o_arc_qc_kpi_ico"/>
+                            <span class="o_arc_qc_kpi_lbl">Latest Pass Rate</span>
+                        </div>
+                        <div class="o_arc_qc_kpi_val" t-attf-style="color: #{passRateColor}">
+                            <t t-out="state.kpis.latest_game_pass_rate"/>%
+                        </div>
+                        <div class="o_arc_qc_kpi_sub">
+                            <t t-out="state.kpis.latest_games_passed"/>/<t t-out="state.kpis.latest_games_total"/> games passed
+                        </div>
+                    </div>
+                    <div class="o_arc_qc_kpi">
+                        <div class="o_arc_qc_kpi_head">
+                            <i class="fa fa-shield o_arc_qc_kpi_ico"/>
+                            <span class="o_arc_qc_kpi_lbl">Session Pass Rate</span>
+                        </div>
+                        <div class="o_arc_qc_kpi_val" t-attf-style="color: #{state.kpis.session_pass_rate >= 80 ? '#28a745' : state.kpis.session_pass_rate >= 50 ? '#fd7e14' : '#dc3545'}">
+                            <t t-out="state.kpis.session_pass_rate"/>%
+                        </div>
+                        <div class="o_arc_qc_kpi_sub">
+                            <t t-out="state.kpis.ship_count"/>/<t t-out="state.kpis.total_sessions"/> sessions ship
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── THREE-COLUMN: Verdict + Severity + Trend ── -->
+                <div class="o_arc_qc_tri_row">
+
+                    <!-- Verdict Breakdown -->
+                    <div class="o_arc_qc_card">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-pie-chart"/>Verdict Breakdown
+                            <span class="o_arc_qc_badge_latest">Latest</span>
+                        </h4>
+                        <t t-if="state.verdict_breakdown.length">
+                            <!-- Stacked horizontal bar -->
+                            <div class="o_arc_qc_hbar_wrap">
+                                <t t-foreach="state.verdict_breakdown" t-as="v" t-key="v.label">
+                                    <div t-if="v.value"
+                                         class="o_arc_qc_hbar_seg"
+                                         t-attf-style="width: #{verdictPct(v.value)}%; background: #{v.color}"
+                                         t-attf-title="#{v.label}: #{v.value} (#{verdictPct(v.value)}%)"/>
+                                </t>
+                            </div>
+                            <!-- Legend -->
+                            <div class="o_arc_qc_hbar_legend">
+                                <t t-foreach="state.verdict_breakdown" t-as="v" t-key="v.label">
+                                    <div class="o_arc_qc_hbar_legend_item" t-if="v.value">
+                                        <span class="o_arc_qc_dot" t-attf-style="background: #{v.color}"/>
+                                        <span class="o_arc_qc_legend_lbl"><t t-out="v.label"/></span>
+                                        <span class="o_arc_qc_legend_val"><t t-out="v.value"/> (<t t-out="verdictPct(v.value)"/>%)</span>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+                        <div t-else="" class="o_arc_qc_empty_mini">No data</div>
+                    </div>
+
+                    <!-- Severity Distribution -->
+                    <div class="o_arc_qc_card">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-exclamation-circle"/>Severity Distribution
+                            <span class="o_arc_qc_badge_latest">Latest</span>
+                        </h4>
+                        <t t-if="severityTotal">
+                            <div class="o_arc_qc_sev_bars">
+                                <!-- Critical -->
+                                <div class="o_arc_qc_sev_row">
+                                    <span class="o_arc_qc_sev_label o_arc_qc_c_critical">CRITICAL</span>
+                                    <div class="o_arc_qc_sev_bar_track">
+                                        <div class="o_arc_qc_sev_bar_fill" t-attf-style="width: #{severityPct('critical')}%; background: #dc3545"/>
+                                    </div>
+                                    <span class="o_arc_qc_sev_count"><t t-out="formatNumber(state.severity_totals.critical)"/></span>
+                                </div>
+                                <!-- High -->
+                                <div class="o_arc_qc_sev_row">
+                                    <span class="o_arc_qc_sev_label o_arc_qc_c_high">HIGH</span>
+                                    <div class="o_arc_qc_sev_bar_track">
+                                        <div class="o_arc_qc_sev_bar_fill" t-attf-style="width: #{severityPct('high')}%; background: #fd7e14"/>
+                                    </div>
+                                    <span class="o_arc_qc_sev_count"><t t-out="formatNumber(state.severity_totals.high)"/></span>
+                                </div>
+                                <!-- Medium -->
+                                <div class="o_arc_qc_sev_row">
+                                    <span class="o_arc_qc_sev_label o_arc_qc_c_medium">MEDIUM</span>
+                                    <div class="o_arc_qc_sev_bar_track">
+                                        <div class="o_arc_qc_sev_bar_fill" t-attf-style="width: #{severityPct('medium')}%; background: #ffc107"/>
+                                    </div>
+                                    <span class="o_arc_qc_sev_count"><t t-out="formatNumber(state.severity_totals.medium)"/></span>
+                                </div>
+                                <!-- Low -->
+                                <div class="o_arc_qc_sev_row">
+                                    <span class="o_arc_qc_sev_label o_arc_qc_c_low">LOW</span>
+                                    <div class="o_arc_qc_sev_bar_track">
+                                        <div class="o_arc_qc_sev_bar_fill" t-attf-style="width: #{severityPct('low')}%; background: #6c757d"/>
+                                    </div>
+                                    <span class="o_arc_qc_sev_count"><t t-out="formatNumber(state.severity_totals.low)"/></span>
+                                </div>
+                            </div>
+                            <div class="o_arc_qc_sev_total">
+                                <t t-out="formatNumber(severityTotal)"/> total findings
+                            </div>
+                        </t>
+                        <div t-else="" class="o_arc_qc_empty_mini">No findings</div>
+                    </div>
+
+                    <!-- Session Trend -->
+                    <div class="o_arc_qc_card">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-history"/>Session Trend
+                            <span class="o_arc_qc_badge_latest">Last 5</span>
+                        </h4>
+                        <t t-if="state.session_trend.length">
+                            <div class="o_arc_qc_trend">
+                                <t t-foreach="state.session_trend" t-as="t" t-key="t.id">
+                                    <div class="o_arc_qc_trend_item" t-on-click="() => this.onOpenSession(t.id)">
+                                        <div t-attf-class="o_arc_qc_trend_dot #{trendDotClass(t.state)}"/>
+                                        <div class="o_arc_qc_trend_label"><t t-out="t.create_date"/></div>
+                                        <div class="o_arc_qc_trend_detail">
+                                            <t t-out="t.games_passed"/>/<t t-out="t.games_checked"/>
+                                        </div>
+                                    </div>
+                                    <div t-if="!t_last" class="o_arc_qc_trend_line"/>
+                                </t>
+                            </div>
+                        </t>
+                        <div t-else="" class="o_arc_qc_empty_mini">Not enough data</div>
+                    </div>
+                </div>
+
+                <!-- ── TWO-COLUMN: Top Findings (2/3) + Problem Games (1/3) ── -->
+                <div class="o_arc_qc_split_row">
+
+                    <!-- Top Findings -->
+                    <div class="o_arc_qc_card o_arc_qc_split_major" t-if="state.top_findings.length">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-exclamation-triangle"/>Top Finding Codes
+                            <span class="o_arc_qc_badge_latest">Latest</span>
+                        </h4>
+                        <table class="o_arc_qc_table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Severity</th>
+                                    <th class="text-end">Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.top_findings" t-as="f" t-key="f.code + '_' + f.severity">
+                                    <tr>
+                                        <td class="o_arc_qc_mono" t-out="f.code"/>
+                                        <td>
+                                            <span class="o_arc_qc_sev_badge"
+                                                  t-attf-style="background: #{severityColor(f.severity)}">
+                                                <t t-out="f.severity.toUpperCase()"/>
+                                            </span>
+                                        </td>
+                                        <td class="text-end o_arc_qc_num" t-out="formatNumber(f.count)"/>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                        <div class="o_arc_qc_card_footer">
+                            <a href="#" t-on-click.prevent="onViewFindings">View all findings <i class="fa fa-arrow-right ms-1"/></a>
+                        </div>
+                    </div>
+
+                    <!-- Top Problem Games -->
+                    <div class="o_arc_qc_card o_arc_qc_split_minor" t-if="problemGames.length">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-fire"/>Top Problem Games
+                            <span class="o_arc_qc_badge_latest">Latest</span>
+                        </h4>
+                        <div class="o_arc_qc_problem_list">
+                            <t t-foreach="problemGames" t-as="pg" t-key="pg.game_id">
+                                <div class="o_arc_qc_problem_item">
+                                    <div class="o_arc_qc_problem_head">
+                                        <span t-attf-class="o_arc_qc_chip_ico_sm #{pg.verdict === 'block' ? 'o_arc_qc_c_block' : pg.verdict === 'conditional_ship' ? 'o_arc_qc_c_cond' : 'o_arc_qc_c_ship'}">
+                                            <t t-if="pg.verdict === 'ship'">✓</t>
+                                            <t t-elif="pg.verdict === 'conditional_ship'">⚠</t>
+                                            <t t-else="">✗</t>
+                                        </span>
+                                        <span class="o_arc_qc_mono" t-out="pg.game_id"/>
+                                    </div>
+                                    <div class="o_arc_qc_problem_counts">
+                                        <span t-if="pg.critical" class="o_arc_qc_c_critical" t-out="formatNumber(pg.critical)"/>
+                                        <span t-if="pg.critical" class="o_arc_qc_sep">C</span>
+                                        <span t-if="pg.high" class="o_arc_qc_c_high ms-1" t-out="pg.high"/>
+                                        <span t-if="pg.high" class="o_arc_qc_sep">H</span>
+                                        <span t-if="pg.medium" class="o_arc_qc_c_medium ms-1" t-out="pg.medium"/>
+                                        <span t-if="pg.medium" class="o_arc_qc_sep">M</span>
+                                        <span t-if="pg.low" class="o_arc_qc_c_low ms-1" t-out="pg.low"/>
+                                        <span t-if="pg.low" class="o_arc_qc_sep">L</span>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── TWO-COLUMN: Model Health ── -->
+                <div class="o_arc_qc_duo_row">
+
+                    <!-- Model Health -->
+                    <div class="o_arc_qc_card" t-if="state.model_health.length">
+                        <h4 class="o_arc_qc_card_title">
+                            <i class="fa fa-heartbeat"/>Model Health
+                            <span class="o_arc_qc_badge_latest">Latest</span>
+                        </h4>
+                        <div class="o_arc_qc_mh_list">
+                            <t t-foreach="state.model_health" t-as="m" t-key="m.model_dir">
+                                <div class="o_arc_qc_mh_item">
+                                    <div class="o_arc_qc_mh_name" t-out="m.model_dir"/>
+                                    <div class="o_arc_qc_mh_bar_wrap">
+                                        <div class="o_arc_qc_mh_bar"
+                                             t-attf-style="width: #{m.pass_rate}%; background: #{m.pass_rate >= 80 ? '#28a745' : m.pass_rate >= 50 ? '#fd7e14' : '#dc3545'}"/>
+                                    </div>
+                                    <div class="o_arc_qc_mh_stat">
+                                        <strong t-out="m.pass_rate"/>%
+                                        <span class="text-muted ms-1">(<t t-out="m.passing"/>/<t t-out="m.total_games"/>)</span>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── PER-GAME VERDICT GRID ── -->
+                <div class="o_arc_qc_card" t-if="state.game_verdicts.length">
+                    <h4 class="o_arc_qc_card_title">
+                        <i class="fa fa-th"/>Per-Game Verdicts
+                        <span class="o_arc_qc_badge_latest">Latest · <t t-out="state.game_verdicts.length"/> games</span>
+                    </h4>
+                    <div class="o_arc_qc_game_grid">
+                        <t t-foreach="state.game_verdicts" t-as="g" t-key="g.game_id">
+                            <div t-attf-class="o_arc_qc_game_chip o_arc_qc_chip_#{g.verdict === 'ship' ? 'ship' : g.verdict === 'conditional_ship' ? 'cond' : 'block'}"
+                                 t-attf-title="#{g.game_id} — #{g.verdict === 'ship' ? 'SHIP' : g.verdict === 'conditional_ship' ? 'CONDITIONAL' : 'BLOCK'} (C:#{g.critical} H:#{g.high} M:#{g.medium} L:#{g.low})">
+                                <span class="o_arc_qc_chip_ico">
+                                    <t t-if="g.verdict === 'ship'">✓</t>
+                                    <t t-elif="g.verdict === 'conditional_ship'">⚠</t>
+                                    <t t-else="">✗</t>
+                                </span>
+                                <span class="o_arc_qc_chip_id" t-out="g.game_id"/>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- ── RECENT SESSIONS TABLE ── -->
+                <div class="o_arc_qc_card" t-if="state.sessions.length">
+                    <h4 class="o_arc_qc_card_title">
+                        <i class="fa fa-list"/>Recent Sessions
+                    </h4>
+                    <div class="o_arc_qc_table_scroll">
+                        <table class="o_arc_qc_table">
+                            <thead>
+                                <tr>
+                                    <th>Reference</th>
+                                    <th>State</th>
+                                    <th class="text-end">Games</th>
+                                    <th class="text-end">Critical</th>
+                                    <th class="text-end">High</th>
+                                    <th class="text-end">Medium</th>
+                                    <th class="text-end">Low</th>
+                                    <th class="text-end">Duration</th>
+                                    <th class="text-end">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.sessions" t-as="s" t-key="s.id">
+                                    <tr class="o_arc_qc_clickrow" t-on-click="() => this.onOpenSession(s.id)">
+                                        <td class="o_arc_qc_ref_cell" t-out="s.name"/>
+                                        <td>
+                                            <span t-attf-class="o_arc_qc_state_pill #{stateClass(s.state)}"
+                                                  t-out="stateLabel(s.state)"/>
+                                        </td>
+                                        <td class="text-end" t-out="s.games_checked"/>
+                                        <td class="text-end o_arc_qc_c_critical" t-out="formatNumber(s.critical_count)"/>
+                                        <td class="text-end o_arc_qc_c_high" t-out="formatNumber(s.high_count)"/>
+                                        <td class="text-end o_arc_qc_c_medium" t-out="formatNumber(s.medium_count)"/>
+                                        <td class="text-end text-muted" t-out="formatNumber(s.low_count)"/>
+                                        <td class="text-end" t-out="formatDuration(s.duration_seconds)"/>
+                                        <td class="text-end text-muted" t-out="s.create_date ? s.create_date.substring(0, 10) : ''"/>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="o_arc_qc_card_footer">
+                        <a href="#" t-on-click.prevent="onViewAllSessions">View all sessions <i class="fa fa-arrow-right ms-1"/></a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════ EMPTY STATE ═══════ -->
+            <div t-elif="!state.loading" class="o_arc_qc_empty">
+                <i class="fa fa-flask fa-3x"/>
+                <h3>No QC sessions yet</h3>
+                <p>Create your first session to start validating trajectory data.</p>
+                <button class="o_arc_qc_btn o_arc_qc_btn_primary" t-on-click="onNewSession">
+                    <i class="fa fa-plus me-1"/> New QC Session
+                </button>
+            </div>
+
+        </div>
+    </t>
+</templates>

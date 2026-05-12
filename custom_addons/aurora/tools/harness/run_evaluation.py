@@ -31,7 +31,9 @@ from .pull_request import PullRequestBase, Repository
 
 
 def get_non_propagate_logger(log_dir, log_file, log_level, log_to_console):
-    logger = logging.getLogger(f"aurora.harness.img.{log_file}")
+    # Use log_dir in logger name so each image gets its own FileHandler
+    safe_dir = str(log_dir).replace("/", ".").replace("\\", ".")
+    logger = logging.getLogger(f"aurora.harness.img.{safe_dir}.{log_file}")
     logger.setLevel(getattr(logging, log_level, logging.INFO))
     logger.propagate = False
     if not logger.handlers:

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_arc_eval_game_list" model="ir.ui.view">
+        <field name="name">arc.eval.game.list</field>
+        <field name="model">arc.eval.game</field>
+        <field name="arch" type="xml">
+            <list string="ARC Games" decoration-muted="not active">
+                <field name="code"/>
+                <field name="title"/>
+                <field name="game_type"/>
+                <field name="active" widget="boolean_toggle"/>
+                <field name="last_synced_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_arc_eval_game_form" model="ir.ui.view">
+        <field name="name">arc.eval.game.form</field>
+        <field name="model">arc.eval.game</field>
+        <field name="arch" type="xml">
+            <form string="ARC Game">
+                <sheet>
+                    <group>
+                        <field name="code"/>
+                        <field name="title"/>
+                        <field name="game_type"/>
+                        <field name="active"/>
+                        <field name="last_synced_at" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_arc_eval_game_search" model="ir.ui.view">
+        <field name="name">arc.eval.game.search</field>
+        <field name="model">arc.eval.game</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="code"/>
+                <field name="title"/>
+                <field name="game_type"/>
+                <separator/>
+                <filter string="Active" name="filter_active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="filter_archived" domain="[('active', '=', False)]"/>
+                <separator/>
+                <filter string="Never Synced" name="filter_not_synced" domain="[('last_synced_at', '=', False)]"/>
+                <separator/>
+                <group>
+                    <filter string="Game Type" name="groupby_game_type" context="{'group_by': 'game_type'}"/>
+                    <filter string="Active" name="groupby_active" context="{'group_by': 'active'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_arc_eval_game" model="ir.actions.act_window">
+        <field name="name">Games</field>
+        <field name="res_model">arc.eval.game</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_arc_eval_game_search"/>
+        <field name="context">{'search_default_filter_active': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No games cached yet. Run "Refresh from arc-explainer" to fetch the catalog.
+            </p>
+        </field>
+    </record>
+
+    <record id="action_arc_eval_game_refresh" model="ir.actions.server">
+        <field name="name">Refresh from arc-explainer</field>
+        <field name="model_id" ref="model_arc_eval_game"/>
+        <field name="state">code</field>
+        <field name="code">model.action_refresh_from_api()</field>
+    </record>
+
+</odoo>

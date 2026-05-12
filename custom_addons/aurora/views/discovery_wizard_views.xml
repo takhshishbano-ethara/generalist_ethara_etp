@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="aurora_discovery_wizard_view_form" model="ir.ui.view">
+        <field name="name">aurora.discovery.wizard.form</field>
+        <field name="model">aurora.discovery.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Discover Repositories">
+                <group invisible="state != 'config'">
+                    <group string="Sources">
+                        <field name="source_search"/>
+                    </group>
+                    <group string="Filters">
+                        <field name="language"/>
+                        <field name="min_stars"/>
+                        <field name="max_results"/>
+                        <field name="min_language_pct"/>
+                    </group>
+                </group>
+                <group invisible="state == 'config'">
+                    <group string="Results Summary" invisible="state != 'done'">
+                        <field name="total_searched"/>
+                        <field name="already_excluded"/>
+                        <field name="incompatible_count"/>
+                        <field name="result_count"/>
+                    </group>
+                    <field name="log" widget="text" readonly="1"/>
+                </group>
+                <field name="state" invisible="1"/>
+                <footer>
+                    <button name="action_discover" string="Run Discovery" type="object"
+                            class="btn-primary" invisible="state != 'config'"/>
+                    <button name="action_view_results" string="View Results" type="object"
+                            class="btn-primary" invisible="state != 'done'"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_aurora_discovery_wizard_open" model="ir.actions.act_window">
+        <field name="name">Run Discovery</field>
+        <field name="res_model">aurora.discovery.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

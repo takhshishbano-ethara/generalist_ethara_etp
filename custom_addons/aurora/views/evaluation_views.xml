@@ -191,7 +191,26 @@
                     <div class="aurora-config-panel" invisible="stage != 'done'">
                         <div class="aurora-config-header"><i class="fa fa-file-text-o" title="Report"/> Report File</div>
                         <div class="aurora-config-body">
-                            <group><field name="final_report_file" readonly="1"/></group>
+                            <group>
+                                <field name="final_report_file" widget="url" readonly="1"
+                                       invisible="not final_report_file"/>
+                                <field name="dataset_jsonl_url" widget="url" readonly="1"
+                                       invisible="not dataset_jsonl_url"/>
+                            </group>
+                        </div>
+                    </div>
+
+                    <div class="aurora-config-panel" invisible="not base_dockerfile_content">
+                        <div class="aurora-config-header">
+                            <i class="fa fa-file-code-o" title="Base Dockerfile"/> Base Dockerfile
+                            <field name="show_base_dockerfile" widget="boolean_toggle" nolabel="1"
+                                   class="ms-2 d-inline"/>
+                        </div>
+                        <div class="aurora-config-body" invisible="not show_base_dockerfile">
+                            <field name="base_dockerfile_s3_uri" widget="url" readonly="1"
+                                   invisible="not base_dockerfile_s3_uri" string="S3 URI"/>
+                            <field name="base_dockerfile_content" readonly="1"
+                                   widget="ace" options="{'mode': 'sh'}" nolabel="1"/>
                         </div>
                     </div>
 
@@ -267,6 +286,9 @@
                         <div class="aurora-paths-header"><i class="fa fa-folder-open-o" title="Paths"/> Output Paths</div>
                         <div class="aurora-paths-body">
                             <group>
+                                <field name="s3_base_uri" readonly="1" invisible="not s3_base_uri"
+                                       string="S3 Base Path"/>
+                                <field name="s3_run_number" readonly="1" invisible="not s3_run_number"/>
                                 <field name="output_dir" readonly="1"/>
                                 <field name="patch_file" readonly="1" invisible="not patch_file"/>
                                 <field name="workdir" readonly="1" invisible="not workdir"/>

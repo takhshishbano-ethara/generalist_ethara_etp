@@ -175,8 +175,9 @@ def _setup_buildx_builder():
 _ALLOWED_EVAL_COLUMNS = frozenset({
     "stage", "build_status", "run_status", "report_status",
     "total_instances", "resolved_instances", "unresolved_instances", "error_instances",
-    "final_report_file", "missing_registries", "patch_file", "repo_dir", "workdir",
+    "final_report_file", "dataset_jsonl_url", "missing_registries", "patch_file", "repo_dir", "workdir",
     "output_dir", "last_heartbeat", "progress_text", "log", "s3_run_number",
+    "base_dockerfile_content", "base_dockerfile_s3_uri",
 })
 
 
@@ -609,6 +610,45 @@ def run_evaluation(db_name: str, rec_id: int):
                     _append_log(conn, rec_id, f"Registry sync failed for {org_name}/{repo_name}: {exc}")
             _append_log(conn, rec_id, f"Registry sync complete: {synced}/{len(missing_pairs)} synced.")
 
+        # Load staged harnesses from DB for repos still missing after GitHub sync
+        still_missing = {
+            (org, repo) for org, repo, _lang in missing_pairs
+            if f"{org}/{repo}" not in Instance._registry
+        }
+        if still_missing:
+            import base64
+            import tempfile
+            from odoo.addons.aurora.tools.harness.staging_loader import load_staging_harness
+            # Ensure shadow aliases (multi_swe_bench.* -> odoo.addons.aurora.*)
+            # are registered so staging harness files using either import style work.
+            from odoo.addons.aurora.tools.harness_bridge.phase2_docker_build import (
+                _ensure_harness_importable,
+            )
+            _ensure_harness_importable()
+            placeholders = ",".join(["%s"] * len(still_missing))
+            keys = [f"{org}/{repo}" for org, repo in still_missing]
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT org, repo, harness_file, harness_filename "
+                    f"FROM aurora_harness_staging "
+                    f"WHERE active = TRUE AND stage IN ('tested', 'evaluating') "
+                    f"AND org || '/' || repo IN ({placeholders})",
+                    keys,
+                )
+                rows = cur.fetchall()
+            for org_name, repo_name, harness_b64, filename in rows:
+                try:
+                    content = base64.b64decode(harness_b64)
+                    tmp_dir = tempfile.mkdtemp(prefix="staging_harness_")
+                    file_path = os.path.join(tmp_dir, filename or f"{repo_name}.py")
+                    with open(file_path, "wb") as fh:
+                        fh.write(content)
+                    load_staging_harness(file_path, org_name, repo_name)
+                    _append_log(conn, rec_id, f"Loaded staging harness from DB: {org_name}/{repo_name}")
+                except Exception as exc:
+                    _logger.exception("Failed to load staging harness for %s/%s", org_name, repo_name)
+                    _append_log(conn, rec_id, f"Staging harness load failed for {org_name}/{repo_name}: {exc}")
+
         # Parse specifics filter
         specifics = None
         if cfg["specific_prs"]:
@@ -640,7 +680,39 @@ def run_evaluation(db_name: str, rec_id: int):
 
         total_instances = len(eval_config.instances)
         if total_instances == 0:
-            _fail_eval(conn, rec_id, "No instances matched dataset + harness registry.")
+            # Determine which repos are missing from the harness registry
+            # (mirrors logic in evaluation_executor.py)
+            total_dataset = len(eval_config.dataset)
+            missing_repos = set()
+            if total_dataset > 0:
+                for pr in eval_config.dataset.values():
+                    key = f"{pr.org}/{pr.repo}"
+                    if key not in Instance._registry:
+                        missing_repos.add(key)
+            missing_list = ", ".join(sorted(missing_repos))
+
+            if total_dataset == 0:
+                msg = (
+                    f"Dataset is empty or unreadable.\n"
+                    f"Dataset file: {os.path.abspath(dataset_file)}\n"
+                    f"File exists on worker: {os.path.isfile(dataset_file)}\n"
+                    f"Verify the dataset path is absolute and the file is reachable "
+                    f"from the K8s worker pod."
+                )
+            else:
+                msg = (
+                    f"No registered harness instances found. "
+                    f"Dataset has {total_dataset} entries but 0 could be matched "
+                    f"to a harness implementation.\n"
+                    f"Missing harness registry for: {missing_list}\n"
+                    f"Add a harness implementation in tools/harness/repos/ for these repos."
+                )
+
+            _update_eval(conn, rec_id, {
+                "missing_registries": missing_list,
+                "build_status": "failed",
+            })
+            _fail_eval(conn, rec_id, msg)
             return
 
         _append_log(conn, rec_id, f"Found {total_instances} instances to evaluate.")
@@ -678,11 +750,18 @@ def run_evaluation(db_name: str, rec_id: int):
             _fail_eval(conn, rec_id, f"Image build failed: {exc}")
             raise
 
-        _safe_collect(conn, rec_id, "post-build", lambda: artifact_collector.populate_build_artifacts(
-            conn, rec_id, cfg["workdir"], eval_config.instances,
-            s3_config, use_s3, run_numbers, s3_folder, phase,
-            oci_tar_dir=str(oci_tar_dir) if oci_tar_dir else None,
-        ))
+        try:
+            base_info = artifact_collector.populate_build_artifacts(
+                conn, rec_id, cfg["workdir"], eval_config.instances,
+                s3_config, use_s3, run_numbers, s3_folder, phase,
+                oci_tar_dir=str(oci_tar_dir) if oci_tar_dir else None,
+            )
+            if base_info:
+                _update_eval(conn, rec_id, base_info)
+        except Exception as exc:
+            _logger.warning("Artifact collection post-build failed for eval=%s: %s",
+                            rec_id, exc, exc_info=True)
+            _append_log(conn, rec_id, f"[warn] post-build artifact collection failed: {exc}")
 
         # ── Stage 2: Run Instances ────────────────────────────────────────
         _check_cancelled()
@@ -743,6 +822,47 @@ def run_evaluation(db_name: str, rec_id: int):
             s3_config, use_s3, run_numbers, s3_folder, phase,
         ))
 
+        # ── Upload dataset JSONL to S3 ────────────────────────────────────
+        import glob as _glob
+        dataset_jsonl_url = None
+        final_report_url = None
+        org_for_s3 = eval_config.instances[0].pr.org if eval_config.instances else "unknown"
+        repo_for_s3 = eval_config.instances[0].pr.repo if eval_config.instances else "unknown"
+        run_num_for_s3 = run_numbers.get((org_for_s3, repo_for_s3), 1) if eval_config.instances else 1
+
+        if use_s3:
+            dataset_jsonl_files = _glob.glob(
+                os.path.join(cfg["output_dir"], "*_dataset.jsonl")
+            )
+            if dataset_jsonl_files:
+                uploaded_urls = []
+                for djf in dataset_jsonl_files:
+                    fname = os.path.basename(djf)
+                    s3_key = s3_storage_mod.build_s3_key(
+                        org_for_s3, repo_for_s3, run_num_for_s3,
+                        fname, folder=s3_folder, phase=phase,
+                    )
+                    try:
+                        url = s3_storage_mod.upload_file(s3_config, djf, s3_key)
+                        uploaded_urls.append(url)
+                        _append_log(conn, rec_id, f"Dataset JSONL uploaded to S3: {s3_key}")
+                    except Exception as exc:
+                        _logger.warning("Failed to upload dataset JSONL %s: %s", djf, exc)
+                if uploaded_urls:
+                    dataset_jsonl_url = uploaded_urls[0] if len(uploaded_urls) == 1 else ",".join(uploaded_urls)
+
+            final_report_path_for_upload = Path(cfg["output_dir"]) / "final_report.json"
+            if final_report_path_for_upload.exists():
+                s3_key = s3_storage_mod.build_s3_key(
+                    org_for_s3, repo_for_s3, run_num_for_s3,
+                    "final_report.json", folder=s3_folder, phase=phase,
+                )
+                try:
+                    final_report_url = s3_storage_mod.upload_file(s3_config, str(final_report_path_for_upload), s3_key)
+                    _append_log(conn, rec_id, f"Final report uploaded to S3: {s3_key}")
+                except Exception as exc:
+                    _logger.warning("Failed to upload final_report.json: %s", exc)
+
         # ── Finalize ──────────────────────────────────────────────────────
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"
         total = resolved = unresolved = errors = 0
@@ -764,7 +884,8 @@ def run_evaluation(db_name: str, rec_id: int):
             "resolved_instances": resolved,
             "unresolved_instances": unresolved,
             "error_instances": errors,
-            "final_report_file": str(final_report_path) if final_report_path.exists() else None,
+            "final_report_file": final_report_url or (str(final_report_path) if final_report_path.exists() else None),
+            "dataset_jsonl_url": dataset_jsonl_url,
         })
         _append_log(conn, rec_id, f"Evaluation complete: {resolved}/{total} resolved.")
         _logger.info("Evaluation %s complete: %d/%d resolved", rec_id, resolved, total)

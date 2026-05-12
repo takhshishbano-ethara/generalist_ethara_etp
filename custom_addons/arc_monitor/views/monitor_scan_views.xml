@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List View -->
+    <record id="view_arc_monitor_scan_list" model="ir.ui.view">
+        <field name="name">arc.monitor.scan.list</field>
+        <field name="model">arc.monitor.scan</field>
+        <field name="arch" type="xml">
+            <list string="Monitor Scans" decoration-danger="state == 'error'" decoration-info="state == 'scanning'">
+                <field name="name"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-info="state == 'scanning'"
+                       decoration-danger="state == 'error'"
+                       decoration-muted="state == 'draft'"/>
+                <field name="source_type"/>
+                <field name="trigger"/>
+                <field name="total_runs"/>
+                <field name="pass_count"/>
+                <field name="partial_count"/>
+                <field name="fail_count"/>
+                <field name="total_cost" widget="monetary" optional="hide"/>
+                <field name="duration_seconds" string="Duration" optional="hide"/>
+                <field name="scan_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_arc_monitor_scan_form" model="ir.ui.view">
+        <field name="name">arc.monitor.scan.form</field>
+        <field name="model">arc.monitor.scan</field>
+        <field name="arch" type="xml">
+            <form string="Monitor Scan">
+                <header>
+                    <button name="action_scan" string="Run Scan" type="object"
+                            class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object"
+                            invisible="state not in ('done', 'error')"
+                            confirm="This will clear all scan results. Continue?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,scanning,done"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Source">
+                            <field name="source_type" widget="radio"/>
+                            <field name="session_path"
+                                   invisible="source_type != 'local'"
+                                   required="source_type == 'local'"/>
+                            <field name="repo_url"
+                                   invisible="source_type != 'git'"
+                                   required="source_type == 'git'"
+                                   placeholder="https://github.com/org/repo"/>
+                            <field name="repo_token"
+                                   invisible="source_type != 'git'"
+                                   password="True"
+                                   placeholder="ghp_xxxx..."/>
+                            <field name="repo_branch"
+                                   invisible="source_type != 'git'"/>
+                            <field name="clone_path"
+                                   invisible="not clone_path"/>
+                        </group>
+                        <group string="Info">
+                            <field name="trigger" readonly="1"/>
+                            <field name="scan_date"/>
+                            <field name="duration_seconds"/>
+                        </group>
+                    </group>
+                    <group string="Results" invisible="state in ('draft', 'scanning')">
+                        <group>
+                            <field name="total_runs"/>
+                            <field name="total_games"/>
+                            <field name="total_models"/>
+                        </group>
+                        <group string="Status Breakdown">
+                            <field name="pass_count"/>
+                            <field name="partial_count"/>
+                            <field name="fail_count"/>
+                        </group>
+                    </group>
+                    <group string="Totals" invisible="state in ('draft', 'scanning')">
+                        <group>
+                            <field name="total_cost"/>
+                            <field name="total_tokens"/>
+                            <field name="total_elapsed"/>
+                        </group>
+                    </group>
+                    <group string="Error" invisible="not error_message">
+                        <field name="error_message" readonly="1"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_arc_monitor_scan_search" model="ir.ui.view">
+        <field name="name">arc.monitor.scan.search</field>
+        <field name="model">arc.monitor.scan</field>
+        <field name="arch" type="xml">
+            <search string="Monitor Scans">
+                <field name="name" string="Scan" filter_domain="[('name', 'ilike', self)]"/>
+                <field name="session_path"/>
+                <filter name="done" string="Done" domain="[('state', '=', 'done')]"/>
+                <filter name="error" string="Error" domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter name="cron" string="Cron" domain="[('trigger', '=', 'cron')]"/>
+                <filter name="manual" string="Manual" domain="[('trigger', '=', 'manual')]"/>
+                <separator/>
+                <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                <filter name="group_trigger" string="Trigger" context="{'group_by': 'trigger'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_arc_monitor_scan" model="ir.actions.act_window">
+        <field name="name">Monitor Scans</field>
+        <field name="res_model">arc.monitor.scan</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_arc_monitor_scan_search"/>
+    </record>
+
+</odoo>

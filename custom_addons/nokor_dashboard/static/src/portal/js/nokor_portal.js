@@ -310,7 +310,7 @@
 
     data.forEach(function (row) {
       if (row.kimi_k2_5 && row.kimi_k2_5.score) kimiPass++;
-      if (row.nova_2_lite && row.nova_2_lite.score) novaPass++;
+      if (row.qwen3_vl && row.qwen3_vl.score) novaPass++;
       if (row.level === 'Hard') hardCount++;
       else if (row.level === 'Very Hard') vhardCount++;
       else if (row.level === 'Expert') expertCount++;
@@ -358,7 +358,7 @@
       var items = data.filter(function (r) { return r.level === lvl.name; });
       var count = items.length;
       var kimiPass = items.filter(function (r) { return r.kimi_k2_5 && r.kimi_k2_5.score; }).length;
-      var novaPass = items.filter(function (r) { return r.nova_2_lite && r.nova_2_lite.score; }).length;
+      var novaPass = items.filter(function (r) { return r.qwen3_vl && r.qwen3_vl.score; }).length;
       var combinedPass = kimiPass + novaPass;
       var combinedTotal = count * 2;
       var kimiPct = count > 0 ? Math.round((kimiPass / count) * 100) : 0;
@@ -390,7 +390,7 @@
         var catItems = data.filter(function (r) { return r.category === cat; });
         var catTotal = catItems.length * 2;
         var catPass = catItems.filter(function (r) { return r.kimi_k2_5 && r.kimi_k2_5.score; }).length +
-                      catItems.filter(function (r) { return r.nova_2_lite && r.nova_2_lite.score; }).length;
+                      catItems.filter(function (r) { return r.qwen3_vl && r.qwen3_vl.score; }).length;
         var catPct = catTotal > 0 ? Math.round((catPass / catTotal) * 100) : 0;
         stripHtml += '<div class="mod-item"><span class="mod-pct">' + catPct + '%</span><span class="mod-name mono">' + formatCategory(cat) + '</span></div>';
       });
@@ -407,7 +407,7 @@
       var items = data.filter(function (r) { return r.level === lvlName; });
       var count = items.length;
       var kimiCorrect = items.filter(function (r) { return r.kimi_k2_5 && r.kimi_k2_5.score; }).length;
-      var novaCorrect = items.filter(function (r) { return r.nova_2_lite && r.nova_2_lite.score; }).length;
+      var novaCorrect = items.filter(function (r) { return r.qwen3_vl && r.qwen3_vl.score; }).length;
       var totalAttempts = count * 2;
       var totalPass = kimiCorrect + novaCorrect;
       var failPct = totalAttempts > 0 ? Math.round(((totalAttempts - totalPass) / totalAttempts) * 100) : 0;
@@ -461,9 +461,9 @@
           av = a.kimi_k2_5 ? (a.kimi_k2_5.score ? 1 : 0) : -1;
           bv = b.kimi_k2_5 ? (b.kimi_k2_5.score ? 1 : 0) : -1;
           return (av - bv) * dir;
-        case 'nova_pass':
-          av = a.nova_2_lite ? (a.nova_2_lite.score ? 1 : 0) : -1;
-          bv = b.nova_2_lite ? (b.nova_2_lite.score ? 1 : 0) : -1;
+        case 'qwen3_pass':
+          av = a.qwen3_vl ? (a.qwen3_vl.score ? 1 : 0) : -1;
+          bv = b.qwen3_vl ? (b.qwen3_vl.score ? 1 : 0) : -1;
           return (av - bv) * dir;
         default:
           return 0;
@@ -489,7 +489,7 @@
       var id = row.task_id;
       var shortId = id.length > 8 ? id.substring(0, 8) + '…' : id;
       var kimiScore = row.kimi_k2_5 ? row.kimi_k2_5.score : null;
-      var novaScore = row.nova_2_lite ? row.nova_2_lite.score : null;
+      var novaScore = row.qwen3_vl ? row.qwen3_vl.score : null;
       var diffClass = 'diff-badge diff-badge--' + row.level.toLowerCase().replace(/\s+/g, '-');
       var isExpanded = evalState.expanded[id];
 
@@ -532,14 +532,14 @@
           html += '</div>';
         }
 
-        // Nova-2-Lite
-        if (row.nova_2_lite) {
+        // Qwen3-VL
+        if (row.qwen3_vl) {
           html += '<div class="detail-block">';
-          html += '<div class="detail-block-title">Nova-2-Lite</div>';
-          html += '<div class="detail-row-item"><span class="detail-key">Score</span><span class="detail-val">' + scoreBadge(row.nova_2_lite.score) + '</span></div>';
-          html += '<div class="detail-row-item detail-row-item--answer"><span class="detail-key">Answer</span><span class="detail-val">' + renderAnswerCell(String(row.nova_2_lite.model_answer || ''), id + '-nova') + '</span></div>';
-          html += '<div class="detail-row-item"><span class="detail-key">LLM Calls</span><span class="detail-val">' + (row.nova_2_lite.llm_calls || 0) + '</span></div>';
-          html += '<div class="detail-row-item"><span class="detail-key">Avg Latency</span><span class="detail-val">' + (row.nova_2_lite.avg_latency_seconds || 0).toFixed(2) + 's</span></div>';
+          html += '<div class="detail-block-title">Qwen3-VL</div>';
+          html += '<div class="detail-row-item"><span class="detail-key">Score</span><span class="detail-val">' + scoreBadge(row.qwen3_vl.score) + '</span></div>';
+          html += '<div class="detail-row-item detail-row-item--answer"><span class="detail-key">Answer</span><span class="detail-val">' + renderAnswerCell(String(row.qwen3_vl.model_answer || ''), id + '-nova') + '</span></div>';
+          html += '<div class="detail-row-item"><span class="detail-key">LLM Calls</span><span class="detail-val">' + (row.qwen3_vl.llm_calls || 0) + '</span></div>';
+          html += '<div class="detail-row-item"><span class="detail-key">Avg Latency</span><span class="detail-val">' + (row.qwen3_vl.avg_latency_seconds || 0).toFixed(2) + 's</span></div>';
           html += '</div>';
         }
 

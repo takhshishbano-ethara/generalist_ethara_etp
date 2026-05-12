@@ -288,7 +288,7 @@
   var evalAllData = [];
   var evalFilteredData = [];
   var evalCurrentPage = 1;
-  var evalCurrentSort = "claude_pass";
+  var evalCurrentSort = "glm_pass";
   var evalCurrentSortDir = -1;
   var evalExpandedId = null;
 
@@ -375,7 +375,6 @@
   }
 
   function evalRenderRow(d, isExpanded) {
-    var claude = d.models && d.models["Claude Opus 4.6"] ? d.models["Claude Opus 4.6"] : {};
     var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
     var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
 
@@ -386,7 +385,6 @@
         '</td>' +
         '<td class="au-etd-prrange"><span class="au-eval-prrange-badge">' + esc(d.pr_range || "N/A") + '</span></td>' +
         '<td class="au-etd-lang"><span class="au-lang-badge ' + langClass(d.language) + '">' + esc(d.language || "N/A") + '</span></td>' +
-        '<td class="au-etd-claude">' + evalPassCell(claude.pass_at_3) + '</td>' +
         '<td class="au-etd-glm">' + evalPassCell(glm.pass_at_3) + '</td>' +
         '<td class="au-etd-kimi">' + evalPassCell(kimi.pass_at_3) + '</td>' +
         '<td class="au-etd-repo">' +
@@ -398,7 +396,6 @@
   }
 
   function evalRenderDetailRow(d) {
-    var claude = d.models && d.models["Claude Opus 4.6"] ? d.models["Claude Opus 4.6"] : {};
     var glm = d.models && d.models["GLM 5"] ? d.models["GLM 5"] : {};
     var kimi = d.models && d.models["Kimi K2.5"] ? d.models["Kimi K2.5"] : {};
 
@@ -417,7 +414,7 @@
 
     return (
       '<tr class="au-detail-row" data-eval-detail-for="' + esc(d.instance_id) + '">' +
-        '<td colspan="8">' +
+        '<td colspan="7">' +
           '<div class="au-detail-content">' +
             '<div class="au-eval-detail-grid">' +
               '<div class="au-detail-block">' +
@@ -431,7 +428,6 @@
                 '<div class="au-detail-row-item"><span class="au-detail-key">Est. Time (min)</span><span class="au-detail-val">' + (d.estimated_time || 0).toFixed(1) + '</span></div>' +
                 '<div class="au-detail-row-item"><span class="au-detail-key">PRs</span><span class="au-detail-val">' + ((d.pr_urls || []).length) + '</span></div>' +
               '</div>' +
-              modelBlock("Claude Opus 4.6", claude) +
               modelBlock("GLM 5", glm) +
               modelBlock("Kimi K2.5", kimi) +
             '</div>' +
@@ -526,11 +522,6 @@
     evalFilteredData.sort(function (a, b) {
       var av, bv;
 
-      if (key === "claude_pass") {
-        av = evalParsePass(a.models && a.models["Claude Opus 4.6"] ? a.models["Claude Opus 4.6"].pass_at_3 : "0");
-        bv = evalParsePass(b.models && b.models["Claude Opus 4.6"] ? b.models["Claude Opus 4.6"].pass_at_3 : "0");
-        return (av - bv) * dir;
-      }
       if (key === "glm_pass") {
         av = evalParsePass(a.models && a.models["GLM 5"] ? a.models["GLM 5"].pass_at_3 : "0");
         bv = evalParsePass(b.models && b.models["GLM 5"] ? b.models["GLM 5"].pass_at_3 : "0");

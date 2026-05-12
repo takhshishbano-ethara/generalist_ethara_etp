@@ -22,9 +22,9 @@ PROJECT_ROOT="$(cd "$AURORA_ROOT/../.." && pwd)"
 MANIFESTS="$SCRIPT_DIR/manifests"
 CLUSTER_NAME="aurora-local"
 K8S_VERSION="v1.29.0"
-CPUS=4
-MEMORY="6144"
-DISK="50g"
+CPUS=6
+MEMORY="16384"
+DISK="80g"
 
 # Configurable via environment
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
@@ -153,6 +153,36 @@ build_worker_image() {
     log "Worker image built: aurora-worker:local"
 }
 
+build_odoo_image() {
+    log "Building aurora-odoo image..."
+    eval "$(minikube -p "$CLUSTER_NAME" docker-env)"
+
+    docker build \
+        --platform linux/amd64 \
+        -f "$SCRIPT_DIR/Dockerfile.local-odoo" \
+        -t aurora-odoo:local \
+        "$PROJECT_ROOT"
+
+    log "Odoo image built: aurora-odoo:local"
+}
+
+pull_dind_images() {
+    log "Pre-pulling DinD sidecar images into Minikube (required for Phase 2 evaluation)..."
+    eval "$(minikube -p "$CLUSTER_NAME" docker-env)"
+
+    local arch
+    arch="$(docker info --format '{{.Architecture}}')"
+    if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
+        docker pull --platform linux/arm64 docker:27-dind
+        docker pull --platform linux/arm64 tonistiigi/binfmt:latest
+    else
+        docker pull docker:27-dind
+        docker pull tonistiigi/binfmt:latest
+    fi
+
+    log "DinD images pulled: docker:27-dind, tonistiigi/binfmt:latest (arch=$arch)"
+}
+
 deploy_odoo() {
     log "Deploying Odoo server"
     kubectl apply -f "$MANIFESTS/odoo.yaml" --context="$CLUSTER_NAME"
@@ -194,6 +224,8 @@ cmd_up() {
     deploy_minio
     create_rbac
     build_worker_image
+    build_odoo_image
+    pull_dind_images
     deploy_odoo
     print_access_info
 }
@@ -215,6 +247,19 @@ cmd_logs() {
 cmd_build() {
     check_prerequisites
     build_worker_image
+}
+
+cmd_deploy() {
+    check_prerequisites
+    build_worker_image
+    build_odoo_image
+    log "Restarting Odoo deployment..."
+    kubectl rollout restart deploy/odoo -n aurora --context="$CLUSTER_NAME"
+    kubectl rollout status deploy/odoo -n aurora --context="$CLUSTER_NAME" --timeout=120s
+    log "Upgrading Aurora module..."
+    kubectl exec deploy/odoo -n aurora --context="$CLUSTER_NAME" -- \
+        python /opt/odoo/odoo-bin -c /etc/odoo/odoo.conf -u aurora --stop-after-init
+    log "Deploy complete. Odoo is ready."
 }
 
 cmd_run() {
@@ -245,15 +290,17 @@ case "${1:-help}" in
     status) cmd_status ;;
     logs)   cmd_logs ;;
     build)  cmd_build ;;
+    deploy) cmd_deploy ;;
     run)    cmd_run "$@" ;;
     *)
-        echo "Usage: $0 {up|down|status|logs|build|run}"
+        echo "Usage: $0 {up|down|status|logs|build|deploy|run}"
         echo ""
         echo "  up      Start Minikube + deploy full Aurora stack"
         echo "  down    Delete the Minikube cluster entirely"
         echo "  status  Show all pods/services/jobs in aurora namespace"
         echo "  logs    Tail Odoo server logs"
-        echo "  build   Rebuild aurora-worker image in Minikube"
+        echo "  build   Rebuild aurora-worker image only"
+        echo "  deploy  Rebuild worker + odoo images, restart pod, upgrade module"
         echo "  run     Trigger pipeline (default: colinhacks/zod)"
         echo "          ./custom_addons/aurora/local-k8s/setup.sh run [org] [repo] [lang]"
         exit 1

@@ -19,8 +19,8 @@ with open(DATA_PATH, 'r') as f:
     instances = json.load(f)
 
 # --- Color Palette ---
-COLOR_GLM5 = '#4285F4'
-COLOR_NOVA = '#F5A623'
+COLOR_GLM5 = '#2E7D32'   # Green
+COLOR_NOVA = '#F9A825'   # Yellow
 COLOR_EXPERT = '#888888'
 
 # --- Theme configs ---
@@ -83,20 +83,19 @@ def chart_01(theme, suffix):
     fig, ax = plt.subplots(figsize=(10, 8))
     
     models = ['GLM-5', 'Kimi K2.5']
-    values = [0.310, 0.268]
+    values = [31.0, 26.8]
     colors = [COLOR_GLM5, COLOR_NOVA]
     
     bars = ax.bar(models, values, width=0.4, color=colors, edgecolor='none')
     
     ax.set_title('Speedup Ratio (HSR) — Harmonic Mean', fontsize=14, fontweight='bold',
                  pad=15, color=theme['text_color'])
-    ax.set_ylabel('Harmonic Mean HSR', fontsize=12, color=theme['text_color'])
-    ax.set_ylim(0, 0.35)
+    ax.set_ylabel('Harmonic Mean HSR (%)', fontsize=12, color=theme['text_color'])
+    ax.set_ylim(0, 35)
     
-    # Annotations above bars
     for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.008,
-                f'{val:.3f}x', ha='center', va='bottom', fontsize=16, fontweight='bold',
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
+                f'{val:.1f}%', ha='center', va='bottom', fontsize=16, fontweight='bold',
                 color=theme['text_color'])
     
     apply_theme(fig, ax, theme)
@@ -110,8 +109,8 @@ def chart_02(theme, suffix):
     fig, ax = plt.subplots(figsize=(10, 7))
     
     categories = ['Fail', 'Correct but Slow', 'Pass (SR >= 1)']
-    glm5_data = [7, 8, 5]
-    nova_data = [9, 10, 1]
+    glm5_data = [7/20*100, 8/20*100, 5/20*100]
+    nova_data = [9/20*100, 10/20*100, 1/20*100]
     x = np.arange(len(categories))
     
     ax.plot(x, glm5_data, '--', marker='o', markersize=10, color=COLOR_GLM5,
@@ -119,20 +118,19 @@ def chart_02(theme, suffix):
     ax.plot(x, nova_data, '-', marker='s', markersize=10, color=COLOR_NOVA,
             linewidth=2, label='Kimi K2.5')
     
-    # Data labels
     for i, (g, n) in enumerate(zip(glm5_data, nova_data)):
-        ax.text(i, g + 0.4, str(g), ha='center', va='bottom', fontsize=11,
+        ax.text(i, g + 2, f'{g:.0f}%', ha='center', va='bottom', fontsize=11,
                 fontstyle='italic', color=COLOR_GLM5)
-        ax.text(i, n - 0.6, str(n), ha='center', va='top', fontsize=11,
+        ax.text(i, n - 2, f'{n:.0f}%', ha='center', va='top', fontsize=11,
                 fontstyle='italic', color=COLOR_NOVA)
     
     ax.set_title('Patch Outcome Distribution', fontsize=14, fontweight='bold',
                  pad=15, color=theme['text_color'])
-    ax.set_ylabel('Number of Instances (out of 20)', fontsize=12, color=theme['text_color'])
+    ax.set_ylabel('Instances (%)', fontsize=12, color=theme['text_color'])
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=11)
-    ax.set_ylim(0, 12)
-    ax.set_yticks(range(0, 13, 2))
+    ax.set_ylim(0, 100)
+    ax.set_yticks(range(0, 101, 20))
     ax.legend(loc='upper right', framealpha=0.9, edgecolor=theme['grid_color'])
     
     apply_theme(fig, ax, theme)
@@ -158,7 +156,6 @@ def chart_03(theme, suffix):
     ax.bar(x - width/2, glm5_hsr, width, color=COLOR_GLM5, label='GLM-5')
     ax.bar(x + width/2, nova_hsr, width, color=COLOR_NOVA, label='Kimi K2.5')
     
-    # Expert baseline
     ax.axhline(y=1.0, color=COLOR_EXPERT, linestyle='--', linewidth=1.5,
                label='Expert baseline (SR=1)')
     
@@ -201,7 +198,6 @@ def chart_04(theme, suffix):
     bars1 = ax.bar(x - width/2, glm5_means, width, color=COLOR_GLM5, label='GLM-5')
     bars2 = ax.bar(x + width/2, nova_means, width, color=COLOR_NOVA, label='Kimi K2.5')
     
-    # Annotations
     for bar in bars1:
         h = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2, h + 0.02, f'{h:.2f}',
@@ -211,7 +207,6 @@ def chart_04(theme, suffix):
         ax.text(bar.get_x() + bar.get_width()/2, h + 0.02, f'{h:.2f}',
                 ha='center', va='bottom', fontsize=10, color=theme['text_color'])
     
-    # Baseline
     ax.axhline(y=1.0, color=COLOR_EXPERT, linestyle='--', linewidth=1.5)
     
     ax.set_title('Mean HSR by Task Difficulty', fontsize=14, fontweight='bold',
@@ -241,7 +236,6 @@ def chart_05(theme, suffix):
     ax.scatter(nova_cost, nova_hsr, c=COLOR_NOVA, s=80, alpha=0.8,
                edgecolors='none', label='Kimi K2.5', zorder=3)
     
-    # Expert baseline
     ax.axhline(y=1.0, color=COLOR_EXPERT, linestyle='--', linewidth=1.5,
                label='Expert baseline (SR=1)', zorder=2)
     
@@ -273,7 +267,6 @@ def chart_06(theme, suffix):
     bars1 = ax.bar(x - width/2, glm5_vals, width, color=COLOR_GLM5, label='GLM-5')
     bars2 = ax.bar(x + width/2, nova_vals, width, color=COLOR_NOVA, label='Kimi K2.5')
     
-    # Annotations in series color
     for bar, ann in zip(bars1, annotations_glm5):
         h = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2, h + 0.015, ann,

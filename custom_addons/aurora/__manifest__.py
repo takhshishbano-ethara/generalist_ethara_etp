@@ -13,7 +13,7 @@
     "license": "LGPL-3",
     "depends": ["base", "mail", "bus"],
     "external_dependencies": {
-        "python": ["github", "packaging", "requests", "unidiff", "tqdm", "dotenv", "boto3", "cryptography", "kubernetes", "openpyxl","docker", "git", "dataclasses_json"],
+        "python": ["github", "packaging", "requests", "unidiff", "tqdm", "dotenv", "boto3", "cryptography", "kubernetes", "openpyxl","docker", "git", "dataclasses_json", "yaml"],
     },
     "application": True,
     "data": [
@@ -26,6 +26,8 @@
         "views/harness_staging_views.xml",
         "views/registry_wizard_views.xml",
         "views/token_views.xml",
+        "views/discovery_views.xml",
+        "views/discovery_wizard_views.xml",
         "views/aurora_menus.xml",
         "views/res_config_settings_views.xml",
     ],

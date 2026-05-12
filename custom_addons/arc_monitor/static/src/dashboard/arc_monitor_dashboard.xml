@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="arc_monitor.Dashboard">
+        <div class="o_am_dashboard">
+
+            <!-- ═══════ HEADER ═══════ -->
+            <div class="o_am_header">
+                <div>
+                    <h2 class="o_am_header_title">ARC Monitor</h2>
+                    <p class="o_am_header_sub">Puzzle Eval Run Dashboard</p>
+                </div>
+                <div class="o_am_header_actions">
+                    <span t-if="state.active_scan" class="o_am_scan_badge o_am_scan_active">
+                        <i class="fa fa-spinner fa-spin me-1"/>Scanning...
+                    </span>
+                    <button class="o_am_btn o_am_btn_new" t-on-click="onNewScan" title="New Scan">
+                        <i class="fa fa-plus me-1"/>New Scan
+                    </button>
+                    <button class="o_am_btn" t-on-click="onRefresh" title="Refresh">
+                        <i class="fa fa-refresh"/>
+                    </button>
+                    <span class="o_am_refresh_pill">
+                        <i class="fa fa-circle o_am_live_dot"/> auto-refresh
+                    </span>
+                </div>
+            </div>
+
+            <!-- ═══════ LOADING ═══════ -->
+            <div t-if="state.loading" class="o_am_loading">
+                <i class="fa fa-spinner fa-spin fa-2x"/>
+                <span>Loading dashboard...</span>
+            </div>
+
+            <!-- ═══════ CONTENT ═══════ -->
+            <div t-elif="hasData" class="o_am_content">
+
+                <!-- ── KPI BAR ── -->
+                <div class="o_am_kpi_row">
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val" t-out="fmtNumber(state.totals.runs)"/>
+                        <div class="o_am_kpi_lbl">Total Runs</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val" t-attf-style="color: #{passRateColor}">
+                            <t t-out="passRate"/>%
+                        </div>
+                        <div class="o_am_kpi_lbl">Pass Rate</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val o_am_c_pass" t-out="fmtNumber(state.totals.solved)"/>
+                        <div class="o_am_kpi_lbl">Passed</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val o_am_c_partial" t-out="fmtNumber(state.totals.partial)"/>
+                        <div class="o_am_kpi_lbl">Partial</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val o_am_c_fail" t-out="fmtNumber(state.totals.failed)"/>
+                        <div class="o_am_kpi_lbl">Failed</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val" t-out="fmtMoney(state.totals.total_cost)"/>
+                        <div class="o_am_kpi_lbl">Total Cost</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val" t-out="fmtNumber(state.totals.total_tokens)"/>
+                        <div class="o_am_kpi_lbl">Total Tokens</div>
+                    </div>
+                    <div class="o_am_kpi">
+                        <div class="o_am_kpi_val" t-out="fmtDuration(state.totals.total_elapsed_s)"/>
+                        <div class="o_am_kpi_lbl">Elapsed</div>
+                    </div>
+                </div>
+
+                <!-- ── SCAN INFO BANNER ── -->
+                <div class="o_am_scan_info" t-if="state.latest_scan_id">
+                    <div class="o_am_scan_info_row">
+                        <span class="o_am_scan_info_label">
+                            <i class="fa fa-folder-open me-1"/>
+                            <t t-out="state.latest_scan_path"/>
+                        </span>
+                        <span class="o_am_scan_info_meta">
+                            <span t-if="state.latest_scan_name" class="o_am_scan_info_tag" title="Scan name">
+                                <i class="fa fa-tag me-1"/><t t-out="state.latest_scan_name"/>
+                            </span>
+                            <span class="o_am_scan_info_tag" title="Source type">
+                                <i class="fa fa-database me-1"/><t t-out="state.latest_scan_source_type"/>
+                            </span>
+                            <span class="o_am_scan_info_tag" title="Trigger">
+                                <i t-attf-class="fa #{state.latest_scan_trigger === 'cron' ? 'fa-clock-o' : 'fa-hand-pointer-o'} me-1"/>
+                                <t t-out="state.latest_scan_trigger"/>
+                            </span>
+                            <span t-if="state.latest_scan_date" class="o_am_scan_info_tag" title="Scan date">
+                                <i class="fa fa-calendar me-1"/>
+                                <t t-out="state.latest_scan_date.substring(0, 16).replace('T', ' ')"/>
+                            </span>
+                            <span t-if="state.latest_scan_duration" class="o_am_scan_info_tag" title="Duration">
+                                <i class="fa fa-stopwatch me-1"/>
+                                <t t-out="fmtDuration(state.latest_scan_duration)"/>
+                            </span>
+                            <a href="#" class="o_am_scan_info_link" t-on-click.prevent="() => this.onOpenScan(state.latest_scan_id)">
+                                View scan <i class="fa fa-external-link ms-1"/>
+                            </a>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- ── CONTROLS/FILTERS ── -->
+                <div class="o_am_controls">
+                    <input type="search" class="o_am_input" placeholder="Search run/game/model..."
+                           t-att-value="state.search" t-on-input="onSearchInput"/>
+                    <select class="o_am_select" t-on-change="onModelFilter">
+                        <option value="">All models</option>
+                        <t t-foreach="state.models" t-as="m" t-key="m">
+                            <option t-att-value="m" t-att-selected="state.modelFilter === m" t-out="m"/>
+                        </t>
+                    </select>
+                    <select class="o_am_select" t-on-change="onGameFilter">
+                        <option value="">All games</option>
+                        <t t-foreach="state.games" t-as="g" t-key="g">
+                            <option t-att-value="g" t-att-selected="state.gameFilter === g" t-out="g"/>
+                        </t>
+                    </select>
+                    <select class="o_am_select" t-on-change="onStatusFilter">
+                        <option value="">All status</option>
+                        <option value="pass">Pass</option>
+                        <option value="partial">Partial</option>
+                        <option value="fail">Fail</option>
+                    </select>
+                    <select class="o_am_select" t-on-change="onSortChange">
+                        <option value="timestamp">Newest first</option>
+                        <option value="timestamp_asc">Oldest first</option>
+                        <option value="cost_desc">Cost desc</option>
+                        <option value="cost_asc">Cost asc</option>
+                        <option value="score_desc">Score desc</option>
+                        <option value="score_asc">Score asc</option>
+                        <option value="elapsed_desc">Elapsed desc</option>
+                    </select>
+                    <span class="o_am_count"><t t-out="filteredRuns.length"/>/<t t-out="state.runs.length"/> runs</span>
+                </div>
+
+                <!-- ── CARD GRID ── -->
+                <div class="o_am_grid">
+                    <t t-foreach="paginatedRuns" t-as="run" t-key="run.run_dir + '_' + run.game_id + '_' + run.model_name">
+                        <div class="o_am_card" t-on-click="() => this.onCardClick(run)">
+                            <div class="o_am_card_row1">
+                                <div class="o_am_card_rundir" t-out="run.run_dir"/>
+                                <span t-attf-class="o_am_card_status #{statusClass(run.status)}"
+                                      t-out="statusIcon(run.status)"/>
+                            </div>
+                            <div class="o_am_card_meta">
+                                <span class="o_am_pill" t-out="run.game_id"/>
+                                <span class="o_am_pill" t-out="run.model_name"/>
+                                <span t-if="run.flagged_low_steps" class="o_am_warn_badge">⚠ &lt;200 steps</span>
+                            </div>
+                            <div class="o_am_card_stats">
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v" t-out="fmtPct(run.avg_score_pct)"/>
+                                    <div class="o_am_stat_l">Score</div>
+                                </div>
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v"><t t-out="run.solved"/>/<t t-out="run.total_runs"/></div>
+                                    <div class="o_am_stat_l">Solved</div>
+                                </div>
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v">
+                                        <span t-if="run.flagged_low_steps" class="o_am_warn_inline">⚠ </span>
+                                        <t t-out="fmtNumber(run.total_steps)"/>
+                                    </div>
+                                    <div class="o_am_stat_l">Steps</div>
+                                </div>
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v" t-out="fmtMoney(run.total_cost)"/>
+                                    <div class="o_am_stat_l">Cost</div>
+                                </div>
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v" t-out="fmtNumber(run.total_tokens)"/>
+                                    <div class="o_am_stat_l">Tokens</div>
+                                </div>
+                                <div class="o_am_stat">
+                                    <div class="o_am_stat_v" t-out="fmtDuration(run.elapsed_seconds)"/>
+                                    <div class="o_am_stat_l">Time</div>
+                                </div>
+                            </div>
+                            <div t-if="run.levels_summary" class="o_am_card_levels">
+                                <t t-out="run.levels_summary"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <!-- ── PAGINATION ── -->
+                <div t-if="filteredRuns.length > 0" class="o_am_pagination">
+                    <button class="o_am_page_btn" t-on-click="onPagePrev"
+                            t-att-disabled="state.page &lt;= 1">
+                        <i class="fa fa-chevron-left"/>
+                    </button>
+                    <span class="o_am_page_info">
+                        Page <t t-out="state.page"/> of <t t-out="totalPages"/>
+                    </span>
+                    <button class="o_am_page_btn" t-on-click="onPageNext"
+                            t-att-disabled="state.page >= totalPages">
+                        <i class="fa fa-chevron-right"/>
+                    </button>
+                </div>
+
+                <!-- Empty filtered -->
+                <div t-if="!filteredRuns.length" class="o_am_empty_filter">
+                    No runs match your filters.
+                </div>
+
+                <!-- ── RECENT SCANS TABLE ── -->
+                <div class="o_am_card_section" t-if="state.sessions.length">
+                    <h4 class="o_am_section_title">
+                        <i class="fa fa-history me-1"/>Recent Scans
+                    </h4>
+                    <div class="o_am_table_wrap">
+                        <table class="o_am_table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>State</th>
+                                    <th>Trigger</th>
+                                    <th class="text-end">Runs</th>
+                                    <th class="text-end">Pass</th>
+                                    <th class="text-end">Partial</th>
+                                    <th class="text-end">Fail</th>
+                                    <th class="text-end">Cost</th>
+                                    <th class="text-end">Duration</th>
+                                    <th class="text-end">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.sessions" t-as="s" t-key="s.id">
+                                    <tr class="o_am_clickrow" t-on-click="() => this.onOpenScan(s.id)">
+                                        <td t-out="s.name"/>
+                                        <td>
+                                            <span t-attf-class="o_am_state_pill o_am_state_#{s.state}" t-out="s.state"/>
+                                        </td>
+                                        <td t-out="s.trigger"/>
+                                        <td class="text-end" t-out="s.total_runs"/>
+                                        <td class="text-end o_am_c_pass" t-out="s.pass_count"/>
+                                        <td class="text-end o_am_c_partial" t-out="s.partial_count"/>
+                                        <td class="text-end o_am_c_fail" t-out="s.fail_count"/>
+                                        <td class="text-end" t-out="fmtMoney(s.total_cost)"/>
+                                        <td class="text-end" t-out="fmtDuration(s.duration_seconds)"/>
+                                        <td class="text-end" t-out="s.scan_date ? s.scan_date.substring(0, 16).replace('T', ' ') : ''"/>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="o_am_section_footer">
+                        <a href="#" t-on-click.prevent="onViewAllScans">View all scans <i class="fa fa-arrow-right ms-1"/></a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════ EMPTY STATE ═══════ -->
+            <div t-elif="!state.loading" class="o_am_empty">
+                <i class="fa fa-dashboard fa-3x"/>
+                <h3>No scan data yet</h3>
+                <p>Click <strong>New Scan</strong> above to configure a source and start monitoring.</p>
+            </div>
+
+            <!-- ═══════ DETAIL MODAL ═══════ -->
+            <div t-if="state.detailOpen" class="o_am_modal" t-on-click="onModalBackdrop">
+                <div class="o_am_modal_inner">
+                    <div class="o_am_modal_header">
+                        <h3 t-if="state.detailData" t-out="state.detailData.run_dir"/>
+                        <h3 t-else="">Loading...</h3>
+                        <span class="o_am_modal_close" t-on-click="onCloseModal">x</span>
+                    </div>
+
+                    <div t-if="state.detailLoading" class="o_am_loading">
+                        <i class="fa fa-spinner fa-spin"/>Loading detail...
+                    </div>
+
+                    <div t-elif="state.detailError" class="o_am_detail_error">
+                        <t t-out="state.detailError"/>
+                    </div>
+
+                    <div t-elif="state.detailData" class="o_am_detail_content">
+                        <t t-foreach="state.detailData.entries || []" t-as="entry" t-key="entry.game_id + '_' + entry.model_name">
+                            <div class="o_am_detail_entry">
+                                <h4 class="o_am_detail_entry_title">
+                                    <t t-out="statusIcon(entry.status)"/>
+                                    <t t-out="entry.game_id"/> / <t t-out="entry.model_name"/>
+                                    <span class="o_am_detail_score"><t t-out="fmtPct(entry.avg_score_pct)"/></span>
+                                    <span t-if="entry.flagged_low_steps" class="o_am_warn_badge">⚠ &lt;200 steps</span>
+                                </h4>
+
+                                <!-- Overview + Timing + Tokens + Game Meta boxes -->
+                                <div class="o_am_detail_grid">
+                                    <div class="o_am_detail_box">
+                                        <h5>Overview</h5>
+                                        <dl>
+                                            <dt>Status</dt><dd t-out="entry.status"/>
+                                            <dt>Solved</dt><dd><t t-out="entry.solved"/>/<t t-out="entry.total_runs"/></dd>
+                                            <dt>Score</dt><dd t-out="fmtPct(entry.avg_score_pct)"/>
+                                            <dt>Steps</dt><dd><span t-if="entry.flagged_low_steps" class="o_am_warn_inline">⚠ </span><t t-out="fmtNumber(entry.total_steps)"/></dd>
+                                            <dt>Cost</dt><dd t-out="fmtMoney(entry.total_cost)"/>
+                                            <dt>Tokens</dt><dd t-out="fmtNumber(entry.total_tokens)"/>
+                                            <dt>Elapsed</dt><dd t-out="fmtDuration(entry.elapsed_seconds)"/>
+                                            <dt>Max Steps</dt><dd t-out="entry.max_steps || '-'"/>
+                                            <dt>Seed</dt><dd t-out="entry.seed_base || '-'"/>
+                                        </dl>
+                                    </div>
+
+                                    <div class="o_am_detail_box" t-if="entry.timing_stats">
+                                        <h5>Timing</h5>
+                                        <dl>
+                                            <dt>API Calls</dt><dd t-out="entry.timing_stats.api_call_count"/>
+                                            <dt>API p50</dt><dd><t t-out="fmtRound(entry.timing_stats.api_p50_ms)"/>ms</dd>
+                                            <dt>API p95</dt><dd><t t-out="fmtRound(entry.timing_stats.api_p95_ms)"/>ms</dd>
+                                            <dt>API max</dt><dd><t t-out="fmtRound(entry.timing_stats.api_max_ms)"/>ms</dd>
+                                            <dt>API total</dt><dd><t t-out="entry.timing_stats.api_total_s"/>s</dd>
+                                            <dt>Game p50</dt><dd><t t-out="fmtRound(entry.timing_stats.game_p50_ms)"/>ms</dd>
+                                            <dt>Game p95</dt><dd><t t-out="fmtRound(entry.timing_stats.game_p95_ms)"/>ms</dd>
+                                            <dt>Game max</dt><dd><t t-out="fmtRound(entry.timing_stats.game_max_ms)"/>ms</dd>
+                                        </dl>
+                                    </div>
+
+                                    <div class="o_am_detail_box" t-if="entry.token_totals">
+                                        <h5>Tokens</h5>
+                                        <dl>
+                                            <dt>Input</dt><dd t-out="fmtNumber(entry.token_totals.input)"/>
+                                            <dt>Cached</dt><dd t-out="fmtNumber(entry.token_totals.cached_input)"/>
+                                            <dt>Cache Write</dt><dd t-out="fmtNumber(entry.token_totals.cache_write)"/>
+                                            <dt>Output</dt><dd t-out="fmtNumber(entry.token_totals.output)"/>
+                                            <dt>Reasoning</dt><dd t-out="fmtNumber(entry.token_totals.reasoning)"/>
+                                            <dt>Cost</dt><dd t-out="fmtMoney(entry.token_totals.cost_usd)"/>
+                                            <dt>$/step</dt><dd t-out="fmtMoney(entry.token_totals.cost_per_step)"/>
+                                            <dt>In tok/step</dt><dd t-out="fmtNumber(entry.token_totals.in_tokens_per_step)"/>
+                                        </dl>
+                                    </div>
+
+                                    <!-- Game Meta -->
+                                    <div class="o_am_detail_box" t-if="entry.game_meta and getMetaKeys(entry.game_meta).length">
+                                        <h5>Game Meta</h5>
+                                        <dl>
+                                            <t t-foreach="getMetaKeys(entry.game_meta)" t-as="mk" t-key="mk">
+                                                <dt t-out="keyLabel(mk)"/>
+                                                <dd t-out="autoFmt(mk, entry.game_meta[mk])"/>
+                                            </t>
+                                        </dl>
+                                    </div>
+
+                                    <!-- Game Level Meta -->
+                                    <div class="o_am_detail_box" t-if="entry.game_level_meta and getMetaKeys(entry.game_level_meta).length">
+                                        <h5>Game Level Meta</h5>
+                                        <dl>
+                                            <t t-foreach="getMetaKeys(entry.game_level_meta)" t-as="lk" t-key="lk">
+                                                <dt t-out="keyLabel(lk)"/>
+                                                <dd t-out="autoFmt(lk, entry.game_level_meta[lk])"/>
+                                            </t>
+                                        </dl>
+                                    </div>
+                                </div>
+
+                                <!-- Per-Run Table -->
+                                <div class="o_am_detail_section" t-if="entry.runs and entry.runs.length">
+                                    <h5>Per-Run (<t t-out="entry.runs.length"/>)</h5>
+                                    <div class="o_am_table_wrap">
+                                        <table class="o_am_table o_am_table_sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th><th>Status</th><th class="text-end">Score</th>
+                                                    <th>Game Type</th><th>Level</th>
+                                                    <th class="text-end">Levels</th><th class="text-end">Steps</th>
+                                                    <th class="text-end">Elapsed</th><th class="text-end">In Tok</th>
+                                                    <th class="text-end">Out Tok</th><th class="text-end">Cost</th>
+                                                    <th class="text-end">Resets</th><th>Error</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="entry.runs" t-as="r" t-key="r.run_number">
+                                                    <tr t-att-class="(r.total_steps || 0) &lt; 200 ? 'o_am_low_steps_row' : ''">
+                                                        <td t-out="r.run_number"/>
+                                                        <td t-out="r.solved ? '\u2705' : ((r.final_score_pct || 0) > 0 ? '\uD83D\uDFE1' : '\u274C')"/>
+                                                        <td class="text-end"><t t-out="fmtScorePct(r.final_score_pct)"/></td>
+                                                        <td t-out="r.game_type || '—'"/>
+                                                        <td t-out="r.level != null ? r.level : '—'"/>
+                                                        <td class="text-end"><t t-out="r.levels_completed || 0"/>/<t t-out="r.total_levels || 0"/></td>
+                                                        <td class="text-end">
+                                                            <span t-if="(r.total_steps || 0) &lt; 200" class="o_am_warn_inline">⚠ </span>
+                                                            <t t-out="r.total_steps || 0"/>
+                                                        </td>
+                                                        <td class="text-end"><t t-out="fmtDuration(r.elapsed_seconds)"/></td>
+                                                        <td class="text-end" t-out="fmtNumber(r.total_input_tokens)"/>
+                                                        <td class="text-end" t-out="fmtNumber(r.total_output_tokens)"/>
+                                                        <td class="text-end" t-out="fmtMoney(r.cost_usd)"/>
+                                                        <td class="text-end" t-out="r.reset_count || 0"/>
+                                                        <td class="o_am_dim" t-out="r.error || '—'"/>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Steps Table -->
+                                <div class="o_am_detail_section" t-if="entry.steps and entry.steps.length">
+                                    <h5>Steps (<t t-out="entry.steps.length"/> total)</h5>
+                                    <div class="o_am_table_wrap o_am_table_scroll_v">
+                                        <table class="o_am_table o_am_table_sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Run</th><th>Step</th><th>Action</th>
+                                                    <th class="text-end">Score</th><th>Level</th><th>State</th>
+                                                    <th class="text-end">Step $</th><th class="text-end">Cum $</th>
+                                                    <th class="text-end">In</th><th class="text-end">Out</th>
+                                                    <th>Reasoning</th><th>Observation</th><th>Notepad</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="entry.steps" t-as="s" t-key="s_index">
+                                                    <tr>
+                                                        <td t-out="s.run_number"/>
+                                                        <td t-out="s.step"/>
+                                                        <td t-out="s.action || '-'"/>
+                                                        <td class="text-end"><t t-out="fmtScorePct(s.score_pct)"/></td>
+                                                        <td><t t-out="s.level || 0"/>/<t t-out="s.total_levels || 0"/></td>
+                                                        <td t-attf-class="o_am_state_#{s.state}" t-out="s.state || '-'"/>
+                                                        <td class="text-end" t-out="fmtMoney(s.step_cost_usd)"/>
+                                                        <td class="text-end" t-out="fmtMoney(s.cumulative_cost_usd)"/>
+                                                        <td class="text-end" t-out="fmtNumber(s.input_tokens)"/>
+                                                        <td class="text-end" t-out="fmtNumber(s.output_tokens)"/>
+                                                        <td class="o_am_expand_cell">
+                                                            <t t-if="s.reasoning">
+                                                                <t t-set="rkey" t-value="'r_' + s_index"/>
+                                                                <span t-if="!isExpanded(rkey)"
+                                                                      class="o_am_expand_toggle"
+                                                                      t-on-click.stop="() => this.toggleExpand(rkey)">
+                                                                    <t t-out="strLen(s.reasoning)"/> chars
+                                                                </span>
+                                                                <pre t-if="isExpanded(rkey)"
+                                                                     class="o_am_expand_text"
+                                                                     t-on-click.stop="() => this.toggleExpand(rkey)"
+                                                                     t-out="s.reasoning"/>
+                                                            </t>
+                                                            <span t-else="" class="o_am_dim">—</span>
+                                                        </td>
+                                                        <td class="o_am_expand_cell">
+                                                            <t t-if="s.observation">
+                                                                <t t-set="okey" t-value="'o_' + s_index"/>
+                                                                <span t-if="!isExpanded(okey)"
+                                                                      class="o_am_expand_toggle"
+                                                                      t-on-click.stop="() => this.toggleExpand(okey)">
+                                                                    <t t-out="strLen(s.observation)"/> chars
+                                                                </span>
+                                                                <pre t-if="isExpanded(okey)"
+                                                                     class="o_am_expand_text"
+                                                                     t-on-click.stop="() => this.toggleExpand(okey)"
+                                                                     t-out="s.observation"/>
+                                                            </t>
+                                                            <span t-else="" class="o_am_dim">—</span>
+                                                        </td>
+                                                        <td class="o_am_expand_cell">
+                                                            <t t-if="s.notepad_contents">
+                                                                <t t-set="nkey" t-value="'n_' + s_index"/>
+                                                                <span t-if="!isExpanded(nkey)"
+                                                                      class="o_am_expand_toggle"
+                                                                      t-on-click.stop="() => this.toggleExpand(nkey)">
+                                                                    <t t-out="strLen(s.notepad_contents)"/> chars
+                                                                </span>
+                                                                <pre t-if="isExpanded(nkey)"
+                                                                     class="o_am_expand_text"
+                                                                     t-on-click.stop="() => this.toggleExpand(nkey)"
+                                                                     t-out="s.notepad_contents"/>
+                                                            </t>
+                                                            <span t-else="" class="o_am_dim">—</span>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Skips Table -->
+                                <div class="o_am_detail_section" t-if="entry.skips and entry.skips.length">
+                                    <h5>Skips / Parse Errors (<t t-out="entry.skips.length"/>)</h5>
+                                    <div class="o_am_table_wrap">
+                                        <table class="o_am_table o_am_table_sm">
+                                            <thead>
+                                                <tr><th>Step</th><th>Action</th><th>Reasoning</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="entry.skips" t-as="sk" t-key="sk_index">
+                                                    <tr>
+                                                        <td t-out="sk.attemptedStep || '?'"/>
+                                                        <td t-out="sk.action || '-'"/>
+                                                        <td class="o_am_expand_cell">
+                                                            <t t-if="sk.reasoning">
+                                                                <t t-set="skkey" t-value="'sk_' + sk_index"/>
+                                                                <span t-if="!isExpanded(skkey)"
+                                                                      class="o_am_expand_toggle"
+                                                                      t-on-click.stop="() => this.toggleExpand(skkey)">
+                                                                    <t t-out="strLen(sk.reasoning)"/> chars
+                                                                </span>
+                                                                <pre t-if="isExpanded(skkey)"
+                                                                     class="o_am_expand_text"
+                                                                     t-on-click.stop="() => this.toggleExpand(skkey)"
+                                                                     t-out="sk.reasoning"/>
+                                                            </t>
+                                                            <span t-else="" class="o_am_dim">—</span>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Session Log Viewer -->
+                                <div class="o_am_detail_section" t-if="entry.session_log">
+                                    <h5>Session Log</h5>
+                                    <div class="o_am_log_controls">
+                                        <input type="search" class="o_am_input o_am_log_search"
+                                               placeholder="Filter log…"
+                                               t-att-value="state.logSearch"
+                                               t-on-input="onLogSearchInput"/>
+                                        <select class="o_am_select o_am_log_level"
+                                                t-on-change="onLogLevelChange">
+                                            <option value="ALL">All levels</option>
+                                            <option value="ERROR">ERROR</option>
+                                            <option value="WARN">WARN</option>
+                                            <option value="INFO">INFO</option>
+                                            <option value="DEBUG">DEBUG</option>
+                                        </select>
+                                    </div>
+                                    <pre class="o_am_log_pre"><t t-out="filteredLog"/></pre>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </t>
+</templates>

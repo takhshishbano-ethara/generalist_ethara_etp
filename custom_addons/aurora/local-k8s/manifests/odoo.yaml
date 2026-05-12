@@ -21,6 +21,18 @@ data:
     limit_time_real = 1200
     max_cron_threads = 1
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-data-pvc
+  namespace: aurora
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -83,6 +95,8 @@ spec:
               mountPath: /etc/odoo/odoo.conf
               subPath: odoo.conf
               readOnly: true
+            - name: odoo-data
+              mountPath: /tmp/odoo-data
           resources:
             requests:
               cpu: "500m"
@@ -106,6 +120,9 @@ spec:
         - name: odoo-config
           configMap:
             name: odoo-config
+        - name: odoo-data
+          persistentVolumeClaim:
+            claimName: odoo-data-pvc
 ---
 apiVersion: v1
 kind: Service

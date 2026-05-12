@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="arc_eval_res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">arc_eval.res.config.settings.form</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="ARC Eval Launcher"
+                     string="ARC Eval Launcher"
+                     name="arc_eval_launcher"
+                     groups="arc_eval_launcher.group_arc_eval_admin">
+
+                    <block title="API Connection">
+                        <setting string="API Base URL"
+                                 help="Base URL for the arc-explainer server.">
+                            <field name="arc_eval_api_base" placeholder="http://localhost:5000"/>
+                        </setting>
+                        <setting string="Request Timeout (seconds)"
+                                 help="HTTP timeout for arc-explainer API calls.">
+                            <field name="arc_eval_request_timeout"/>
+                        </setting>
+                    </block>
+
+                    <block title="Game List Endpoint">
+                        <setting string="Games Endpoint"
+                                 help="API path appended to base URL to fetch the game list.">
+                            <field name="arc_eval_games_endpoint"
+                                   placeholder="/api/arc3/local-games"/>
+                        </setting>
+                        <setting string="Game ID Field"
+                                 help="JSON field name containing the game identifier in the API response.">
+                            <field name="arc_eval_game_id_field"
+                                   placeholder="game_id"/>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

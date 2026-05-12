@@ -835,6 +835,15 @@ class AuroraPipeline(models.Model):
         })
         self.phase2_result_ids.unlink()
 
+    def action_open_discovery_wizard(self):
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Discover Repositories",
+            "res_model": "aurora.discovery.wizard",
+            "view_mode": "form",
+            "target": "new",
+        }
+
     def _safe_local_download(self, file_url: str):
         import base64
         allowed_base = self._get_config().get("output_dir", "/tmp/aurora_output")
@@ -1405,4 +1414,20 @@ class AuroraPipeline(models.Model):
             "recent_pipelines": recent_pipes,
             "recent_evaluations": recent_evals,
             "tokens": {"active": token_active, "total": token_total, "list": recent_tokens},
+            "discovery": self._get_discovery_stats(),
+        }
+
+    def _get_discovery_stats(self):
+        cr = self.env.cr
+        try:
+            cr.execute("SELECT state, COUNT(*) FROM aurora_discovery GROUP BY state")
+            counts = dict(cr.fetchall())
+        except Exception:
+            counts = {}
+        return {
+            "total": sum(counts.values()),
+            "validated": counts.get("validated", 0),
+            "promoted": counts.get("promoted", 0),
+            "rejected": counts.get("rejected", 0),
+            "new": counts.get("new", 0),
         }

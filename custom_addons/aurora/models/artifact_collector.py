@@ -232,8 +232,17 @@ def instance_id_for(pr) -> str:
 def populate_build_artifacts(conn, rec_id: int, workdir: str, instances,
                              s3_config: dict, use_s3: bool,
                              run_numbers: dict, s3_folder: str, phase: str,
-                             oci_tar_dir: Optional[str] = None) -> None:
+                             oci_tar_dir: Optional[str] = None) -> dict:
+    """Collect per-instance build artifacts and base image Dockerfile.
+
+    Returns a dict with base image Dockerfile info (may be empty):
+        {"base_dockerfile_content": str|None, "base_dockerfile_s3_uri": str|None}
+    """
     from ..tools.harness.constant import BUILD_IMAGE_WORKDIR, BUILD_IMAGE_LOG_FILE
+    from ..tools.harness.image import Image
+
+    base_result: dict[str, Any] = {}
+    collected_base_dirs: set[str] = set()
 
     for instance in instances:
         pr = instance.pr
@@ -296,6 +305,31 @@ def populate_build_artifacts(conn, rec_id: int, workdir: str, instances,
                     vals["oci_tar_s3_uri"] = s3_uri
 
         update_instance(conn, db_instance_id, vals)
+
+        # --- Collect base image Dockerfile (once per unique base) ---
+        if not base_result and hasattr(image, "dependency"):
+            base_image = image.dependency()
+            if isinstance(base_image, Image):
+                base_workdir_name = base_image.workdir()
+                if base_workdir_name not in collected_base_dirs:
+                    collected_base_dirs.add(base_workdir_name)
+                    base_dir = Path(workdir) / pr.org / pr.repo / BUILD_IMAGE_WORKDIR / base_workdir_name
+                    base_df_name = base_image.dockerfile_name() if hasattr(base_image, "dockerfile_name") else "Dockerfile"
+                    base_df_path = base_dir / base_df_name
+                    if base_df_path.exists():
+                        content = _read_capped(str(base_df_path), _INLINE_DOCKERFILE_CAP)
+                        if content is not None:
+                            base_result["base_dockerfile_content"] = content
+                        base_s3_key = s3_storage.build_s3_key(
+                            pr.org, pr.repo, run_number,
+                            f"base/{base_df_name}",
+                            folder=s3_folder, phase=phase,
+                        )
+                        s3_uri = _upload_artifact(s3_config, use_s3, str(base_df_path), base_s3_key)
+                        if s3_uri:
+                            base_result["base_dockerfile_s3_uri"] = s3_uri
+
+    return base_result
 
 
 def populate_run_artifacts(conn, rec_id: int, workdir: str, instances,

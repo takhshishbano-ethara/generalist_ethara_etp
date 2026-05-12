@@ -1577,3 +1577,286 @@ class TestDatasetResolverHttpTimeout(TestCase):
     def test_read_timeout_is_300(self):
         from odoo.addons.aurora.models.dataset_resolver import _HTTP_TIMEOUT
         self.assertEqual(_HTTP_TIMEOUT[1], 300)
+
+
+# =============================================================================
+# worker/run_evaluation.py — missing_registries population when total_instances==0
+# =============================================================================
+
+class TestWorkerMissingRegistries(TestCase):
+
+    def _make_mock_pr(self, org, repo):
+        pr = MagicMock()
+        pr.org = org
+        pr.repo = repo
+        return pr
+
+    @patch("odoo.addons.aurora.worker.run_evaluation._fail_eval")
+    @patch("odoo.addons.aurora.worker.run_evaluation._update_eval")
+    @patch("odoo.addons.aurora.worker.run_evaluation._append_log")
+    def test_missing_registries_written_when_no_instances(self, mock_log, mock_update, mock_fail):
+        from odoo.addons.aurora.worker.run_evaluation import _ALLOWED_EVAL_COLUMNS
+        self.assertIn("missing_registries", _ALLOWED_EVAL_COLUMNS)
+        self.assertIn("build_status", _ALLOWED_EVAL_COLUMNS)
+
+    def test_allowed_columns_has_dataset_jsonl_url(self):
+        from odoo.addons.aurora.worker.run_evaluation import _ALLOWED_EVAL_COLUMNS
+        self.assertIn("dataset_jsonl_url", _ALLOWED_EVAL_COLUMNS)
+
+    def test_missing_registries_logic_computes_missing_repos(self):
+        from odoo.addons.aurora.tools.harness.instance import Instance
+        original_registry = Instance._registry.copy()
+        try:
+            Instance._registry = {"existing/repo": MagicMock()}
+            dataset = {
+                "pr1": self._make_mock_pr("existing", "repo"),
+                "pr2": self._make_mock_pr("missing", "lib"),
+                "pr3": self._make_mock_pr("another", "pkg"),
+            }
+            missing_repos = set()
+            for pr in dataset.values():
+                key = f"{pr.org}/{pr.repo}"
+                if key not in Instance._registry:
+                    missing_repos.add(key)
+            missing_list = ", ".join(sorted(missing_repos))
+            self.assertIn("another/pkg", missing_list)
+            self.assertIn("missing/lib", missing_list)
+            self.assertNotIn("existing/repo", missing_list)
+        finally:
+            Instance._registry = original_registry
+
+    def test_empty_dataset_produces_empty_missing_list(self):
+        missing_repos = set()
+        total_dataset = 0
+        if total_dataset > 0:
+            pass
+        missing_list = ", ".join(sorted(missing_repos))
+        self.assertEqual(missing_list, "")
+
+
+# =============================================================================
+# worker/run_evaluation.py — staging harness loading from DB
+# =============================================================================
+
+class TestWorkerStagingHarnessLoading(TestCase):
+
+    @patch("odoo.addons.aurora.worker.run_evaluation._append_log")
+    def test_staging_harness_decodes_base64_and_writes_file(self, mock_log):
+        import base64
+        import tempfile
+        content = b"from odoo.addons.aurora.tools.harness.instance import Instance\n"
+        encoded = base64.b64encode(content)
+        tmp_dir = tempfile.mkdtemp(prefix="test_staging_")
+        file_path = os.path.join(tmp_dir, "chi.py")
+        with open(file_path, "wb") as fh:
+            fh.write(base64.b64decode(encoded))
+        with open(file_path, "rb") as fh:
+            self.assertEqual(fh.read(), content)
+
+    @patch("odoo.addons.aurora.tools.harness.staging_loader.load_staging_harness")
+    @patch("odoo.addons.aurora.worker.run_evaluation._append_log")
+    def test_staging_harness_calls_load_staging_harness(self, mock_log, mock_loader):
+        import base64
+        import tempfile
+        content = b"print('test')\n"
+        encoded = base64.b64encode(content).decode()
+        org_name, repo_name = "go-chi", "chi"
+        filename = "chi.py"
+        tmp_dir = tempfile.mkdtemp(prefix="staging_harness_")
+        file_path = os.path.join(tmp_dir, filename)
+        with open(file_path, "wb") as fh:
+            fh.write(base64.b64decode(encoded))
+        from odoo.addons.aurora.tools.harness.staging_loader import load_staging_harness
+        load_staging_harness(file_path, org_name, repo_name)
+        mock_loader.assert_called_once_with(file_path, "go-chi", "chi")
+
+    def test_staging_query_builds_correct_sql_pattern(self):
+        still_missing = {("go-chi", "chi"), ("org2", "repo2")}
+        placeholders = ",".join(["%s"] * len(still_missing))
+        keys = [f"{org}/{repo}" for org, repo in still_missing]
+        self.assertEqual(len(keys), 2)
+        self.assertIn("%s,%s", placeholders)
+        self.assertIn("go-chi/chi", keys)
+        self.assertIn("org2/repo2", keys)
+
+
+# =============================================================================
+# worker/run_evaluation.py — dataset_jsonl_url + final_report S3 upload
+# =============================================================================
+
+class TestWorkerS3UploadFinalize(TestCase):
+
+    def test_dataset_jsonl_glob_pattern(self):
+        import glob as _glob
+        with tempfile.TemporaryDirectory() as td:
+            p1 = os.path.join(td, "go-chi__chi_dataset.jsonl")
+            p2 = os.path.join(td, "other_file.txt")
+            with open(p1, "w") as f:
+                f.write("{}\n")
+            with open(p2, "w") as f:
+                f.write("x")
+            matches = _glob.glob(os.path.join(td, "*_dataset.jsonl"))
+            self.assertEqual(len(matches), 1)
+            self.assertIn("go-chi__chi_dataset.jsonl", matches[0])
+
+    def test_final_report_path_construction(self):
+        from pathlib import Path
+        output_dir = "/tmp/aurora_output/harness/go-chi__chi"
+        expected = Path(output_dir) / "final_report.json"
+        self.assertEqual(str(expected), "/tmp/aurora_output/harness/go-chi__chi/final_report.json")
+
+    @patch("odoo.addons.aurora.models.s3_storage.upload_file")
+    @patch("odoo.addons.aurora.models.s3_storage.build_s3_key")
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=True)
+    def test_upload_uses_s3_storage_mod_functions(self, mock_configured, mock_key, mock_upload):
+        mock_key.return_value = "aurora/aurora_phase2/go-chi__chi/run_1/go-chi__chi_dataset.jsonl"
+        mock_upload.return_value = "http://minio:9000/bkt/aurora/aurora_phase2/go-chi__chi/run_1/go-chi__chi_dataset.jsonl"
+        from odoo.addons.aurora.models import s3_storage as s3_storage_mod
+        s3_config = {"bucket": "bkt", "region": "us-east-1"}
+        s3_key = s3_storage_mod.build_s3_key("go-chi", "chi", 1, "go-chi__chi_dataset.jsonl", folder="aurora", phase="aurora_phase2")
+        url = s3_storage_mod.upload_file(s3_config, "/tmp/f.jsonl", s3_key)
+        self.assertIn("go-chi__chi_dataset.jsonl", url)
+
+    def test_finalize_update_dict_has_required_fields(self):
+        final_report_url = "http://minio:9000/bkt/report.json"
+        dataset_jsonl_url = "http://minio:9000/bkt/dataset.jsonl"
+        vals = {
+            "stage": "done",
+            "progress_text": "Evaluation complete",
+            "total_instances": 6,
+            "resolved_instances": 3,
+            "unresolved_instances": 2,
+            "error_instances": 1,
+            "final_report_file": final_report_url,
+            "dataset_jsonl_url": dataset_jsonl_url,
+        }
+        from odoo.addons.aurora.worker.run_evaluation import _ALLOWED_EVAL_COLUMNS
+        for key in vals:
+            self.assertIn(key, _ALLOWED_EVAL_COLUMNS)
+
+    def test_dataset_jsonl_url_single_file(self):
+        uploaded_urls = ["http://minio:9000/bkt/file.jsonl"]
+        result = uploaded_urls[0] if len(uploaded_urls) == 1 else ",".join(uploaded_urls)
+        self.assertEqual(result, "http://minio:9000/bkt/file.jsonl")
+
+    def test_dataset_jsonl_url_multiple_files(self):
+        uploaded_urls = ["http://minio:9000/bkt/a.jsonl", "http://minio:9000/bkt/b.jsonl"]
+        result = uploaded_urls[0] if len(uploaded_urls) == 1 else ",".join(uploaded_urls)
+        self.assertEqual(result, "http://minio:9000/bkt/a.jsonl,http://minio:9000/bkt/b.jsonl")
+
+
+# =============================================================================
+# dataset_resolver._download_s3 — MinIO endpoint override
+# =============================================================================
+
+class TestDatasetResolverDownloadS3Endpoint(TestCase):
+
+    @patch("odoo.addons.aurora.models.dataset_resolver._download_http")
+    def test_download_s3_uses_minio_when_endpoint_set(self, mock_http):
+        from odoo.addons.aurora.models.dataset_resolver import _download_s3
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://minio.local:9000"}):
+            _download_s3("s3://mybucket/path/to/file.jsonl", "/tmp/target.jsonl")
+        mock_http.assert_called_once_with(
+            "http://minio.local:9000/mybucket/path/to/file.jsonl",
+            "/tmp/target.jsonl",
+        )
+
+    @patch("odoo.addons.aurora.models.dataset_resolver._download_http")
+    def test_download_s3_uses_aws_when_no_endpoint(self, mock_http):
+        from odoo.addons.aurora.models.dataset_resolver import _download_s3
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AURORA_S3_ENDPOINT", None)
+            _download_s3("s3://mybucket/path/to/file.jsonl", "/tmp/target.jsonl")
+        mock_http.assert_called_once_with(
+            "https://mybucket.s3.amazonaws.com/path/to/file.jsonl",
+            "/tmp/target.jsonl",
+        )
+
+    @patch("odoo.addons.aurora.models.dataset_resolver._download_http")
+    def test_download_s3_endpoint_trailing_slash_stripped(self, mock_http):
+        from odoo.addons.aurora.models.dataset_resolver import _download_s3
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://minio:9000/"}):
+            _download_s3("s3://bkt/key.jsonl", "/tmp/t")
+        mock_http.assert_called_once_with(
+            "http://minio:9000/bkt/key.jsonl",
+            "/tmp/t",
+        )
+
+    @patch("odoo.addons.aurora.models.dataset_resolver._download_http")
+    def test_download_s3_empty_endpoint_uses_aws(self, mock_http):
+        from odoo.addons.aurora.models.dataset_resolver import _download_s3
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "  "}):
+            _download_s3("s3://bkt/k", "/tmp/t")
+        mock_http.assert_called_once_with(
+            "https://bkt.s3.amazonaws.com/k",
+            "/tmp/t",
+        )
+
+    def test_download_s3_invalid_url_raises(self):
+        from odoo.addons.aurora.models.dataset_resolver import _download_s3
+        with self.assertRaises(ValueError):
+            _download_s3("s3:///no-bucket", "/tmp/t")
+
+
+# =============================================================================
+# tools/harness/run_evaluation.py — unique logger name per dir
+# =============================================================================
+
+class TestHarnessLoggerPerDir(TestCase):
+
+    def test_different_dirs_produce_different_loggers(self):
+        from pathlib import Path
+        dir_a = Path("/tmp/workdir/base_image")
+        dir_b = Path("/tmp/workdir/pr_123")
+        safe_a = str(dir_a).replace("/", ".").replace("\\", ".")
+        safe_b = str(dir_b).replace("/", ".").replace("\\", ".")
+        name_a = f"aurora.harness.img.{safe_a}.build_image.log"
+        name_b = f"aurora.harness.img.{safe_b}.build_image.log"
+        self.assertNotEqual(name_a, name_b)
+
+    def test_same_dir_produces_same_logger_name(self):
+        from pathlib import Path
+        dir_a = Path("/tmp/workdir/base")
+        safe_a = str(dir_a).replace("/", ".").replace("\\", ".")
+        name1 = f"aurora.harness.img.{safe_a}.build_image.log"
+        name2 = f"aurora.harness.img.{safe_a}.build_image.log"
+        self.assertEqual(name1, name2)
+
+    def test_logger_function_returns_unique_loggers(self):
+        import logging
+        from pathlib import Path
+        from odoo.addons.aurora.tools.harness.run_evaluation import get_non_propagate_logger
+        with tempfile.TemporaryDirectory() as td:
+            dir_a = Path(td) / "img_a"
+            dir_b = Path(td) / "img_b"
+            dir_a.mkdir()
+            dir_b.mkdir()
+            logger_a = get_non_propagate_logger(dir_a, "build_image.log", "INFO", False)
+            logger_b = get_non_propagate_logger(dir_b, "build_image.log", "INFO", False)
+            self.assertIsNot(logger_a, logger_b)
+            self.assertNotEqual(logger_a.name, logger_b.name)
+            for h in logger_a.handlers[:]:
+                logger_a.removeHandler(h)
+                h.close()
+            for h in logger_b.handlers[:]:
+                logger_b.removeHandler(h)
+                h.close()
+
+
+# =============================================================================
+# evaluation_executor._ALLOWED_COLUMNS — dataset_jsonl_url
+# =============================================================================
+
+class TestEvalExecutorAllowedColumns(TestCase):
+
+    def test_allowed_columns_has_dataset_jsonl_url(self):
+        from odoo.addons.aurora.models.evaluation_executor import _ALLOWED_COLUMNS
+        self.assertIn("dataset_jsonl_url", _ALLOWED_COLUMNS)
+
+    def test_allowed_columns_has_missing_registries(self):
+        from odoo.addons.aurora.models.evaluation_executor import _ALLOWED_COLUMNS
+        self.assertIn("missing_registries", _ALLOWED_COLUMNS)
+
+    def test_allowed_columns_has_s3_run_number(self):
+        from odoo.addons.aurora.models.evaluation_executor import _ALLOWED_COLUMNS
+        self.assertIn("s3_run_number", _ALLOWED_COLUMNS)

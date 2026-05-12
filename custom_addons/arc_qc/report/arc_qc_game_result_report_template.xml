@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="report_game_result_findings">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="web.external_layout">
+                    <div class="page">
+
+                        <!-- Title -->
+                        <h2 style="margin-bottom: 4px;">
+                            QC Report — <t t-out="o.game_id"/>
+                        </h2>
+                        <p style="color: #666; margin-bottom: 16px;">
+                            Session: <t t-out="o.session_id.name"/>
+                            <t t-if="o.session_id.create_date">
+                                — <t t-out="o.session_id.create_date" t-options="{'widget': 'datetime'}"/>
+                            </t>
+                        </p>
+
+                        <!-- Verdict Banner -->
+                        <div t-if="o.verdict == 'block'"
+                             style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px 16px; margin-bottom: 16px;">
+                            <strong style="color: #721c24; font-size: 16px;">VERDICT: BLOCK</strong>
+                            <span style="color: #721c24;"> — This game does not pass QC.</span>
+                        </div>
+                        <div t-if="o.verdict == 'conditional_ship'"
+                             style="background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px; padding: 10px 16px; margin-bottom: 16px;">
+                            <strong style="color: #856404; font-size: 16px;">VERDICT: CONDITIONAL SHIP</strong>
+                            <span style="color: #856404;"> — Minor issues detected.</span>
+                        </div>
+                        <div t-if="o.verdict == 'ship'"
+                             style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; padding: 10px 16px; margin-bottom: 16px;">
+                            <strong style="color: #155724; font-size: 16px;">VERDICT: SHIP</strong>
+                            <span style="color: #155724;"> — All QC checks passed.</span>
+                        </div>
+
+                        <!-- Summary Stats -->
+                        <table class="table table-sm" style="margin-bottom: 20px; width: auto;">
+                            <tr>
+                                <td style="padding: 4px 16px 4px 0;"><strong>Models Found</strong></td>
+                                <td style="padding: 4px 0;"><t t-out="o.models_found"/> / <t t-out="o.models_expected"/></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 16px 4px 0;"><strong>Runs Checked</strong></td>
+                                <td style="padding: 4px 0;"><t t-out="o.runs_checked"/></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 16px 4px 0;"><strong>Steps Checked</strong></td>
+                                <td style="padding: 4px 0;"><t t-out="o.steps_checked"/></td>
+                            </tr>
+                        </table>
+
+                        <!-- Severity Breakdown -->
+                        <h4 style="margin-bottom: 8px;">Severity Breakdown</h4>
+                        <table class="table table-sm table-bordered" style="margin-bottom: 20px; width: auto;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 6px 16px;">Severity</th>
+                                    <th style="padding: 6px 16px; text-align: right;">Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-if="o.critical_count">
+                                    <td style="padding: 4px 16px; color: #dc3545; font-weight: bold;">CRITICAL</td>
+                                    <td style="padding: 4px 16px; text-align: right;"><t t-out="o.critical_count"/></td>
+                                </tr>
+                                <tr t-if="o.high_count">
+                                    <td style="padding: 4px 16px; color: #fd7e14; font-weight: bold;">HIGH</td>
+                                    <td style="padding: 4px 16px; text-align: right;"><t t-out="o.high_count"/></td>
+                                </tr>
+                                <tr t-if="o.medium_count">
+                                    <td style="padding: 4px 16px; color: #e6a800; font-weight: bold;">MEDIUM</td>
+                                    <td style="padding: 4px 16px; text-align: right;"><t t-out="o.medium_count"/></td>
+                                </tr>
+                                <tr t-if="o.low_count">
+                                    <td style="padding: 4px 16px; color: #6c757d; font-weight: bold;">LOW</td>
+                                    <td style="padding: 4px 16px; text-align: right;"><t t-out="o.low_count"/></td>
+                                </tr>
+                                <tr style="border-top: 2px solid #dee2e6;">
+                                    <td style="padding: 4px 16px;"><strong>Total</strong></td>
+                                    <td style="padding: 4px 16px; text-align: right;"><strong><t t-out="o.finding_count"/></strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- Findings Table -->
+                        <t t-if="o.finding_ids">
+                            <h4 style="margin-bottom: 8px;">Findings</h4>
+                            <table class="table table-sm table-bordered" style="font-size: 11px;">
+                                <thead>
+                                    <tr style="background: #f8f9fa;">
+                                        <th style="padding: 4px 6px; width: 70px;">Severity</th>
+                                        <th style="padding: 4px 6px; width: 90px;">Phase</th>
+                                        <th style="padding: 4px 6px; width: 160px;">Code</th>
+                                        <th style="padding: 4px 6px;">Message</th>
+                                        <th style="padding: 4px 6px; width: 80px;">Spec Ref</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="o.finding_ids.sorted(key=lambda f: {'critical':0,'high':1,'medium':2,'low':3}.get(f.severity, 4))"
+                                       t-as="f">
+                                        <tr>
+                                            <td style="padding: 3px 6px;">
+                                                <span t-if="f.severity == 'critical'" style="color: #dc3545; font-weight: bold;">CRITICAL</span>
+                                                <span t-if="f.severity == 'high'" style="color: #fd7e14; font-weight: bold;">HIGH</span>
+                                                <span t-if="f.severity == 'medium'" style="color: #e6a800; font-weight: bold;">MEDIUM</span>
+                                                <span t-if="f.severity == 'low'" style="color: #6c757d;">LOW</span>
+                                            </td>
+                                            <td style="padding: 3px 6px;"><t t-out="f.phase"/></td>
+                                            <td style="padding: 3px 6px; font-family: monospace; font-size: 10px;">
+                                                <t t-out="f.code"/>
+                                            </td>
+                                            <td style="padding: 3px 6px; word-break: break-word;">
+                                                <t t-out="f.message"/>
+                                            </td>
+                                            <td style="padding: 3px 6px; font-size: 10px;">
+                                                <t t-out="f.spec_ref"/>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </t>
+
+                        <t t-if="not o.finding_ids">
+                            <p style="color: #28a745; font-style: italic;">No findings — all checks passed.</p>
+                        </t>
+
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+</odoo>

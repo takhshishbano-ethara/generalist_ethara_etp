@@ -682,7 +682,7 @@ def run_pipeline(registry, db_name: str, rec_id: int):
             dataset_fname = os.path.basename(str(step6_file))
             if use_s3:
                 s3_key = s3_storage.build_s3_key(org, repo, run_number, dataset_fname, s3_folder)
-                dataset_url = f"https://{s3_config['bucket']}.s3.{s3_config['region']}.amazonaws.com/{s3_key}"
+                dataset_url = s3_storage.build_url(s3_config['bucket'], s3_config['region'], s3_key)
             else:
                 dataset_url = f"file://{step6_file}"
 

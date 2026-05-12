@@ -21,7 +21,7 @@
                     serve as targets. Each instance provides a specification PDF and build
                     infrastructure (Dockerfile + setup scripts), challenging models to produce
                     working implementations that pass comprehensive test suites. Two frontier
-                    models (GLM-5, Nova-2-Lite) were evaluated through a 3-stage pipeline:
+                    models (GLM-5, Kimi K2.5) were evaluated through a 3-stage pipeline:
                     initial generation, lint refinement, and test refinement.
                 </p>
             </section>
@@ -36,7 +36,7 @@
                     <div class="kj-metric-card">
                         <span class="kj-metric-value">2</span>
                         <span class="kj-metric-label">Frontier Models</span>
-                        <span class="kj-metric-detail">GLM-5 &#x26; Nova-2-Lite</span>
+                        <span class="kj-metric-detail">GLM-5 &#x26; Kimi K2.5</span>
                     </div>
                     <div class="kj-metric-card">
                         <span class="kj-metric-value">49,299</span>

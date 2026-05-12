@@ -79,7 +79,7 @@
                                        invisible="not dockerfile_s3_uri"/>
                             </group>
                             <field name="dockerfile_content" widget="ace"
-                                   options="{'mode': 'sh'}" readonly="1" nolabel="1"
+                                   readonly="1" nolabel="1"
                                    invisible="not dockerfile_content"/>
                             <p class="text-muted" invisible="dockerfile_content">
                                 No inline Dockerfile stored. Check the S3 link above, if available.
@@ -92,7 +92,7 @@
                                        invisible="not report_json_s3_uri"/>
                             </group>
                             <field name="report_json_content" widget="ace"
-                                   options="{'mode': 'json'}" readonly="1" nolabel="1"
+                                   options="{'mode': 'javascript'}" readonly="1" nolabel="1"
                                    invisible="not report_json_content"/>
                             <p class="text-muted" invisible="report_json_content">
                                 No inline report yet. Run this instance to populate.
@@ -105,7 +105,7 @@
                                        invisible="not fix_patch_s3_uri"/>
                             </group>
                             <field name="fix_patch_content" widget="ace"
-                                   options="{'mode': 'diff'}" readonly="1" nolabel="1"
+                                   readonly="1" nolabel="1"
                                    invisible="not fix_patch_content"/>
                         </page>
 

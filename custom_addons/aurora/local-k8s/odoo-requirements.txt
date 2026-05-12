@@ -27,3 +27,4 @@ beautifulsoup4==4.14.3
 soupsieve==2.8.3
 cbor2==5.6.2
 httpx[http2]
+asn1crypto>=1.5
