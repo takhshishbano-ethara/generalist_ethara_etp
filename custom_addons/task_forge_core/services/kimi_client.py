@@ -17,6 +17,13 @@ def _get_config(key, default=''):
 
 
 def _detect_media_type(url, content_bytes=None):
+    if content_bytes:
+        if content_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'image/png'
+        if content_bytes[:4] == b'RIFF' and content_bytes[8:12] == b'WEBP':
+            return 'image/webp'
+        if content_bytes[:6] in (b'GIF87a', b'GIF89a'):
+            return 'image/gif'
     url_lower = url.lower()
     if '.png' in url_lower:
         return 'image/png'
@@ -33,7 +40,7 @@ def fetch_image_as_base64(url):
     if resp.status_code != 200:
         _logger.warning('Failed to fetch image from %s (HTTP %d)', url, resp.status_code)
         return None, None
-    media_type = _detect_media_type(url)
+    media_type = _detect_media_type(url, content_bytes=resp.content)
     b64 = base64.b64encode(resp.content).decode('utf-8')
     return b64, media_type
 
