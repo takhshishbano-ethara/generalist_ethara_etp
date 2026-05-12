@@ -103,7 +103,11 @@ def _download_s3(url: str, target: str) -> None:
     key = parsed.path.lstrip("/")
     if not bucket or not key:
         raise ValueError(f"Invalid s3:// URL (missing bucket or key): {url!r}")
-    https_url = f"https://{bucket}.s3.amazonaws.com/{key}"
+    endpoint_override = os.environ.get("AURORA_S3_ENDPOINT", "").strip()
+    if endpoint_override:
+        https_url = f"{endpoint_override.rstrip('/')}/{bucket}/{key}"
+    else:
+        https_url = f"https://{bucket}.s3.amazonaws.com/{key}"
     _download_http(https_url, target)
 
 

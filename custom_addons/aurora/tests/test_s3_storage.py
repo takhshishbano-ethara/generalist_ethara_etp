@@ -497,3 +497,73 @@ class TestConstants(TestCase):
     def test_max_concurrency_4(self):
         from odoo.addons.aurora.models.s3_storage import _S3_MAX_CONCURRENCY
         self.assertEqual(_S3_MAX_CONCURRENCY, 4)
+
+
+# =============================================================================
+# build_url — endpoint override logic
+# =============================================================================
+
+class TestBuildUrl(TestCase):
+
+    def test_default_returns_aws_url(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AURORA_S3_ENDPOINT", None)
+            result = build_url("my-bucket", "us-east-1", "aurora/key.json")
+        self.assertEqual(result, "https://my-bucket.s3.us-east-1.amazonaws.com/aurora/key.json")
+
+    def test_endpoint_override_returns_custom_url(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://minio.local:9000"}):
+            result = build_url("my-bucket", "us-east-1", "aurora/key.json")
+        self.assertEqual(result, "http://minio.local:9000/my-bucket/aurora/key.json")
+
+    def test_endpoint_override_trailing_slash_stripped(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://minio.local:9000/"}):
+            result = build_url("bucket", "r", "k")
+        self.assertEqual(result, "http://minio.local:9000/bucket/k")
+
+    def test_empty_endpoint_uses_aws(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": ""}):
+            result = build_url("b", "eu-west-1", "k")
+        self.assertEqual(result, "https://b.s3.eu-west-1.amazonaws.com/k")
+
+    def test_whitespace_endpoint_uses_aws(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "   "}):
+            result = build_url("b", "ap-south-1", "path/file.jsonl")
+        self.assertEqual(result, "https://b.s3.ap-south-1.amazonaws.com/path/file.jsonl")
+
+    def test_endpoint_with_path_preserved(self):
+        from odoo.addons.aurora.models.s3_storage import build_url
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://host:9000"}):
+            result = build_url("bkt", "r", "folder/phase/org__repo/run_1/file.jsonl")
+        self.assertEqual(result, "http://host:9000/bkt/folder/phase/org__repo/run_1/file.jsonl")
+
+
+class TestUploadFileUseBuildUrl(TestCase):
+
+    @patch("odoo.addons.aurora.models.s3_storage.time.sleep")
+    @patch("odoo.addons.aurora.models.s3_storage.os.path.getsize", return_value=1000)
+    @patch("odoo.addons.aurora.models.s3_storage._get_transfer_config")
+    @patch("odoo.addons.aurora.models.s3_storage._get_client")
+    def test_upload_returns_minio_url_when_endpoint_set(self, mock_gc, mock_tc, mock_size, mock_sleep):
+        from odoo.addons.aurora.models.s3_storage import upload_file
+        mock_gc.return_value = MagicMock()
+        with patch.dict(os.environ, {"AURORA_S3_ENDPOINT": "http://minio:9000"}):
+            url = upload_file({"bucket": "bkt", "region": "us-east-1"}, "/tmp/f.txt", "key/f.txt")
+        self.assertEqual(url, "http://minio:9000/bkt/key/f.txt")
+
+    @patch("odoo.addons.aurora.models.s3_storage.time.sleep")
+    @patch("odoo.addons.aurora.models.s3_storage.os.path.getsize", return_value=1000)
+    @patch("odoo.addons.aurora.models.s3_storage._get_transfer_config")
+    @patch("odoo.addons.aurora.models.s3_storage._get_client")
+    def test_upload_returns_aws_url_when_no_endpoint(self, mock_gc, mock_tc, mock_size, mock_sleep):
+        from odoo.addons.aurora.models.s3_storage import upload_file
+        mock_gc.return_value = MagicMock()
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AURORA_S3_ENDPOINT", None)
+            url = upload_file({"bucket": "bkt", "region": "eu-west-1"}, "/tmp/f.txt", "key/f.txt")
+        self.assertEqual(url, "https://bkt.s3.eu-west-1.amazonaws.com/key/f.txt")
