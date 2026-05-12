@@ -5,14 +5,7 @@ import { ListController } from "@web/views/list/list_controller";
 
 class LeviathanListController extends ListController {
     async onStartTask() {
-        const action = await this.model.orm.call(
-            "leviathan.job",
-            "action_start_task",
-            [[]]
-        );
-        if (action && action.type) {
-            await this.actionService.doAction(action);
-        }
+        await this.actionService.doAction("leviathan.action_leviathan_start_task_wizard");
     }
 }
 

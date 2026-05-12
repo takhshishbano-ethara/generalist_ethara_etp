@@ -91,6 +91,10 @@ class LeviathanJob(models.Model):
         string="Score Report (HTML)", compute="_compute_score_report_html",
         sanitize=False,
     )
+    stage_progress_html = fields.Html(
+        string="Stage Progress", compute="_compute_stage_progress",
+        sanitize=False,
+    )
     cancel_requested = fields.Boolean(default=False)
 
     user_id = fields.Many2one(
@@ -152,6 +156,66 @@ class LeviathanJob(models.Model):
         for rec in self:
             rec.is_admin = self.env.user.has_group(
                 "leviathan.group_leviathan_admin"
+            )
+
+    # Typical stage durations (seconds) from real pipeline data
+    _STAGE_ESTIMATES = {
+        "extracting": 600,   # ~10 min (Lambda + heavy sites)
+        "generating": 180,   # ~3 min (multi-turn Bedrock)
+        "scoring": 30,       # ~30s
+    }
+
+    @api.depends("state", "started_at", "last_heartbeat", "completed_at", "duration_seconds")
+    def _compute_stage_progress(self):
+        now = fields.Datetime.now()
+        for rec in self:
+            # Finished states: show total duration
+            if rec.state in ("done", "submitted", "failed", "cancelled"):
+                if rec.started_at and rec.completed_at:
+                    total = rec.duration_seconds or max(0, (rec.completed_at - rec.started_at).total_seconds())
+                    m, s = divmod(int(total), 60)
+                    total_str = f"{m}m {s:02d}s" if m else f"{s}s"
+                    color = "#dc3545" if rec.state in ("failed", "cancelled") else "#28a745"
+                    label = {"failed": "Failed after", "cancelled": "Cancelled after"}.get(rec.state, "Completed in")
+                    rec.stage_progress_html = (
+                        f'<div style="font-size:13px;color:{color};padding:4px 0;">'
+                        f'{label}: <b>{total_str}</b>'
+                        f'</div>'
+                    )
+                else:
+                    rec.stage_progress_html = ""
+                continue
+
+            # In-progress states: show stage + total + estimate
+            if rec.state not in self._STAGE_ESTIMATES:
+                rec.stage_progress_html = ""
+                continue
+
+            stage_start = rec.last_heartbeat or rec.started_at or now
+            overall_start = rec.started_at or stage_start
+            stage_elapsed = max(0, (now - stage_start).total_seconds())
+            overall_elapsed = max(0, (now - overall_start).total_seconds())
+
+            # Remaining for this stage
+            stage_est = self._STAGE_ESTIMATES[rec.state]
+            stage_remaining = max(0, stage_est - stage_elapsed)
+
+            # Remaining overall = this stage remaining + sum of future stages
+            stages = ["extracting", "generating", "scoring"]
+            idx = stages.index(rec.state)
+            future = sum(self._STAGE_ESTIMATES[s] for s in stages[idx + 1:])
+            total_remaining = stage_remaining + future
+
+            def _fmt(secs):
+                m, s = divmod(int(secs), 60)
+                return f"{m}m {s:02d}s" if m else f"{s}s"
+
+            rec.stage_progress_html = (
+                f'<div style="font-size:13px;color:#495057;padding:4px 0;">'
+                f'Stage: <b>{_fmt(stage_elapsed)}</b>'
+                f' &middot; Total: <b>{_fmt(overall_elapsed)}</b>'
+                f' &middot; Est. remaining: <b>~{_fmt(total_remaining)}</b>'
+                f'</div>'
             )
 
     @api.depends("score_report_json")
@@ -399,9 +463,13 @@ class LeviathanJob(models.Model):
                     f"Submit or complete existing tasks first (max: {max_active})."
                 )
 
-        # Pick oldest unassigned task
+        # Pick oldest unassigned task (optionally filtered by category)
+        domain = [("state", "=", "not_assigned")]
+        cat_id = self.env.context.get("start_task_category_id")
+        if cat_id:
+            domain.append(("category_id", "=", cat_id))
         task = self.sudo().search(
-            [("state", "=", "not_assigned")],
+            domain,
             order="create_date asc",
             limit=1,
         )
