@@ -1,28 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="seq_leviathan_job" model="ir.sequence">
-        <field name="name">Leviathan Job</field>
+        <field name="name">Leviathan Task</field>
         <field name="code">leviathan.job</field>
         <field name="prefix">LEV-</field>
         <field name="padding">5</field>
     </record>
 
     <record id="ir_cron_leviathan_watchdog" model="ir.cron">
-        <field name="name">Leviathan: Watchdog Stuck Jobs</field>
+        <field name="name">Leviathan: Watchdog Stuck Tasks</field>
         <field name="model_id" ref="model_leviathan_job"/>
         <field name="state">code</field>
         <field name="code">model._cron_watchdog_stuck_jobs()</field>
         <field name="interval_number">5</field>
-        <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
-    </record>
-
-    <record id="ir_cron_leviathan_pool_assign" model="ir.cron">
-        <field name="name">Leviathan: Auto-assign Pool Jobs</field>
-        <field name="model_id" ref="model_leviathan_job"/>
-        <field name="state">code</field>
-        <field name="code">model._cron_auto_assign_pool()</field>
-        <field name="interval_number">2</field>
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>

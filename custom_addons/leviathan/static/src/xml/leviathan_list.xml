@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="leviathan.ListButtons">
+        <button type="button" class="btn btn-primary" t-on-click="() => this.onStartTask()">
+            Start Task
+        </button>
+    </t>
+</templates>

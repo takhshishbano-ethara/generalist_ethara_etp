@@ -19,6 +19,8 @@
     "assets": {
         "web.assets_backend": [
             "leviathan/static/src/js/leviathan_bus.js",
+            "leviathan/static/src/js/leviathan_list.js",
+            "leviathan/static/src/xml/leviathan_list.xml",
         ],
     },
     "installable": True,

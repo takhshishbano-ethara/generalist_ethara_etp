@@ -15,7 +15,7 @@ _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="leviathan-job")
 
 class LeviathanJob(models.Model):
     _name = "leviathan.job"
-    _description = "Leviathan Pipeline Job"
+    _description = "Leviathan Pipeline Task"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc, id desc"
 
@@ -31,20 +31,18 @@ class LeviathanJob(models.Model):
     site_name = fields.Char(string="Site Name")
     state = fields.Selection(
         [
-            ("pool", "Pool"),
+            ("not_assigned", "Not Assigned"),
             ("draft", "Draft"),
-            ("queued", "Queued"),
             ("extracting", "Extracting"),
             ("generating", "Generating PRD"),
             ("scoring", "Scoring"),
-            ("qc", "QC Review"),
             ("done", "Done"),
             ("submitted", "Submitted"),
             ("failed", "Failed"),
             ("cancelled", "Cancelled"),
         ],
         string="Status",
-        default="pool",
+        default="not_assigned",
         required=True,
         tracking=True,
     )
@@ -110,6 +108,16 @@ class LeviathanJob(models.Model):
         "CHECK(url IS NOT NULL AND url != '')",
         "Website URL is required!",
     )
+
+    @property
+    def _has_extraction_data(self):
+        """True if any extraction artifacts exist on this record."""
+        return bool(
+            self.prd_prompt
+            or self.site_discovery_json
+            or self.screenshot_keys
+            or self.asset_keys
+        )
 
     # ------------------------------------------------------------------
     # Prompt helpers (read from Settings, fallback to file)
@@ -218,6 +226,7 @@ class LeviathanJob(models.Model):
                 for r in rejects:
                     html += f'<span style="display:inline-block;margin:2px 4px;padding:2px 8px;background:#dc3545;color:#fff;border-radius:3px;font-size:12px;">{r}</span>'
                 html += '</div>'
+
             if warnings:
                 html += '<div style="margin-top:6px;">'
                 for w in warnings:
@@ -274,43 +283,71 @@ class LeviathanJob(models.Model):
 
             akeys = rec.asset_keys or []
             if akeys and base:
-                parts = []
+                # Group assets by subfolder
+                groups = {}  # folder_label -> [(url, fname, ext)]
                 for key in akeys:
                     url = f"{base}/{key}"
                     fname = key.rsplit("/", 1)[-1] if "/" in key else key
                     ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
-                    if ext in ("png", "jpg", "jpeg", "webp", "gif", "svg"):
-                        parts.append(
-                            f'<div style="display:inline-block;margin:6px;text-align:center;">'
-                            f'<a href="{url}" target="_blank">'
-                            f'<img src="{url}" style="max-width:200px;max-height:140px;'
-                            f'border:1px solid #ddd;border-radius:4px;" '
-                            f'title="{fname}" loading="lazy"/>'
-                            f'</a><br/><small>{fname}</small></div>'
-                        )
-                    elif ext in ("woff2", "woff", "ttf", "otf"):
-                        parts.append(
-                            f'<div style="display:inline-block;margin:6px;padding:8px 12px;'
-                            f'border:1px solid #ddd;border-radius:4px;background:#f8f9fa;">'
-                            f'<a href="{url}" target="_blank">'
-                            f'Font: {fname}</a></div>'
-                        )
-                    elif ext in ("mp4", "webm", "ogg"):
-                        parts.append(
-                            f'<div style="display:inline-block;margin:6px;">'
-                            f'<video src="{url}" style="max-width:280px;max-height:180px;'
-                            f'border:1px solid #ddd;border-radius:4px;" '
-                            f'controls muted preload="metadata"/>'
-                            f'<br/><small>{fname}</small></div>'
-                        )
+                    # Determine folder group
+                    if "/deliverables/Page Assets/" in key or "/Page Assets/" in key:
+                        folder = "Page Assets"
+                    elif "/deliverables/_unused/" in key or "/_unused/" in key:
+                        folder = "Unused (Copyrighted)"
+                    elif "/deliverables/References/" in key or "/References/" in key:
+                        folder = "References"
                     else:
-                        parts.append(
-                            f'<div style="display:inline-block;margin:6px;padding:8px 12px;'
-                            f'border:1px solid #ddd;border-radius:4px;background:#f8f9fa;">'
-                            f'<a href="{url}" target="_blank">'
-                            f'{fname}</a></div>'
-                        )
-                rec.asset_urls_html = "".join(parts)
+                        folder = "Other"
+                    groups.setdefault(folder, []).append((url, fname, ext))
+
+                html_parts = []
+                # Display order
+                for folder in ("Page Assets", "References", "Unused (Copyrighted)", "Other"):
+                    items = groups.get(folder)
+                    if not items:
+                        continue
+                    html_parts.append(
+                        f'<div style="margin:12px 0 6px 0;font-weight:600;'
+                        f'font-size:13px;color:#495057;border-bottom:1px solid #dee2e6;'
+                        f'padding-bottom:4px;">{folder} ({len(items)})</div>'
+                        f'<div style="display:flex;flex-wrap:wrap;">'
+                    )
+                    for url, fname, ext in items:
+                        if ext in ("png", "jpg", "jpeg", "webp", "gif", "svg"):
+                            html_parts.append(
+                                f'<div style="display:inline-block;margin:6px;text-align:center;">'
+                                f'<a href="{url}" target="_blank">'
+                                f'<img src="{url}" style="max-width:200px;max-height:140px;'
+                                f'border:1px solid #ddd;border-radius:4px;" '
+                                f'title="{fname}" loading="lazy"/>'
+                                f'</a><br/><small style="word-break:break-all;max-width:200px;'
+                                f'display:inline-block;">{fname}</small></div>'
+                            )
+                        elif ext in ("woff2", "woff", "ttf", "otf"):
+                            html_parts.append(
+                                f'<div style="display:inline-block;margin:6px;padding:8px 12px;'
+                                f'border:1px solid #ddd;border-radius:4px;background:#f8f9fa;">'
+                                f'<a href="{url}" target="_blank">'
+                                f'Font: {fname}</a></div>'
+                            )
+                        elif ext in ("mp4", "webm", "ogg"):
+                            html_parts.append(
+                                f'<div style="display:inline-block;margin:6px;">'
+                                f'<video src="{url}" style="max-width:280px;max-height:180px;'
+                                f'border:1px solid #ddd;border-radius:4px;" '
+                                f'controls muted preload="metadata"/>'
+                                f'<br/><small>{fname}</small></div>'
+                            )
+                        else:
+                            html_parts.append(
+                                f'<div style="display:inline-block;margin:6px;padding:8px 12px;'
+                                f'border:1px solid #ddd;border-radius:4px;background:#f8f9fa;">'
+                                f'<a href="{url}" target="_blank">'
+                                f'{fname}</a></div>'
+                            )
+                    html_parts.append('</div>')
+
+                rec.asset_urls_html = "".join(html_parts)
             else:
                 rec.asset_urls_html = (
                     "<p class='text-muted'>No assets available</p>"
@@ -329,8 +366,8 @@ class LeviathanJob(models.Model):
                 vals["name"] = (
                     self.env["ir.sequence"].next_by_code("leviathan.job") or "New"
                 )
-            # If user_id is set and state is pool, auto-promote to draft
-            if vals.get("user_id") and vals.get("state", "pool") == "pool":
+            # If user_id is set at creation, auto-promote to draft
+            if vals.get("user_id") and vals.get("state", "not_assigned") == "not_assigned":
                 vals["state"] = "draft"
         return super().create(vals_list)
 
@@ -338,107 +375,131 @@ class LeviathanJob(models.Model):
     # Actions
     # ------------------------------------------------------------------
 
-    def action_assign_task(self):
-        """Auto-assign THIS job to the tasker with the most open slots."""
-        self.ensure_one()
-        if self.state != "pool":
-            raise UserError("Can only assign jobs from the Pool.")
+    _ACTIVE_STATES = ("draft", "extracting", "generating", "scoring", "done")
 
+    def action_start_task(self):
+        """Tasker grabs the next available unassigned task.
+
+        Picks the oldest not_assigned task. If it already has PRD data
+        (released from done), state goes to done. Otherwise draft.
+        """
+        user = self.env.user
         ICP = self.env["ir.config_parameter"].sudo()
         max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
 
-        # Find taskers
-        user_group = self.env.ref("leviathan.group_leviathan_user")
-        admin_group = self.env.ref("leviathan.group_leviathan_admin")
-        all_users = self.env["res.users"].sudo().search([
-            ("all_group_ids", "in", user_group.id),
-            ("active", "=", True),
-        ])
-        admin_users = self.env["res.users"].sudo().search([
-            ("all_group_ids", "in", admin_group.id),
-        ])
-        taskers = all_users - admin_users
-
-        if not taskers:
-            raise UserError("No taskers available. Add users to the Leviathan User group.")
-
-        # Find tasker with most open slots
-        best_tasker = None
-        best_open = 0
-        active_states = ("draft", "queued", "extracting", "generating", "scoring")
-        for tasker in taskers:
+        # Check bandwidth
+        if max_active > 0:
             active_count = self.sudo().search_count([
-                ("user_id", "=", tasker.id),
-                ("state", "in", active_states),
+                ("user_id", "=", user.id),
+                ("state", "in", self._ACTIVE_STATES),
             ])
-            open_slots = max_active - active_count
-            if open_slots > best_open:
-                best_open = open_slots
-                best_tasker = tasker
+            if active_count >= max_active:
+                raise UserError(
+                    f"You already have {active_count} active task(s). "
+                    f"Submit or complete existing tasks first (max: {max_active})."
+                )
 
-        if not best_tasker:
-            raise UserError("All taskers are at capacity (%d active jobs each)." % max_active)
+        # Pick oldest unassigned task
+        task = self.sudo().search(
+            [("state", "=", "not_assigned")],
+            order="create_date asc",
+            limit=1,
+        )
+        if not task:
+            raise UserError("No tasks available. Check back later.")
 
-        self.write({"user_id": best_tasker.id, "state": "draft"})
-        self._notify_state_change("draft")
+        # Smart state: if PRD exists (released done task), go to done
+        new_state = "done" if task.prd_text else "draft"
+        task.write({"user_id": user.id, "state": new_state})
+        task._notify_state_change(new_state)
 
-    def action_assign_user(self):
-        """Admin assigns a pool job to the selected user."""
+        # Navigate to the picked task
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": "leviathan.job",
+            "res_id": task.id,
+            "view_mode": "form",
+            "views": [(False, "form")],
+            "target": "current",
+        }
+
+    def action_release_task(self):
+        """Admin releases a task back to the unassigned queue.
+
+        Clears user assignment, preserves all progress data.
+        Only works on draft, done, or failed tasks.
+        """
         self.ensure_one()
-        if self.state != "pool":
-            raise UserError("Can only assign jobs from the Pool.")
-        if not self.user_id:
-            raise UserError("Please select a user to assign this job to.")
-        self.write({"state": "draft"})
-        self._notify_state_change("draft")
+        if self.state not in ("draft", "done", "failed"):
+            raise UserError(
+                "Can only release tasks in Draft, Done, or Failed state. "
+                "Cancel in-progress tasks first."
+            )
+        self.write({"user_id": False, "state": "not_assigned"})
+        self._notify_state_change("not_assigned")
 
-    def action_assign_tasks(self):
-        """Admin triggers pool distribution to all taskers now."""
-        self._cron_auto_assign_pool()
-        return {"type": "ir.actions.client", "tag": "reload"}
+    def action_run(self):
+        """Start the extraction pipeline.
 
-    def action_queue(self):
+        If extraction data already exists (e.g. task was retried/released),
+        opens a wizard to let user choose re-extract vs regenerate.
+        """
         self.ensure_one()
         if self.state != "draft":
-            raise UserError("Can only queue jobs in Draft state.")
+            raise UserError("Can only run tasks in Draft state.")
         if not self.url:
-            raise UserError("Please enter a website URL before queuing.")
+            raise UserError("Please enter a website URL before running.")
         if not self.category_id:
-            raise UserError("Please select a website category before queuing.")
+            raise UserError("Please select a website category before running.")
         if not self.user_id:
-            raise UserError("Please assign a tasker before queuing.")
-        # Per-user concurrent job limit
+            raise UserError("Task must be assigned to a user before running.")
+
+        # If extraction data exists, ask user what to do
+        if self._has_extraction_data and not self.env.context.get("force_extract"):
+            wizard = self.env["leviathan.rerun.wizard"].create({"job_id": self.id})
+            return {
+                "type": "ir.actions.act_window",
+                "name": "Extraction Data Exists",
+                "res_model": "leviathan.rerun.wizard",
+                "res_id": wizard.id,
+                "view_mode": "form",
+                "views": [(False, "form")],
+                "target": "new",
+            }
+
+        # Per-user concurrent job limit (only count running tasks, not draft/done)
         max_jobs = int(
             self.env["ir.config_parameter"]
             .sudo()
             .get_param("leviathan.max_jobs_per_user", "5")
         )
         if max_jobs > 0:
-            active_states = ("queued", "extracting", "generating", "scoring")
-            active_count = self.sudo().search_count([
+            running_states = ("extracting", "generating", "scoring")
+            running_count = self.sudo().search_count([
                 ("user_id", "=", self.user_id.id),
-                ("state", "in", active_states),
+                ("state", "in", running_states),
                 ("id", "!=", self.id),
             ])
-            if active_count >= max_jobs:
+            if running_count >= max_jobs:
                 raise UserError(
-                    f"Tasker {self.user_id.name} already has {active_count} active "
-                    f"job(s). Maximum allowed: {max_jobs}."
+                    f"Too many tasks running ({running_count}). "
+                    f"Wait for current tasks to complete."
                 )
-        # Lock row to prevent double-queue from concurrent tabs/clicks
+
+        # Lock row to prevent double-run
         self.env.cr.execute(
             "SELECT id FROM leviathan_job WHERE id = %s FOR UPDATE NOWAIT",
             [self.id],
         )
-        # Re-check state after lock (TOCTOU guard)
         self.env.cr.execute(
             "SELECT state FROM leviathan_job WHERE id = %s", [self.id]
         )
         row = self.env.cr.fetchone()
         if not row or row[0] != "draft":
-            raise UserError("Job already queued by another session.")
+            raise UserError("Task already running in another session.")
+
         self.write({
-            "state": "queued",
+            "state": "extracting",
             "error_message": False,
             "cancel_requested": False,
             "started_at": fields.Datetime.now(),
@@ -448,9 +509,9 @@ class LeviathanJob(models.Model):
 
     def action_cancel(self):
         self.ensure_one()
-        if self.state in ("done", "submitted", "failed", "cancelled"):
+        if self.state in ("not_assigned", "done", "submitted", "failed", "cancelled"):
             raise UserError(
-                "Cannot cancel a completed, submitted, failed, or already cancelled job."
+                "Cannot cancel a task in this state."
             )
         self.write({
             "state": "cancelled",
@@ -460,24 +521,42 @@ class LeviathanJob(models.Model):
         })
 
     def action_mark_submitted(self):
-        """Tasker marks the job as submitted."""
+        """Tasker marks the task as submitted."""
         self.ensure_one()
         if self.state != "done":
-            raise UserError("Can only submit jobs that are in 'Done' state.")
+            raise UserError("Can only submit tasks that are Done.")
         if not self.qc_verdict:
             raise UserError(
                 "Cannot submit: QC has not run. "
                 "Review the QC report or rerun QC before submitting."
             )
         self.write({"state": "submitted"})
-        # Auto-assign next pool job to this tasker
-        self._auto_assign_for_user(self.user_id)
 
     def action_retry(self):
-        """Reset a failed/cancelled job to draft for re-queuing."""
+        """Retry a failed/cancelled task.
+
+        If extraction data exists, open the rerun wizard so user can choose
+        between re-extract or just regenerate PRD. Otherwise go straight
+        to extracting.
+        """
         self.ensure_one()
         if self.state not in ("failed", "cancelled"):
-            raise UserError("Can only retry failed or cancelled jobs.")
+            raise UserError("Can only retry failed or cancelled tasks.")
+
+        if self._has_extraction_data:
+            # Has extraction data — let user choose
+            wizard = self.env["leviathan.rerun.wizard"].create({"job_id": self.id})
+            return {
+                "type": "ir.actions.act_window",
+                "name": "Retry Task",
+                "res_model": "leviathan.rerun.wizard",
+                "res_id": wizard.id,
+                "view_mode": "form",
+                "views": [(False, "form")],
+                "target": "new",
+            }
+
+        # No extraction data — reset and re-extract
         self.write({
             "state": "draft",
             "score": False,
@@ -498,21 +577,15 @@ class LeviathanJob(models.Model):
         })
 
     def action_rerun(self):
-        """Rerun pipeline from Done state.
-
-        If extraction data exists, the confirm dialog will offer to skip
-        re-extraction. Called with `re_extract` context key:
-          - True  -> full re-extract + generate + QC
-          - False -> regenerate PRD + QC using existing extraction
-        """
+        """Rerun pipeline — re-extract or regenerate from existing data."""
         self.ensure_one()
-        if self.state != "done":
-            raise UserError("Can only rerun from Done state.")
+        if self.state not in ("draft", "done", "failed", "cancelled"):
+            raise UserError("Cannot rerun from this state.")
 
         re_extract = self.env.context.get("re_extract", False)
 
         if re_extract or not self.prd_prompt:
-            # Full pipeline: reset everything, go to draft, auto-queue
+            # No usable PRD prompt — must re-extract
             self.write({
                 "state": "draft",
                 "score": False,
@@ -531,9 +604,8 @@ class LeviathanJob(models.Model):
                 "error_message": False,
                 "cancel_requested": False,
             })
-            self.action_queue()
+            self.with_context(force_extract=True).action_run()
         else:
-            # Keep extraction data, regenerate PRD + QC
             self.write({
                 "state": "generating",
                 "score": False,
@@ -582,11 +654,7 @@ class LeviathanJob(models.Model):
         }
 
     def action_regenerate_with_qc_feedback(self):
-        """Re-run PRD generation using QC failure reasons as feedback.
-
-        Keeps extraction data, resets only generation/scoring/QC state.
-        Appends QC report as feedback to the LLM prompt.
-        """
+        """Re-run PRD generation using QC failure reasons as feedback."""
         self.ensure_one()
         if self.state != "done":
             raise UserError("Can only retry with feedback from Done state.")
@@ -732,16 +800,6 @@ class LeviathanJob(models.Model):
                 "error_message": f"QC failed: {exc}",
             })
 
-    def action_view_prd(self):
-        self.ensure_one()
-        if not self.prd_url:
-            raise UserError("PRD not yet generated.")
-        return {
-            "type": "ir.actions.act_url",
-            "url": self.prd_url,
-            "target": "new",
-        }
-
     def action_download_zip(self):
         """Build and download a ZIP of the tasker deliverable package."""
         self.ensure_one()
@@ -766,7 +824,6 @@ class LeviathanJob(models.Model):
 
             download_errors = []
 
-            # Helper to get S3 config once
             ICP = self.env["ir.config_parameter"].sudo()
             s3_config = {
                 "bucket": ICP.get_param("leviathan.s3_bucket"),
@@ -803,7 +860,6 @@ class LeviathanJob(models.Model):
                             region=s3_config["region"],
                         )
                         parts = key.split("/")
-                        # Hoist deliverables to ZIP root
                         if "deliverables" in parts:
                             idx = parts.index("deliverables")
                             rel_path = "/".join(parts[idx + 1:])
@@ -873,7 +929,7 @@ class LeviathanJob(models.Model):
             pass
 
     def _mark_failed(self, error_msg):
-        """Mark job as failed. Safe to call from cron/controller contexts."""
+        """Mark task as failed."""
         self.write({
             "state": "failed",
             "error_message": str(error_msg)[:500],
@@ -881,23 +937,8 @@ class LeviathanJob(models.Model):
         })
         self._notify_state_change("failed")
 
-    def _mark_done(self, started, duration):
-        self.write({
-            "state": "done",
-            "started_at": started,
-            "completed_at": fields.Datetime.now(),
-            "duration_seconds": duration.total_seconds() if duration else 0,
-        })
-        self._notify_state_change("done")
-
-    def _log_pipeline_event(self, message):
-        try:
-            self.message_post(body=message, message_type="comment", subtype_xmlid="mail.mt_note")
-        except Exception:
-            _logger.debug("Could not post pipeline event for job %s", self.id)
-
     def _is_cancelled(self, db_name, record_id):
-        """Check if a job has been cancelled (safe for background threads)."""
+        """Check if a task has been cancelled (safe for background threads)."""
         try:
             with Registry(db_name).cursor() as cr:
                 cr.execute(
@@ -922,10 +963,7 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_extraction_bg(self, db_name, record_id):
-        """Background: call extraction service API.
-
-        Architecture: read config (short cursor) -> call Lambda (no cursor) -> write result (short cursor).
-        """
+        """Background: call extraction service API."""
         from ..services.extraction_service import trigger_extraction
 
         try:
@@ -945,16 +983,6 @@ class LeviathanJob(models.Model):
                     "url": record.url,
                     "callback_url": record._get_webhook_url(),
                 }
-
-                record.write({"state": "extracting"})
-                try:
-                    env["bus.bus"]._sendone(
-                        "leviathan_job_updates",
-                        "leviathan/job_state",
-                        {"id": record_id, "state": "extracting"},
-                    )
-                except Exception:
-                    pass
                 cr.commit()
 
             result = trigger_extraction(
@@ -992,10 +1020,7 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_prd_generation_bg(self, db_name, record_id):
-        """Background: generate PRD via Bedrock, score, iterate, QC.
-
-        Architecture: read config (short cursor) -> compute (no cursor) -> write results (short cursor).
-        """
+        """Background: generate PRD via Bedrock, score, iterate, QC."""
         from ..services.bedrock_service import generate_prd
         from ..services.scoring_service import score_prd
         from ..services.s3_service import upload_prd_to_s3
@@ -1032,7 +1057,6 @@ class LeviathanJob(models.Model):
                     "partner_id": record.user_id.partner_id.id if record.user_id and record.user_id.partner_id else False,
                 }
 
-                # Read prompts from Settings (with file fallbacks)
                 prd_system_prompt = record._get_prd_system_prompt()
                 qc_system_prompt = record._get_qc_system_prompt()
 
@@ -1095,7 +1119,7 @@ class LeviathanJob(models.Model):
                     )
                     if attempt == config["max_attempts"]:
                         raise
-                    time.sleep(2 * attempt)  # backoff before retry
+                    time.sleep(2 * attempt)
                     continue
 
                 score_report = score_prd(
@@ -1141,7 +1165,7 @@ class LeviathanJob(models.Model):
             # === PHASE 3: QC ===
             self._write_with_cursor(db_name, record_id, {"state": "scoring"})
 
-            qc_verdict = "not_shippable"  # fail-closed: default to not shippable
+            qc_verdict = "not_shippable"
             qc_report = ""
             try:
                 from ..services.qc_service import run_qc
@@ -1219,6 +1243,10 @@ class LeviathanJob(models.Model):
             except Exception:
                 _logger.error("Failed to mark job %s as failed", record_id)
 
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
+
     def _write_with_cursor(self, db_name, record_id, vals):
         """Write values to a record using a short-lived cursor."""
         with Registry(db_name).cursor() as cr:
@@ -1226,7 +1254,6 @@ class LeviathanJob(models.Model):
             record = env[self._name].browse(record_id)
             if record.exists():
                 record.write(vals)
-                # Notify browser of state change so form refreshes
                 if "state" in vals:
                     try:
                         env["bus.bus"]._sendone(
@@ -1265,124 +1292,17 @@ class LeviathanJob(models.Model):
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # Pool: Auto-Assignment
-    # ------------------------------------------------------------------
-
-    _ACTIVE_STATES = ("draft", "queued", "extracting", "generating", "scoring", "done")
-
-    def _auto_assign_for_user(self, user):
-        """Assign pool jobs to a specific user until they hit max active."""
-        if not user:
-            return
-        ICP = self.env["ir.config_parameter"].sudo()
-        max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
-        if max_active <= 0:
-            return
-
-        active_count = self.sudo().search_count([
-            ("user_id", "=", user.id),
-            ("state", "in", self._ACTIVE_STATES),
-        ])
-        slots = max_active - active_count
-        if slots <= 0:
-            return
-
-        pool_jobs = self.sudo().search(
-            [("state", "=", "pool")],
-            order="create_date asc",
-            limit=slots,
-        )
-        for job in pool_jobs:
-            job.write({"user_id": user.id, "state": "draft"})
-            job._notify_state_change("draft")
-
-    @api.model
-    def _cron_auto_assign_pool(self):
-        """Cron: distribute pool jobs to all taskers with open slots."""
-        self.env.cr.execute("SELECT pg_try_advisory_lock(987654322)")
-        locked = self.env.cr.fetchone()
-        if not locked or not locked[0]:
-            return
-
-        try:
-            ICP = self.env["ir.config_parameter"].sudo()
-            max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
-            if max_active <= 0:
-                return
-
-            # Find all taskers (user group but not admin-only)
-            user_group = self.env.ref("leviathan.group_leviathan_user")
-            admin_group = self.env.ref("leviathan.group_leviathan_admin")
-            all_users = self.env["res.users"].sudo().search([
-                ("all_group_ids", "in", user_group.id),
-                ("active", "=", True),
-            ])
-            # Exclude admins (they manage, not do tasks)
-            admin_users = self.env["res.users"].sudo().search([
-                ("all_group_ids", "in", admin_group.id),
-            ])
-            taskers = all_users - admin_users
-
-            pool_jobs = self.sudo().search(
-                [("state", "=", "pool")],
-                order="create_date asc",
-            )
-            if not pool_jobs:
-                return
-
-            pool_idx = 0
-            for tasker in taskers:
-                if pool_idx >= len(pool_jobs):
-                    break
-                active_count = self.sudo().search_count([
-                    ("user_id", "=", tasker.id),
-                    ("state", "in", self._ACTIVE_STATES),
-                ])
-                slots = max_active - active_count
-                for _ in range(slots):
-                    if pool_idx >= len(pool_jobs):
-                        break
-                    pool_jobs[pool_idx].write({
-                        "user_id": tasker.id,
-                        "state": "draft",
-                    })
-                    pool_idx += 1
-
-            if pool_idx > 0:
-                _logger.info("Pool auto-assign: distributed %d jobs", pool_idx)
-        finally:
-            self.env.cr.execute("SELECT pg_advisory_unlock(987654322)")
-
-    # ------------------------------------------------------------------
     # Cron: Watchdog
     # ------------------------------------------------------------------
 
     def _cron_watchdog_stuck_jobs(self):
-        """Recover jobs stuck in intermediate states beyond timeout thresholds."""
+        """Recover tasks stuck in intermediate states beyond timeout thresholds."""
         self.env.cr.execute("SELECT pg_try_advisory_lock(987654321)")
         locked = self.env.cr.fetchone()
         if not locked or not locked[0]:
             return
 
         try:
-            # Queued > 5 min (extraction trigger may have failed silently)
-            stale_queued = self.search([
-                ("state", "=", "queued"),
-                (
-                    "last_heartbeat",
-                    "<",
-                    fields.Datetime.now() - timedelta(minutes=5),
-                ),
-            ])
-            for job in stale_queued:
-                _logger.warning(
-                    "Watchdog: job %s stuck in queued for >5min, marking failed.",
-                    job.name,
-                )
-                job._mark_failed(
-                    "Watchdog: extraction trigger failed (no response for 5+ minutes)"
-                )
-
             # Extracting > 20 min
             stale_extracting = self.search([
                 ("state", "=", "extracting"),
@@ -1394,7 +1314,7 @@ class LeviathanJob(models.Model):
             ])
             for job in stale_extracting:
                 _logger.warning(
-                    "Watchdog: job %s stuck in extracting for >20min, marking failed.",
+                    "Watchdog: task %s stuck in extracting for >20min, marking failed.",
                     job.name,
                 )
                 job._mark_failed(
@@ -1403,7 +1323,7 @@ class LeviathanJob(models.Model):
 
             # Generating/scoring > 30 min
             stale_generating = self.search([
-                ("state", "in", ("generating", "scoring", "qc")),
+                ("state", "in", ("generating", "scoring")),
                 (
                     "last_heartbeat",
                     "<",
@@ -1412,7 +1332,7 @@ class LeviathanJob(models.Model):
             ])
             for job in stale_generating:
                 _logger.warning(
-                    "Watchdog: job %s stuck in %s for >30min, marking failed.",
+                    "Watchdog: task %s stuck in %s for >30min, marking failed.",
                     job.name,
                     job.state,
                 )

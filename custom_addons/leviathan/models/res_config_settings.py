@@ -91,7 +91,7 @@ class ResConfigSettings(models.TransientModel):
         string="Max Active Jobs per Tasker",
         config_parameter="leviathan.max_jobs_per_user",
         default=5,
-        help="Maximum concurrent active jobs (queued + extracting + generating + scoring) per tasker. 0 = unlimited.",
+        help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
     def get_values(self):

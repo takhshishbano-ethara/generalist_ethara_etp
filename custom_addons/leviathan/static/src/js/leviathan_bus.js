@@ -1,31 +1,31 @@
+/** @odoo-module **/
 import { registry } from "@web/core/registry";
 
 const leviathanBusService = {
     dependencies: ["bus_service", "action"],
     start(env, { bus_service, action }) {
-        bus_service.subscribe("leviathan/job_state", (payload) => {
-            // Reload the current form view if it's showing this job
+
+        function reloadCurrentForm(payload) {
             const controller = action.currentController;
             if (!controller || !controller.props || !controller.props.resModel) {
                 return;
             }
-            if (
-                controller.props.resModel === "leviathan.job" &&
-                controller.props.resId === payload.id
-            ) {
-                action.restore();
-            }
-        });
-        // Also subscribe to the done notification
-        bus_service.subscribe("leviathan/job_done", (payload) => {
-            const controller = action.currentController;
-            if (!controller || !controller.props || !controller.props.resModel) {
+            if (controller.props.resModel !== "leviathan.job") {
                 return;
             }
-            if (controller.props.resModel === "leviathan.job") {
-                action.restore();
+            // Only reload if we're viewing the specific job (or any job for done)
+            if (payload.id && controller.props.resId && controller.props.resId !== payload.id) {
+                return;
             }
-        });
+            // Reload the form record in-place (no navigation)
+            const model = controller.component && controller.component.model;
+            if (model && model.root && typeof model.root.load === "function") {
+                model.root.load();
+            }
+        }
+
+        bus_service.subscribe("leviathan/job_state", reloadCurrentForm);
+        bus_service.subscribe("leviathan/job_done", reloadCurrentForm);
         bus_service.addChannel("leviathan_job_updates");
     },
 };

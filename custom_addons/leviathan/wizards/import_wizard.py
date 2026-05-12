@@ -8,18 +8,13 @@ from odoo.exceptions import UserError
 
 class LeviathanImportWizard(models.TransientModel):
     _name = "leviathan.import.wizard"
-    _description = "Import URLs into Pool"
+    _description = "Import URLs as Tasks"
 
     csv_file = fields.Binary(string="CSV File", required=True)
     csv_filename = fields.Char(string="Filename")
-    auto_assign = fields.Boolean(
-        string="Auto-assign after import",
-        default=True,
-        help="Immediately distribute imported jobs to taskers with open slots.",
-    )
 
     def action_import(self):
-        """Parse CSV and create pool jobs."""
+        """Parse CSV and create tasks in not_assigned state."""
         self.ensure_one()
         if not self.csv_file:
             raise UserError("Please upload a CSV file.")
@@ -47,11 +42,11 @@ class LeviathanImportWizard(models.TransientModel):
             for c in self.env["leviathan.category"].search([])
         }
 
-        jobs_created = 0
+        tasks_created = 0
         errors = []
         Job = self.env["leviathan.job"]
 
-        for i, row in enumerate(reader, start=2):  # line 2 = first data row
+        for i, row in enumerate(reader, start=2):
             url = (row.get(url_col) or "").strip()
             if not url:
                 errors.append(f"Row {i}: empty URL, skipped")
@@ -63,7 +58,7 @@ class LeviathanImportWizard(models.TransientModel):
 
             vals = {
                 "url": url,
-                "state": "pool",
+                "state": "not_assigned",
                 "user_id": False,
             }
 
@@ -76,21 +71,17 @@ class LeviathanImportWizard(models.TransientModel):
                         vals["category_id"] = cat_id
                     else:
                         errors.append(
-                            f"Row {i}: category '{cat_name}' not found, job created without category"
+                            f"Row {i}: category '{cat_name}' not found, task created without category"
                         )
 
             try:
                 Job.create(vals)
-                jobs_created += 1
+                tasks_created += 1
             except Exception as exc:
                 errors.append(f"Row {i}: {exc}")
 
-        # Auto-assign if requested
-        if self.auto_assign and jobs_created > 0:
-            Job._cron_auto_assign_pool()
-
         # Build result message
-        msg = f"Imported {jobs_created} job(s) into the pool."
+        msg = f"Created {tasks_created} task(s). Taskers can now pick them up via Start Task."
         if errors:
             msg += f"\n\n{len(errors)} warning(s):\n" + "\n".join(errors[:20])
             if len(errors) > 20:
@@ -100,7 +91,7 @@ class LeviathanImportWizard(models.TransientModel):
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "CSV Import Complete",
+                "title": "Import Complete",
                 "message": msg,
                 "type": "success" if not errors else "warning",
                 "sticky": bool(errors),

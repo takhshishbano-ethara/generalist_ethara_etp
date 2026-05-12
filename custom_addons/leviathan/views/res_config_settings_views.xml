@@ -122,7 +122,7 @@
                         </setting>
                     </block>
                     <block title="Limits">
-                        <setting string="Max Active Jobs per Tasker" help="Maximum concurrent active jobs (queued/extracting/generating/scoring) per tasker. 0 = unlimited.">
+                        <setting string="Max Active Tasks per Tasker" help="Maximum active tasks per tasker. 0 = unlimited.">
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="leviathan_max_jobs_per_user" class="col-lg-3 o_light_label"/>

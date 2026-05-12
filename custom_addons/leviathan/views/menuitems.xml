@@ -6,23 +6,15 @@
               groups="group_leviathan_user"
               web_icon="leviathan,static/description/icon.png"/>
 
-    <!-- Admin sees "Jobs" (all jobs, can create) -->
+    <!-- Admin sees "All Tasks" (all, can create) -->
     <menuitem id="menu_leviathan_jobs_admin"
-              name="Jobs"
+              name="All Tasks"
               parent="menu_leviathan_root"
               action="action_leviathan_job"
               sequence="10"
               groups="group_leviathan_admin"/>
 
-    <!-- Admin sees "Pool" (unassigned jobs) -->
-    <menuitem id="menu_leviathan_pool"
-              name="Pool"
-              parent="menu_leviathan_root"
-              action="action_leviathan_pool"
-              sequence="15"
-              groups="group_leviathan_admin"/>
-
-    <!-- Tasker sees "My Tasks" (own jobs, no create) -->
+    <!-- Tasker sees "My Tasks" (own tasks, Start Task button in list header) -->
     <menuitem id="menu_leviathan_jobs_tasker"
               name="My Tasks"
               parent="menu_leviathan_root"
