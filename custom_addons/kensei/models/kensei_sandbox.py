@@ -1,5 +1,7 @@
+import base64 as base64_mod
 import json
 import logging
+import mimetypes
 import os
 import re
 import secrets
@@ -309,6 +311,180 @@ def _unwrap_trajectory_messages(messages):
         m["turn_index"] = idx
         m.pop("parentId", None)
     return unwrapped
+
+
+# ---------------------------------------------------------------------------
+# Inline media → S3 replacement for trajectory content blocks
+# ---------------------------------------------------------------------------
+
+_DATA_URI_RE = re.compile(r"^data:([^;]+);base64,(.+)$", re.DOTALL)
+_CONTAINER_PATH_RE = re.compile(
+    r"^/home/node/\.openclaw/(?:workspace|uploads|media)/(.+)$"
+)
+
+_MIME_EXT_MAP = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/mp4": "m4a",
+    "application/pdf": "pdf",
+    "text/plain": "txt",
+    "text/csv": "csv",
+    "text/markdown": "md",
+    "text/html": "html",
+    "application/json": "json",
+}
+
+_MEDIA_BLOCK_TYPES = {"image", "video", "audio", "input_image"}
+
+
+def _s3_https_url(bucket, region, key):
+    return "https://%s.s3.%s.amazonaws.com/%s" % (bucket, region, key)
+
+
+def _upload_bytes_to_s3(bucket, region, prefix, task_id, object_key, data, content_type, access_key, secret_key):
+    """Upload raw bytes to S3 synchronously. Returns an HTTPS download URL or None on failure."""
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        client_kwargs = {
+            "region_name": region,
+            "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        }
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        s3 = boto3.client("s3", **client_kwargs)
+        key = "%s/trajectory/tasks/%s/%s" % (prefix, task_id, object_key)
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        url = _s3_https_url(bucket, region, key)
+        _logger.info("Trajectory media upload OK: %s (%d bytes)", url, len(data))
+        return url
+    except Exception:
+        _logger.exception(
+            "Trajectory media S3 upload failed: bucket=%s task=%s key=%s",
+            bucket, task_id, object_key,
+        )
+        return None
+
+
+def _replace_inline_media_with_s3(messages, task_id, env):
+    """Walk trajectory messages and replace inline base64 / container paths with HTTPS download URLs.
+
+    Mutates messages in-place. Handles wrapped (hint-wrapper) and unwrapped formats.
+    """
+    from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+    icp = env["ir.config_parameter"].sudo()
+    bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+    region = icp.get_param("kensei.s3_region") or "us-east-1"
+    prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+    access_key = (
+        os.environ.get("KENSEI_S3_ACCESS_KEY_ID")
+        or os.environ.get("AWS_SECRET_KEY", "")
+    )
+    secret_key = (
+        os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY")
+        or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+    )
+
+    if not bucket:
+        _logger.info("S3 bucket not configured — skipping inline media replacement")
+        return messages
+
+    replaced_count = 0
+
+    for msg_wrapper in messages:
+        # Navigate into the actual message dict, handling both wrapped and unwrapped formats
+        msg = msg_wrapper
+        if isinstance(msg, dict) and "message" in msg:
+            inner = msg["message"]
+            if isinstance(inner, dict) and "message" in inner:
+                # Double-wrapped (hint wrapper): {"message": {"message": {..., "content": [...]}}}
+                msg = inner["message"]
+            elif isinstance(inner, dict) and "content" in inner:
+                msg = inner
+            elif isinstance(inner, dict) and "role" in inner:
+                msg = inner
+
+        if not isinstance(msg, dict):
+            continue
+
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+
+            block_type = block.get("type", "")
+            if block_type not in _MEDIA_BLOCK_TYPES:
+                continue
+
+            source = block.get("source", "")
+            if not isinstance(source, str) or not source:
+                continue
+
+            m = _DATA_URI_RE.match(source)
+            if m:
+                mime_type = m.group(1)
+                b64_data = m.group(2)
+                try:
+                    file_bytes = base64_mod.b64decode(b64_data)
+                except Exception:
+                    _logger.warning(
+                        "Failed to decode base64 in trajectory block (type=%s, task=%s)",
+                        block_type, task_id,
+                    )
+                    continue
+
+                ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+                if ext.startswith("."):
+                    ext = ext[1:]
+                object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+                url = _upload_bytes_to_s3(
+                    bucket, region, prefix, task_id, object_key,
+                    file_bytes, mime_type, access_key, secret_key,
+                )
+                if url:
+                    block["source"] = url
+                    replaced_count += 1
+                continue
+
+            cm = _CONTAINER_PATH_RE.match(source)
+            if cm:
+                filename = os.path.basename(source)
+                output_key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
+                block["source"] = _s3_https_url(bucket, region, output_key)
+                replaced_count += 1
+                continue
+
+    if replaced_count:
+        _logger.info(
+            "Replaced %d inline media source(s) with HTTPS URLs (task=%s)",
+            replaced_count, task_id,
+        )
+
+    return messages
 
 
 class KenseiSandbox(models.Model):
@@ -770,6 +946,9 @@ class KenseiSandbox(models.Model):
 
         messages = _unwrap_trajectory_messages(messages)
 
+        task_id = task.task_id or str(task.id)
+        messages = _replace_inline_media_with_s3(messages, task_id, self.env)
+
         return {
             "schema_version": "1.0.0",
             "meta_info": meta_info,
@@ -1191,6 +1370,9 @@ class KenseiSandbox(models.Model):
             )
 
         messages = _unwrap_trajectory_messages(messages)
+
+        task_id = task.task_id or str(task.id)
+        messages = _replace_inline_media_with_s3(messages, task_id, self.env)
 
         return {
             "schema_version": "1.0.0",

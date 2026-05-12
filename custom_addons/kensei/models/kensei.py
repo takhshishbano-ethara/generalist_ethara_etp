@@ -2494,6 +2494,10 @@ class Kensei(models.Model):
 
         messages = _unwrap_trajectory_messages(messages)
 
+        from .kensei_sandbox import _replace_inline_media_with_s3
+        task_id = self.task_id or str(self.id)
+        messages = _replace_inline_media_with_s3(messages, task_id, self.env)
+
         return {
             "schema_version": "1.0.0",
             "meta_info": meta_info,
