@@ -43,10 +43,14 @@ def _call_bedrock_bearer(
 
     bedrock_messages = []
     for msg in messages:
-        bedrock_messages.append({
-            "role": msg["role"],
-            "content": [{"text": msg["content"]}],
-        })
+        content = msg["content"]
+        # Support mixed content: string → text block, list → pass through
+        if isinstance(content, str):
+            bedrock_messages.append({"role": msg["role"], "content": [{"text": content}]})
+        elif isinstance(content, list):
+            bedrock_messages.append({"role": msg["role"], "content": content})
+        else:
+            bedrock_messages.append({"role": msg["role"], "content": [{"text": str(content)}]})
 
     payload = {
         "system": [{"text": system_prompt}],
@@ -176,10 +180,13 @@ def generate_prd(
 
     bedrock_messages = []
     for msg in messages:
-        bedrock_messages.append({
-            "role": msg["role"],
-            "content": [{"text": msg["content"]}],
-        })
+        content = msg["content"]
+        if isinstance(content, str):
+            bedrock_messages.append({"role": msg["role"], "content": [{"text": content}]})
+        elif isinstance(content, list):
+            bedrock_messages.append({"role": msg["role"], "content": content})
+        else:
+            bedrock_messages.append({"role": msg["role"], "content": [{"text": str(content)}]})
 
     _logger.info(
         "Calling Bedrock Converse: model=%s, region=%s, messages=%d, max_tokens=%d",

@@ -78,8 +78,8 @@ def _publish(queue, message_body):
             properties=pika.BasicProperties(delivery_mode=2),
         )
     except (
-        pika.exceptions.AMQPConnectionError,
-        pika.exceptions.AMQPChannelError,
+        (pika.exceptions.AMQPConnectionError if pika else Exception),
+        (pika.exceptions.AMQPChannelError if pika else Exception),
     ) as e:
         _logger.warning("Connection lost during publish, reconnecting: %s", e)
         global _connection, _channel
@@ -134,8 +134,8 @@ def batch_publish_leviathan_tasks(record_ids, action="run_pipeline"):
                 total,
             )
         except (
-            pika.exceptions.AMQPConnectionError,
-            pika.exceptions.AMQPChannelError,
+            (pika.exceptions.AMQPConnectionError if pika else Exception),
+            (pika.exceptions.AMQPChannelError if pika else Exception),
         ) as e:
             _logger.warning(
                 "Connection lost at chunk %d, reconnecting: %s", chunk_start, e
