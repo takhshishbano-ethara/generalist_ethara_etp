@@ -39,7 +39,7 @@ class LeviathanJob(models.Model):
             ("done", "Done"),
             ("submitted", "Submitted"),
             ("failed", "Failed"),
-            ("cancelled", "Cancelled"),
+            ("cancelled", "Cancelled"),  # legacy, hidden from UI
         ],
         string="Status",
         default="not_assigned",
@@ -49,6 +49,9 @@ class LeviathanJob(models.Model):
     category_id = fields.Many2one("leviathan.category", string="Website Category")
     category_key = fields.Char(related="category_id.technical_key", store=True)
     score = fields.Float(string="PRD Score", digits=(5, 2))
+    score_display = fields.Char(
+        string="Score", compute="_compute_score_display", store=False,
+    )
     grade = fields.Char(string="Grade")
     qc_verdict = fields.Selection(
         [
@@ -87,6 +90,10 @@ class LeviathanJob(models.Model):
         string="Asset Previews", compute="_compute_asset_previews",
         sanitize=False,
     )
+    asset_score_html = fields.Html(
+        string="Extraction Summary", compute="_compute_asset_score_html",
+        sanitize=False,
+    )
     score_report_html = fields.Html(
         string="Score Report (HTML)", compute="_compute_score_report_html",
         sanitize=False,
@@ -96,6 +103,11 @@ class LeviathanJob(models.Model):
         sanitize=False,
     )
     cancel_requested = fields.Boolean(default=False)
+    via_rabbitmq = fields.Boolean(
+        string="Triggered via RabbitMQ",
+        default=False,
+        copy=False,
+    )
 
     user_id = fields.Many2one(
         "res.users",
@@ -158,6 +170,14 @@ class LeviathanJob(models.Model):
                 "leviathan.group_leviathan_admin"
             )
 
+    @api.depends("score", "grade")
+    def _compute_score_display(self):
+        for rec in self:
+            if rec.score:
+                rec.score_display = str(int(rec.score))
+            else:
+                rec.score_display = ""
+
     # Typical stage durations (seconds) from real pipeline data
     _STAGE_ESTIMATES = {
         "extracting": 600,   # ~10 min (Lambda + heavy sites)
@@ -170,13 +190,13 @@ class LeviathanJob(models.Model):
         now = fields.Datetime.now()
         for rec in self:
             # Finished states: show total duration
-            if rec.state in ("done", "submitted", "failed", "cancelled"):
+            if rec.state in ("done", "submitted", "failed"):
                 if rec.started_at and rec.completed_at:
                     total = rec.duration_seconds or max(0, (rec.completed_at - rec.started_at).total_seconds())
                     m, s = divmod(int(total), 60)
                     total_str = f"{m}m {s:02d}s" if m else f"{s}s"
-                    color = "#dc3545" if rec.state in ("failed", "cancelled") else "#28a745"
-                    label = {"failed": "Failed after", "cancelled": "Cancelled after"}.get(rec.state, "Completed in")
+                    color = "#dc3545" if rec.state == "failed" else "#28a745"
+                    label = {"failed": "Failed after"}.get(rec.state, "Completed in")
                     rec.stage_progress_html = (
                         f'<div style="font-size:13px;color:{color};padding:4px 0;">'
                         f'{label}: <b>{total_str}</b>'
@@ -240,7 +260,7 @@ class LeviathanJob(models.Model):
             html = (
                 f'<div style="margin-bottom:16px;">'
                 f'<span style="font-size:32px;font-weight:700;color:{color};">{total}</span>'
-                f'<span style="font-size:18px;color:{color};margin-left:4px;">/100</span>'
+                f'<span style="font-size:18px;color:{color};margin-left:4px;"></span>'
                 f'<span style="display:inline-block;margin-left:12px;padding:4px 12px;'
                 f'border-radius:4px;background:{color};color:#fff;font-weight:600;'
                 f'font-size:16px;">{grade}</span>'
@@ -419,6 +439,97 @@ class LeviathanJob(models.Model):
                     "<p class='text-muted'>Configure S3 bucket in settings to preview</p>"
                 )
 
+    @api.depends("screenshot_keys", "asset_keys")
+    def _compute_asset_score_html(self):
+        """Build extraction summary matching Quality tab design."""
+        for rec in self:
+            ss = rec.screenshot_keys or []
+            ak = rec.asset_keys or []
+            if not ss and not ak:
+                rec.asset_score_html = ""
+                continue
+
+            # Categorize assets by folder
+            page_assets = [k for k in ak if "/Page Assets/" in k]
+            references = [k for k in ak if "/References/" in k]
+            unused = [k for k in ak if "/_unused/" in k]
+
+            # Count by type
+            images = [k for k in ak if any(
+                k.lower().endswith(e)
+                for e in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
+            )]
+            fonts = [k for k in ak if any(
+                k.lower().endswith(e)
+                for e in (".ttf", ".woff", ".woff2", ".otf")
+            )]
+
+            total = len(ss) + len(ak)
+            usable = len(page_assets) + len(references)
+
+            # Extraction quality rating
+            if len(ss) >= 6 and usable >= 3:
+                quality, qcolor = "Good", "#28a745"
+            elif len(ss) >= 3 or usable >= 1:
+                quality, qcolor = "Partial", "#ffc107"
+            else:
+                quality, qcolor = "Poor", "#dc3545"
+
+            # Header: big quality label + total badge (mirrors score + grade)
+            html = (
+                f'<div style="margin-bottom:16px;">'
+                f'<span style="font-size:32px;font-weight:700;color:{qcolor};">{total}</span>'
+                f'<span style="font-size:14px;color:#6c757d;margin-left:4px;">files</span>'
+                f'<span style="display:inline-block;margin-left:12px;padding:4px 12px;'
+                f'border-radius:4px;background:{qcolor};color:#fff;font-weight:600;'
+                f'font-size:16px;">{quality}</span>'
+                '</div>'
+            )
+
+            # Table matching Quality tab style
+            rows = [
+                ("Screenshots", len(ss), 10),
+                ("Page Assets (copyright-free)", len(page_assets), 5),
+                ("References", len(references), 10),
+                ("Unused (copyrighted)", len(unused), None),
+                ("Images", len(images), None),
+                ("Fonts", len(fonts), None),
+            ]
+
+            html += (
+                '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+                '<tr style="background:#f8f9fa;font-weight:600;">'
+                '<td style="padding:6px 8px;border-bottom:2px solid #dee2e6;">Category</td>'
+                '<td style="padding:6px 8px;border-bottom:2px solid #dee2e6;text-align:center;">Count</td>'
+                '<td style="padding:6px 8px;border-bottom:2px solid #dee2e6;">Coverage</td>'
+                '</tr>'
+            )
+
+            for name, count, target in rows:
+                if target:
+                    pct = min(round(count / target * 100), 100)
+                    bc = "#28a745" if pct >= 80 else "#ffc107" if pct >= 40 else "#dc3545"
+                    bar = (
+                        f'<div style="background:#e9ecef;border-radius:3px;height:14px;'
+                        f'width:100px;display:inline-block;">'
+                        f'<div style="background:{bc};height:14px;border-radius:3px;'
+                        f'width:{pct}px;"></div></div>'
+                        f' <span style="color:#6c757d;">{pct}%</span>'
+                    )
+                else:
+                    bar = ''
+
+                html += (
+                    f'<tr style="border-bottom:1px solid #eee;">'
+                    f'<td style="padding:5px 8px;">{name}</td>'
+                    f'<td style="padding:5px 8px;text-align:center;font-weight:600;">{count}</td>'
+                    f'<td style="padding:5px 8px;">{bar}</td>'
+                    f'</tr>'
+                )
+
+            html += '</table>'
+            rec.asset_score_html = html
+
     # ------------------------------------------------------------------
     # CRUD
     # ------------------------------------------------------------------
@@ -433,6 +544,9 @@ class LeviathanJob(models.Model):
             # If user_id is set at creation, auto-promote to draft
             if vals.get("user_id") and vals.get("state", "not_assigned") == "not_assigned":
                 vals["state"] = "draft"
+            # If no user, must be not_assigned
+            if not vals.get("user_id") and vals.get("state") in ("draft", "done"):
+                vals["state"] = "not_assigned"
         return super().create(vals_list)
 
     # ------------------------------------------------------------------
@@ -463,8 +577,8 @@ class LeviathanJob(models.Model):
                     f"Submit or complete existing tasks first (max: {max_active})."
                 )
 
-        # Pick oldest unassigned task (optionally filtered by category)
-        domain = [("state", "=", "not_assigned")]
+        # Pick oldest available task (not_assigned or failed+unassigned)
+        domain = [("state", "in", ("not_assigned", "failed")), ("user_id", "=", False)]
         cat_id = self.env.context.get("start_task_category_id")
         if cat_id:
             domain.append(("category_id", "=", cat_id))
@@ -503,24 +617,70 @@ class LeviathanJob(models.Model):
                 "Can only release tasks in Draft, Done, or Failed state. "
                 "Cancel in-progress tasks first."
             )
-        self.write({"user_id": False, "state": "not_assigned"})
+        self.write({
+            "user_id": False,
+            "state": "not_assigned",
+            "error_message": False,
+            "cancel_requested": False,
+        })
         self._notify_state_change("not_assigned")
+
+    def action_reset_selected(self):
+        """Server action: reset selected tasks to not_assigned.
+
+        Cancels in-progress pipeline, preserves extraction data if present.
+        Clears user assignment. Works on any state except submitted.
+        """
+        eligible = self.filtered(lambda r: r.state != "submitted")
+        if not eligible:
+            raise UserError("No eligible tasks to reset.")
+        skipped = self - eligible
+
+        for task in eligible:
+            vals = {
+                "user_id": False,
+                "state": "not_assigned",
+                "cancel_requested": False,
+                "via_rabbitmq": False,
+                "error_message": False,
+            }
+            # Mark pipeline interruption for in-progress tasks
+            if task.state in ("extracting", "generating", "scoring"):
+                vals["cancel_requested"] = True
+            task.write(vals)
+
+        msg = f"{len(eligible)} task(s) reset to Not Assigned."
+        if skipped:
+            msg += f" {len(skipped)} submitted task(s) skipped."
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Tasks Reset",
+                "message": msg,
+                "type": "success",
+                "sticky": False,
+            },
+        }
 
     def action_run(self):
         """Start the extraction pipeline.
 
         If extraction data already exists (e.g. task was retried/released),
         opens a wizard to let user choose re-extract vs regenerate.
+        Works from draft or not_assigned (auto-assigns current user).
         """
         self.ensure_one()
-        if self.state != "draft":
-            raise UserError("Can only run tasks in Draft state.")
+        if self.state not in ("draft", "not_assigned"):
+            raise UserError("Can only run tasks in Draft or Not Assigned state.")
         if not self.url:
             raise UserError("Please enter a website URL before running.")
         if not self.category_id:
             raise UserError("Please select a website category before running.")
-        if not self.user_id:
-            raise UserError("Task must be assigned to a user before running.")
+
+        # Auto-assign if not_assigned or no user
+        if self.state == "not_assigned" or not self.user_id:
+            self.write({"user_id": self.env.uid, "state": "draft"})
 
         # If extraction data exists, ask user what to do
         if self._has_extraction_data and not self.env.context.get("force_extract"):
@@ -554,17 +714,22 @@ class LeviathanJob(models.Model):
                     f"Wait for current tasks to complete."
                 )
 
-        # Lock row to prevent double-run
-        self.env.cr.execute(
-            "SELECT id FROM leviathan_job WHERE id = %s FOR UPDATE NOWAIT",
-            [self.id],
-        )
+        # Lock row to prevent double-run (graceful on lock conflict)
+        try:
+            self.env.cr.execute(
+                "SELECT id FROM leviathan_job WHERE id = %s FOR UPDATE NOWAIT",
+                [self.id],
+            )
+        except Exception:
+            self.env.cr.rollback()
+            raise UserError("Task is being modified by another session. Try again.")
+
         self.env.cr.execute(
             "SELECT state FROM leviathan_job WHERE id = %s", [self.id]
         )
         row = self.env.cr.fetchone()
-        if not row or row[0] != "draft":
-            raise UserError("Task already running in another session.")
+        if not row or row[0] not in ("draft", "not_assigned"):
+            raise UserError("Task is no longer available to run.")
 
         self.write({
             "state": "extracting",
@@ -577,16 +742,90 @@ class LeviathanJob(models.Model):
 
     def action_cancel(self):
         self.ensure_one()
-        if self.state in ("not_assigned", "done", "submitted", "failed", "cancelled"):
-            raise UserError(
-                "Cannot cancel a task in this state."
-            )
+        if self.state == "submitted":
+            raise UserError("Cannot cancel a submitted task.")
         self.write({
-            "state": "cancelled",
-            "error_message": "Cancelled by user",
+            "state": "draft",
             "cancel_requested": True,
-            "completed_at": fields.Datetime.now(),
+            "error_message": False,
         })
+
+    def action_run_via_rabbitmq(self):
+        """Server action: batch-run selected tasks through RabbitMQ pipeline.
+
+        Admin selects tasks in list view -> clicks this action.
+        Validates each task, marks as extracting, publishes to queue.
+        """
+        eligible = self.filtered(
+            lambda r: r.state == "not_assigned" and r.url and r.category_id
+        )
+        if not eligible:
+            raise UserError(
+                "No eligible tasks. Tasks must be 'Not Assigned' "
+                "with URL and category set."
+            )
+        skipped = self - eligible
+
+        eligible.write({
+            "state": "extracting",
+            "via_rabbitmq": True,
+            "started_at": fields.Datetime.now(),
+            "last_heartbeat": fields.Datetime.now(),
+            "error_message": False,
+            "cancel_requested": False,
+        })
+
+        record_ids = eligible.ids
+
+        def _deferred():
+            from ..services.rabbitmq_service import batch_publish_leviathan_tasks
+            batch_publish_leviathan_tasks(record_ids, action="run_pipeline")
+
+        self.env.cr.postcommit.add(_deferred)
+
+        msg = f"{len(eligible)} task(s) queued for processing."
+        if skipped:
+            msg += (
+                f" {len(skipped)} task(s) skipped "
+                f"(wrong state or missing URL/category)."
+            )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Tasks Queued",
+                "message": msg,
+                "type": "success",
+                "sticky": False,
+            },
+        }
+
+    def rpc_run_full_pipeline(self):
+        """Called by RabbitMQ consumer via XML-RPC.
+
+        Triggers extraction for the task. The rest of the pipeline
+        proceeds automatically via webhook -> generation -> QC -> done.
+        Post-completion hook resets state to not_assigned.
+        """
+        self.ensure_one()
+        if self.state != "extracting":
+            _logger.warning(
+                "rpc_run_full_pipeline called on job %s in state %s, skipping",
+                self.id, self.state,
+            )
+            return False
+
+        db_name = self.env.cr.dbname
+        record_id = self.id
+
+        try:
+            self._run_extraction_bg(db_name, record_id)
+        except Exception as e:
+            _logger.error(
+                "rpc_run_full_pipeline failed for job %s: %s", self.id, e
+            )
+            raise
+        return True
 
     def action_mark_submitted(self):
         """Tasker marks the task as submitted."""
@@ -601,15 +840,15 @@ class LeviathanJob(models.Model):
         self.write({"state": "submitted"})
 
     def action_retry(self):
-        """Retry a failed/cancelled task.
+        """Retry a failed task.
 
         If extraction data exists, open the rerun wizard so user can choose
         between re-extract or just regenerate PRD. Otherwise go straight
         to extracting.
         """
         self.ensure_one()
-        if self.state not in ("failed", "cancelled"):
-            raise UserError("Can only retry failed or cancelled tasks.")
+        if self.state != "failed":
+            raise UserError("Can only retry failed tasks.")
 
         if self._has_extraction_data:
             # Has extraction data — let user choose
@@ -647,7 +886,7 @@ class LeviathanJob(models.Model):
     def action_rerun(self):
         """Rerun pipeline — re-extract or regenerate from existing data."""
         self.ensure_one()
-        if self.state not in ("draft", "done", "failed", "cancelled"):
+        if self.state not in ("draft", "done", "failed"):
             raise UserError("Cannot rerun from this state.")
 
         re_extract = self.env.context.get("re_extract", False)
@@ -1162,7 +1401,7 @@ class LeviathanJob(models.Model):
             for attempt in range(1, config["max_attempts"] + 1):
                 if self._is_cancelled(db_name, record_id):
                     self._write_with_cursor(db_name, record_id, {
-                        "state": "cancelled", "error_message": "Cancelled during generation",
+                        "state": "draft", "error_message": "Cancelled during generation",
                         "completed_at": fields.Datetime.now(),
                     })
                     return
@@ -1212,7 +1451,7 @@ class LeviathanJob(models.Model):
                     messages.append({
                         "role": "user",
                         "content": (
-                            f"Score: {total_score}/100 (attempt {attempt})\n"
+                            f"Score: {total_score} (attempt {attempt})\n"
                             f"Feedback:\n{feedback}\n\n"
                             "Fix all issues and rewrite the complete PRD."
                         ),
@@ -1297,6 +1536,19 @@ class LeviathanJob(models.Model):
                     )
                 except Exception:
                     _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
+
+                # Post-completion hook: if triggered via RabbitMQ,
+                # reset to not_assigned so taskers can claim the task.
+                if record.via_rabbitmq:
+                    record.write({
+                        "state": "not_assigned",
+                        "via_rabbitmq": False,
+                        "user_id": False,
+                    })
+                    _logger.info(
+                        "RabbitMQ pipeline done for job %s — reset to not_assigned",
+                        record_id,
+                    )
 
                 cr.commit()
 
