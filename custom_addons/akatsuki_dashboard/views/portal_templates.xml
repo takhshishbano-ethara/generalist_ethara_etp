@@ -207,7 +207,7 @@
           <li>Process-level verification via dual-axis checkpoints</li>
           <li><b>V-axis</b>: Verifies visual tool intent and intermediate artifact faithfulness</li>
           <li><b>S-axis</b>: Audits search strategy, keywords, and retrieved information correctness</li>
-          <li>Efficiency measured via Overthink metric against human reference trajectories</li>
+          <li>Efficiency measured via Overthink metric against human reference traces</li>
         </ul>
       </article>
     </div>
