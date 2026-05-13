@@ -134,11 +134,10 @@ class OpenClawClient:
         if file_ids:
             for att in env["ir.attachment"].sudo().browse(file_ids):
                 if att.exists() and att.datas:
-                    media = f"data:{att.mimetype};base64,{att.datas.decode()}"
                     attachments.append({
-                        "name": att.name,
+                        "fileName": att.name,
                         "mimeType": att.mimetype,
-                        "media": media,
+                        "content": att.datas.decode(),
                     })
         self.send_message(text, attachments if attachments else None)
 

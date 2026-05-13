@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- QC Kanban: each card is a version waiting for QC -->
+    <record id="view_video_qc_kanban" model="ir.ui.view">
+        <field name="name">video.task.version.qc.kanban</field>
+        <field name="model">video.task.version</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="qc_status" class="o_video_qc_queue" sample="1">
+                <field name="task_id"/>
+                <field name="version_no"/>
+                <field name="prompt_text"/>
+                <field name="qc_status"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_card o_qc_card">
+                            <div class="o_qc_video">
+                                <video controls="controls" preload="metadata"
+                                       style="width:100%;"
+                                       t-att-src="'/video_qc/version/' + record.id.raw_value + '/preview'"/>
+                            </div>
+                            <div class="o_qc_meta">
+                                <strong><field name="task_id"/></strong>
+                                <span>v<field name="version_no"/></span>
+                                <div class="text-muted small">
+                                    <field name="prompt_text"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="action_video_qc_queue" model="ir.actions.act_window">
+        <field name="name">QC Queue</field>
+        <field name="res_model">video.task.version</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="domain">[('qc_status', 'in', ('pending', 'rework'))]</field>
+        <field name="view_id" ref="view_video_qc_kanban"/>
+    </record>
+
+</odoo>

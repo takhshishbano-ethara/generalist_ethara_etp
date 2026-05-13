@@ -549,6 +549,20 @@ class LeviathanJob(models.Model):
                 vals["state"] = "not_assigned"
         return super().create(vals_list)
 
+    def write(self, vals):
+        res = super().write(vals)
+        # Auto-promote to draft when admin assigns a user to not_assigned task
+        if "user_id" in vals and vals["user_id"]:
+            to_promote = self.filtered(lambda r: r.state == "not_assigned")
+            if to_promote:
+                super(LeviathanJob, to_promote).write({"state": "draft"})
+        # Auto-demote to not_assigned when user is removed from draft task
+        if "user_id" in vals and not vals["user_id"]:
+            to_demote = self.filtered(lambda r: r.state == "draft")
+            if to_demote:
+                super(LeviathanJob, to_demote).write({"state": "not_assigned"})
+        return res
+
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
@@ -675,8 +689,6 @@ class LeviathanJob(models.Model):
             raise UserError("Can only run tasks in Draft or Not Assigned state.")
         if not self.url:
             raise UserError("Please enter a website URL before running.")
-        if not self.category_id:
-            raise UserError("Please select a website category before running.")
 
         # Auto-assign if not_assigned or no user
         if self.state == "not_assigned" or not self.user_id:
@@ -738,6 +750,8 @@ class LeviathanJob(models.Model):
             "error_message": False,
             "cancel_requested": False,
             "started_at": fields.Datetime.now(),
+            "completed_at": False,
+            "duration_seconds": False,
             "last_heartbeat": fields.Datetime.now(),
         })
         self._trigger_extraction()
@@ -759,7 +773,7 @@ class LeviathanJob(models.Model):
         Validates each task, marks as extracting, publishes to queue.
         """
         eligible = self.filtered(
-            lambda r: r.state == "not_assigned" and r.url and r.category_id
+            lambda r: r.state == "not_assigned" and r.url
         )
         if not eligible:
             raise UserError(
@@ -772,16 +786,37 @@ class LeviathanJob(models.Model):
             "state": "extracting",
             "via_rabbitmq": True,
             "started_at": fields.Datetime.now(),
+            "completed_at": False,
+            "duration_seconds": False,
             "last_heartbeat": fields.Datetime.now(),
             "error_message": False,
             "cancel_requested": False,
         })
 
         record_ids = eligible.ids
+        db_name = self.env.cr.dbname
 
         def _deferred():
             from ..services.rabbitmq_service import batch_publish_leviathan_tasks
-            batch_publish_leviathan_tasks(record_ids, action="run_pipeline")
+            try:
+                batch_publish_leviathan_tasks(record_ids, action="run_pipeline")
+            except Exception as exc:
+                _logger.error("RabbitMQ publish failed: %s", exc)
+                # Revert tasks back to not_assigned since they weren't published
+                try:
+                    from odoo.modules.registry import Registry
+                    with Registry(db_name).cursor() as cr:
+                        from odoo import api, SUPERUSER_ID
+                        env = api.Environment(cr, SUPERUSER_ID, {})
+                        env["leviathan.job"].browse(record_ids).write({
+                            "state": "not_assigned",
+                            "via_rabbitmq": False,
+                            "error_message": f"RabbitMQ unavailable: {exc}",
+                        })
+                        cr.commit()
+                except Exception:
+                    _logger.exception("Failed to revert tasks after RabbitMQ error")
+                raise
 
         self.env.cr.postcommit.add(_deferred)
 
@@ -926,7 +961,10 @@ class LeviathanJob(models.Model):
                 "score_report_json": False,
                 "prd_url": False,
                 "llm_attempts": 0,
+                "duration_seconds": False,
                 "error_message": False,
+                "started_at": fields.Datetime.now(),
+                "completed_at": False,
                 "last_heartbeat": fields.Datetime.now(),
             })
             db_name = self.env.cr.dbname
@@ -1069,18 +1107,52 @@ class LeviathanJob(models.Model):
                     "region": ICP.get_param("leviathan.bedrock_region") or "us-east-1",
                     "bedrock_access_key": ICP.get_param("leviathan.bedrock_access_key_id"),
                     "bedrock_secret_key": ICP.get_param("leviathan.bedrock_secret_access_key"),
+                    "s3_bucket": ICP.get_param("leviathan.s3_bucket"),
+                    "s3_key_id": ICP.get_param("leviathan.s3_access_key_id"),
+                    "s3_secret": ICP.get_param("leviathan.s3_secret_access_key"),
+                    "s3_region": ICP.get_param("leviathan.s3_region"),
                 }
                 job_data = {
                     "prd_text": record.prd_text,
                     "category_name": record.category_id.name if record.category_id else "Normal Website",
                     "url": record.url,
                     "site_discovery_json": record.site_discovery_json,
+                    "screenshot_keys": record.screenshot_keys or [],
                 }
                 qc_prompt = record._get_qc_system_prompt()
 
             extraction_artifacts = {}
             if job_data["site_discovery_json"]:
                 extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
+
+            # Download screenshots for QC vision
+            screenshot_blocks = []
+            if job_data["screenshot_keys"] and config["s3_bucket"]:
+                from ..services.s3_service import download_file_from_s3
+                import base64 as b64
+                MAX_SCREENSHOTS = 5
+                MAX_IMG_BYTES = 3_500_000
+                total_bytes = 0
+                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                    try:
+                        img_bytes = download_file_from_s3(
+                            key=key, bucket=config["s3_bucket"],
+                            access_key_id=config["s3_key_id"],
+                            secret_key=config["s3_secret"],
+                            region=config["s3_region"],
+                        )
+                        if len(img_bytes) > MAX_IMG_BYTES:
+                            continue
+                        total_bytes += len(img_bytes)
+                        if total_bytes > 20_000_000:
+                            break
+                        ext = key.rsplit(".", 1)[-1].lower()
+                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                        screenshot_blocks.append({
+                            "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
+                        })
+                    except Exception:
+                        pass
 
             qc_result = run_qc(
                 prd_text=job_data["prd_text"],
@@ -1093,6 +1165,7 @@ class LeviathanJob(models.Model):
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
                 qc_system_prompt=qc_prompt,
+                screenshot_blocks=screenshot_blocks,
             )
 
             self._write_with_cursor(db_name, record_id, {
@@ -1364,6 +1437,8 @@ class LeviathanJob(models.Model):
                     "site_discovery_json": record.site_discovery_json,
                     "user_id": record.user_id.id if record.user_id else False,
                     "partner_id": record.user_id.partner_id.id if record.user_id and record.user_id.partner_id else False,
+                    "screenshot_keys": record.screenshot_keys or [],
+                    "asset_keys": record.asset_keys or [],
                 }
 
                 prd_system_prompt = record._get_prd_system_prompt()
@@ -1388,12 +1463,55 @@ class LeviathanJob(models.Model):
                 cr.commit()
 
             # === PHASE 2: LLM generation loop ===
-            base_user_message = (
+            # Download screenshots from S3 for vision (shared by PRD gen + QC)
+            # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
+            screenshot_blocks = []
+            if job_data["screenshot_keys"] and config["s3_bucket"]:
+                from ..services.s3_service import download_file_from_s3
+                import base64 as b64
+                MAX_SCREENSHOTS = 5
+                MAX_IMG_BYTES = 3_500_000  # 3.5MB (under Bedrock 3.75MB limit)
+                total_bytes = 0
+                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                    try:
+                        img_bytes = download_file_from_s3(
+                            key=key,
+                            bucket=config["s3_bucket"],
+                            access_key_id=config["s3_key_id"],
+                            secret_key=config["s3_secret"],
+                            region=config["s3_region"],
+                        )
+                        if len(img_bytes) > MAX_IMG_BYTES:
+                            _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
+                            continue
+                        total_bytes += len(img_bytes)
+                        if total_bytes > 20_000_000:  # 20MB safety cap
+                            _logger.info("Screenshot total size cap reached, stopping")
+                            break
+                        ext = key.rsplit(".", 1)[-1].lower()
+                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                        screenshot_blocks.append({
+                            "image": {
+                                "format": fmt,
+                                "source": {"bytes": b64.b64encode(img_bytes).decode()},
+                            }
+                        })
+                    except Exception as img_exc:
+                        _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
+                _logger.info(
+                    "Attached %d/%d screenshots for LLM (%.1f MB)",
+                    len(screenshot_blocks), len(job_data["screenshot_keys"]),
+                    total_bytes / 1_000_000,
+                )
+
+            # Build multimodal content: screenshots + extraction text
+            content_blocks = list(screenshot_blocks)
+            content_blocks.append({"text": (
                 f"Below is the extracted website data. "
                 f"Write the complete PRD following all rules.\n\n"
                 f"---\n\n{job_data['prd_prompt']}"
-            )
-            messages = [{"role": "user", "content": base_user_message}]
+            )})
+            messages = [{"role": "user", "content": content_blocks}]
 
             best_prd_text = None
             best_score = 0
@@ -1494,6 +1612,7 @@ class LeviathanJob(models.Model):
                     access_key_id=config["bedrock_access_key"],
                     secret_access_key=config["bedrock_secret_key"],
                     qc_system_prompt=qc_system_prompt,
+                    screenshot_blocks=screenshot_blocks,
                 )
                 qc_verdict = qc_result["verdict"]
                 qc_report = qc_result["report"]

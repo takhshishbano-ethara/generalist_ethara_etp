@@ -2,7 +2,7 @@
 <odoo>
 
   <!--
-    Milo-Bench Showcase — public single-page editorial view.
+    Milo-Bench Showcase - public single-page editorial view.
 
     Mounted at /aurora by controllers/main.py (AuroraShowcase).
     The controller passes evaluation data which the client-side JS
@@ -18,7 +18,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>MILO-BENCH — Long-Horizon Software Evolution · ETHARA AI</title>
+      <title>MILO-BENCH - Long-Horizon Software Evolution · ETHARA AI</title>
       <meta name="description" content="Milo-Bench trains AI agents to perform long-horizon software evolution. Given real-world codebases and their development history, the system works through sequences of 1 to 100+ consecutive production pull requests across Python, Rust, Go, TypeScript, JavaScript, Java, C, and C++."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -172,7 +172,7 @@
           <p class="phase-label">Principle 02</p>
           <h4 class="phase-title">Production-Grade Reliability</h4>
           <ul class="phase-body">
-            <li>Patches must pass CI test suites — no regressions allowed</li>
+            <li>Patches must pass CI test suites - no regressions allowed</li>
             <li>Cross-file consistency verified across the full dependency graph</li>
             <li>Build integrity maintained through the entire evolution chain</li>
           </ul>
@@ -192,7 +192,7 @@
           <ul class="phase-body">
             <li>GLM 5 and Kimi K2.5 evaluated head-to-head</li>
             <li>Each model gets exactly one attempt per instance (Pass@1)</li>
-            <li>No retries — measures true first-attempt evolution capability</li>
+            <li>No retries - measures true first-attempt evolution capability</li>
           </ul>
         </article>
       </div>
@@ -259,11 +259,11 @@
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview Combined Pass Rate chart full size">
-          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range — both models" loading="lazy"/>
-          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range — both models" loading="lazy"/>
+          <img class="au-chart-card au-chart-light" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_light.png" alt="Combined Pass Rate by PR Range - both models" loading="lazy"/>
+          <img class="au-chart-card au-chart-dark" src="/aurora_dashboard/static/src/portal/img/combined_passrate_by_pr_range_dark.png" alt="Combined Pass Rate by PR Range - both models" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 — Combined pass rate by PR range (all models)</figcaption>
+        <figcaption>Fig. 1 - Combined pass rate by PR range (all models)</figcaption>
       </figure>
     </div>
 
@@ -437,7 +437,7 @@
 
 </div><!-- /.page -->
 
-      <!-- Lightbox overlay — hidden until a chart image is clicked.
+      <!-- Lightbox overlay - hidden until a chart image is clicked.
            JS sets the <img> src + alt from the trigger, then toggles
            [data-open]. Close via button, overlay click, or Escape. -->
       <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"

@@ -2,15 +2,15 @@
 <odoo>
 
   <!--
-    Tesseract Showcase — public single-page website view.
+    Tesseract Showcase - public single-page website view.
 
     Mounted at /tesseract by controllers/main.py (TesseractShowcase).
     The controller passes `instances_json` (pre-serialized JSON string)
     which is injected into the application/json script block for the
     client-side JS to consume.
 
-    The page structure mirrors the standalone static build exactly —
-    same class names, same sections, same IDs — so CSS/JS in
+    The page structure mirrors the standalone static build exactly -
+    same class names, same sections, same IDs - so CSS/JS in
     static/src/ carry over 1:1 without edits.
   -->
 
@@ -19,8 +19,8 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Tesseract — Multimodal SWE-Bench · ETHARA AI </title>
-      <meta name="description" content="Tesseract evaluates AI coding agents on real-world GitHub issues that require visual understanding — screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings."/>
+      <title>Tesseract - Multimodal SWE-Bench · ETHARA AI </title>
+      <meta name="description" content="Tesseract evaluates AI coding agents on real-world GitHub issues that require visual understanding - screenshots of UI bugs, architectural diagrams, plot rendering errors, and widget behavior recordings."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
@@ -190,7 +190,7 @@
           <h4 class="phase-title">Pass@1 Protocol</h4>
           <ul class="phase-body">
             <li>Each model gets exactly one attempt per instance</li>
-            <li>No retries, no cherry-picking — mirrors real-world PR submission</li>
+            <li>No retries, no cherry-picking - mirrors real-world PR submission</li>
             <li>Measures true first-attempt capability under production constraints</li>
           </ul>
         </article>
@@ -282,7 +282,7 @@
     </div><!-- /.pipeline-frame -->
   </section>
 
-  <!-- ================= §05 RESULTS — THE REVEAL ================= -->
+  <!-- ================= §05 RESULTS - THE REVEAL ================= -->
   <section class="section section-reveal" id="results" aria-labelledby="results-label">
     <p class="section-label" id="results-label">§05 · Results</p>
 
@@ -298,20 +298,20 @@
 
     <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Resolution rate by model full size">
-          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
-          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line_dark.png" alt="Bar chart: resolution rate per model — Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 - Resolution rate by model full size">
+          <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line.png" alt="Bar chart: resolution rate per model - Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
+          <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_model_line_dark.png" alt="Bar chart: resolution rate per model - Kimi K2.5 at 4/20 (20%), Qwen3 VL at 2/20 (10%)" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 — Resolution rate by model</figcaption>
+        <figcaption>Fig. 1 - Resolution rate by model</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Success rate vs image count full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 - Success rate vs image count full size">
           <img class="chart-light" src="/tesseract_dashboard/static/src/img/charts/resolution_by_image_count.png" alt="Line chart: success rate versus number of images per issue for both models" loading="lazy" />
           <img class="chart-dark" src="/tesseract_dashboard/static/src/img/charts/resolution_by_image_count_dark.png" alt="Line chart: success rate versus number of images per issue for both models" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 — Success rate vs. image count</figcaption>
+        <figcaption>Fig. 2 - Success rate vs. image count</figcaption>
       </figure>
     </div>
     <p class="caption">Overall resolution rate (Fig. 1) plus per-model degradation as the number of embedded images in an issue grows (Fig. 2). See <a href="#instances">§06</a> for per-instance receipts.</p>
@@ -452,7 +452,7 @@
 
 </div>
 
-      <!-- Lightbox overlay — hidden until a chart image is clicked.
+      <!-- Lightbox overlay - hidden until a chart image is clicked.
            JS sets the <img> src + alt from the trigger, then toggles
            [data-open]. Close via button, overlay click, or Escape. -->
       <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"

@@ -130,24 +130,27 @@ class AuroraHarnessStaging(models.Model):
              "file and the dataset file, then paste this prompt.",
     )
 
-    # Curated picks preferred over directory-scan fallback.  These are the
-    # best-quality, best-documented reference harnesses per language.  For any
-    # language not listed here, _find_reference_harness() scans the repos
-    # directory for a real existing file.
+    # Curated picks per language, stored as paths relative to
+    # _HARNESS_REPOS_ABSROOT (the in-tree harness repos root, same one used by
+    # registry_wizard._AURORA_HARNESS_REPOS_ROOT). For languages not listed
+    # here, _find_reference_harness() scans the root for a real existing file.
     _AI_REFERENCE_MAP = {
-        "python": "custom_addons/aurora/tools/harness/repos/python/psf/requests.py",
-        "golang": "custom_addons/aurora/tools/harness/repos/golang/istio/istio.py",
+        "python": "python/psf/requests.py",
+        "golang": "golang/istio/istio.py",
     }
 
-    _HARNESS_REPOS_RELROOT = "custom_addons/aurora/tools/harness/repos"
+    _HARNESS_REPOS_ABSROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "tools", "harness", "repos")
+    )
 
     @api.model
     def _find_reference_harness(self, language, org=None, repo=None):
-        """Return a repo-relative path to a real existing reference harness.
+        """Return an absolute path to a real existing reference harness, or False.
 
-        Preference order:
+        Searches only the in-tree harness repos root (_HARNESS_REPOS_ABSROOT),
+        in this preference order:
           1. Exact curated pick from ``_AI_REFERENCE_MAP`` if its file exists.
-          2. ``<lang>/<org>/<repo>.py`` if the user's own repo already has one.
+          2. ``<lang>/<org>/<repo>.py`` if a matching file already exists.
           3. First ``.py`` file in ``<lang>/<org>/`` (same-org heuristic).
           4. First ``.py`` file anywhere under ``<lang>/`` (alphabetical).
           5. ``False`` if no files at all for this language.
@@ -155,36 +158,34 @@ class AuroraHarnessStaging(models.Model):
         if not language:
             return False
 
-        module_dir = os.path.dirname(__file__)
-        repo_root = os.path.abspath(os.path.join(module_dir, "..", "..", ".."))
+        root = self._HARNESS_REPOS_ABSROOT
 
-        curated = self._AI_REFERENCE_MAP.get(language)
-        if curated and os.path.isfile(os.path.join(repo_root, curated)):
-            return curated
+        curated_rel = self._AI_REFERENCE_MAP.get(language)
+        if curated_rel:
+            curated_abs = os.path.join(root, curated_rel)
+            if os.path.isfile(curated_abs):
+                return curated_abs
 
-        lang_dir = os.path.join(repo_root, self._HARNESS_REPOS_RELROOT, language)
+        lang_dir = os.path.join(root, language)
         if not os.path.isdir(lang_dir):
             return False
-
-        def _rel(abs_path):
-            return os.path.relpath(abs_path, repo_root)
 
         if org and repo:
             candidate = os.path.join(lang_dir, org, f"{repo}.py")
             if os.path.isfile(candidate):
-                return _rel(candidate)
+                return candidate
 
         if org:
             org_dir = os.path.join(lang_dir, org)
             if os.path.isdir(org_dir):
                 for name in sorted(os.listdir(org_dir)):
                     if name.endswith(".py") and not name.startswith("_"):
-                        return _rel(os.path.join(org_dir, name))
+                        return os.path.join(org_dir, name)
 
         for dirpath, _dirnames, filenames in sorted(os.walk(lang_dir)):
             for fname in sorted(filenames):
                 if fname.endswith(".py") and not fname.startswith("_"):
-                    return _rel(os.path.join(dirpath, fname))
+                    return os.path.join(dirpath, fname)
 
         return False
 
@@ -197,15 +198,19 @@ class AuroraHarnessStaging(models.Model):
                 continue
             rec.ai_reference_harness = self._find_reference_harness(
                 rec.language, rec.org, rec.repo,
-            ) or f"{self._HARNESS_REPOS_RELROOT}/{rec.language}/"
+            ) or False
             dataset_display = rec.dataset_file or "(select Source Pipeline to auto-fill)"
             class_prefix = rec.repo.title().replace('-', '').replace('_', '')
+            reference_display = rec.ai_reference_harness or (
+                f"(none available — add a sample .py at "
+                f"{self._HARNESS_REPOS_ABSROOT}/{rec.language}/<org>/<repo>.py)"
+            )
             rec.ai_prompt_text = (
                 f"You are writing a new harness (registry file) for the Aurora evaluation pipeline.\n"
                 f"Target repo: {rec.org}/{rec.repo}  (language: {rec.language})\n\n"
                 f"YOU HAVE TWO INPUTS. USE BOTH.\n\n"
                 f"INPUT 1 - Reference harness (a WORKING harness in the same language):\n"
-                f"  Path: {rec.ai_reference_harness}\n"
+                f"  Path: {reference_display}\n"
                 f"  Role: structural template. Copy its class layout, imports,\n"
                 f"        Dockerfile scaffolding, and ALL shell scripts verbatim.\n"
                 f"        The reference is the source of truth for the PATTERN; you only\n"
@@ -603,18 +608,13 @@ class AuroraHarnessStaging(models.Model):
 
     def action_download_reference_harness(self):
         self.ensure_one()
-        if not self.ai_reference_harness:
+        candidate = self.ai_reference_harness
+        if not candidate or not os.path.isfile(candidate):
             raise UserError(
-                "No reference harness is resolved. Pick a Language first."
-            )
-        repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        candidate = os.path.join(repo_root, self.ai_reference_harness)
-        if not os.path.isfile(candidate):
-            raise UserError(
-                f"Reference harness file not found at {candidate!r}. "
-                "The path template in `_AI_REFERENCE_MAP` may need adjustment for this language."
+                f"No reference harness available for language {self.language!r}. "
+                f"Drop a sample harness file at "
+                f"{self._HARNESS_REPOS_ABSROOT}/{self.language or '<lang>'}/<org>/<repo>.py "
+                "and reload this record."
             )
         return self._download_local_file(candidate, os.path.basename(candidate))
 

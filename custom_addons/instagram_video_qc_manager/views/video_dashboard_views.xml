@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Dashboard - a Kanban over video.task with helpful pivot/graph fallbacks -->
+
+    <record id="view_video_task_dashboard_kanban" model="ir.ui.view">
+        <field name="name">video.task.dashboard.kanban</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <kanban class="o_video_qc_dashboard" sample="1">
+                <field name="state"/>
+                <field name="thumbnail"/>
+                <field name="latest_qc_status"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="o_dashboard_card">
+                            <div class="o_dashboard_thumb">
+                                <field name="thumbnail" widget="background_image"
+                                       class="o_kanban_image_fill h-100 w-100"
+                                       options="{'preview_image': 'thumbnail'}"/>
+                            </div>
+                            <h4><field name="name"/></h4>
+                            <div><field name="state" widget="badge"/></div>
+                            <div class="small">
+                                <field name="latest_qc_status" widget="badge"/>
+                                <span>v<field name="total_versions_count"/></span>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         Dashboard FORM view: side-by-side trimmed previews of the two
+         source slots, the prompt of the latest version, and a single
+         "QC" action that the user wires up later (calls a stub on the
+         model for now).
+
+         This view is registered on the dashboard action ONLY (via
+         view_ids), so clicking a kanban card opens this compact form
+         rather than the full task editor form.
+    ========================================================== -->
+    <record id="view_video_task_dashboard_form" model="ir.ui.view">
+        <field name="name">video.task.dashboard.form</field>
+        <field name="model">video.task</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <form string="Video Task — Dashboard" create="false" class="o_video_qc_dashboard_form">
+                <header>
+                    <button name="action_qc_placeholder" type="object"
+                            string="QC" class="btn-primary"
+                            help="Stub action — QC review handler to be implemented."/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,downloaded,editing,qc_pending,qc_approved,completed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                        <h3>
+                            <field name="description" readonly="1"/>
+                        </h3>
+                    </div>
+
+                    <div class="o_video_qc_dashboard_form__videos">
+                        <div class="o_video_qc_dashboard_form__col">
+                            <h5>Source #1 — Trimmed</h5>
+                            <field name="original_video_1_play_url"
+                                   widget="video_preview"
+                                   nolabel="1"
+                                   invisible="not original_video_1_attachment"/>
+                            <div class="text-muted small"
+                                 invisible="original_video_1_attachment">
+                                <i class="fa fa-film me-1"/> No source video uploaded yet.
+                            </div>
+                        </div>
+                        <div class="o_video_qc_dashboard_form__col">
+                            <h5>Source #2 — Trimmed</h5>
+                            <field name="original_video_2_play_url"
+                                   widget="video_preview"
+                                   nolabel="1"
+                                   invisible="not original_video_2_attachment"/>
+                            <div class="text-muted small"
+                                 invisible="original_video_2_attachment">
+                                <i class="fa fa-film me-1"/> No source video uploaded yet.
+                            </div>
+                        </div>
+                    </div>
+
+                    <group string="Prompt (latest version)">
+                        <field name="latest_prompt_text"
+                               nolabel="1" readonly="1"
+                               placeholder="No prompt captured on the latest version yet."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_video_task_graph" model="ir.ui.view">
+        <field name="name">video.task.graph</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <graph string="Tasks by State" type="bar">
+                <field name="state"/>
+                <field name="total_versions_count" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_video_dashboard" model="ir.actions.act_window">
+        <field name="name">Dashboard</field>
+        <field name="res_model">video.task</field>
+        <field name="view_mode">kanban,form,graph</field>
+        <!-- Explicit view_ids so the dashboard form (not the full task form)
+             is the one that opens when a kanban card is clicked. -->
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'kanban', 'view_id': ref('view_video_task_dashboard_kanban')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_video_task_dashboard_form')}),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('view_video_task_graph')}),
+        ]"/>
+    </record>
+
+</odoo>

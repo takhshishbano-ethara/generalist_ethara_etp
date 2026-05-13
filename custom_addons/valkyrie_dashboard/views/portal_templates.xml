@@ -163,7 +163,7 @@
                               <h4 class="vk-phase-title">Pass@1 Protocol</h4>
                               <ul class="vk-phase-body">
                                 <li>Each model gets exactly one attempt per vulnerability</li>
-                                <li>No retries — mirrors real-world security patch submission</li>
+                                <li>No retries - mirrors real-world security patch submission</li>
                                 <li>Measures true first-attempt remediation capability</li>
                               </ul>
                             </article>

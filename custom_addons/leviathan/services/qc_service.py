@@ -27,6 +27,7 @@ def run_qc(
     access_key_id: str = None,
     secret_access_key: str = None,
     qc_system_prompt: str = "",
+    screenshot_blocks: list = None,
 ) -> dict:
     """Run QC: structural checks + LLM alignment review.
 
@@ -60,6 +61,7 @@ def run_qc(
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
         qc_system_prompt=qc_system_prompt,
+        screenshot_blocks=screenshot_blocks,
     )
 
     # Combine results
@@ -278,6 +280,7 @@ def _run_llm_alignment_check(
     access_key_id: str = None,
     secret_access_key: str = None,
     qc_system_prompt: str = "",
+    screenshot_blocks: list = None,
 ) -> dict:
     """Call Bedrock to check PRD vs extraction data alignment."""
     from .bedrock_service import generate_prd as _call_bedrock
@@ -297,12 +300,16 @@ def _run_llm_alignment_check(
         f"{extraction_summary}"
     )
 
+    # Build content blocks: screenshots (if available) + text
+    content_blocks = list(screenshot_blocks or [])
+    content_blocks.append({"text": user_message})
+
     try:
         response = _call_bedrock(
             inference_arn=inference_arn,
             region=region,
             system_prompt=effective_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[{"role": "user", "content": content_blocks}],
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )

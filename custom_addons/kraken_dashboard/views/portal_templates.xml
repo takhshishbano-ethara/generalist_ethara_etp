@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Kraken — Performance Optimization Benchmark · ETHARA AI</title>
+      <title>Kraken - Performance Optimization Benchmark · ETHARA AI</title>
       <meta name="description" content="Kraken evaluates AI coding agents on repository-level performance optimization using the SWE-fficiency methodology. Agents must localize bottlenecks and produce patches that exceed expert-level speedup."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -230,56 +230,56 @@
         Kimi K2.5 passes <b>2 of 20</b> but produces correct (slow) patches on 10 more.
       </p>
       <p class="reveal-cost mono">
-        GLM-5 costs <b>~$2.14/instance</b> avg. Kimi K2.5 costs <b>~$0.09/instance</b> — <b>24× cheaper</b>.
+        GLM-5 costs <b>~$2.14/instance</b> avg. Kimi K2.5 costs <b>~$0.09/instance</b> - <b>24× cheaper</b>.
       </p>
     </div>
 
     <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — HSR Harmonic Mean full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 - HSR Harmonic Mean full size">
           <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean.png" alt="HSR harmonic mean per model" loading="lazy" />
           <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/01_hsr_harmonic_mean_dark.png" alt="HSR harmonic mean per model" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 — HSR Harmonic Mean</figcaption>
+        <figcaption>Fig. 1 - HSR Harmonic Mean</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Outcome Distribution full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 - Outcome Distribution full size">
           <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution.png" alt="Outcome distribution per model" loading="lazy" />
           <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/02_outcome_distribution_dark.png" alt="Outcome distribution per model" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 — Outcome Distribution</figcaption>
+        <figcaption>Fig. 2 - Outcome Distribution</figcaption>
       </figure>
     </div>
 
     <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — HSR by Difficulty full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 - HSR by Difficulty full size">
           <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty.png" alt="HSR grouped by difficulty level" loading="lazy" />
           <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/04_hsr_by_difficulty_dark.png" alt="HSR grouped by difficulty level" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 3 — HSR by Difficulty</figcaption>
+        <figcaption>Fig. 3 - HSR by Difficulty</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 — Cost vs HSR full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 - Cost vs HSR full size">
           <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr.png" alt="Cost versus HSR performance" loading="lazy" />
           <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/05_cost_vs_hsr_dark.png" alt="Cost versus HSR performance" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 4 — Cost vs. HSR</figcaption>
+        <figcaption>Fig. 4 - Cost vs. HSR</figcaption>
       </figure>
     </div>
 
     <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 5 — Per-Instance HSR full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 5 - Per-Instance HSR full size">
           <img class="chart-light" src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr.png" alt="Per-instance HSR comparison" loading="lazy" />
           <img class="chart-dark" src="/kraken_dashboard/static/src/portal/img/03_per_instance_hsr_dark.png" alt="Per-instance HSR comparison" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 5 — Per-Instance HSR</figcaption>
+        <figcaption>Fig. 5 - Per-Instance HSR</figcaption>
       </figure>
     </div>
     <p class="caption">HSR harmonic mean (Fig. 1), outcome breakdown (Fig. 2), difficulty analysis (Fig. 3), cost-efficiency (Fig. 4), and per-instance detail (Fig. 5). See <a href="#instances">§06</a> for per-instance receipts.</p>
