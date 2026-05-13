@@ -127,13 +127,14 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
             "message": f"PRD below target range ({word_count}/2800-3500).",
         })
 
-    # Markdown tables (H16 in QC rubric)
+    # Markdown tables — allowed (scoring rewards structured formatting)
+    # Downgraded from HIGH to informational; no longer triggers not_shippable.
     table_lines = re.findall(r"^\|.*\|.*\|", prd_text, re.MULTILINE)
     if len(table_lines) >= 2:
         issues.append({
-            "severity": "high",
+            "severity": "low",
             "code": "S-TABLES",
-            "message": f"Markdown tables found ({len(table_lines)} lines). Use bullet lists instead.",
+            "message": f"Markdown tables found ({len(table_lines)} lines). Acceptable if well-structured.",
         })
 
     # Non-keyboard characters (H15)

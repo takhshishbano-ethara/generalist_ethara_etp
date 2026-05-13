@@ -10,10 +10,16 @@ import os
 import threading
 import time
 
-import pika
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
+try:
+    import pika
+except ImportError:
+    pika = None
+    logging.getLogger(__name__).debug("pika not installed — RabbitMQ features disabled")
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except ImportError:
+    pass
 
 _logger = logging.getLogger(__name__)
 
@@ -31,6 +37,8 @@ _channel = None
 
 
 def _get_channel():
+    if pika is None:
+        raise RuntimeError("pika not installed — run: pip install pika")
     global _connection, _channel
     with _conn_lock:
         if _connection and _connection.is_open and _channel and _channel.is_open:

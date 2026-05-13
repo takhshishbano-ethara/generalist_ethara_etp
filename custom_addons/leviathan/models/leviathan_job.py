@@ -715,13 +715,15 @@ class LeviathanJob(models.Model):
                 )
 
         # Lock row to prevent double-run (graceful on lock conflict)
+        sp_name = f"leviathan_run_{self.id}"
+        self.env.cr.execute(f"SAVEPOINT {sp_name}")
         try:
             self.env.cr.execute(
                 "SELECT id FROM leviathan_job WHERE id = %s FOR UPDATE NOWAIT",
                 [self.id],
             )
         except Exception:
-            self.env.cr.rollback()
+            self.env.cr.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
             raise UserError("Task is being modified by another session. Try again.")
 
         self.env.cr.execute(
