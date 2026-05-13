@@ -9,6 +9,7 @@ class PaxShowcase extends Component {
     setup() {
         this.orm = useService("orm");
         this.state = useState({
+//            trajectories_url: "https://github.com/Ethara-Ai/pax",
             trajectories_url: "https://github.com/Ethara-Ai/pax",
             dataset_url: "https://huggingface.co/datasets/ethara/Pax",
         });
