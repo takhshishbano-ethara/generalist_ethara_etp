@@ -507,10 +507,11 @@
   <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
     <p class="section-label" id="resources-label">§08 · Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/terra-harness" target="_blank" rel="noopener">
+<!--      <a class="resource" href="https://github.com/Ethara-Ai/terra" target="_blank" rel="noopener">-->
+      <a class="resource" href="https://github.com/Ethara-Ai/terra" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
-        <p class="res-title">Trajectories</p>
-        <p class="res-url mono">github.com/Ethara-Ai/terra-harness</p>
+        <p class="res-title">Harness</p>
+        <p class="res-url mono">github.com/Ethara-Ai/terra</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="resource" href="https://huggingface.co/datasets/ethara/terra" target="_blank" rel="noopener">

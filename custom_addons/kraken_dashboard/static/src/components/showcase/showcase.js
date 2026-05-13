@@ -11,7 +11,8 @@ class KrakenShowcase extends Component {
     setup() {
         this.orm = useService("orm");
         this.state = useState({
-            trajectories_url: "https://github.com/Ethara-Ai/Kraken-Dataset",
+//            trajectories_url: "https://github.com/Ethara-Ai/Kraken-Dataset",
+            trajectories_url: "https://github.com/Ethara-Ai/kraken",
             dataset_url: "https://huggingface.co/datasets/ethara/Kraken",
             paper_url: "https://arxiv.org/abs/2511.06090",
         });

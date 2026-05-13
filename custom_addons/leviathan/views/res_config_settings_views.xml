@@ -101,6 +101,10 @@
                                     <field name="leviathan_prd_prompt_file" filename="leviathan_prd_prompt_filename" class="oe_inline"/>
                                     <field name="leviathan_prd_prompt_filename" invisible="1"/>
                                 </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="leviathan_prd_prompt_status" class="text-muted"/>
+                                </div>
                                 <div class="row mt8">
                                     <div class="col-lg-3"/>
                                     <button name="action_clear_prd_prompt" type="object" string="Reset to Default" class="btn-link btn-sm" icon="fa-undo"/>
@@ -113,6 +117,10 @@
                                     <label for="leviathan_qc_prompt_file" class="col-lg-3 o_light_label"/>
                                     <field name="leviathan_qc_prompt_file" filename="leviathan_qc_prompt_filename" class="oe_inline"/>
                                     <field name="leviathan_qc_prompt_filename" invisible="1"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="leviathan_qc_prompt_status" class="text-muted"/>
                                 </div>
                                 <div class="row mt8">
                                     <div class="col-lg-3"/>

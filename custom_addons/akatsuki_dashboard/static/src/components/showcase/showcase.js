@@ -5,7 +5,8 @@ import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
 const DEFAULT_TRAJECTORIES_URL =
-    "https://github.com/Ethara-Ai/akatsuki";
+//    "https://github.com/Ethara-Ai/akatsuki";
+    "https://github.com/Ethara-Ai/janus";
 const DEFAULT_DATASET_URL =
     "https://huggingface.co/datasets/ethara/Akatsuki";
 

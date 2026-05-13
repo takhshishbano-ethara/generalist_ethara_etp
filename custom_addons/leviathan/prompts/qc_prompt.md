@@ -22,7 +22,7 @@ agent learns how such sites are designed and engineered.
 
 Each submission contains four parts:
 
-  1. A Product Requirements Document (PRD) — 800–3,500 words
+  1. A Product Requirements Document (PRD) — 800–5,000 words
   2. Reference & Prototype Images — 3–10 (aim for 8–9)
   3. Multimedia Assets — REQUIRED, all 5 slots filled every submission
      (logos, hero media, icons, fonts, textures). THESE MUST BE PRESENT.
@@ -405,8 +405,8 @@ under-grading because it poisons reviewer trust.
   C2. Fewer than 3 reference images, OR more than 10.
       Platform hard limits.
 
-  C3. PRD exceeds the platform hard cap of 3,500 words.
-      The submission form rejects PRDs above 3,500 words — a PRD in
+  C3. PRD exceeds the platform hard cap of 5,000 words.
+      The submission form rejects PRDs above 5,000 words — a PRD in
       this state physically cannot ship. Flag Critical as a format
       violation, not a quality judgement. (A PRD BELOW 800 words is
       High-severity, see H13; thin substance is evaluated under C9,
@@ -689,7 +689,7 @@ under-grading because it poisons reviewer trust.
        not length — is the real test (see C9). H13 catches the length
        floor; C9 catches the substance floor. Both can fire on the
        same PRD, but they are not double-counts — they measure
-       different things. (A PRD above the 3,500 platform cap is
+       different things. (A PRD above the 5,000 platform cap is
        Critical C3, not H13.)
 
   H14. AI-authored PRD fingerprints detected (see Step 8). Requires
@@ -796,7 +796,7 @@ under-grading because it poisons reviewer trust.
 --- MEDIUM (accumulate; pattern = concern) ---
 
   M1. PRD word count in the 800–1,500 range. Acceptable, but the project
-      target is 3,500 — denser PRDs produce better training data.
+      target is 4,800 — denser PRDs produce better training data.
 
   M2. One page of the Site Architecture is noticeably thinner than the
       others (1–2 lines) when the live site has substantial content on

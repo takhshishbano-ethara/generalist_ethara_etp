@@ -9,7 +9,7 @@ import json
 
 # Constants inlined from leviathon_v2_pipeline/config.py
 PRD_MIN_WORDS = 800
-PRD_MAX_WORDS = 3500
+PRD_MAX_WORDS = 5000
 
 TIER1_BANNED_PHRASES = [
     "smooth animation", "modern ux", "clean layout", "nice", "beautiful",
@@ -289,7 +289,7 @@ def _score_word_count_format(text, word_count):
 
     if PRD_MIN_WORDS <= word_count <= PRD_MAX_WORDS:
         score += 3
-    elif PRD_MAX_WORDS < word_count <= 3800:
+    elif PRD_MAX_WORDS < word_count <= 5500:
         score += 2
     elif 600 <= word_count < PRD_MIN_WORDS:
         score += 1
