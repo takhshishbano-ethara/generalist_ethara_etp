@@ -20,11 +20,11 @@ def _verify_webhook_token():
     """
     secret = os.environ.get("LEVIATHAN_WEBHOOK_TOKEN")
     if not secret:
-        _logger.warning(
-            "LEVIATHAN_WEBHOOK_TOKEN not set -- webhook auth DISABLED. "
+        _logger.error(
+            "LEVIATHAN_WEBHOOK_TOKEN not set -- rejecting webhook. "
             "Set this env var in production!"
         )
-        return True
+        return False
     token = request.httprequest.headers.get("X-Leviathan-Token")
     return hmac.compare_digest(token or "", secret)
 

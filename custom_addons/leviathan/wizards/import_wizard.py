@@ -56,6 +56,15 @@ class LeviathanImportWizard(models.TransientModel):
             if not url.startswith(("http://", "https://")):
                 url = "https://" + url
 
+            # Duplicate check: skip if same URL already exists and not submitted
+            existing = Job.sudo().search_count([
+                ("url", "=", url),
+                ("state", "not in", ["submitted", "cancelled"]),
+            ])
+            if existing:
+                errors.append(f"Row {i}: duplicate URL '{url}', skipped")
+                continue
+
             vals = {
                 "url": url,
                 "state": "not_assigned",

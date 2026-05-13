@@ -4,8 +4,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
-const DEFAULT_GITHUB_URL =
-    "https://github.com/Ethara-Ai/Valkyrie";
+// const DEFAULT_GITHUB_URL = "https://github.com/Ethara-Ai/Valkyrie";
+const DEFAULT_GITHUB_URL = "https://github.com/Ethara-Ai/valkyrie-harness";
 const DEFAULT_DATASET_URL =
     "https://huggingface.co/datasets/ethara/Valkyrie";
 

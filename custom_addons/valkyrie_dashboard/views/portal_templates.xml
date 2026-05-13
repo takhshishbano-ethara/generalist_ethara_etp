@@ -399,10 +399,10 @@
                     <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
                         <p class="vk-section-label" id="vk-resources-label">§08 · Resources</p>
                         <div class="vk-resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-                             <a class="vk-resource" href="https://github.com/Ethara-Ai/Valkyrie" target="_blank" rel="noopener">
+                             <a class="vk-resource" href="https://github.com/Ethara-Ai/valkyrie-harness" target="_blank" rel="noopener">
                                  <p class="vk-res-label vk-mono">GitHub</p>
                                  <p class="vk-res-title">Trajectories</p>
-                                 <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
+                                 <p class="vk-res-url vk-mono">github.com/Ethara-Ai/valkyrie-harness</p>
                                  <span class="vk-res-arrow" aria-hidden="true">↗</span>
                              </a>
                              <a class="vk-resource" href="https://huggingface.co/datasets/ethara/Valkyrie" target="_blank" rel="noopener">
