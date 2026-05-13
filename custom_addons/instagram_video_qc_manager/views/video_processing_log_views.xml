@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_video_task_processing_log_list" model="ir.ui.view">
+        <field name="name">video.task.processing.log.list</field>
+        <field name="model">video.task.processing.log</field>
+        <field name="arch" type="xml">
+            <list string="Processing Logs"
+                  decoration-danger="level == 'error'"
+                  decoration-warning="level == 'warning'">
+                <field name="create_date"/>
+                <field name="task_id"/>
+                <field name="version_id"/>
+                <field name="operation"/>
+                <field name="level" widget="badge"/>
+                <field name="duration_ms"/>
+                <field name="message"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_video_task_processing_log_form" model="ir.ui.view">
+        <field name="name">video.task.processing.log.form</field>
+        <field name="model">video.task.processing.log</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="task_id"/>
+                        <field name="version_id"/>
+                        <field name="operation"/>
+                        <field name="level"/>
+                        <field name="duration_ms"/>
+                    </group>
+                    <separator string="Message"/>
+                    <field name="message" widget="text"/>
+                    <separator string="FFmpeg Command"/>
+                    <field name="ffmpeg_command" widget="text"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_video_task_processing_log" model="ir.actions.act_window">
+        <field name="name">Processing Logs</field>
+        <field name="res_model">video.task.processing.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="0">
+
+    <record id="demo_task_1" model="video.task">
+        <field name="name">VQC/DEMO/00001</field>
+        <field name="description">Demo task — two reels for the launch campaign</field>
+        <field name="assigned_to" ref="base.user_admin"/>
+        <field name="qc_user_id" ref="base.user_admin"/>
+        <field name="original_video_1_url">https://www.instagram.com/reel/EXAMPLE1/</field>
+        <field name="original_video_2_url">https://www.instagram.com/reel/EXAMPLE2/</field>
+        <field name="state">draft</field>
+    </record>
+
+    <record id="demo_version_1" model="video.task.version">
+        <field name="task_id" ref="demo_task_1"/>
+        <field name="version_no">1</field>
+        <field name="trim_start">0.0</field>
+        <field name="trim_end">15.0</field>
+        <field name="prompt_text">Generate a snappy hook for the first 3 seconds; cut to the product reveal at 0:08.</field>
+        <field name="status">draft</field>
+        <field name="is_latest" eval="True"/>
+    </record>
+
+</odoo>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="0">
+
+    <!-- Module category -->
+    <record id="module_category_video_qc" model="ir.module.category">
+        <field name="name">Instagram Video QC</field>
+        <field name="description">Roles for Instagram Video QC Manager</field>
+        <field name="sequence">35</field>
+    </record>
+
+    <!-- Group privilege (Odoo 19: groups use privilege_id, not category_id) -->
+    <record id="privilege_video_qc" model="res.groups.privilege">
+        <field name="name">Instagram Video QC</field>
+        <field name="sequence">35</field>
+        <field name="category_id" ref="module_category_video_qc"/>
+    </record>
+
+    <!-- Groups -->
+    <record id="group_video_user" model="res.groups">
+        <field name="name">Video User</field>
+        <field name="privilege_id" ref="privilege_video_qc"/>
+        <field name="comment">Create tasks, submit Instagram URLs, view own tasks.</field>
+    </record>
+
+    <record id="group_video_editor" model="res.groups">
+        <field name="name">Video Editor</field>
+        <field name="privilege_id" ref="privilege_video_qc"/>
+        <field name="implied_ids" eval="[(4, ref('group_video_user'))]"/>
+        <field name="comment">Trim, crop and produce edited versions; attach prompts.</field>
+    </record>
+
+    <record id="group_qc_reviewer" model="res.groups">
+        <field name="name">QC Reviewer</field>
+        <field name="privilege_id" ref="privilege_video_qc"/>
+        <field name="implied_ids" eval="[(4, ref('group_video_user'))]"/>
+        <field name="comment">Review edited videos, approve / reject / request rework.</field>
+    </record>
+
+    <record id="group_video_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="privilege_id" ref="privilege_video_qc"/>
+        <field name="implied_ids" eval="[(4, ref('group_video_editor')), (4, ref('group_qc_reviewer'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="comment">Full administrative control over tasks, versions and QC.</field>
+    </record>
+
+    <!-- Record rules -->
+    <record id="rule_video_task_user_own" model="ir.rule">
+        <field name="name">Video Task: users see their own / assigned</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="domain_force">['|', ('create_uid', '=', user.id), ('assigned_to', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_video_user'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="rule_video_task_editor_all" model="ir.rule">
+        <field name="name">Video Task: editors see all assigned to editing</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_video_editor'))]"/>
+    </record>
+
+    <record id="rule_video_task_qc_all" model="ir.rule">
+        <field name="name">Video Task: QC reviewers see all</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_qc_reviewer'))]"/>
+    </record>
+
+    <record id="rule_video_task_manager_all" model="ir.rule">
+        <field name="name">Video Task: managers see all</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_video_manager'))]"/>
+    </record>
+
+</odoo>
