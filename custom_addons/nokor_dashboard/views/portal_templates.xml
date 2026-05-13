@@ -234,12 +234,12 @@
     <div class="results-summary" id="nk-results-summary">
       <div class="result-card result-card--primary">
         <span class="result-model mono">Kimi K2.5</span>
-        <span class="result-score" id="nk-kimi-score">—</span>
+        <span class="result-score" id="nk-kimi-score">-</span>
         <span class="result-detail mono" id="nk-kimi-detail">Loading...</span>
       </div>
       <div class="result-card">
         <span class="result-model mono">Qwen3-VL</span>
-        <span class="result-score" id="nk-nova-score">—</span>
+        <span class="result-score" id="nk-nova-score">-</span>
         <span class="result-detail mono" id="nk-nova-detail">Loading...</span>
       </div>
     </div>
@@ -261,22 +261,22 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Hard</span>
-          <span class="dist-kpi-count" id="nk-dist-hard-count">—</span>
+          <span class="dist-kpi-count" id="nk-dist-hard-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-hard-kimi-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-hard-kimi-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-hard-kimi-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-kimi-pass">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-hard-nova-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-hard-nova-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-hard-nova-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-nova-pass">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-hard-combined-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-hard-combined">—</span>
+            <span class="dist-kpi-num" id="nk-dist-hard-combined-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-hard-combined">-</span>
             <span class="dist-kpi-lbl">Combined</span>
           </div>
         </div>
@@ -285,22 +285,22 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Very Hard</span>
-          <span class="dist-kpi-count" id="nk-dist-vhard-count">—</span>
+          <span class="dist-kpi-count" id="nk-dist-vhard-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-vhard-kimi-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-vhard-kimi-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-vhard-kimi-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-kimi-pass">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-vhard-nova-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-vhard-nova-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-vhard-nova-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-nova-pass">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-vhard-combined-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-vhard-combined">—</span>
+            <span class="dist-kpi-num" id="nk-dist-vhard-combined-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-vhard-combined">-</span>
             <span class="dist-kpi-lbl">Combined</span>
           </div>
         </div>
@@ -309,22 +309,22 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Expert</span>
-          <span class="dist-kpi-count" id="nk-dist-expert-count">—</span>
+          <span class="dist-kpi-count" id="nk-dist-expert-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-expert-kimi-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-expert-kimi-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-expert-kimi-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-kimi-pass">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-expert-nova-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-expert-nova-pass">—</span>
+            <span class="dist-kpi-num" id="nk-dist-expert-nova-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-nova-pass">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-dist-expert-combined-pct">—</span>
-            <span class="dist-kpi-detail" id="nk-dist-expert-combined">—</span>
+            <span class="dist-kpi-num" id="nk-dist-expert-combined-pct">-</span>
+            <span class="dist-kpi-detail" id="nk-dist-expert-combined">-</span>
             <span class="dist-kpi-lbl">Combined</span>
           </div>
         </div>
@@ -345,19 +345,19 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Hard</span>
-          <span class="dist-kpi-count" id="nk-kpi-hard-count">—</span>
+          <span class="dist-kpi-count" id="nk-kpi-hard-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-hard-kimi">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-hard-kimi">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-hard-nova">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-hard-nova">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-hard-fail">—</span>
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-hard-fail">-</span>
             <span class="dist-kpi-lbl">Failure Rate</span>
           </div>
         </div>
@@ -366,19 +366,19 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Very Hard</span>
-          <span class="dist-kpi-count" id="nk-kpi-vhard-count">—</span>
+          <span class="dist-kpi-count" id="nk-kpi-vhard-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-vhard-kimi">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-vhard-kimi">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-vhard-nova">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-vhard-nova">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-vhard-fail">—</span>
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-vhard-fail">-</span>
             <span class="dist-kpi-lbl">Failure Rate</span>
           </div>
         </div>
@@ -387,19 +387,19 @@
         <div class="dist-kpi-top">
           <span class="dist-kpi-indicator"></span>
           <span class="dist-kpi-level">Expert</span>
-          <span class="dist-kpi-count" id="nk-kpi-expert-count">—</span>
+          <span class="dist-kpi-count" id="nk-kpi-expert-count">-</span>
         </div>
         <div class="dist-kpi-body">
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-expert-kimi">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-expert-kimi">-</span>
             <span class="dist-kpi-lbl">Kimi K2.5</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num" id="nk-kpi-expert-nova">—</span>
+            <span class="dist-kpi-num" id="nk-kpi-expert-nova">-</span>
             <span class="dist-kpi-lbl">Qwen3-VL</span>
           </div>
           <div class="dist-kpi-metric">
-            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-expert-fail">—</span>
+            <span class="dist-kpi-num dist-kpi-num--fail" id="nk-kpi-expert-fail">-</span>
             <span class="dist-kpi-lbl">Failure Rate</span>
           </div>
         </div>
@@ -539,7 +539,7 @@
 
 </div><!-- /.page -->
 
-      <!-- Lightbox overlay — hidden until a chart image is clicked.
+      <!-- Lightbox overlay - hidden until a chart image is clicked.
            JS sets the <img> src + alt from the trigger, then toggles
            [data-open]. Close via button, overlay click, or Escape. -->
       <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"

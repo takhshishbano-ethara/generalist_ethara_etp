@@ -1,5 +1,5 @@
 /* ============================================================
-   Akatsuki — editorial research page (light-first)
+   Akatsuki - editorial research page (light-first)
    Light palette is default; dark OS preference served via the
    @media (prefers-color-scheme: dark) block at the bottom.
    a11y: WCAG 2.2 AA text (4.5:1) + non-text (3:1) contrast,
@@ -8,17 +8,17 @@
 
 :root {
   /* surfaces */
-  --bg:        #F5F3F8;   /* page canvas — soft off-white */
+  --bg:        #F5F3F8;   /* page canvas - soft off-white */
   --bg-2:      #FFFFFF;   /* cards, panels, matrix wrap */
   --bg-3:      #EDE8F2;   /* hover / striped row / chart image bg */
   --surface:   #F0ECF5;
 
-  /* ink — all ≥ 4.5:1 on --bg */
-  --ink:       #0B0E14;   /* 17.3:1 — headings, wordmark, strong */
-  --ink-2:     #2F3647;   /* 11.5:1 — body text */
-  --ink-3:     #525A6E;   /*  7.0:1 — secondary labels */
-  --muted:     #6A7286;   /*  4.8:1 — captions */
-  --muted-2:   #8A90A0;   /*  3.5:1 — large-text-only */
+  /* ink - all ≥ 4.5:1 on --bg */
+  --ink:       #0B0E14;   /* 17.3:1 - headings, wordmark, strong */
+  --ink-2:     #2F3647;   /* 11.5:1 - body text */
+  --ink-3:     #525A6E;   /*  7.0:1 - secondary labels */
+  --muted:     #6A7286;   /*  4.8:1 - captions */
+  --muted-2:   #8A90A0;   /*  3.5:1 - large-text-only */
 
   /* borders */
   --border:    #D5DAE2;   /* hairline on cards (decorative, ~1.5:1 on canvas) */

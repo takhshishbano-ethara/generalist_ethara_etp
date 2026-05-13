@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>MARS — Agentic Code RL Environments · ETHARA AI</title>
+      <title>MARS - Agentic Code RL Environments · ETHARA AI</title>
       <meta name="description" content="MARS is a collection of 10,000 human curated RL environments designed to train and stress-test frontier coding agents with structured reward signals."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -68,7 +68,7 @@
       <span class="badge">REINFORCEMENT</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">How well do AI agents solve hard terminal tasks — from file manipulation to system administration — in <em>real sandboxed environments</em>?</p>
+    <p class="thesis">How well do AI agents solve hard terminal tasks - from file manipulation to system administration - in <em>real sandboxed environments</em>?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
@@ -228,31 +228,31 @@
 
     <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Success Rate by Difficulty full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 - Success Rate by Difficulty full size">
           <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/01_success_rate_graph.png" alt="Success rate by difficulty level for GLM-5 and Kimi K2.5" loading="lazy" />
           <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/01_success_rate_graph_dark.png" alt="Success rate by difficulty level for GLM-5 and Kimi K2.5" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 — Success Rate by Difficulty</figcaption>
+        <figcaption>Fig. 1 - Success Rate by Difficulty</figcaption>
       </figure>
     </div>
 
     <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Success Rate by Category full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 - Success Rate by Category full size">
           <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/02_category_success_rate.png" alt="Success rate by task category for GLM-5 and Kimi K2.5" loading="lazy" />
           <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/02_category_success_rate_dark.png" alt="Success rate by task category for GLM-5 and Kimi K2.5" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 — Success Rate by Category</figcaption>
+        <figcaption>Fig. 2 - Success Rate by Category</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — Success Rate by Reward Signal Count full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 - Success Rate by Reward Signal Count full size">
           <img class="chart-light" src="/huskarl_dashboard/static/src/portal/img/03_testcases_dumbbell.png" alt="Success rate vs reward signal count (test cases) for GLM-5 and Kimi K2.5" loading="lazy" />
           <img class="chart-dark" src="/huskarl_dashboard/static/src/portal/img/03_testcases_dumbbell_dark.png" alt="Success rate vs reward signal count (test cases) for GLM-5 and Kimi K2.5" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 3 — Success Rate by Reward Signal Count</figcaption>
+        <figcaption>Fig. 3 - Success Rate by Reward Signal Count</figcaption>
       </figure>
     </div>
 
