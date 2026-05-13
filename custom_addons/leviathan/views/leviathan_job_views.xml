@@ -103,6 +103,33 @@
         <field name="target">new</field>
     </record>
 
+    <!-- Bulk Assign Wizard -->
+    <record id="leviathan_bulk_assign_wizard_view" model="ir.ui.view">
+        <field name="name">leviathan.bulk.assign.wizard.form</field>
+        <field name="model">leviathan.bulk.assign.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Bulk Assign Tasks">
+                <group>
+                    <field name="task_count" readonly="1"/>
+                    <field name="user_id" domain="[('all_group_ids', 'in', %(leviathan.group_leviathan_user)d)]"/>
+                </group>
+                <footer>
+                    <button name="action_assign" type="object" string="Assign" class="btn-primary"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_leviathan_bulk_assign" model="ir.actions.act_window">
+        <field name="name">Bulk Assign</field>
+        <field name="res_model">leviathan.bulk.assign.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="model_leviathan_job"/>
+        <field name="binding_view_types">list</field>
+    </record>
+
     <!-- ============================================================ -->
     <!-- LIST VIEWS                                                   -->
     <!-- ============================================================ -->
@@ -251,9 +278,9 @@
 
                     <group>
                         <group>
-                            <field name="url" widget="url" readonly="state not in ('draft', 'not_assigned')"/>
+                            <field name="url" widget="url" readonly="state == 'submitted'"/>
                             <field name="site_name" readonly="1"/>
-                            <field name="category_id" readonly="state not in ('draft', 'not_assigned')"/>
+                            <field name="category_id" readonly="state == 'submitted'"/>
                             <field name="user_id"
                                    readonly="not is_admin or state not in ('not_assigned', 'draft')"
                                    options="{'no_create': True}"/>
