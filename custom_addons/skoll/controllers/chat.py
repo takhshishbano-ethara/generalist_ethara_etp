@@ -382,6 +382,8 @@ class SkollChatController(http.Controller):
                     "hints": t.hints or "",
                     "hint_text": t.hint_text or "",
                     "is_hint_turn": t.is_hint_turn or False,
+                    "sub_agent_messages": t.sub_agent_messages or "",
+                    "spawn_tree": t.spawn_tree or "",
                 }
             )
 

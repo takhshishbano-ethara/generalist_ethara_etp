@@ -771,3 +771,132 @@
         background: #f8f9fa;
     }
 }
+
+/* Sub-agent spawn tree */
+.o_skoll_subagents_section {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.o_skoll_subagents_header {
+    font-size: 11px;
+    color: var(--o-text-color-muted, #6c757d);
+    font-weight: 600;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.o_skoll_subagent_card {
+    margin-bottom: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--o-border-color, #dee2e6);
+    overflow: hidden;
+    background: var(--o-view-background-color, #fff);
+}
+
+.o_skoll_subagent_depth_0 { border-left: 3px solid #6366f1; }
+.o_skoll_subagent_depth_1 { border-left: 3px solid #8b5cf6; margin-left: 12px; }
+.o_skoll_subagent_depth_2 { border-left: 3px solid #a78bfa; margin-left: 24px; }
+
+.o_skoll_subagent_toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+    transition: background 0.15s;
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.03);
+    }
+}
+
+.o_skoll_subagent_badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+}
+
+.o_skoll_subagent_badge_explore { background: #dbeafe; color: #1e40af; }
+.o_skoll_subagent_badge_librarian { background: #fef3c7; color: #92400e; }
+.o_skoll_subagent_badge_oracle { background: #ede9fe; color: #5b21b6; }
+.o_skoll_subagent_badge_unknown { background: #f3f4f6; color: #374151; }
+
+.o_skoll_subagent_prompt_preview {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--o-text-color-muted, #6c757d);
+    font-size: 11px;
+}
+
+.o_skoll_subagent_meta {
+    flex-shrink: 0;
+    .badge { font-size: 9px; font-weight: 500; }
+}
+
+.o_skoll_subagent_body {
+    padding: 8px 12px;
+    border-top: 1px solid var(--o-border-color, #dee2e6);
+    background: rgba(0, 0, 0, 0.015);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.o_skoll_subagent_empty {
+    padding: 6px 0;
+    font-style: italic;
+}
+
+.o_skoll_subagent_msg {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.o_skoll_subagent_msg_role {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.o_skoll_subagent_msg_user {
+    background: rgba(99, 102, 241, 0.06);
+    border-left: 2px solid #6366f1;
+    .o_skoll_subagent_msg_role { color: #4338ca; }
+}
+
+.o_skoll_subagent_msg_assistant {
+    background: rgba(0, 0, 0, 0.03);
+    .o_skoll_subagent_msg_role { color: var(--o-text-color-muted, #6c757d); }
+}
+
+.o_skoll_subagent_msg_text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--o-text-color, #212529);
+}
+
+.o_skoll_subagent_children {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(0, 0, 0, 0.1);
+}

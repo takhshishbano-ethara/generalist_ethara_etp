@@ -124,6 +124,21 @@
                                             </t>
                                         </div>
                                     </t>
+                                    <t t-if="msg.spawnTree and msg.spawnTree.length">
+                                        <div class="o_skoll_subagents_section">
+                                            <div class="o_skoll_subagents_header">
+                                                <i class="fa fa-sitemap me-1"/>
+                                                <span><t t-out="msg.spawnTree.length"/> sub-agent(s) spawned</span>
+                                            </div>
+                                            <t t-foreach="msg.spawnTree" t-as="agent" t-key="agent.sessionKey">
+                                                <t t-call="skoll.SubAgentCard">
+                                                    <t t-set="agent" t-value="agent"/>
+                                                    <t t-set="subAgentMessages" t-value="msg.subAgentMessages"/>
+                                                    <t t-set="depth" t-value="0"/>
+                                                </t>
+                                            </t>
+                                        </div>
+                                    </t>
                                     <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
                                         <div class="o_skoll_feedback_row">
                                             <t t-if="msg.feedback === 'satisfied'">
@@ -371,6 +386,56 @@
                             </button>
                         </t>
                     </div>
+                </div>
+            </t>
+        </div>
+    </t>
+
+    <t t-name="skoll.SubAgentCard">
+        <div t-attf-class="o_skoll_subagent_card o_skoll_subagent_depth_#{depth}">
+            <button class="o_skoll_subagent_toggle"
+                    t-on-click="() => this.onToggleSubAgent(agent)">
+                <i t-attf-class="fa fa-chevron-#{agent._expanded ? 'down' : 'right'} me-1"/>
+                <span t-attf-class="o_skoll_subagent_badge o_skoll_subagent_badge_#{agent.agent || 'unknown'}">
+                    <t t-out="(agent.agent || 'sub-agent').charAt(0).toUpperCase() + (agent.agent || 'sub-agent').slice(1)"/>
+                </span>
+                <span class="o_skoll_subagent_prompt_preview">
+                    <t t-out="this.getSubAgentPreview(agent, subAgentMessages)"/>
+                </span>
+                <span class="o_skoll_subagent_meta">
+                    <t t-if="agent.message_count">
+                        <span class="badge bg-secondary"><t t-out="agent.message_count"/> msgs</span>
+                    </t>
+                </span>
+            </button>
+            <t t-if="agent._expanded">
+                <div class="o_skoll_subagent_body">
+                    <t t-set="agentMsgs" t-value="subAgentMessages[agent.sessionKey] || []"/>
+                    <t t-if="agentMsgs.length === 0">
+                        <div class="o_skoll_subagent_empty text-muted small">No messages captured</div>
+                    </t>
+                    <t t-foreach="agentMsgs" t-as="sam" t-key="sam_index">
+                        <div t-attf-class="o_skoll_subagent_msg o_skoll_subagent_msg_#{sam.role}">
+                            <span class="o_skoll_subagent_msg_role">
+                                <t t-if="sam.role === 'user'">Prompt</t>
+                                <t t-else="">Response</t>
+                            </span>
+                            <div class="o_skoll_subagent_msg_text">
+                                <t t-out="sam.text"/>
+                            </div>
+                        </div>
+                    </t>
+                    <t t-if="agent.children and agent.children.length">
+                        <div class="o_skoll_subagent_children">
+                            <t t-foreach="agent.children" t-as="child" t-key="child.sessionKey">
+                                <t t-call="skoll.SubAgentCard">
+                                    <t t-set="agent" t-value="child"/>
+                                    <t t-set="subAgentMessages" t-value="subAgentMessages"/>
+                                    <t t-set="depth" t-value="depth + 1"/>
+                                </t>
+                            </t>
+                        </div>
+                    </t>
                 </div>
             </t>
         </div>

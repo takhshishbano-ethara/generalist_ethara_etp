@@ -1171,6 +1171,26 @@ export class SkollChatWidget extends Component {
                                 console.warn(LOG_PREFIX, `📖 Turn ${t.id}: tool_calls parse error:`, e);
                             }
                         }
+                        if (t.spawn_tree) {
+                            try {
+                                const tree = JSON.parse(t.spawn_tree);
+                                if (Array.isArray(tree) && tree.length > 0) {
+                                    msg.spawnTree = tree;
+                                    msg.subAgentMessages = {};
+                                    if (t.sub_agent_messages) {
+                                        const allMsgs = JSON.parse(t.sub_agent_messages);
+                                        for (const m of allMsgs) {
+                                            const key = m.sessionKey || "";
+                                            if (!msg.subAgentMessages[key]) msg.subAgentMessages[key] = [];
+                                            msg.subAgentMessages[key].push(m);
+                                        }
+                                    }
+                                    console.log(LOG_PREFIX, `📖 Turn ${t.id}: ${tree.length} sub-agent(s) in spawn tree`);
+                                }
+                            } catch (e) {
+                                console.warn(LOG_PREFIX, `📖 Turn ${t.id}: spawn_tree parse error:`, e);
+                            }
+                        }
                         this._session.messages.push(msg);
                     } else if (t.status === "Pending") {
                         this._session.currentTurnId = t.id;
@@ -2028,6 +2048,20 @@ export class SkollChatWidget extends Component {
 
     onToggleThinking(msg) {
         msg.thinkingExpanded = !msg.thinkingExpanded;
+    }
+
+    onToggleSubAgent(agent) {
+        agent._expanded = !agent._expanded;
+    }
+
+    getSubAgentPreview(agent, subAgentMessages) {
+        const msgs = subAgentMessages?.[agent.sessionKey] || [];
+        const firstUser = msgs.find(m => m.role === "user");
+        if (firstUser && firstUser.text) {
+            const text = firstUser.text;
+            return text.length > 80 ? text.substring(0, 77) + "…" : text;
+        }
+        return agent.agent || "Sub-agent task";
     }
 
     formatToolResult(result) {
