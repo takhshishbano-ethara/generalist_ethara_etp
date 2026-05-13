@@ -80,11 +80,17 @@ class ResConfigSettings(models.TransientModel):
         help="Upload a Markdown file to override the built-in PRD prompt.",
     )
     leviathan_prd_prompt_filename = fields.Char(string="PRD Prompt Filename")
+    leviathan_prd_prompt_status = fields.Char(
+        string="PRD Prompt Status", compute="_compute_prompt_status",
+    )
     leviathan_qc_prompt_file = fields.Binary(
         string="QC Prompt File (.md)",
         help="Upload a Markdown file to override the built-in QC prompt.",
     )
     leviathan_qc_prompt_filename = fields.Char(string="QC Prompt Filename")
+    leviathan_qc_prompt_status = fields.Char(
+        string="QC Prompt Status", compute="_compute_prompt_status",
+    )
 
     # -- Limits --
     leviathan_max_jobs_per_user = fields.Integer(
@@ -93,6 +99,22 @@ class ResConfigSettings(models.TransientModel):
         default=5,
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
+
+    def _compute_prompt_status(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        prd = ICP.get_param("leviathan.prd_system_prompt", "")
+        prd_name = ICP.get_param("leviathan.prd_prompt_filename", "")
+        qc = ICP.get_param("leviathan.qc_system_prompt", "")
+        qc_name = ICP.get_param("leviathan.qc_prompt_filename", "")
+        for rec in self:
+            if prd and prd.strip():
+                rec.leviathan_prd_prompt_status = f"Custom prompt active: {prd_name}" if prd_name else "Custom prompt active"
+            else:
+                rec.leviathan_prd_prompt_status = "Using built-in default"
+            if qc and qc.strip():
+                rec.leviathan_qc_prompt_status = f"Custom prompt active: {qc_name}" if qc_name else "Custom prompt active"
+            else:
+                rec.leviathan_qc_prompt_status = "Using built-in default"
 
     def get_values(self):
         res = super().get_values()

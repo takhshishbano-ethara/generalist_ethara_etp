@@ -108,11 +108,11 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
     word_count = len(words)
 
     # Word count bounds
-    if word_count > 3500:
+    if word_count > 5000:
         issues.append({
             "severity": "critical",
             "code": "S-WORDCOUNT",
-            "message": f"PRD exceeds 3,500 words ({word_count}). Platform hard cap.",
+            "message": f"PRD exceeds 5,000 words ({word_count}). Platform hard cap.",
         })
     elif word_count < 800:
         issues.append({
@@ -120,11 +120,11 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
             "code": "S-WORDCOUNT",
             "message": f"PRD below 800 words ({word_count}). Insufficient depth.",
         })
-    elif word_count < 2800:
+    elif word_count < 4000:
         issues.append({
             "severity": "medium",
             "code": "S-WORDCOUNT",
-            "message": f"PRD below target range ({word_count}/2800-3500).",
+            "message": f"PRD below target range ({word_count}/4000-5000).",
         })
 
     # Markdown tables — allowed (scoring rewards structured formatting)
