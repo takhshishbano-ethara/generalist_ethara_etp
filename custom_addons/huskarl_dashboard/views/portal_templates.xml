@@ -68,7 +68,7 @@
       <span class="badge">REINFORCEMENT</span>
     </div>
     <hr class="rule" />
-    <p class="thesis">How well do AI agents solve hard terminal tasks - from file manipulation to system administration - in <em>real sandboxed environments</em>?</p>
+    <p class="thesis">How well do AI agents solve hard terminal tasks from file manipulation to system administration in <em>real sandboxed environments</em>?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
