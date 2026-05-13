@@ -401,7 +401,7 @@
                         <div class="vk-resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
                              <a class="vk-resource" href="https://github.com/Ethara-Ai/valkyrie" target="_blank" rel="noopener">
                                  <p class="vk-res-label vk-mono">GitHub</p>
-                                 <p class="vk-res-title">Trajectories</p>
+                                 <p class="vk-res-title">Harness</p>
                                  <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
                                  <span class="vk-res-arrow" aria-hidden="true">↗</span>
                              </a>
