@@ -1414,7 +1414,7 @@ class SkollSandboxK8s(models.AbstractModel):
                                         backend=client.V1IngressBackend(
                                             service=client.V1IngressServiceBackend(
                                                 name=WS_ROUTER_NAME,
-                                                port=client.V1ServicePort(
+                                                port=client.V1ServiceBackendPort(
                                                     number=80,
                                                 ),
                                             ),
