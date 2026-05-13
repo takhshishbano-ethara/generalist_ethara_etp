@@ -34,7 +34,7 @@ function renderMarkdown(text) {
 const LOG_PREFIX = "[skoll-chat]";
 const STREAM_WORD_THRESHOLD = 5;
 const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
-const CHAT_TIMEOUT_MS = 15 * 60 * 1000;
+const CHAT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const LOGIN_URL_PATTERNS = [
     /\/login/i, /\/signin/i, /\/sign-in/i, /\/oauth/i,
@@ -137,6 +137,10 @@ function _getSession(sandboxId) {
             qcResult: null,
             qcDismissReason: "",
             qcPromptText: "",
+            // Sub-agent tracking (live WS)
+            _childSessions: {},
+            _childSubscriptions: new Set(),
+            _activeChildKey: null,
         });
     }
     return _sessions.get(sandboxId);
@@ -257,6 +261,7 @@ export class SkollChatWidget extends Component {
             autoHintMaxRetries: 5,
             autoHintStatus: "",      // "evaluating" | "sending_hint" | "streaming" | ""
             autoHintGroupId: "",
+            subChatView: null,
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
@@ -455,6 +460,8 @@ export class SkollChatWidget extends Component {
                     }
                     // After reconnect, fetch the latest session state from OpenClaw
                     this._restoreSessionFromGateway();
+                    this._subscribeToSessions();
+                    this._detectChildSessions();
                 } else {
                     const msg = frame.error?.message || JSON.stringify(frame.error || {});
                     console.error(LOG_PREFIX, "❌ CONNECT FAILED:", frame.error);
@@ -593,6 +600,18 @@ export class SkollChatWidget extends Component {
             }
 
             if (frame.type === "event" && (frame.event === "tick" || frame.event === "health" || frame.event === "presence" || frame.event === "heartbeat")) {
+                return;
+            }
+
+            if (frame.type === "event" && frame.event === "sessions.changed") {
+                const p = frame.payload || {};
+                this._handleSessionsChanged(p, widget);
+                return;
+            }
+
+            if (frame.type === "event" && frame.event === "session.message") {
+                const p = frame.payload || {};
+                this._handleSessionMessage(p, widget);
                 return;
             }
 
@@ -736,6 +755,9 @@ export class SkollChatWidget extends Component {
         this._session._toolCallMap = new Map();
         this._session._rawEvents = [];
         this._session._reconnectAttempts = 0;
+        this._session._childSessions = {};
+        this._session._childSubscriptions = new Set();
+        this._session._activeChildKey = null;
         this.state.messages.length = 0;
         this.state.streaming = false;
         this.state.sending = false;
@@ -812,12 +834,15 @@ export class SkollChatWidget extends Component {
                 _logToolCall(session, { toolCallId, name: toolName, args: data.args, phase: "start", source_event: "chat.tool" });
                 if (widget) widget.state.activityText = `Running ${toolName}…`;
                 console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
+                this._routeToolEventToChild(toolName, "start", data.args, null, false);
             } else if (phase === "end" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, result: data.result ?? data.error ?? data.partialResult, isError: !!(data.isError || data.error), phase: "end", source_event: "chat.tool" });
                 console.log(LOG_PREFIX, `🔧 Tool END: ${toolName} (${toolCallId}) isError=${!!data.isError} result=${JSON.stringify(data.result || null).substring(0, 300)}`);
                 if (toolName === "browser" && widget) {
                     this._checkBrowserToolForLogin(data, widget);
                 }
+                this._checkForSubAgentSpawn(data, toolName);
+                this._routeToolEventToChild(toolName, "end", data.args, data.result ?? data.error ?? data.partialResult, !!(data.isError || data.error));
             } else if (phase === "update" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, result: data.partialResult, phase: "update", source_event: "chat.tool" });
                 console.log(LOG_PREFIX, `🔧 Tool UPDATE: ${toolName} (${toolCallId})`);
@@ -880,12 +905,17 @@ export class SkollChatWidget extends Component {
             session._rawEvents = [];
             session.streaming = false;
             this._stopIncrementalSave();
+            if (session._activeChildKey) {
+                this._markSubAgentCompleted(session._activeChildKey);
+                session._activeChildKey = null;
+            }
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
             }
             const savedTurnId = session.currentTurnId;
             this._saveAndFetchTrajectory(msg ? msg.text : "", toolCalls, rawEvents, savedTurnId);
+            this._detectChildSessions();
         } else if (stream === "lifecycle" && data.phase === "error") {
             const errText = data.message || data.error || data.reason || JSON.stringify(data);
             console.error(LOG_PREFIX, "Agent lifecycle ERROR:", errText, "full data:", data);
@@ -986,6 +1016,7 @@ export class SkollChatWidget extends Component {
             }
             const savedTurnId = session.currentTurnId;
             this._saveAndFetchTrajectory(msg ? msg.text : "", toolCalls.length > 0 ? toolCalls : null, rawEvents, savedTurnId);
+            this._detectChildSessions();
         } else if (state === "error") {
             const errText = payload.errorMessage || "Chat error";
             console.error(LOG_PREFIX, "Chat ERROR:", errText);
@@ -1160,38 +1191,43 @@ export class SkollChatWidget extends Component {
                             turnId: t.id,
                             feedback: t.feedback || null,
                         };
-                        if (t.tool_calls) {
-                            try {
-                                const calls = JSON.parse(t.tool_calls);
-                                if (Array.isArray(calls) && calls.length > 0) {
-                                    msg.toolCalls = calls;
-                                    console.log(LOG_PREFIX, `📖 Turn ${t.id}: ${calls.length} tool calls restored:`, calls.map(c => c.name));
-                                }
-                            } catch (e) {
-                                console.warn(LOG_PREFIX, `📖 Turn ${t.id}: tool_calls parse error:`, e);
-                            }
-                        }
+                        this._session.messages.push(msg);
+
                         if (t.spawn_tree) {
                             try {
                                 const tree = JSON.parse(t.spawn_tree);
-                                if (Array.isArray(tree) && tree.length > 0) {
-                                    msg.spawnTree = tree;
-                                    msg.subAgentMessages = {};
-                                    if (t.sub_agent_messages) {
-                                        const allMsgs = JSON.parse(t.sub_agent_messages);
-                                        for (const m of allMsgs) {
-                                            const key = m.sessionKey || "";
-                                            if (!msg.subAgentMessages[key]) msg.subAgentMessages[key] = [];
-                                            msg.subAgentMessages[key].push(m);
-                                        }
+                                let subMsgsByKey = {};
+                                if (t.sub_agent_messages) {
+                                    const allMsgs = JSON.parse(t.sub_agent_messages);
+                                    for (const m of allMsgs) {
+                                        const key = m.sessionKey || "";
+                                        if (!subMsgsByKey[key]) subMsgsByKey[key] = [];
+                                        subMsgsByKey[key].push(m);
                                     }
-                                    console.log(LOG_PREFIX, `📖 Turn ${t.id}: ${tree.length} sub-agent(s) in spawn tree`);
+                                }
+                                if (Array.isArray(tree)) {
+                                    for (const node of tree) {
+                                        const childKey = node.sessionKey || "";
+                                        this._session._childSessions[childKey] = {
+                                            agent: node.agent || "",
+                                            parentKey: node.parentKey || "",
+                                            description: node.description || "",
+                                            status: "completed",
+                                            messages: subMsgsByKey[childKey] || [],
+                                        };
+                                        this._session.messages.push({
+                                            type: "subagent_card",
+                                            sessionKey: childKey,
+                                            agent: node.agent || "",
+                                            description: node.description || node.agent || "Sub-agent task",
+                                            status: "completed",
+                                        });
+                                    }
                                 }
                             } catch (e) {
                                 console.warn(LOG_PREFIX, `📖 Turn ${t.id}: spawn_tree parse error:`, e);
                             }
                         }
-                        this._session.messages.push(msg);
                     } else if (t.status === "Pending") {
                         this._session.currentTurnId = t.id;
                     }
@@ -2054,14 +2090,332 @@ export class SkollChatWidget extends Component {
         agent._expanded = !agent._expanded;
     }
 
+    onOpenSubChat(msg) {
+        const sessionKey = msg.sessionKey;
+        const childData = this._session._childSessions[sessionKey] || {};
+        this.state.subChatView = {
+            sessionKey,
+            agent: msg.agent || "",
+            description: msg.description || "",
+            messages: childData.messages || [],
+        };
+    }
+
+    onBackFromSubChat() {
+        this.state.subChatView = null;
+    }
+
     getSubAgentPreview(agent, subAgentMessages) {
+        if (agent.description) {
+            const d = agent.description;
+            return d.length > 100 ? d.substring(0, 97) + "…" : d;
+        }
         const msgs = subAgentMessages?.[agent.sessionKey] || [];
         const firstUser = msgs.find(m => m.role === "user");
         if (firstUser && firstUser.text) {
             const text = firstUser.text;
-            return text.length > 80 ? text.substring(0, 77) + "…" : text;
+            return text.length > 100 ? text.substring(0, 97) + "…" : text;
         }
         return agent.agent || "Sub-agent task";
+    }
+
+    _subscribeToSessions() {
+        const ws = this._session.ws;
+        if (!ws || !this._session.wsConnected) return;
+        const msg = { type: "req", id: nextId(), method: "sessions.subscribe", params: {} };
+        console.log(LOG_PREFIX, "📡 Subscribing to session lifecycle events");
+        ws.send(JSON.stringify(msg));
+    }
+
+    _subscribeToChildSession(childKey) {
+        const session = this._session;
+        if (session._childSubscriptions.has(childKey)) return;
+        const ws = session.ws;
+        if (!ws || !session.wsConnected) return;
+        session._childSubscriptions.add(childKey);
+        const msg = { type: "req", id: nextId(), method: "sessions.messages.subscribe", params: { key: childKey } };
+        console.log(LOG_PREFIX, `📡 Subscribing to child session: ${childKey}`);
+        ws.send(JSON.stringify(msg));
+    }
+
+    _handleSessionsChanged(payload, widget) {
+        const reason = payload.reason || payload.phase || "";
+        const sessionData = payload.session || {};
+        const sessionKey = payload.sessionKey || sessionData.key || "";
+
+        console.log(LOG_PREFIX, `🔀 sessions.changed: reason=${reason} key=${sessionKey} kind=${sessionData.kind || ""}`);
+
+        if (reason === "create" || (sessionKey.includes(":subagent:") && !this._session._childSessions[sessionKey])) {
+            const childKey = sessionKey || sessionData.key || "";
+            const isSubagent = childKey.includes(":subagent:") || sessionData.kind === "subagent";
+            if (!isSubagent) return;
+            if (this._session._childSessions[childKey]) return;
+
+            const agent = sessionData.agent || "";
+            const parentKey = sessionData.parentKey || "";
+            const description = sessionData.title || sessionData.description || sessionData.displayName || "";
+
+            console.log(LOG_PREFIX, `🔀 Sub-agent spawned: key=${childKey} agent=${agent}`);
+
+            this._session._childSessions[childKey] = {
+                agent,
+                parentKey,
+                description,
+                status: "running",
+                spawned_at: sessionData.createdAt || new Date().toISOString(),
+                messages: [],
+            };
+
+            this._subscribeToChildSession(childKey);
+
+            this._session.messages.push({
+                type: "subagent_card",
+                sessionKey: childKey,
+                agent: agent || "general",
+                description: description || agent || childKey.split(":subagent:").pop() || "Sub-agent task",
+                status: "running",
+            });
+        } else if (reason === "update" || reason === "complete") {
+            const childKey = sessionKey || sessionData.key || "";
+            if (this._session._childSessions[childKey]) {
+                this._markSubAgentCompleted(childKey);
+            }
+        }
+    }
+
+    _handleSessionMessage(payload, widget) {
+        const sessionKey = payload.sessionKey || "";
+        const message = payload.message || {};
+        const role = typeof message === "object" ? (message.role || "unknown") : "unknown";
+
+        let text = "";
+        if (typeof message === "string") {
+            text = message;
+        } else if (typeof message.text === "string") {
+            text = message.text;
+        } else if (Array.isArray(message.content)) {
+            const parts = [];
+            for (const b of message.content) {
+                if (!b || typeof b !== "object") continue;
+                if (b.type === "text" && b.text) parts.push(b.text);
+                else if (b.type === "tool_use" || b.type === "toolCall") parts.push(`[Tool: ${b.name || "unknown"}]`);
+                else if (b.type === "tool_result" || b.type === "toolResult") {
+                    const rt = b.text || (Array.isArray(b.content) ? b.content.filter(c => c?.text).map(c => c.text).join("") : "");
+                    parts.push(rt || "[Tool result]");
+                }
+            }
+            text = parts.join("\n");
+        } else if (typeof message.content === "string") {
+            text = message.content;
+        }
+        if (!text && role === "tool") {
+            text = `[Tool response]`;
+        }
+
+        const childData = this._session._childSessions[sessionKey];
+        if (!childData) return;
+        if (!text) return;
+
+        const entry = { sessionKey, role, text, timestamp: payload.timestamp || "" };
+        childData.messages.push(entry);
+
+        if (this.state.subChatView && this.state.subChatView.sessionKey === sessionKey) {
+            this.state.subChatView.messages = [...childData.messages];
+        }
+
+        console.log(LOG_PREFIX, `🔀 Sub-agent msg: key=${sessionKey} role=${role} len=${text.length}`);
+    }
+
+    _markSubAgentCompleted(sessionKey) {
+        const messages = this._session.messages;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.type === "subagent_card" && msg.sessionKey === sessionKey) {
+                msg.status = "completed";
+                break;
+            }
+        }
+        const childData = this._session._childSessions[sessionKey];
+        if (childData) childData.status = "completed";
+    }
+
+    _checkForSubAgentSpawn(data, toolName) {
+        let resultObj = data.result;
+        if (typeof resultObj === "string") {
+            try { resultObj = JSON.parse(resultObj); } catch { return; }
+        }
+        if (!resultObj || typeof resultObj !== "object") return;
+
+        const childKey = resultObj.childSessionKey || resultObj.sessionKey || "";
+        if (!childKey || !childKey.includes(":subagent:")) return;
+        if (this._session._childSessions[childKey]) return;
+
+        const taskName = resultObj.taskName || resultObj.description || toolName || "";
+        const agent = resultObj.agent || toolName || "general";
+
+        console.log(LOG_PREFIX, `🔀 Sub-agent detected from tool result: key=${childKey} task=${taskName}`);
+
+        this._session._childSessions[childKey] = {
+            agent,
+            parentKey: "agent:main:odoo:sandbox:" + this.props.sandboxId,
+            description: taskName,
+            status: "running",
+            spawned_at: new Date().toISOString(),
+            messages: [],
+        };
+
+        this._session.messages.push({
+            type: "subagent_card",
+            sessionKey: childKey,
+            agent,
+            description: taskName || "Sub-agent task",
+            status: "running",
+        });
+
+        this._subscribeToChildSession(childKey);
+        this._session._activeChildKey = childKey;
+    }
+
+    _routeToolEventToChild(toolName, phase, args, result, isError) {
+        const activeKey = this._session._activeChildKey;
+        if (!activeKey) return;
+        const childData = this._session._childSessions[activeKey];
+        if (!childData || childData.status === "completed") return;
+
+        let text = "";
+        if (phase === "start") {
+            text = `🔧 Running: ${toolName}`;
+            if (args) {
+                const argsStr = typeof args === "string" ? args : JSON.stringify(args);
+                if (argsStr.length < 200) text += `\n${argsStr}`;
+            }
+        } else if (phase === "end") {
+            const resultStr = typeof result === "string" ? result : JSON.stringify(result || "");
+            text = `✅ ${toolName} completed`;
+            if (resultStr && resultStr.length < 1000) {
+                text += `:\n${resultStr}`;
+            } else if (resultStr) {
+                text += `:\n${resultStr.substring(0, 500)}…`;
+            }
+            if (isError) text = `❌ ${toolName} failed:\n${resultStr.substring(0, 500)}`;
+        }
+
+        if (!text) return;
+
+        const entry = { sessionKey: activeKey, role: "assistant", text, timestamp: new Date().toISOString() };
+        childData.messages.push(entry);
+
+        if (this.state.subChatView && this.state.subChatView.sessionKey === activeKey) {
+            this.state.subChatView.messages = [...childData.messages];
+        }
+    }
+
+    async _detectChildSessions() {
+        if (!this._session.wsConnected) return;
+        const sandboxId = this.props.sandboxId;
+        const mainKeyFragment = "odoo:sandbox:" + sandboxId;
+        try {
+            const res = await this._wsRpc("sessions.list", {}, 15000);
+            const rawResult = res?.result || {};
+            let sessions = [];
+            if (Array.isArray(rawResult)) {
+                sessions = rawResult;
+            } else if (Array.isArray(rawResult.sessions)) {
+                sessions = rawResult.sessions;
+            } else if (typeof rawResult === "object") {
+                sessions = Object.values(rawResult).filter(v => v && typeof v === "object" && (v.key || v.id));
+            }
+
+            console.log(LOG_PREFIX, `🔀 sessions.list returned ${sessions.length} sessions`);
+
+            for (const s of sessions) {
+                const key = s.key || s.id || "";
+                if (!key) continue;
+                if (key.includes(mainKeyFragment)) continue;
+                if (!key.includes(":subagent:")) continue;
+                if (this._session._childSessions[key]) continue;
+
+                const agent = s.agent || "";
+                const label = s.label || s.title || s.description || "";
+                const description = label || agent || key.split(":subagent:").pop() || "Sub-agent";
+
+                this._session._childSessions[key] = {
+                    agent,
+                    parentKey: mainKeyFragment,
+                    description,
+                    status: "completed",
+                    messages: [],
+                };
+
+                this._session.messages.push({
+                    type: "subagent_card",
+                    sessionKey: key,
+                    agent: agent || "general",
+                    description,
+                    status: "completed",
+                });
+
+                this._fetchChildHistory(key);
+                console.log(LOG_PREFIX, `🔀 Detected child session: key=${key} agent=${agent} desc=${description}`);
+            }
+        } catch (e) {
+            console.warn(LOG_PREFIX, "Failed to detect child sessions:", e);
+        }
+    }
+
+    async _fetchChildHistory(sessionKey) {
+        if (!this._session.wsConnected) return;
+        try {
+            const res = await this._wsRpc("chat.history", { sessionKey, limit: 500 }, 30000);
+            const messages = res?.result?.messages || res?.messages || [];
+            if (!Array.isArray(messages) || messages.length === 0) return;
+
+            const childData = this._session._childSessions[sessionKey];
+            if (!childData) return;
+
+            for (const msg of messages) {
+                const inner = msg?.message || msg;
+                const role = inner?.role || "";
+                if (!role || role === "system") continue;
+
+                let text = "";
+                if (typeof inner.text === "string") {
+                    text = inner.text;
+                } else if (Array.isArray(inner.content)) {
+                    const parts = [];
+                    for (const b of inner.content) {
+                        if (!b || typeof b !== "object") continue;
+                        if (b.type === "text" && b.text) {
+                            parts.push(b.text);
+                        } else if (b.type === "tool_use" || b.type === "toolCall") {
+                            parts.push(`[Tool: ${b.name || "unknown"}]`);
+                        } else if (b.type === "tool_result" || b.type === "toolResult") {
+                            const resultText = b.text || (Array.isArray(b.content) ? b.content.filter(c => c?.text).map(c => c.text).join("") : "");
+                            parts.push(resultText || `[Tool result]`);
+                        } else if (b.type === "thinking" && b.thinking) {
+                            parts.push(`[Thinking: ${b.thinking.substring(0, 100)}…]`);
+                        }
+                    }
+                    text = parts.join("\n");
+                } else if (typeof inner.content === "string") {
+                    text = inner.content;
+                }
+                if (!text && role === "tool") {
+                    text = `[Tool response for ${inner.tool_use_id || inner.toolCallId || "unknown"}]`;
+                }
+                if (!text) continue;
+
+                childData.messages.push({ sessionKey, role, text, timestamp: msg.timestamp || "" });
+            }
+
+            if (this.state.subChatView && this.state.subChatView.sessionKey === sessionKey) {
+                this.state.subChatView.messages = [...childData.messages];
+            }
+
+            console.log(LOG_PREFIX, `🔀 Fetched ${childData.messages.length} messages for child session: ${sessionKey}`);
+        } catch (e) {
+            console.warn(LOG_PREFIX, `Failed to fetch child history for ${sessionKey}:`, e);
+        }
     }
 
     formatToolResult(result) {

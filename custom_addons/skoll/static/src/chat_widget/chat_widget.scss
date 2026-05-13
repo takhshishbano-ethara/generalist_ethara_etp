@@ -25,6 +25,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
 }
 
 .o_skoll_msg {
@@ -471,6 +472,7 @@
     border-top: 1px solid var(--o-border-color, #dee2e6);
     padding: 8px 12px;
     background: var(--o-gray-100, #f8f9fa);
+    flex-shrink: 0;
 }
 
 .o_skoll_chat_input_row {
@@ -772,80 +774,74 @@
     }
 }
 
-/* Sub-agent spawn tree */
-.o_skoll_subagents_section {
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.o_skoll_subagents_header {
-    font-size: 11px;
-    color: var(--o-text-color-muted, #6c757d);
-    font-weight: 600;
-    margin-bottom: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
+/* Sub-agent cards (standalone blocks in message list) */
 .o_skoll_subagent_card {
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     border-radius: 8px;
     border: 1px solid var(--o-border-color, #dee2e6);
-    overflow: hidden;
+    border-left: 3px solid #6366f1;
     background: var(--o-view-background-color, #fff);
-}
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    min-height: 44px;
 
-.o_skoll_subagent_depth_0 { border-left: 3px solid #6366f1; }
-.o_skoll_subagent_depth_1 { border-left: 3px solid #8b5cf6; margin-left: 12px; }
-.o_skoll_subagent_depth_2 { border-left: 3px solid #a78bfa; margin-left: 24px; }
+    &:hover {
+        border-color: var(--o-brand-primary, #714B67);
+        border-left-color: var(--o-brand-primary, #714B67);
+        background: rgba(0, 0, 0, 0.02);
+    }
+}
 
 .o_skoll_subagent_toggle {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    align-items: flex-start;
+    gap: 10px;
     width: 100%;
-    padding: 8px 10px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 12px;
+    padding: 12px 16px;
+    font-size: 13px;
     text-align: left;
-    transition: background 0.15s;
+    line-height: 1.4;
+}
 
-    &:hover {
-        background: rgba(0, 0, 0, 0.03);
-    }
+.o_skoll_subagent_status_icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    margin-top: 1px;
 }
 
 .o_skoll_subagent_badge {
     display: inline-block;
-    padding: 1px 6px;
+    padding: 2px 8px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     flex-shrink: 0;
+    margin-top: 1px;
 }
 
 .o_skoll_subagent_badge_explore { background: #dbeafe; color: #1e40af; }
 .o_skoll_subagent_badge_librarian { background: #fef3c7; color: #92400e; }
 .o_skoll_subagent_badge_oracle { background: #ede9fe; color: #5b21b6; }
+.o_skoll_subagent_badge_general { background: #d1fae5; color: #065f46; }
+.o_skoll_subagent_badge_build { background: #fee2e2; color: #991b1b; }
+.o_skoll_subagent_badge_plan { background: #e0e7ff; color: #3730a3; }
 .o_skoll_subagent_badge_unknown { background: #f3f4f6; color: #374151; }
 
 .o_skoll_subagent_prompt_preview {
     flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--o-text-color-muted, #6c757d);
-    font-size: 11px;
+    color: var(--o-text-color, #212529);
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-word;
 }
 
 .o_skoll_subagent_meta {
     flex-shrink: 0;
-    .badge { font-size: 9px; font-weight: 500; }
+    margin-top: 1px;
+    color: var(--o-text-color-muted, #6c757d);
+    font-size: 14px;
 }
 
 .o_skoll_subagent_body {
@@ -899,4 +895,51 @@
     margin-top: 8px;
     padding-top: 6px;
     border-top: 1px dashed rgba(0, 0, 0, 0.1);
+}
+
+.o_skoll_subchat_header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--o-border-color, #dee2e6);
+    background: var(--o-gray-100, #f8f9fa);
+    flex-shrink: 0;
+}
+.o_skoll_subchat_title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--o-text-color, #212529);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.o_skoll_subchat_messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.o_skoll_subchat_empty {
+    font-style: italic;
+}
+
+.o_skoll_subchat_bubble {
+    padding: 8px 12px !important;
+    font-size: 12px;
+}
+
+.o_skoll_subchat_pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    max-height: 400px;
+    overflow-y: auto;
 }
