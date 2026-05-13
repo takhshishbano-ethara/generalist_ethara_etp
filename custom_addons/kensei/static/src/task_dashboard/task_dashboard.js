@@ -59,11 +59,13 @@ export class TaskDashboard extends Component {
         );
 
         onMounted(async () => {
-            await this._loadSandboxes();
+            // Fire independent loads in parallel - don't let sandboxes block rubrics/auth
             this._checkGogAuthStatus();
             this._loadRubrics();
-            this._loadTestResults();
             this._loadTestWeightsStatus();
+            // Sandboxes + test results are sequential (tests need sandbox IDs)
+            await this._loadSandboxes();
+            this._loadTestResults();
         });
         onWillUnmount(() => {
             this._stopPolling();
@@ -113,9 +115,8 @@ export class TaskDashboard extends Component {
             ],
         );
 
-        await this.orm.call("kensei.kensei", "ensure_sandboxes", [[this.taskId]]);
-
-        if (sandboxes.length === 0 || sandboxes.length < MODEL_TABS.length) {
+        if (sandboxes.length < MODEL_TABS.length) {
+            await this.orm.call("kensei.kensei", "ensure_sandboxes", [[this.taskId]]);
             sandboxes = await this.orm.searchRead(
                 "kensei.sandbox",
                 [["kensei_id", "=", this.taskId]],
@@ -137,10 +138,27 @@ export class TaskDashboard extends Component {
                 const statusMap = await this.orm.call(
                     "kensei.sandbox", "action_check_status", [ids]
                 );
+                let anyChanged = false;
                 for (const sb of sandboxes) {
                     if (statusMap && statusMap[sb.id] && statusMap[sb.id] !== sb.docker_status) {
                         sb.docker_status = statusMap[sb.id];
+                        anyChanged = true;
                     }
+                }
+                // Re-fetch computed fields (docker_ws_url) after status changes
+                if (anyChanged) {
+                    const allIds = sandboxes.map((sb) => sb.id);
+                    const freshData = await this.orm.searchRead(
+                        "kensei.sandbox",
+                        [["id", "in", allIds]],
+                        [
+                            "id", "model_type", "docker_status", "docker_port",
+                            "docker_gateway_token",
+                            "docker_ws_url", "docker_error", "docker_workdir",
+                            "session_status", "docker_compose_project",
+                        ],
+                    );
+                    sandboxes = freshData;
                 }
             } catch (e) {
                 console.warn("[kensei-dashboard] Status reconciliation failed:", e);
@@ -148,17 +166,19 @@ export class TaskDashboard extends Component {
         }
 
         const map = {};
-        let hasStarting = false;
+        let needsPoll = false;
         for (const sb of sandboxes) {
             map[sb.model_type] = sb;
             if (sb.docker_status === "starting") {
                 this.state.loadingSandbox[sb.id] = true;
-                hasStarting = true;
+                needsPoll = true;
+            } else if (sb.docker_status === "error" && sb.docker_compose_project) {
+                needsPoll = true;
             }
         }
         this.state.sandboxes = map;
 
-        if (hasStarting) {
+        if (needsPoll) {
             this._startPolling();
         } else {
             this._stopPolling();
@@ -178,16 +198,16 @@ export class TaskDashboard extends Component {
     }
 
     async _pollStatus() {
-        const startingSandboxes = Object.values(this.state.sandboxes).filter(
-            (sb) => sb.docker_status === "starting"
+        const pollable = Object.values(this.state.sandboxes).filter(
+            (sb) => sb.docker_status === "starting" || (sb.docker_status === "error" && sb.docker_compose_project)
         );
-        if (startingSandboxes.length === 0) {
+        if (pollable.length === 0) {
             this._stopPolling();
             return;
         }
 
         try {
-            const ids = startingSandboxes.map((sb) => sb.id);
+            const ids = pollable.map((sb) => sb.id);
             const statusMap = await this.orm.call(
                 "kensei.sandbox", "action_check_status", [ids]
             );
@@ -478,15 +498,22 @@ export class TaskDashboard extends Component {
         return 12;
     }
 
+    _trajectoryCountCache = {};
+
     getModelTrajectoryCount(modelType) {
         const fieldName = TRAJECTORY_FIELD_MAP[modelType];
         if (!fieldName) return 0;
         const raw = this.props.record.data[fieldName];
         if (!raw || !raw.trim()) return 0;
+        const cached = this._trajectoryCountCache[modelType];
+        if (cached && cached.raw === raw) return cached.count;
         try {
             const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed.length : 0;
+            const count = Array.isArray(parsed) ? parsed.length : 0;
+            this._trajectoryCountCache[modelType] = { raw, count };
+            return count;
         } catch (_e) {
+            this._trajectoryCountCache[modelType] = { raw, count: 0 };
             return 0;
         }
     }

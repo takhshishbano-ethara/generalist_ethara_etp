@@ -2302,9 +2302,14 @@ export class KenseiChatWidget extends Component {
             },
         };
         if (attachments.length > 0) {
-            chatSendMsg.params.attachments = attachments;
+            // OpenClaw normalizeRpcAttachmentsToChatAttachments expects
+            // { content: <raw-base64>, mimeType, fileName } — not { media, name }
+            chatSendMsg.params.attachments = attachments.map(a => ({
+                fileName: a.name,
+                mimeType: a.mimeType,
+                content: a.media?.split(",")[1] || a.media || "",
+            }));
         }
-        console.group(`${LOG_PREFIX} ➡️ SEND chat.send`);
         console.log("Message:", text.substring(0, 200), "| Attachments:", attachments.length);
         console.groupEnd();
         this._session.ws.send(JSON.stringify(chatSendMsg));
