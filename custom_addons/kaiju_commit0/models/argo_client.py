@@ -284,10 +284,23 @@ class ArgoClient(models.AbstractModel):
         for node_id, node in nodes.items():
             if node.get("type") != "Pod":
                 continue
+            # Derive a clean human-readable name:
+            # 1. Prefer Argo's `displayName` (typically the DAG step name, e.g. "prepare")
+            # 2. Strip the workflow prefix from `name` (e.g. "wf.prepare" → "prepare")
+            # 3. Fall back to `templateName`, then raw node_id
+            display = node.get("displayName") or ""
+            if not display:
+                name = node.get("name") or ""
+                if "." in name:
+                    display = name.rsplit(".", 1)[-1]
+                elif name:
+                    display = name
+                else:
+                    display = node.get("templateName") or node_id
             pod_nodes.append({
                 "id": node.get("id", node_id),
                 "name": node.get("name", ""),
-                "displayName": node.get("displayName", ""),
+                "displayName": display,
                 "type": node.get("type", ""),
                 "phase": node.get("phase", ""),
                 "templateName": node.get("templateName", ""),

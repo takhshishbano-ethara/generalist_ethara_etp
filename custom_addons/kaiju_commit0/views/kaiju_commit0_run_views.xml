@@ -42,6 +42,13 @@
                             class="btn-danger"
                             invisible="run_status != 'running'"
                             confirm="This will abort the running evaluation. Continue?"/>
+
+                    <button name="action_fetch_all_step_logs" type="object"
+                            string="Fetch Logs from Argo"
+                            class="btn-secondary"
+                            icon="fa-cloud-download"
+                            invisible="not workflow_name"
+                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
                 </header>
 
                 <sheet>

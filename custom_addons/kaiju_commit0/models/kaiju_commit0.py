@@ -425,6 +425,24 @@ class KaijuCommit0(models.Model):
             if step.node_type != "Pod" or not step.pod_name:
                 continue
             step.action_fetch_logs()
+
+    def action_fetch_all_step_logs(self):
+        """Manual trigger: sync step list from Argo, then fetch logs for each step.
+
+        Use this when auto-persist on completion didn't fire (e.g. workflow
+        already finished before the module was upgraded), or to refresh
+        logs while the workflow is still running."""
+        self.ensure_one()
+        if not self.workflow_name:
+            from odoo.exceptions import UserError
+            raise UserError("No workflow has been submitted for this build yet.")
+        try:
+            self._sync_steps()
+        except Exception as e:
+            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
+        self.step_ids.action_fetch_logs()
+        return {"type": "ir.actions.client", "tag": "reload"}
+
     @staticmethod
     def _append_log(existing_log, new_line):
         from datetime import datetime
