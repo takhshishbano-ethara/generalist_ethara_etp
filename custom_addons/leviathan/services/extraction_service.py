@@ -119,9 +119,18 @@ def trigger_extraction(
             "job_id": job_id,
             "callback_url": callback_url,
         })
-        headers = {"Content-Type": "application/json"}
 
-        if not is_local:
+        def _build_headers():
+            """Build request headers, freshly SigV4-signed on each call.
+
+            Re-signing per attempt is REQUIRED: SigV4 signatures expire after
+            15 minutes, and the Lambda runs synchronously for up to ~15 min — so
+            a retry after a slow first attempt would otherwise send an expired
+            signature and get a bogus 403.
+            """
+            hdrs = {"Content-Type": "application/json"}
+            if is_local:
+                return hdrs
             from botocore.auth import SigV4Auth
             from botocore.awsrequest import AWSRequest
             from botocore.credentials import Credentials
@@ -132,16 +141,19 @@ def trigger_extraction(
                 method="POST",
                 url=endpoint,
                 data=payload,
-                headers=headers,
+                headers=hdrs,
             )
             SigV4Auth(credentials, "lambda", region).add_auth(aws_request)
-            headers = dict(aws_request.headers)
+            return dict(aws_request.headers)
 
         _logger.info("Triggering extraction for URL=%s, job_id=%d", url, job_id)
 
+        import time as _time
         last_error = None
         for attempt in range(3):
             try:
+                headers = _build_headers()
+                _attempt_start = _time.monotonic()
                 with httpx.Client() as client:
                     resp = client.post(
                         endpoint,
@@ -149,27 +161,52 @@ def trigger_extraction(
                         headers=headers,
                         timeout=DEFAULT_TIMEOUT,
                     )
+                _attempt_elapsed = _time.monotonic() - _attempt_start
 
                 if resp.status_code < 300:
                     _json = resp.json()
                     _logger.info("Extraction triggered successfully: %s", _json)
                     return {"success": True, "extraction_id": _json.get("extraction_id")}
 
-                # Retryable server errors (Lambda cold start, transient)
-                if resp.status_code in (500, 502, 503, 504, 429):
+                # Retryable server errors — but ONLY when they fail fast. A 5xx
+                # that comes back quickly is a cold-start/transient blip worth a
+                # retry; a 5xx after minutes means the Lambda actually ran and
+                # timed out/errored, so retrying just burns another ~15-min run.
+                if resp.status_code in (500, 502, 503, 504, 429) and _attempt_elapsed < 120:
+                    body = (resp.text or "").strip()[:200]
                     _logger.warning(
-                        "Extraction service [%d] (attempt %d/3): %s",
-                        resp.status_code, attempt + 1, resp.text[:200],
+                        "Extraction service [%d] failed fast in %.0fs (attempt %d/3): %s",
+                        resp.status_code, _attempt_elapsed, attempt + 1, body,
                     )
                     last_error = f"Service returned {resp.status_code}"
-                    import time as _time
+                    if body:
+                        last_error += f": {body}"
                     _time.sleep(3 * (attempt + 1))  # 3s, 6s, 9s
                     continue
 
-                # Non-retryable
-                error_text = resp.text
-                _logger.warning("Extraction service error %d: %s", resp.status_code, error_text)
-                return {"success": False, "error": f"Service returned {resp.status_code}"}
+                # Non-retryable: 4xx, or a slow 5xx (the Lambda ran and timed
+                # out/errored — not a transient failure, don't re-run it).
+                error_text = (resp.text or "").strip()[:300]
+                _logger.warning(
+                    "Extraction service error %d after %.0fs: %s",
+                    resp.status_code, _attempt_elapsed, error_text,
+                )
+                detail = f"Service returned {resp.status_code}"
+                if error_text:
+                    detail += f": {error_text}"
+                if resp.status_code == 403:
+                    # 403 = AWS IAM/SigV4 rejected the call before Lambda ran.
+                    detail += (
+                        " (Lambda Function URL auth rejected the request — check the "
+                        "Lambda access key/secret and region in Settings, and clock "
+                        "sync on the Odoo host)"
+                    )
+                elif resp.status_code in (500, 502, 503, 504) and _attempt_elapsed >= 120:
+                    detail += (
+                        f" — extraction ran {_attempt_elapsed / 60:.0f} min then the "
+                        "Lambda timed out/errored (not retried; check the Lambda logs)"
+                    )
+                return {"success": False, "error": detail}
 
             except httpx.TimeoutException:
                 _logger.warning("Extraction timeout (attempt %d/3)", attempt + 1)
