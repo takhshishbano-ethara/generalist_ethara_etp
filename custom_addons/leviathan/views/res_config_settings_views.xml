@@ -7,16 +7,24 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Leviathan" string="Leviathan" name="leviathan">
-                    <block title="Extraction Service">
-                        <setting string="Extraction Service URL">
+                    <block title="Extraction Lambda">
+                        <setting string="Lambda Function" help="AWS Lambda function name or ARN. Used with boto3 lambda:Invoke (async).">
                             <div class="content-group">
                                 <div class="row mt16">
-                                    <label for="leviathan_extraction_service_url" class="col-lg-3 o_light_label"/>
-                                    <field name="leviathan_extraction_service_url" class="oe_inline"/>
+                                    <label for="leviathan_lambda_function_name" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_lambda_function_name" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_lambda_region" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_lambda_region" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_batch_concurrency" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_batch_concurrency" class="oe_inline"/>
                                 </div>
                             </div>
                         </setting>
-                        <setting string="Extraction AWS Credentials">
+                        <setting string="Extraction AWS Credentials" help="Leave empty to use EKS pod IAM role (IRSA).">
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="leviathan_extraction_access_key_id" class="col-lg-3 o_light_label"/>

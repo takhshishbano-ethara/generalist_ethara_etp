@@ -6,7 +6,7 @@ import time
 import uuid
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools import config as odoo_config
 
 from . import evaluation_executor
@@ -77,6 +77,7 @@ EVAL_STAGE_SELECTION = [
     ("building_images", "Building Images"),
     ("running_instances", "Running Instances"),
     ("generating_reports", "Generating Reports"),
+    ("awaiting_tar_decision", "Awaiting Tar Decision"),
     ("done", "Done"),
     ("failed", "Failed"),
 ]
@@ -147,6 +148,25 @@ class AuroraEvaluation(models.Model):
             org_repo = f"{pl.github_org}__{pl.github_repo}"
             self.output_dir = os.path.join(base, "harness", org_repo)
 
+    @api.constrains("docker_platform")
+    def _check_docker_platform_multi_arch(self):
+        """Reject single-arch or empty docker_platform on full evals.
+
+        Test-evals (staging_test_id set) are exempt because they don't push to
+        ECR — their builds can stay single-arch fast.
+        """
+        for rec in self:
+            if rec.staging_test_id:
+                continue
+            value = (rec.docker_platform or "").strip()
+            if "," not in value:
+                raise ValidationError(
+                    "Docker Platform must be multi-arch (comma-separated), "
+                    "e.g. 'linux/amd64,linux/arm64'. The ECR push phase pushes "
+                    "the OCI manifest list and requires multiple architectures. "
+                    f"Got: {value!r}"
+                )
+
     force_build = fields.Boolean(
         string="Force Build",
         help="Rebuild Docker images even if they already exist.",
@@ -161,7 +181,13 @@ class AuroraEvaluation(models.Model):
     )
     docker_platform = fields.Char(
         string="Docker Platform",
-        help='e.g. "linux/amd64". Leave empty for default.',
+        default="linux/amd64,linux/arm64",
+        help='Build platforms for buildx. For *full* evaluations this must be '
+             'multi-arch (comma-separated, e.g. "linux/amd64,linux/arm64") '
+             'because the ECR push phase pushes the OCI manifest list and '
+             'requires both arches present — enforced by _check_docker_platform_'
+             'multi_arch. Test-evals (staging_test_id set) are exempt so the '
+             'Test Harness dry-run keeps its fast single-arch path.',
     )
     instance_limit = fields.Integer(
         string="Instance Limit",
@@ -171,6 +197,65 @@ class AuroraEvaluation(models.Model):
     specific_prs = fields.Char(
         string="Specific PRs",
         help="Comma-separated: 'org/repo:pr-123,org/repo:pr-456'. Empty = all.",
+    )
+
+    staging_test_id = fields.Many2one(
+        "aurora.harness.staging",
+        string="Staging Test For",
+        readonly=True,
+        index=True,
+        ondelete="set null",
+        help="Set when this evaluation is a Test Harness dry-run dispatched "
+             "from the staging form. Hidden from the default Evaluations list.",
+    )
+    test_eval_promoted = fields.Boolean(
+        string="Test Result Promoted",
+        default=False,
+        readonly=True,
+        help="True once the cron has mirrored this test-eval's terminal "
+             "status back to the linked staging record.",
+    )
+
+    tar_decision = fields.Selection(
+        [("pending", "Pending"), ("export", "Export Tars"), ("skip", "Skip")],
+        default="pending",
+        readonly=True,
+        help="User's button choice during the awaiting_tar_decision window. "
+             "Worker polls this field and acts when it leaves 'pending'.",
+    )
+    tar_decision_deadline = fields.Datetime(
+        string="Tar Decision Deadline",
+        readonly=True,
+        help="UTC timestamp after which the worker auto-skips the tar export.",
+    )
+    tar_decision_window_minutes = fields.Integer(
+        string="Tar Decision Window (min)",
+        default=20,
+        help="Worker pauses for this many minutes after the report is uploaded, "
+             "waiting for Export or Skip. 0 disables the wait entirely.",
+    )
+    oci_export_status = fields.Selection(
+        [("idle", "Idle"), ("running", "Running"), ("done", "Done"),
+         ("failed", "Failed"), ("skipped", "Skipped")],
+        default="idle",
+        readonly=True,
+    )
+    ecr_repository = fields.Char(
+        string="ECR Repository",
+        readonly=True,
+        help="Eval-level ECR repo (no tag) — e.g. "
+             "<account>.dkr.ecr.<region>.amazonaws.com/aurora/<org>__<repo>.",
+    )
+    ecr_pushed_count = fields.Integer(
+        string="ECR Images Pushed",
+        default=0,
+        readonly=True,
+        help="Count of resolved-and-successfully-pushed images.",
+    )
+    ecr_manifest_s3_uri = fields.Char(
+        string="ECR Manifest (S3)",
+        readonly=True,
+        help="URL of the auto-published ecr_manifest.json (sibling of final_report.json).",
     )
 
     build_status = fields.Selection(EVAL_STATUS, default="idle", string="Build Images")
@@ -448,6 +533,23 @@ class AuroraEvaluation(models.Model):
     def _create_eval_secret(self, core_v1, labels):
         secret_name = f"aurora-eval-creds-{self.id}"
         from odoo.tools import config as odoo_cfg
+        # Only include AWS keys when they are actually configured. In prod
+        # with IRSA, leaving the keys out of the Secret means the env vars
+        # in the worker container (with optional=True secretKeyRef) will NOT
+        # be set, which lets the AWS SDK fall through to the IRSA web-identity
+        # provider. If we wrote empty strings here, AWS_ACCESS_KEY_ID="" in
+        # the worker would override IRSA and fail.
+        secret_data = {
+            "DB_PASSWORD": odoo_cfg["db_password"] or "",
+            "AURORA_ENCRYPTION_KEY": _get_env("AURORA_ENCRYPTION_KEY"),
+            "AURORA_S3_ACCESS_KEY": _get_env("AURORA_S3_ACCESS_KEY"),
+            "AURORA_S3_SECRET_KEY": _get_env("AURORA_S3_SECRET_KEY"),
+        }
+        aws_id = _get_env("AURORA_AWS_ACCESS_KEY_ID")
+        aws_sk = _get_env("AURORA_AWS_SECRET_ACCESS_KEY")
+        if aws_id and aws_sk:
+            secret_data["AURORA_AWS_ACCESS_KEY_ID"] = aws_id
+            secret_data["AURORA_AWS_SECRET_ACCESS_KEY"] = aws_sk
         secret = k8s_client.V1Secret(
             api_version="v1",
             kind="Secret",
@@ -456,12 +558,7 @@ class AuroraEvaluation(models.Model):
                 namespace=EVAL_NAMESPACE,
                 labels=labels,
             ),
-            string_data={
-                "DB_PASSWORD": odoo_cfg["db_password"] or "",
-                "AURORA_ENCRYPTION_KEY": _get_env("AURORA_ENCRYPTION_KEY"),
-                "AURORA_S3_ACCESS_KEY": _get_env("AURORA_S3_ACCESS_KEY"),
-                "AURORA_S3_SECRET_KEY": _get_env("AURORA_S3_SECRET_KEY"),
-            },
+            string_data=secret_data,
         )
         try:
             core_v1.create_namespaced_secret(namespace=EVAL_NAMESPACE, body=secret)
@@ -622,6 +719,44 @@ class AuroraEvaluation(models.Model):
         harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_REPO", value=harness_repo))
         env_vars.append(k8s_client.V1EnvVar(name="AURORA_HARNESS_GIT_BRANCH", value=harness_branch))
+
+        # ECR push phase configuration. Plain env values come from the
+        # operator's AURORA_ECR_* env vars on the Odoo pod; AWS credentials
+        # flow via the same secret used for S3 keys (only in local mode).
+        # AURORA_REGISTRY_KIND defaults to 'ecr' in the worker if unset, so
+        # prod requires zero extra config beyond the host/region — the local
+        # opt-out is the only thing that needs an explicit value.
+        for name in ("AURORA_ECR_REGISTRY", "AURORA_ECR_REGION", "AURORA_REGISTRY_KIND"):
+            val = _get_env(name)
+            if val:
+                env_vars.append(k8s_client.V1EnvVar(name=name, value=val))
+        # AWS credentials for skopeo/awscli inside the worker.
+        # IMPORTANT: only project AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+        # into the worker container when static keys are actually configured
+        # on the Odoo pod. In production the Pod uses IRSA — setting these
+        # env vars (even to empty strings) would override the IRSA web-
+        # identity provider and break ECR auth. _create_eval_secret only
+        # populates the AWS keys when both are non-empty, so the secret-key-
+        # ref-based env-var below is gated on the same condition.
+        if _get_env("AURORA_AWS_ACCESS_KEY_ID") and _get_env("AURORA_AWS_SECRET_ACCESS_KEY"):
+            for aws_var, secret_key in (
+                ("AWS_ACCESS_KEY_ID", "AURORA_AWS_ACCESS_KEY_ID"),
+                ("AWS_SECRET_ACCESS_KEY", "AURORA_AWS_SECRET_ACCESS_KEY"),
+            ):
+                env_vars.append(
+                    k8s_client.V1EnvVar(
+                        name=aws_var,
+                        value_from=k8s_client.V1EnvVarSource(
+                            secret_key_ref=k8s_client.V1SecretKeySelector(
+                                name=secret_name, key=secret_key,
+                            ),
+                        ),
+                    )
+                )
+        aws_region = _get_env("AURORA_ECR_REGION") or _get_env("AWS_REGION")
+        if aws_region:
+            env_vars.append(k8s_client.V1EnvVar(name="AWS_REGION", value=aws_region))
+            env_vars.append(k8s_client.V1EnvVar(name="AWS_DEFAULT_REGION", value=aws_region))
 
         worker_container = k8s_client.V1Container(
             name="evaluation",
@@ -844,6 +979,15 @@ class AuroraEvaluation(models.Model):
             "base_dockerfile_content": False,
             "base_dockerfile_s3_uri": False,
             "dataset_file": self.pipeline_id.step6_file if self.pipeline_id else False,
+            # Clear tar-decision + ECR state from the previous run, otherwise
+            # the worker's poll loop sees a stale 'export'/'skip' decision and
+            # short-circuits the new wait window without asking the user.
+            "tar_decision": "pending",
+            "tar_decision_deadline": False,
+            "oci_export_status": "idle",
+            "ecr_repository": False,
+            "ecr_pushed_count": 0,
+            "ecr_manifest_s3_uri": False,
         })
 
     def action_regenerate_report(self):
@@ -1023,6 +1167,219 @@ class AuroraEvaluation(models.Model):
             rec.write({"stage": "failed"})
             rec.message_post(
                 body="Evaluation marked as failed by watchdog (no heartbeat for 15+ minutes).",
+                message_type="comment",
+                subtype_xmlid="mail.mt_note",
+            )
+
+    @api.model
+    def _cron_promote_finished_test_eval(self):
+        """Mirror terminal test-eval status back to the linked staging row.
+
+        Picks up evals dispatched by aurora.harness.staging.action_test_harness
+        (staging_test_id set), once they reach a terminal stage. The worker
+        writes eval.stage='done'/'failed' via raw SQL (bypassing the ORM), so
+        this cron is how the staging row learns the outcome.
+
+        Success rule: eval.stage='done' AND resolved/total >= 50% -> staging
+        test_result='success'. Anything else -> 'failed'. Either way, staging
+        stage flips to 'tested'.
+        """
+        finished = self.sudo().search([
+            ("staging_test_id", "!=", False),
+            ("stage", "in", list(EVAL_TERMINAL_STATES)),
+            ("test_eval_promoted", "=", False),
+        ])
+        for rec in finished:
+            staging = rec.staging_test_id
+            if not staging:
+                rec.test_eval_promoted = True
+                continue
+            ratio = 0.0
+            if rec.stage == "done" and rec.total_instances:
+                ratio = rec.resolved_instances / rec.total_instances
+            success = rec.stage == "done" and ratio >= 0.5
+            tail = (rec.log or "")[-2000:]
+            summary = (
+                f"K8s test eval #{rec.id} finished: stage={rec.stage}, "
+                f"resolved={rec.resolved_instances}/{rec.total_instances} "
+                f"(threshold 50%). Result: "
+                f"{'success' if success else 'failed'}.\n"
+                f"--- eval log tail ---\n{tail}"
+            )
+            staging.sudo().write({
+                "stage": "tested",
+                "test_result": "success" if success else "failed",
+                "test_log": summary,
+            })
+            rec.sudo().write({"test_eval_promoted": True})
+            _logger.info(
+                "Promoted test-eval %s -> staging %s (%s)",
+                rec.id, staging.id, "success" if success else "failed",
+            )
+
+    def action_request_tar_export(self):
+        """User clicked 'Export OCI Tars'. Worker poll picks up within ~5 s."""
+        self.ensure_one()
+        if self.stage != "awaiting_tar_decision":
+            raise UserError(
+                "This action is only available while the worker is waiting "
+                f"for a tar export decision. Current stage: {self.stage}"
+            )
+        if self.tar_decision != "pending":
+            raise UserError(
+                f"Decision already recorded: {self.tar_decision}"
+            )
+        self.write({"tar_decision": "export"})
+        self.message_post(
+            body="Tar export requested by user. Worker will push images to ECR.",
+            message_type="comment",
+            subtype_xmlid="mail.mt_note",
+        )
+
+    def action_skip_tar_export(self):
+        """User clicked 'Skip'. Worker poll picks up within ~5 s."""
+        self.ensure_one()
+        if self.stage != "awaiting_tar_decision":
+            raise UserError(
+                "This action is only available while the worker is waiting "
+                f"for a tar export decision. Current stage: {self.stage}"
+            )
+        if self.tar_decision != "pending":
+            raise UserError(
+                f"Decision already recorded: {self.tar_decision}"
+            )
+        self.write({"tar_decision": "skip"})
+        self.message_post(
+            body="Tar export skipped by user. No images pushed to ECR.",
+            message_type="comment",
+            subtype_xmlid="mail.mt_note",
+        )
+
+    def action_download_ecr_manifest(self):
+        """Build a zip with ecr_manifest.json + ecr_pull.sh and serve as download."""
+        self.ensure_one()
+        if self.oci_export_status != "done" or self.ecr_pushed_count <= 0:
+            raise UserError(
+                "No ECR images have been pushed for this evaluation yet."
+            )
+
+        import base64
+        import io
+        import json
+        import zipfile
+
+        pushed_instances = self.instance_ids.filtered(lambda i: i.ecr_image_uri)
+        org = self.pipeline_id.github_org if self.pipeline_id else (
+            pushed_instances[:1].org if pushed_instances else ""
+        )
+        repo = self.pipeline_id.github_repo if self.pipeline_id else (
+            pushed_instances[:1].repo if pushed_instances else ""
+        )
+        registry_host = (self.ecr_repository or "").split("/", 1)[0]
+        region = ""
+        if ".dkr.ecr." in registry_host:
+            region = registry_host.split(".dkr.ecr.")[1].split(".", 1)[0]
+
+        manifest = {
+            "evaluation_id": self.id,
+            "evaluation_name": self.name or "",
+            "pipeline": f"{org}/{repo}" if org and repo else "",
+            "exported_at": fields.Datetime.to_string(fields.Datetime.now()),
+            "ecr_repository": self.ecr_repository or "",
+            "image_count": len(pushed_instances),
+            "images": [
+                {
+                    "instance_id": inst.instance_id or "",
+                    "org": inst.org,
+                    "repo": inst.repo,
+                    "pr_number": inst.pr_numbers or "",
+                    "ecr_image_uri": inst.ecr_image_uri,
+                    "ecr_image_digest": inst.ecr_image_digest or "",
+                    "status": inst.status,
+                }
+                for inst in pushed_instances
+            ],
+        }
+        manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+
+        is_ecr = ".dkr.ecr." in (registry_host or "")
+        pull_script_lines = [
+            "#!/usr/bin/env bash",
+            f"# Registry images from evaluation #{self.id} ({manifest['pipeline']})",
+            f"# Generated {manifest['exported_at']}",
+            "set -euo pipefail",
+            "",
+        ]
+        if is_ecr and region and registry_host:
+            pull_script_lines.extend([
+                f"aws ecr get-login-password --region {region} \\",
+                f"  | docker login --username AWS --password-stdin {registry_host}",
+                "",
+            ])
+        elif not is_ecr and registry_host:
+            pull_script_lines.extend([
+                "# Local in-cluster registry — port-forward first if pulling from your laptop:",
+                f"# kubectl port-forward -n aurora svc/{registry_host.split(':')[0].split('.')[0]} 5000:5000",
+                "# then replace the host in the URIs below with localhost:5000.",
+                "",
+            ])
+        for img in manifest["images"]:
+            ref = img["ecr_image_uri"]
+            if img["ecr_image_digest"]:
+                base_ref = ref.rsplit(":", 1)[0]
+                ref = f"{base_ref}@{img['ecr_image_digest']}"
+            pull_script_lines.append(f"docker pull {ref}")
+        pull_script_lines.append("")
+        pull_script_bytes = "\n".join(pull_script_lines).encode("utf-8")
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("ecr_manifest.json", manifest_bytes)
+            zf.writestr("ecr_pull.sh", pull_script_bytes)
+        attachment = self.env["ir.attachment"].create({
+            "name": f"ecr_manifest_eval_{self.id}.zip",
+            "type": "binary",
+            "datas": base64.b64encode(buf.getvalue()),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "application/zip",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }
+
+    @api.model
+    def _cron_tar_decision_timeout_sweep(self):
+        """Safety net: mark abandoned awaiting_tar_decision evals as failed.
+
+        Fires only when (deadline + 5 min) has passed AND the heartbeat is
+        stale (>2 min). Under healthy worker conditions the worker exits the
+        wait loop on its own at the deadline, so this cron is a backstop for
+        worker process crashes during the wait.
+        """
+        from datetime import timedelta
+        now = fields.Datetime.now()
+        stale_hb = fields.Datetime.subtract(now, minutes=2)
+        abandoned = self.sudo().search([
+            ("stage", "=", "awaiting_tar_decision"),
+            ("tar_decision_deadline", "<", now - timedelta(minutes=5)),
+            "|", ("last_heartbeat", "<", stale_hb), ("last_heartbeat", "=", False),
+        ])
+        for rec in abandoned:
+            _logger.warning(
+                "Tar-decision timeout sweep: eval %s (id=%s) abandoned past "
+                "deadline with stale heartbeat. Marking failed.",
+                rec.name, rec.id,
+            )
+            rec.write({
+                "stage": "failed",
+                "oci_export_status": "failed",
+            })
+            rec.message_post(
+                body="Marked failed by tar-decision watchdog (deadline crossed, "
+                     "heartbeat stale for 2+ minutes — worker likely died).",
                 message_type="comment",
                 subtype_xmlid="mail.mt_note",
             )

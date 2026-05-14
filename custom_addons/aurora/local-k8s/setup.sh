@@ -111,6 +111,16 @@ deploy_minio() {
         mc mb local/production-grtlabs-tag --ignore-existing 2>/dev/null || true
 }
 
+deploy_registry() {
+    log "Deploying local OCI registry (registry:2) — ECR substitute for local-k8s"
+    kubectl apply -f "$MANIFESTS/registry.yaml" --context="$CLUSTER_NAME"
+    log "Waiting for registry to be ready..."
+    kubectl wait --for=condition=ready pod -l app=registry \
+        -n aurora --timeout=120s --context="$CLUSTER_NAME"
+    log "Registry ready. In-cluster: registry.aurora.svc.cluster.local:5000"
+    log "Host access (NodePort): \$(minikube ip -p $CLUSTER_NAME):30050"
+}
+
 create_rbac() {
     log "Creating ServiceAccount + RBAC"
     kubectl apply -f "$MANIFESTS/rbac.yaml" --context="$CLUSTER_NAME"
@@ -137,6 +147,11 @@ stringData:
   AURORA_S3_SECRET_KEY: "$MINIO_SECRET_KEY"
   DB_PASSWORD: "$PG_PASSWORD"
   GITHUB_TOKEN: "${GITHUB_TOKEN:-placeholder}"
+  AURORA_REGISTRY_KIND: "${AURORA_REGISTRY_KIND:-local}"
+  AURORA_ECR_REGISTRY: "${AURORA_ECR_REGISTRY:-registry.aurora.svc.cluster.local:5000}"
+  AURORA_ECR_REGION: "${AURORA_ECR_REGION:-}"
+  AURORA_AWS_ACCESS_KEY_ID: "${AURORA_AWS_ACCESS_KEY_ID:-}"
+  AURORA_AWS_SECRET_ACCESS_KEY: "${AURORA_AWS_SECRET_ACCESS_KEY:-}"
 EOF
 }
 
@@ -144,8 +159,23 @@ build_worker_image() {
     log "Building aurora-worker image (this may take a few minutes)..."
     eval "$(minikube -p "$CLUSTER_NAME" docker-env)"
 
+    # Pick the worker image's platform from the host arch so auxiliary
+    # binaries (skopeo, awscli) run natively in the worker container. On
+    # Apple Silicon, an amd64 worker image runs under Rosetta/QEMU and the
+    # skopeo Go binary panics with 'lfstack.push invalid packing'. Building
+    # for the native host arch avoids that emulation layer. The eval-time
+    # multi-arch builds still happen inside DinD with its own binfmt setup,
+    # so this only affects the worker container itself.
+    local host_arch
+    host_arch="$(uname -m)"
+    case "$host_arch" in
+        arm64|aarch64) WORKER_PLATFORM="linux/arm64" ;;
+        *)             WORKER_PLATFORM="linux/amd64" ;;
+    esac
+    log "Worker platform (auto-detected from host): $WORKER_PLATFORM"
+
     docker build \
-        --platform linux/amd64 \
+        --platform "$WORKER_PLATFORM" \
         -f "$PROJECT_ROOT/custom_addons/aurora/Dockerfile.worker" \
         -t aurora-worker:local \
         "$PROJECT_ROOT"
@@ -222,6 +252,7 @@ cmd_up() {
     create_secrets
     deploy_postgres
     deploy_minio
+    deploy_registry
     create_rbac
     build_worker_image
     build_odoo_image

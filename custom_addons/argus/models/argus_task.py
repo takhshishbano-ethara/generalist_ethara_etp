@@ -79,19 +79,51 @@ class ArgusTask(models.Model):
     # ------------------------------------------------------------------
     # People
     # ------------------------------------------------------------------
+    employee_id = fields.Many2one(
+        "hr.employee",
+        string="Tasker (Employee)",
+        index=True,
+        tracking=True,
+        default=lambda self: self.env.user.employee_id,
+        help=(
+            "Employee who owns the task.  The form pulls PL and QL "
+            "from this employee's Task Forge hierarchy "
+            "(``task_forge_pl_id`` / ``task_forge_qr_id`` defined in "
+            "task_forge_bridge), so the two slots auto-fill as soon "
+            "as the employee is set."
+        ),
+    )
     pl_user_id = fields.Many2one(
         "res.users",
         string="Project Lead (PL)",
         index=True,
         tracking=True,
         domain=[("share", "=", False)],
+        help=(
+            "Auto-populated from the Tasker's "
+            "``task_forge_pl_id.user_id`` when the employee is set "
+            "on the form (and on create when no PL is supplied).  "
+            "Managers can override manually."
+        ),
     )
+    # NOTE: the *field name* stays ``ql_user_id`` to keep the API and
+    # any existing data intact, but the UI label, kanban / list strings,
+    # and chatter messages all read "QR" (Quality Reviewer) since the
+    # role we actually populate from is ``hr.employee.task_forge_qr_id``.
+    # Renaming the column would force a migration and break external
+    # callers — relabelling is a no-op upgrade.
     ql_user_id = fields.Many2one(
         "res.users",
-        string="Quality Lead (QL)",
+        string="Quality Reviewer (QR)",
         index=True,
         tracking=True,
         domain=[("share", "=", False)],
+        help=(
+            "Auto-populated from the Tasker's "
+            "``task_forge_qr_id.user_id`` when the employee is set "
+            "on the form (and on create when no QR is supplied).  "
+            "Managers can override manually."
+        ),
     )
     email = fields.Char(
         string="Owner Email",
@@ -339,6 +371,43 @@ class ArgusTask(models.Model):
             if rec.prompt is not None and not rec.prompt.strip():
                 raise ValidationError(_("Prompt cannot be empty."))
 
+    # Minimum word count for the prompt.  Below this Kimi doesn't
+    # have enough text to grade — every short prompt would score 100
+    # by default and bypass QC entirely.  20 is the floor where
+    # clarity / grammar / instruction-completeness feedback starts
+    # being meaningful.
+    _ARGUS_PROMPT_MIN_WORDS = 20
+
+    @api.constrains("prompt")
+    def _check_prompt_word_count(self):
+        """Reject prompts shorter than ``_ARGUS_PROMPT_MIN_WORDS`` words.
+
+        Empty / whitespace-only prompts are skipped here because the
+        sibling ``_check_prompt_not_empty`` already handles them — we
+        don't want the operator to see *two* errors for the same
+        underlying problem.
+
+        Word counting uses ``str.split()`` with no separator so any
+        run of whitespace (tabs, newlines, multiple spaces) collapses
+        to a single delimiter — same definition of "word" as `wc -w`.
+        """
+        for rec in self:
+            text = (rec.prompt or "").strip()
+            if not text:
+                continue
+            word_count = len(text.split())
+            if word_count < self._ARGUS_PROMPT_MIN_WORDS:
+                raise ValidationError(_(
+                    "Prompt is too short — got %(got)s word%(plural)s, "
+                    "Argus requires at least %(min)s.  Expand the prompt "
+                    "so the QC check has enough text to grade clarity, "
+                    "grammar, and instruction completeness."
+                ) % {
+                    "got": word_count,
+                    "plural": "" if word_count == 1 else "s",
+                    "min": self._ARGUS_PROMPT_MIN_WORDS,
+                })
+
     @api.constrains("input_video_url", "output_video_url")
     def _check_urls_distinct(self):
         for rec in self:
@@ -358,12 +427,171 @@ class ArgusTask(models.Model):
     # ==================================================================
     @api.model_create_multi
     def create(self, vals_list):
+        """Sequence + auto-fill PL / QR from the Tasker's employee.
+
+        For each incoming vals dict:
+
+        1. Resolve the Tasker employee.  If the caller didn't pass
+           ``employee_id`` we fall back to ``self.env.user.employee_id``
+           — that covers UI saves where the field default already
+           filled it in, plus headless API / import / cron creates
+           where nobody touched the field at all.
+        2. Pull ``task_forge_pl_id`` + ``task_forge_qr_id`` off the
+           employee (defined in ``task_forge_bridge.hr_employee``) and
+           hand their linked ``user_id`` to ``pl_user_id`` /
+           ``ql_user_id``.
+        3. Only fill slots the caller didn't explicitly set — never
+           clobber a deliberate assignment.
+
+        No role classification, no group lookups, no api.role
+        plumbing.  Just employee → PL / QR pointers → user_ids.
+        """
         for vals in vals_list:
             if not vals.get("name") or vals["name"] == _("New"):
                 vals["name"] = self.env["ir.sequence"].next_by_code(
                     "argus.task"
                 ) or _("New")
-        return super().create(vals_list)
+            # Resolve the employee whose hierarchy we should read.
+            emp_id = vals.get("employee_id")
+            if emp_id:
+                employee = self.env["hr.employee"].browse(emp_id)
+            else:
+                employee = self.env.user.employee_id
+                if employee:
+                    vals.setdefault("employee_id", employee.id)
+            # Fill PL + QR from the employee, but only when the caller
+            # left them blank.
+            defaults = self._argus_defaults_from_employee(employee)
+            for field_name, default_id in defaults.items():
+                if default_id and not vals.get(field_name):
+                    vals[field_name] = default_id
+        records = super().create(vals_list)
+        # Trigger the Kimi QC check for any newly-created record that
+        # arrived with a prompt.  The 20-word constrains has already
+        # gated short prompts at this point, so anything here is long
+        # enough to score.  Failures are swallowed — see
+        # ``_argus_auto_qc`` — so a flaky LLM or missing API config
+        # cannot roll back the save.
+        for rec in records:
+            if rec.prompt:
+                rec._argus_auto_qc()
+        return records
+
+    def write(self, vals):
+        """Run the Kimi QC check whenever the prompt is set or changed.
+
+        We only care about the ``prompt`` key — every other write
+        (URL update, status flip, QC result writeback, etc.) leaves
+        the prompt untouched and shouldn't re-trigger Kimi.
+
+        Crucially, the inner write performed by
+        ``action_qc_check_prompt`` (it stores the score / level /
+        feedback) does NOT have ``prompt`` in its vals, so it cannot
+        recurse back through this branch.  No context flag needed.
+        """
+        res = super().write(vals)
+        if "prompt" in vals:
+            for rec in self:
+                if rec.prompt:
+                    rec._argus_auto_qc()
+        return res
+
+    def _argus_auto_qc(self):
+        """Best-effort wrapper around ``action_qc_check_prompt``.
+
+        Called from ``create`` and ``write`` whenever a prompt
+        arrives or changes.  Exceptions are caught and logged — a
+        misconfigured Bedrock endpoint or a transient API failure
+        must not roll back the underlying save.  The operator can
+        always re-trigger manually via the **QC Check** header
+        button to see the actual error.
+        """
+        self.ensure_one()
+        if not (self.prompt or "").strip():
+            return
+        try:
+            self.action_qc_check_prompt()
+        except Exception as exc:
+            _logger.warning(
+                "Argus auto-QC failed for task %s (id=%s): %s",
+                self.name or "<unsaved>", self.id, exc,
+            )
+
+    @api.model
+    def _argus_defaults_from_employee(self, employee):
+        """Build the ``{pl_user_id, ql_user_id}`` dict from an employee.
+
+        Direct lookup — no role check, no api_auth_gateway groups.
+        We read ``task_forge_pl_id`` and ``task_forge_qr_id`` off the
+        ``hr.employee`` record (those columns are added by
+        ``task_forge_bridge``) and hand back the linked ``user_id``
+        for each.  Slots without a linked user are skipped so the
+        caller can still save the record and a manager can fill them
+        in manually.
+
+        sudo note
+        ---------
+        Odoo's HR ACL exposes only the "public profile" subset of
+        ``hr.employee`` fields to users without the HR Officer group.
+        ``task_forge_pl_id`` / ``task_forge_qr_id`` are NOT in that
+        subset, so reading them under the calling user raises::
+
+            AccessError: The fields task_forge_pl_id, task_forge_qr_id ...
+            are not available for employee public profiles.
+
+        We sudo the record before the read.  The *values* we hand
+        back are ``res.users`` IDs which any Argus user can see; we
+        only need sudo to dereference the employee's private
+        pointers — not to write the task's PL / QR slots.
+        """
+        defaults = {}
+        if not employee:
+            return defaults
+        # Read the task_forge_* pointers as an admin so the call works
+        # for users without HR-Officer rights.  ``.sudo()`` on an
+        # already-sudoed record is a no-op.
+        emp_su = employee.sudo()
+        pl_emp = getattr(emp_su, "task_forge_pl_id", False)
+        if pl_emp and pl_emp.user_id:
+            defaults["pl_user_id"] = pl_emp.user_id.id
+        qr_emp = getattr(emp_su, "task_forge_qr_id", False)
+        if qr_emp and qr_emp.user_id:
+            defaults["ql_user_id"] = qr_emp.user_id.id
+        return defaults
+
+    @api.onchange("employee_id")
+    def _onchange_employee_id_fill_pl_ql(self):
+        """Mirror PL / QR auto-fill into the form on every employee pick.
+
+        ``create`` already does the same auto-fill at save time, but
+        operators expect to *see* the assignment update as soon as
+        they choose the Tasker — otherwise the form looks like the
+        slots are still empty.  We only overwrite a slot when it's
+        blank so a Manager mid-edit isn't bullied out of a manual
+        override.
+
+        Employee private fields (``task_forge_pl_id``,
+        ``task_forge_qr_id``, ``private_email``) are NOT in the
+        ``hr.employee.public`` projection that non-HR users see, so
+        we route the read through ``sudo()`` — same reasoning as
+        ``_argus_defaults_from_employee``.
+        """
+        for rec in self:
+            if not rec.employee_id:
+                continue
+            defaults = rec._argus_defaults_from_employee(rec.employee_id)
+            if defaults.get("pl_user_id") and not rec.pl_user_id:
+                rec.pl_user_id = defaults["pl_user_id"]
+            if defaults.get("ql_user_id") and not rec.ql_user_id:
+                rec.ql_user_id = defaults["ql_user_id"]
+            # Owner email is also a sensible mirror — only if blank.
+            # ``work_email`` is part of the public profile in most
+            # configurations but ``private_email`` is not, so sudo
+            # the whole read to be safe.
+            emp_su = rec.employee_id.sudo()
+            owner_email = emp_su.work_email or emp_su.private_email or ""
+            if owner_email and not rec.email:
+                rec.email = owner_email
 
     def copy(self, default=None):
         default = dict(default or {})

@@ -1,6 +1,7 @@
 import logging
+import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
 
@@ -10,7 +11,12 @@ from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
-_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="leviathan-job")
+_PRD_POOL_SIZE = int(os.environ.get("LEVIATHAN_PRD_POOL_SIZE", "50"))
+_POOL = ThreadPoolExecutor(
+    max_workers=_PRD_POOL_SIZE, thread_name_prefix="leviathan-prd"
+)
+
+_BATCH_FANOUT_POOL_SIZE = int(os.environ.get("LEVIATHAN_BATCH_FANOUT_SIZE", "250"))
 
 
 class LeviathanJob(models.Model):
@@ -103,10 +109,12 @@ class LeviathanJob(models.Model):
         sanitize=False,
     )
     cancel_requested = fields.Boolean(default=False)
-    via_rabbitmq = fields.Boolean(
-        string="Triggered via RabbitMQ",
+    via_batch = fields.Boolean(
+        string="Triggered via Batch Run",
         default=False,
         copy=False,
+        help="True when this job was started by a batch concurrent run. "
+             "On completion the job is auto-released to 'not_assigned' so taskers can claim it.",
     )
 
     user_id = fields.Many2one(
@@ -655,7 +663,7 @@ class LeviathanJob(models.Model):
                 "user_id": False,
                 "state": "not_assigned",
                 "cancel_requested": False,
-                "via_rabbitmq": False,
+                "via_batch": False,
                 "error_message": False,
             }
             # Mark pipeline interruption for in-progress tasks
@@ -766,103 +774,164 @@ class LeviathanJob(models.Model):
             "error_message": False,
         })
 
-    def action_run_via_rabbitmq(self):
-        """Server action: batch-run selected tasks through RabbitMQ pipeline.
+    def action_run_batch_concurrent(self):
+        """Server action: fire all selected jobs in parallel via async Lambda invoke.
 
-        Admin selects tasks in list view -> clicks this action.
-        Validates each task, marks as extracting, publishes to queue.
+        Replaces the legacy RabbitMQ + consumer.py fan-out. Uses a single
+        ThreadPoolExecutor sized to ``leviathan.batch_concurrency`` (default 250)
+        to issue ``boto3 lambda:Invoke(InvocationType='Event')`` calls in parallel.
+        Each invoke returns in <1s; the Lambdas themselves run asynchronously
+        and post back to the existing webhook.
+
+        Caveats:
+        - Selected count > Lambda's ReservedConcurrentExecutions => excess
+          invocations are throttled by AWS (TooManyRequestsException).
+        - All eligible jobs are marked ``extracting`` first; jobs whose invoke
+          fails are reverted to ``not_assigned`` with an error message.
         """
-        eligible = self.filtered(
-            lambda r: r.state == "not_assigned" and r.url
-        )
+        eligible = self.filtered(lambda r: r.state == "not_assigned" and r.url)
         if not eligible:
             raise UserError(
-                "No eligible tasks. Tasks must be 'Not Assigned' "
-                "with URL and category set."
+                "No eligible tasks. Tasks must be 'Not Assigned' with a URL."
             )
         skipped = self - eligible
 
+        ICP = self.env["ir.config_parameter"].sudo()
+        config = {
+            "function_name": ICP.get_param("leviathan.lambda_function_name"),
+            "region": ICP.get_param("leviathan.lambda_region") or "ap-south-1",
+            "access_key_id": ICP.get_param("leviathan.extraction_access_key_id") or "",
+            "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key") or "",
+            "batch_concurrency": int(
+                ICP.get_param("leviathan.batch_concurrency") or _BATCH_FANOUT_POOL_SIZE
+            ),
+        }
+        if not config["function_name"]:
+            raise UserError(
+                "Lambda function name not configured "
+                "(Settings -> Leviathan -> Lambda Function)."
+            )
+
+        now = fields.Datetime.now()
         eligible.write({
             "state": "extracting",
-            "via_rabbitmq": True,
-            "started_at": fields.Datetime.now(),
+            "via_batch": True,
+            "started_at": now,
             "completed_at": False,
             "duration_seconds": False,
-            "last_heartbeat": fields.Datetime.now(),
+            "last_heartbeat": now,
             "error_message": False,
             "cancel_requested": False,
         })
 
         record_ids = eligible.ids
+        record_urls = {rec.id: rec.url for rec in eligible}
+        webhook_url = eligible[0]._get_webhook_url()
         db_name = self.env.cr.dbname
 
         def _deferred():
-            from ..services.rabbitmq_service import batch_publish_leviathan_tasks
-            try:
-                batch_publish_leviathan_tasks(record_ids, action="run_pipeline")
-            except Exception as exc:
-                _logger.error("RabbitMQ publish failed: %s", exc)
-                # Revert tasks back to not_assigned since they weren't published
-                try:
-                    from odoo.modules.registry import Registry
-                    with Registry(db_name).cursor() as cr:
-                        from odoo import api, SUPERUSER_ID
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        env["leviathan.job"].browse(record_ids).write({
-                            "state": "not_assigned",
-                            "via_rabbitmq": False,
-                            "error_message": f"RabbitMQ unavailable: {exc}",
-                        })
-                        cr.commit()
-                except Exception:
-                    _logger.exception("Failed to revert tasks after RabbitMQ error")
-                raise
+            _POOL.submit(
+                lambda: self._fanout_batch_extraction(
+                    db_name=db_name,
+                    record_ids=record_ids,
+                    record_urls=record_urls,
+                    webhook_url=webhook_url,
+                    config=config,
+                )
+            )
 
         self.env.cr.postcommit.add(_deferred)
 
-        msg = f"{len(eligible)} task(s) queued for processing."
+        msg = (
+            f"{len(eligible)} task(s) dispatching concurrently "
+            f"(max parallel: {config['batch_concurrency']})."
+        )
         if skipped:
             msg += (
                 f" {len(skipped)} task(s) skipped "
-                f"(wrong state or missing URL/category)."
+                f"(wrong state or missing URL)."
             )
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Tasks Queued",
+                "title": "Batch Dispatch Started",
                 "message": msg,
                 "type": "success",
                 "sticky": False,
             },
         }
 
-    def rpc_run_full_pipeline(self):
-        """Called by RabbitMQ consumer via XML-RPC.
+    def _fanout_batch_extraction(
+        self, db_name, record_ids, record_urls, webhook_url, config,
+    ):
+        """Run the parallel async-invoke fan-out in a background thread.
 
-        Triggers extraction for the task. The rest of the pipeline
-        proceeds automatically via webhook -> generation -> QC -> done.
-        Post-completion hook resets state to not_assigned.
+        Each successful invoke leaves the record in ``extracting`` (the
+        webhook completes the lifecycle). Each failed invoke reverts the
+        record to ``not_assigned`` with the AWS error captured.
         """
-        self.ensure_one()
-        if self.state != "extracting":
-            _logger.warning(
-                "rpc_run_full_pipeline called on job %s in state %s, skipping",
-                self.id, self.state,
-            )
-            return False
+        from ..services.extraction_service import trigger_extraction
 
-        db_name = self.env.cr.dbname
-        record_id = self.id
+        ok_ids: list[int] = []
+        failed: dict[int, str] = {}
+        max_workers = min(config["batch_concurrency"], len(record_ids)) or 1
 
-        try:
-            self._run_extraction_bg(db_name, record_id)
-        except Exception as e:
-            _logger.error(
-                "rpc_run_full_pipeline failed for job %s: %s", self.id, e
+        def _invoke_one(record_id: int) -> tuple[int, dict]:
+            url = record_urls.get(record_id, "")
+            result = trigger_extraction(
+                url=url,
+                job_id=record_id,
+                callback_url=webhook_url,
+                function_name=config["function_name"],
+                region=config["region"],
+                access_key_id=config["access_key_id"],
+                secret_access_key=config["secret_access_key"],
             )
-            raise
-        return True
+            return record_id, result
+
+        _logger.info(
+            "Batch fan-out: %d records, max_workers=%d, function=%s, region=%s",
+            len(record_ids), max_workers, config["function_name"], config["region"],
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="leviathan-fanout",
+        ) as pool:
+            futures = [pool.submit(_invoke_one, rid) for rid in record_ids]
+            for future in as_completed(futures):
+                try:
+                    record_id, result = future.result()
+                except Exception as exc:
+                    _logger.exception("Fan-out worker crashed: %s", exc)
+                    continue
+                if result.get("success"):
+                    ok_ids.append(record_id)
+                else:
+                    failed[record_id] = result.get("error", "Unknown error")[:500]
+
+        _logger.info(
+            "Batch fan-out done: %d invoked OK, %d failed", len(ok_ids), len(failed),
+        )
+
+        if failed:
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    for rid, err in failed.items():
+                        rec = env[self._name].browse(rid)
+                        if rec.exists():
+                            rec.write({
+                                "state": "not_assigned",
+                                "via_batch": False,
+                                "error_message": f"Lambda invoke failed: {err}",
+                                "completed_at": fields.Datetime.now(),
+                            })
+                    cr.commit()
+            except Exception:
+                _logger.exception(
+                    "Failed to revert %d records after invoke failures", len(failed),
+                )
 
     def action_mark_submitted(self):
         """Tasker marks the task as submitted."""
@@ -1178,6 +1247,10 @@ class LeviathanJob(models.Model):
             _logger.exception("QC rerun failed for job %s", record_id)
             self._write_with_cursor(db_name, record_id, {
                 "state": "done",
+                # Fail-closed: a QC error must not leave qc_verdict blank, or the
+                # job becomes unsubmittable with no clear recovery. Mirrors the
+                # fail-closed behaviour in _run_prd_generation_bg.
+                "qc_verdict": "not_shippable",
                 "qc_report": f"QC rerun error: {exc}",
                 "error_message": f"QC failed: {exc}",
             })
@@ -1345,7 +1418,11 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_extraction_bg(self, db_name, record_id):
-        """Background: call extraction service API."""
+        """Background: async-invoke the extraction Lambda. Returns in <1s.
+
+        Job stays in ``extracting`` while Lambda runs; the webhook completes
+        the lifecycle. Only failed invokes flip state to ``failed``.
+        """
         from ..services.extraction_service import trigger_extraction
 
         try:
@@ -1357,9 +1434,10 @@ class LeviathanJob(models.Model):
 
                 ICP = env["ir.config_parameter"].sudo()
                 config = {
-                    "service_url": ICP.get_param("leviathan.extraction_service_url"),
-                    "access_key_id": ICP.get_param("leviathan.extraction_access_key_id"),
-                    "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key"),
+                    "function_name": ICP.get_param("leviathan.lambda_function_name"),
+                    "region": ICP.get_param("leviathan.lambda_region") or "ap-south-1",
+                    "access_key_id": ICP.get_param("leviathan.extraction_access_key_id") or "",
+                    "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key") or "",
                 }
                 job_data = {
                     "url": record.url,
@@ -1371,13 +1449,14 @@ class LeviathanJob(models.Model):
                 url=job_data["url"],
                 job_id=record_id,
                 callback_url=job_data["callback_url"],
-                service_url=config["service_url"],
+                function_name=config["function_name"],
+                region=config["region"],
                 access_key_id=config["access_key_id"],
                 secret_access_key=config["secret_access_key"],
             )
 
             if not result.get("success"):
-                error_msg = result.get("error", "Extraction service call failed")
+                error_msg = result.get("error", "Extraction Lambda invoke failed")
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
                     "error_message": error_msg[:500],
@@ -1559,7 +1638,10 @@ class LeviathanJob(models.Model):
                     "llm_attempts": attempt,
                 })
 
-                if total_score > best_score:
+                # Keep the highest scorer; always keep *something* so a run that
+                # only produces rejected PRDs (score 0) still saves a PRD for the
+                # tasker to edit instead of crashing on upload with prd_text=None.
+                if best_prd_text is None or total_score > best_score:
                     best_prd_text = prd_text
                     best_score = total_score
                     best_grade = score_report["grade"]
@@ -1658,16 +1740,14 @@ class LeviathanJob(models.Model):
                 except Exception:
                     _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
 
-                # Post-completion hook: if triggered via RabbitMQ,
-                # reset to not_assigned so taskers can claim the task.
-                if record.via_rabbitmq:
+                if record.via_batch:
                     record.write({
                         "state": "not_assigned",
-                        "via_rabbitmq": False,
+                        "via_batch": False,
                         "user_id": False,
                     })
                     _logger.info(
-                        "RabbitMQ pipeline done for job %s — reset to not_assigned",
+                        "Batch pipeline done for job %s — reset to not_assigned",
                         record_id,
                     )
 
@@ -1743,42 +1823,49 @@ class LeviathanJob(models.Model):
         if not locked or not locked[0]:
             return
 
+        ICP = self.env["ir.config_parameter"].sudo()
+        extracting_threshold = int(
+            ICP.get_param("leviathan.watchdog_extracting_minutes", "60")
+        )
+        generating_threshold = int(
+            ICP.get_param("leviathan.watchdog_generating_minutes", "45")
+        )
+
         try:
-            # Extracting > 20 min
             stale_extracting = self.search([
                 ("state", "=", "extracting"),
                 (
                     "last_heartbeat",
                     "<",
-                    fields.Datetime.now() - timedelta(minutes=20),
+                    fields.Datetime.now() - timedelta(minutes=extracting_threshold),
                 ),
             ])
             for job in stale_extracting:
                 _logger.warning(
-                    "Watchdog: task %s stuck in extracting for >20min, marking failed.",
-                    job.name,
+                    "Watchdog: task %s stuck in extracting for >%dmin, marking failed.",
+                    job.name, extracting_threshold,
                 )
                 job._mark_failed(
-                    "Watchdog: extraction timed out (no response for 20+ minutes)"
+                    f"Watchdog: extraction timed out "
+                    f"(no response for {extracting_threshold}+ minutes)"
                 )
 
-            # Generating/scoring > 30 min
             stale_generating = self.search([
                 ("state", "in", ("generating", "scoring")),
                 (
                     "last_heartbeat",
                     "<",
-                    fields.Datetime.now() - timedelta(minutes=30),
+                    fields.Datetime.now() - timedelta(minutes=generating_threshold),
                 ),
             ])
             for job in stale_generating:
                 _logger.warning(
-                    "Watchdog: task %s stuck in %s for >30min, marking failed.",
-                    job.name,
-                    job.state,
+                    "Watchdog: task %s stuck in %s for >%dmin, marking failed.",
+                    job.name, job.state, generating_threshold,
                 )
                 job._mark_failed(
-                    f"Watchdog: {job.state} timed out (no progress for 30+ minutes)"
+                    f"Watchdog: {job.state} timed out "
+                    f"(no progress for {generating_threshold}+ minutes)"
                 )
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(987654321)")

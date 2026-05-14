@@ -389,7 +389,7 @@
                                     <field name="page_count" readonly="1"/>
                                     <field name="tech_stack" readonly="1"/>
                                     <field name="llm_attempts" readonly="1"/>
-                                    <field name="via_rabbitmq" readonly="1"/>
+                                    <field name="via_batch" readonly="1"/>
                                 </group>
                             </group>
                             <group string="Links" invisible="not prd_url and not deliverables_url">
@@ -478,14 +478,14 @@
     <!-- SERVER ACTIONS (gear menu)                                   -->
     <!-- ============================================================ -->
 
-    <!-- Run Selected via RabbitMQ (admin, list) -->
-    <record id="action_leviathan_run_via_rabbitmq" model="ir.actions.server">
-        <field name="name">Run via RabbitMQ</field>
+    <!-- Run Selected as Concurrent Batch (admin, list) -->
+    <record id="action_leviathan_run_batch_concurrent" model="ir.actions.server">
+        <field name="name">Run Batch (Parallel)</field>
         <field name="model_id" ref="model_leviathan_job"/>
         <field name="binding_model_id" ref="model_leviathan_job"/>
         <field name="binding_view_types">list</field>
         <field name="state">code</field>
-        <field name="code">action = records.action_run_via_rabbitmq()</field>
+        <field name="code">action = records.action_run_batch_concurrent()</field>
         <field name="group_ids" eval="[(4, ref('leviathan.group_leviathan_admin'))]"/>
     </record>
 

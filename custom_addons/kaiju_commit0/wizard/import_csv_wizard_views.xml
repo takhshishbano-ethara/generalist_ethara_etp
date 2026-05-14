@@ -11,10 +11,10 @@
                     <field name="filename" invisible="1"/>
                 </group>
                 <div class="alert alert-info" role="alert">
-                    <strong>Expected CSV columns:</strong> repo_name, language, branch_name<br/>
+                    <strong>Expected CSV columns:</strong> repo_name, language<br/>
                     <small class="text-muted">
                         Only <code>repo_name</code> is required (owner/repo format).
-                        Language defaults to "python", branch to "commit0_combined".
+                        Language defaults to "python".
                     </small>
                 </div>
                 <footer>

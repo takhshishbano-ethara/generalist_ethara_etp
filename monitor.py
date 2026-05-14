@@ -12,7 +12,7 @@ common = xmlrpc.client.ServerProxy(f"{URL}/xmlrpc/2/common")
 uid = common.authenticate(DB, USER, PASS, {})
 models = xmlrpc.client.ServerProxy(f"{URL}/xmlrpc/2/object")
 
-FIELDS = ["name", "state", "url", "via_rabbitmq", "user_id",
+FIELDS = ["name", "state", "url", "via_batch", "user_id",
           "started_at", "last_heartbeat", "error_message",
           "prd_text", "score", "qc_verdict"]
 
@@ -39,19 +39,19 @@ try:
             {"fields": FIELDS, "order": "id desc", "limit": 20})
 
         print(f"\033[2J\033[H\033[1mLeviathan Pipeline Monitor\033[0m — {time.strftime('%H:%M:%S')}")
-        print(f"{'ID':<12} {'STATE':<14} {'URL':<30} {'RMQ':>3} {'USER':>5} {'SCORE':>6} {'QC':<15} {'ERROR'}")
+        print(f"{'ID':<12} {'STATE':<14} {'URL':<30} {'BAT':>3} {'USER':>5} {'SCORE':>6} {'QC':<15} {'ERROR'}")
         print("-" * 110)
 
         for t in tasks:
             c = COLORS.get(t["state"], "")
             url = (t["url"] or "")[:28]
-            rmq = "Y" if t["via_rabbitmq"] else ""
+            bat = "Y" if t["via_batch"] else ""
             usr = str(t["user_id"][0]) if t["user_id"] else ""
             score = f"{t['score']:.0f}" if t["score"] else ""
             qc = t["qc_verdict"] or ""
             err = (t["error_message"] or "")[:40]
             prd = "PRD" if t["prd_text"] else ""
-            print(f"{c}{t['name']:<12} {t['state']:<14} {url:<30} {rmq:>3} {usr:>5} {score:>6} {qc:<15} {prd} {err}{RESET}")
+            print(f"{c}{t['name']:<12} {t['state']:<14} {url:<30} {bat:>3} {usr:>5} {score:>6} {qc:<15} {prd} {err}{RESET}")
 
         # Summary
         states = {}

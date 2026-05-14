@@ -42,6 +42,13 @@
                             class="btn-danger"
                             invisible="run_status != 'running'"
                             confirm="This will abort the running evaluation. Continue?"/>
+
+                    <button name="action_fetch_all_step_logs" type="object"
+                            string="Fetch Logs from Argo"
+                            class="btn-secondary"
+                            icon="fa-cloud-download"
+                            invisible="not workflow_name"
+                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
                 </header>
 
                 <sheet>
@@ -103,6 +110,25 @@
 
                         <field name="run_log" widget="commit0_terminal"
                                invisible="not run_log"/>
+
+                        <div invisible="run_status == 'pending'">
+                            <h5 class="mt-3 mb-2">Workflow Steps</h5>
+                            <p class="text-muted small">Per-step status from Argo. Click a step to view its full pod logs.</p>
+                            <field name="step_ids" readonly="1">
+                                <list>
+                                    <field name="display_name" string="Step"/>
+                                    <field name="phase" widget="badge"
+                                           decoration-info="phase == 'Pending'"
+                                           decoration-warning="phase == 'Running'"
+                                           decoration-success="phase == 'Succeeded'"
+                                           decoration-danger="phase in ('Failed', 'Error')"
+                                           decoration-muted="phase in ('Skipped', 'Omitted')"/>
+                                    <field name="started_at"/>
+                                    <field name="finished_at"/>
+                                    <field name="log_fetched_at" optional="hide"/>
+                                </list>
+                            </field>
+                        </div>
 
                         <div invisible="run_status != 'done'">
                             <h5 class="mt-3 mb-2">Results</h5>

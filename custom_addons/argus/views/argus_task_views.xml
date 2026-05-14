@@ -21,29 +21,42 @@
         <field name="arch" type="xml">
             <form string="Argus Task" class="o_argus_form">
                 <header>
-                    <!-- Exactly TWO header buttons (per spec):
-                         1. QC Check — runs Kimi K2.5 via the Bedrock
-                            Converse plumbing.  On success, score >=
-                            threshold auto-approves the task (all
-                            three status fields flip to "approved");
-                            a lower score auto-rejects and shows a
-                            red error banner with a Re-run QC Check
-                            button inline.
-                         2. Cancel — rejects the task in one click
-                            (all three status fields flip to
-                            "rejected").
+                    <!-- Header buttons + group visibility table:
 
-                         Both buttons are HIDDEN once the prompt is
-                         approved (level good / excellent).  The
-                         verdict is final — no further QC re-run or
-                         cancellation is needed, so the buttons
-                         disappear to remove the action surface. -->
+                         Button       Tasker  PL      QL      Manager
+                         ────────────────────────────────────────────
+                         QC Check     —       —       —       ✓
+                         Approve      —       ✓ (*)   ✓ (*)   ✓ (*)
+                         Cancel       ✓       ✓       ✓       ✓
+
+                         (*) Approve only when prompt_grammar_level is
+                             good / excellent AND the task isn't already
+                             approved.  This is the spec "PL / QR
+                             approve a passing grammar grade" path —
+                             auto-QC may have rejected an 80-score
+                             task under the strict 100 threshold, and
+                             this gives the reviewer a one-click
+                             override.
+
+                         QC Check is restricted to Managers so PL / QL
+                         don't accidentally re-run a Bedrock call from
+                         the reviewer view.  The auto-trigger on
+                         prompt save / update already fires the check
+                         server-side, so PL / QL don't need the
+                         manual button. -->
                     <button name="action_qc_check_prompt" type="object"
                             string="QC Check"
                             icon="fa-spell-check"
                             class="btn-primary"
-                            groups="argus.group_argus_ql,argus.group_argus_manager"
+                            groups="argus.group_argus_manager"
                             invisible="not prompt or prompt_grammar_level in ('good', 'excellent')"/>
+                    <button name="action_qc_approve" type="object"
+                            string="Approve"
+                            icon="fa-check-circle"
+                            class="btn-success"
+                            groups="argus.group_argus_pl,argus.group_argus_ql,argus.group_argus_manager"
+                            confirm="Approve this task?  Task / QC / Final Decision will all flip to Approved."
+                            invisible="prompt_grammar_level not in ('good', 'excellent') or final_decision == 'approved'"/>
                     <button name="action_cancel_task" type="object"
                             string="Cancel"
                             icon="fa-ban"
@@ -69,10 +82,19 @@
                         <h1><field name="name" readonly="1"/></h1>
                     </div>
 
-                    <!-- ===== Task metadata ===== -->
+                    <!-- ===== Task metadata =====
+                         The Tasker (Employee) drives the PL / QR
+                         auto-fill via the model's onchange — pick an
+                         employee and the two slots populate from
+                         their task_forge_pl_id / task_forge_qr_id
+                         pointers (defined in task_forge_bridge).
+                         Manager-group users can still override the
+                         two slots manually after the auto-fill. -->
                     <group>
                         <group>
                             <field name="timestamp"/>
+                            <field name="employee_id"
+                                   widget="many2one_avatar_employee"/>
                             <field name="email" widget="email"/>
                         </group>
                         <group>
@@ -140,11 +162,17 @@
                                    readonly="1" nolabel="1"/>
                         </p>
                         <hr/>
+                        <!-- Re-run QC is the same Bedrock call as the
+                             header button, so it carries the same
+                             group restriction — Manager only.  PL /
+                             QL see the red banner with the feedback
+                             but not the re-run button. -->
                         <button name="action_qc_check_prompt"
                                 type="object"
                                 string="Re-run QC Check"
                                 icon="fa-refresh"
-                                class="btn-primary"/>
+                                class="btn-primary"
+                                groups="argus.group_argus_manager"/>
                     </div>
 
                     <!-- ===== CLEAN banner — visible when level is
@@ -237,7 +265,8 @@
                   decoration-muted="not active">
                 <field name="timestamp"/>
                 <field name="name"/>
-                <field name="email"/>
+                <field name="employee_id" widget="many2one_avatar_employee" optional="show"/>
+                <field name="email" optional="hide"/>
                 <field name="pl_user_id" widget="many2one_avatar_user"/>
                 <field name="ql_user_id" widget="many2one_avatar_user"/>
                 <field name="task_status" widget="badge"
@@ -315,6 +344,7 @@
             <search>
                 <field name="name"/>
                 <field name="email"/>
+                <field name="employee_id"/>
                 <field name="input_shortcode"/>
                 <field name="output_shortcode"/>
                 <field name="pl_user_id"/>
@@ -325,7 +355,7 @@
                         domain="[('create_uid', '=', uid)]"/>
                 <filter name="my_pl" string="PL = me"
                         domain="[('pl_user_id', '=', uid)]"/>
-                <filter name="my_ql" string="QL = me"
+                <filter name="my_ql" string="QR = me"
                         domain="[('ql_user_id', '=', uid)]"/>
                 <separator/>
                 <filter name="pending" string="Pending"
@@ -355,7 +385,7 @@
                         context="{'group_by': 'final_decision'}"/>
                 <filter name="group_pl" string="Project Lead"
                         context="{'group_by': 'pl_user_id'}"/>
-                <filter name="group_ql" string="Quality Lead"
+                <filter name="group_ql" string="Quality Reviewer"
                         context="{'group_by': 'ql_user_id'}"/>
                 <filter name="group_month" string="Month"
                         context="{'group_by': 'timestamp:month'}"/>

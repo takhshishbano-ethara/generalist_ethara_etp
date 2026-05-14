@@ -90,6 +90,36 @@ spec:
               value: "aurora-worker:local"
             - name: AURORA_LOCAL_MODE
               value: "1"
+            - name: AURORA_REGISTRY_KIND
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-local-env
+                  key: AURORA_REGISTRY_KIND
+                  optional: true
+            - name: AURORA_ECR_REGISTRY
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-local-env
+                  key: AURORA_ECR_REGISTRY
+                  optional: true
+            - name: AURORA_ECR_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-local-env
+                  key: AURORA_ECR_REGION
+                  optional: true
+            - name: AURORA_AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-local-env
+                  key: AURORA_AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AURORA_AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aurora-local-env
+                  key: AURORA_AWS_SECRET_ACCESS_KEY
+                  optional: true
           volumeMounts:
             - name: odoo-config
               mountPath: /etc/odoo/odoo.conf

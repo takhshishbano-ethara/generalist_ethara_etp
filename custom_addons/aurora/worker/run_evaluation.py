@@ -178,6 +178,9 @@ _ALLOWED_EVAL_COLUMNS = frozenset({
     "final_report_file", "dataset_jsonl_url", "missing_registries", "patch_file", "repo_dir", "workdir",
     "output_dir", "last_heartbeat", "progress_text", "log", "s3_run_number",
     "base_dockerfile_content", "base_dockerfile_s3_uri",
+    # Tar-decision + ECR phase
+    "tar_decision_deadline", "oci_export_status",
+    "ecr_repository", "ecr_pushed_count", "ecr_manifest_s3_uri",
 })
 
 
@@ -243,7 +246,8 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         cur.execute(
             "SELECT dataset_file, patch_file, repo_dir, workdir, output_dir, "
             "force_build, max_workers_build, max_workers_run, docker_platform, "
-            "instance_limit, specific_prs, pipeline_id "
+            "instance_limit, specific_prs, pipeline_id, "
+            "tar_decision_window_minutes, staging_test_id "
             "FROM aurora_evaluation WHERE id = %s",
             (rec_id,),
         )
@@ -263,6 +267,8 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "instance_limit": row[9] or 0,
         "specific_prs": row[10] or "",
         "pipeline_id": row[11],
+        "tar_decision_window_minutes": int(row[12] or 0),
+        "staging_test_id": row[13],
     }
 
 
@@ -493,6 +499,28 @@ def run_evaluation(db_name: str, rec_id: int):
         # Read config
         cfg = _read_eval_config(conn, rec_id)
         _append_log(conn, rec_id, f"Config loaded: workdir={cfg['workdir']}")
+
+        # ── Multi-arch + ECR preflight (skipped for test-evals) ───────────
+        if not cfg.get("staging_test_id"):
+            platform_val = (cfg.get("docker_platform") or "").strip()
+            if "," not in platform_val:
+                msg = (
+                    f"Multi-arch is mandatory for full evaluations. "
+                    f"docker_platform must be comma-separated (e.g. "
+                    f"'linux/amd64,linux/arm64'). Got: {platform_val!r}"
+                )
+                _fail_eval(conn, rec_id, msg)
+                raise RuntimeError(msg)
+            import shutil as _shutil
+            if not _shutil.which("skopeo"):
+                msg = "skopeo not found in worker image; required for ECR push phase."
+                _fail_eval(conn, rec_id, msg)
+                raise RuntimeError(msg)
+            if not _shutil.which("aws"):
+                _logger.warning(
+                    "`aws` CLI not found in worker image — ECR auth token retrieval "
+                    "will fail. ECR push phase will surface this if invoked."
+                )
 
         if cfg.get("docker_platform"):
             _setup_buildx_builder()
@@ -862,6 +890,91 @@ def run_evaluation(db_name: str, rec_id: int):
                     _append_log(conn, rec_id, f"Final report uploaded to S3: {s3_key}")
                 except Exception as exc:
                     _logger.warning("Failed to upload final_report.json: %s", exc)
+
+        # ── Tar-decision window + optional ECR push ───────────────────────
+        # Test-evals (staging_test_id set) skip this phase entirely so the
+        # Test Harness dry-run stays fast.
+        if (
+            not cfg.get("staging_test_id")
+            and int(cfg.get("tar_decision_window_minutes", 0) or 0) > 0
+        ):
+            from datetime import datetime, timedelta
+            window_min = int(cfg["tar_decision_window_minutes"])
+            deadline = datetime.utcnow() + timedelta(minutes=window_min)
+            _update_eval(conn, rec_id, {
+                "stage": "awaiting_tar_decision",
+                "tar_decision_deadline": deadline,
+                "oci_export_status": "idle",
+            })
+            _append_log(conn, rec_id,
+                f"Awaiting tar export decision (window: {window_min} min). "
+                f"Report: {final_report_url or '<see S3>'}. "
+                f"Click 'Export OCI Tars' or 'Skip' on the eval form."
+            )
+
+            decision = "skip"
+            poll_start = time.time()
+            while datetime.utcnow() < deadline:
+                _heartbeat(conn, rec_id, "Awaiting tar decision")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT tar_decision FROM aurora_evaluation WHERE id = %s",
+                        (rec_id,),
+                    )
+                    row = cur.fetchone()
+                current = (row[0] if row else None) or "pending"
+                if current in ("export", "skip"):
+                    decision = current
+                    _append_log(conn, rec_id,
+                        f"Tar decision received: {decision} "
+                        f"(after {int(time.time() - poll_start)}s)."
+                    )
+                    break
+                _check_cancelled()
+                time.sleep(5)
+
+            if decision == "export":
+                _update_eval(conn, rec_id, {"oci_export_status": "running"})
+                _append_log(conn, rec_id, "Pushing resolved images to ECR...")
+                try:
+                    ecr_registry = os.environ.get("AURORA_ECR_REGISTRY", "").strip()
+                    ecr_region = os.environ.get("AURORA_ECR_REGION", "").strip()
+                    result = artifact_collector.push_resolved_images_to_ecr(
+                        conn, rec_id,
+                        workdir=cfg["workdir"],
+                        output_dir=cfg["output_dir"],
+                        instances=eval_config.instances,
+                        run_numbers=run_numbers,
+                        ecr_registry=ecr_registry,
+                        ecr_region=ecr_region,
+                        s3_config=s3_config, use_s3=use_s3,
+                        s3_folder=s3_folder, phase=phase,
+                    )
+                    final_status = "failed" if result.get("ecr_all_failed") else "done"
+                    _update_eval(conn, rec_id, {
+                        "oci_export_status": final_status,
+                        "ecr_repository": result.get("ecr_repository") or "",
+                        "ecr_pushed_count": result.get("ecr_pushed_count") or 0,
+                        "ecr_manifest_s3_uri": result.get("ecr_manifest_s3_uri") or "",
+                    })
+                    if final_status == "failed":
+                        _append_log(conn, rec_id,
+                            f"ECR push FAILED: 0 of the resolved instances pushed "
+                            f"successfully. See per-instance errors above."
+                        )
+                    else:
+                        _append_log(conn, rec_id,
+                            f"ECR push complete: {result.get('ecr_pushed_count')} image(s) pushed "
+                            f"to {result.get('ecr_repository')}."
+                        )
+                except Exception as exc:
+                    _update_eval(conn, rec_id, {"oci_export_status": "failed"})
+                    _append_log(conn, rec_id, f"ECR push failed: {exc}")
+                    _logger.exception("ECR push failed for eval=%s", rec_id)
+            else:
+                _update_eval(conn, rec_id, {"oci_export_status": "skipped"})
+                reason = decision if decision == "skip" else "timeout"
+                _append_log(conn, rec_id, f"ECR push skipped ({reason}).")
 
         # ── Finalize ──────────────────────────────────────────────────────
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"

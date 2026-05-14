@@ -117,6 +117,19 @@ class AuroraEvaluationInstance(models.Model):
     report_json_s3_uri = fields.Char(string="Report (S3)", readonly=True)
     fix_patch_s3_uri = fields.Char(string="fix.patch (S3)", readonly=True)
     oci_tar_s3_uri = fields.Char(string="OCI Image Tar (S3)", readonly=True)
+    ecr_image_uri = fields.Char(
+        string="ECR Image URI",
+        readonly=True,
+        help="Multi-arch image reference in ECR (e.g. "
+             "<account>.dkr.ecr.<region>.amazonaws.com/aurora/<org>__<repo>:pr-<n>). "
+             "Populated after Export OCI Tars is confirmed and skopeo push completes.",
+    )
+    ecr_image_digest = fields.Char(
+        string="ECR Image Digest",
+        readonly=True,
+        help="Manifest list digest captured from the ECR push (e.g. sha256:abc...). "
+             "Stable handle even if the mutable tag is later overwritten by a rerun.",
+    )
 
     dockerfile_local_path = fields.Char(string="Dockerfile (local)", readonly=True)
     build_log_local_path = fields.Char(string="Build Log (local)", readonly=True)

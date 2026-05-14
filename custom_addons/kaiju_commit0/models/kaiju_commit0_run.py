@@ -63,6 +63,9 @@ class KaijuCommit0Run(models.Model):
     run_end = fields.Datetime(string="Run End", readonly=True)
     run_log = fields.Text(string="Run Log")
     workflow_name = fields.Char(string="Run Workflow", readonly=True)
+    step_ids = fields.One2many(
+        "kaiju.commit0.workflow.step", "run_id", string="Workflow Steps"
+    )
 
     # ── Metrics ──────────────────────────────────────────────────────────────
 
@@ -129,7 +132,7 @@ class KaijuCommit0Run(models.Model):
         parameters = {
             "repo_name": build.repo_name,
             "language": build.language,
-            "branch_name": build.branch_name or "commit0_combined",
+            "branch_name": "commit0_combined",  # constant; pipeline hardcodes commit0_all internally
             "model_preset": model_preset_map.get(self.model_name, self.model_name),
             "num_samples": str(self.num_samples),
             "max_iteration": str(self.max_iteration),
@@ -213,6 +216,15 @@ class KaijuCommit0Run(models.Model):
 
             phase = status.get("phase", "")
             progress = status.get("progress", "")
+            previous_status = run.run_status
+
+            # Sync per-step records on every poll so the UI updates progressively
+            try:
+                run._sync_steps()
+            except Exception as e:
+                _logger.warning(
+                    "Failed to sync steps for run %s: %s", run.name, e
+                )
 
             if phase in ("Succeeded",):
                 run.write(
@@ -231,7 +243,7 @@ class KaijuCommit0Run(models.Model):
                         "run_status": "failed",
                         "run_end": fields.Datetime.now(),
                         "run_log": self._append_log(
-                            run.run_log, f"Workflow failed: {phase} — {message}"
+                            run.run_log, f"Workflow failed: {phase} \u2014 {message}"
                         ),
                     }
                 )
@@ -243,6 +255,78 @@ class KaijuCommit0Run(models.Model):
                         ),
                     }
                 )
+
+            # On running → terminal transition, persist all step logs once
+            if (
+                previous_status == "running"
+                and run.run_status in ("done", "failed")
+            ):
+                try:
+                    run._persist_step_logs()
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to persist step logs for run %s: %s",
+                        run.name,
+                        e,
+                    )
+
+    # ── Step Sync & Log Persistence ─────────────────────────────────
+
+    def _sync_steps(self):
+        """Fetch workflow nodes from Argo and upsert step records."""
+        self.ensure_one()
+        if not self.workflow_name:
+            return
+        argo = self.env["kaiju.argo.client"]
+        nodes = argo.list_workflow_nodes(self.workflow_name)
+        if not nodes:
+            return
+        Step = self.env["kaiju.commit0.workflow.step"]
+        # Lazy import to avoid circular reference at module load
+        from .kaiju_commit0 import _parse_argo_dt
+        existing = {s.node_id: s for s in self.step_ids}
+        for node in nodes:
+            node_id = node.get("id") or ""
+            if not node_id:
+                continue
+            vals = {
+                "display_name": node.get("displayName") or node.get("name") or node_id,
+                "pod_name": node_id,
+                "template_name": node.get("templateName") or "",
+                "node_type": node.get("type") or "Pod",
+                "phase": node.get("phase") or "Pending",
+                "message": node.get("message") or "",
+                "started_at": _parse_argo_dt(node.get("startedAt")),
+                "finished_at": _parse_argo_dt(node.get("finishedAt")),
+            }
+            if node_id in existing:
+                existing[node_id].write(vals)
+            else:
+                vals["node_id"] = node_id
+                vals["run_id"] = self.id
+                Step.create(vals)
+
+    def _persist_step_logs(self):
+        """Fetch and persist logs for every Pod-type step. Called once on
+        running → terminal transition so logs survive Argo pod GC."""
+        self.ensure_one()
+        for step in self.step_ids:
+            if step.node_type != "Pod" or not step.pod_name:
+                continue
+            step.action_fetch_logs()
+
+    def action_fetch_all_step_logs(self):
+        """Manual trigger: sync step list from Argo, then fetch logs for each step."""
+        self.ensure_one()
+        if not self.workflow_name:
+            from odoo.exceptions import UserError
+            raise UserError("No workflow has been submitted for this run yet.")
+        try:
+            self._sync_steps()
+        except Exception as e:
+            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
+        self.step_ids.action_fetch_logs()
+        return {"type": "ir.actions.client", "tag": "reload"}
 
     @staticmethod
     def _append_log(existing_log, new_line):

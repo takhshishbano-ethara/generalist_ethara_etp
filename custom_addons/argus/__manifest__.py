@@ -32,6 +32,15 @@ Features
         "base",
         "mail",
         "web",
+        # task_forge_core pulls in task_forge_bridge transitively,
+        # which is where the hr.employee role hierarchy fields live
+        # (``task_forge_pl_id`` / ``task_forge_qr_id`` / ``task_forge_active``).
+        # Argus reuses that hierarchy on new tasks: the Tasker picks
+        # an Employee on the form, and the PL / QL slots auto-fill
+        # from the employee's PL / QR pointers.  Listing
+        # task_forge_core here means installing Argus pulls in
+        # core + bridge + their transitive deps in one go.
+        "task_forge_core",
     ],
     "external_dependencies": {
         # ``requests`` powers the Bedrock Converse call in

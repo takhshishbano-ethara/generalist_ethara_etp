@@ -29,8 +29,15 @@
         <field name="comment">Sees every task; can start / submit / annotate.</field>
     </record>
 
+    <!--
+        Internal group XML-ID stays ``group_argus_ql`` for backward
+        compatibility with security.xml / ir.model.access.csv rows.
+        The visible label is "Quality Reviewer (QR)" — Argus aligns with
+        Task Forge's role taxonomy where the relevant employee
+        relationship is ``task_forge_qr_id``.
+    -->
     <record id="group_argus_ql" model="res.groups">
-        <field name="name">Quality Lead (QL)</field>
+        <field name="name">Quality Reviewer (QR)</field>
         <field name="privilege_id" ref="privilege_argus"/>
         <field name="implied_ids" eval="[(4, ref('group_argus_user'))]"/>
         <field name="comment">Sees every task; controls qc_status + ql_remarks.</field>
