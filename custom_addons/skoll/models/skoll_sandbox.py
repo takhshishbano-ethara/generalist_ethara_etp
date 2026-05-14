@@ -3040,6 +3040,14 @@ class SkollSandbox(models.Model):
         if trajectory_json:
             if isinstance(trajectory_json, list):
                 trajectory_json = json.dumps(trajectory_json, ensure_ascii=False)
+            try:
+                msgs = json.loads(trajectory_json)
+                if isinstance(msgs, list):
+                    main_key = "odoo:sandbox:%s" % sandbox_id
+                    self._attribute_session_keys(msgs, main_key)
+                    trajectory_json = json.dumps(msgs, ensure_ascii=False)
+            except (json.JSONDecodeError, TypeError):
+                pass
             turn.write({"trajectory_messages": trajectory_json})
 
         return {"success": True}
