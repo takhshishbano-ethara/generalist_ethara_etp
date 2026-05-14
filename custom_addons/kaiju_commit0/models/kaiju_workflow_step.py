@@ -119,9 +119,12 @@ class KaijuWorkflowStep(models.Model):
         """Re-fetch logs from Argo for the selected steps.
 
         On failure (pod GC'd, network error, empty result), preserves
-        the existing cached log_text and logs a warning.
+        the existing cached log_text and logs a warning. Returns a UI reload.
         """
         argo = self.env["kaiju.argo.client"]
+        fetched = 0
+        skipped = 0
+        failed = 0
         for step in self:
             workflow_name = step.workflow_name
             if not workflow_name or not step.pod_name:
@@ -129,16 +132,19 @@ class KaijuWorkflowStep(models.Model):
                     "Skipping log fetch for step %s — missing workflow or pod name",
                     step.display_name or step.node_id,
                 )
+                skipped += 1
                 continue
             try:
                 logs = argo.get_pod_logs(workflow_name, step.pod_name)
             except RuntimeError as e:
                 _logger.warning(
-                    "Failed to fetch logs for step %s (pod=%s): %s",
+                    "Failed to fetch logs for step %s (workflow=%s pod=%s): %s",
                     step.display_name or step.node_id,
+                    workflow_name,
                     step.pod_name,
                     e,
                 )
+                failed += 1
                 continue
 
             if logs:
@@ -148,9 +154,22 @@ class KaijuWorkflowStep(models.Model):
                         "log_fetched_at": fields.Datetime.now(),
                     }
                 )
+                _logger.info(
+                    "Fetched %d bytes of logs for step %s (pod=%s)",
+                    len(logs),
+                    step.display_name or step.node_id,
+                    step.pod_name,
+                )
+                fetched += 1
             else:
                 _logger.info(
-                    "Empty logs returned for step %s — keeping cached value",
+                    "Empty logs returned for step %s (pod=%s) — keeping cached value",
                     step.display_name or step.node_id,
+                    step.pod_name,
                 )
+                skipped += 1
+        _logger.info(
+            "action_fetch_logs summary: fetched=%d skipped=%d failed=%d",
+            fetched, skipped, failed,
+        )
         return {"type": "ir.actions.client", "tag": "reload"}

@@ -315,6 +315,19 @@ class KaijuCommit0Run(models.Model):
                 continue
             step.action_fetch_logs()
 
+    def action_fetch_all_step_logs(self):
+        """Manual trigger: sync step list from Argo, then fetch logs for each step."""
+        self.ensure_one()
+        if not self.workflow_name:
+            from odoo.exceptions import UserError
+            raise UserError("No workflow has been submitted for this run yet.")
+        try:
+            self._sync_steps()
+        except Exception as e:
+            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
+        self.step_ids.action_fetch_logs()
+        return {"type": "ir.actions.client", "tag": "reload"}
+
     @staticmethod
     def _append_log(existing_log, new_line):
         from datetime import datetime

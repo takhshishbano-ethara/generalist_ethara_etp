@@ -50,6 +50,13 @@
                             class="btn-secondary"
                             invisible="not config_valid or build_status == 'running'"
                             confirm="This will reset configuration and build. Runs are kept. Continue?"/>
+
+                    <button name="action_fetch_all_step_logs" type="object"
+                            string="Fetch Logs from Argo"
+                            class="btn-secondary"
+                            icon="fa-cloud-download"
+                            invisible="not workflow_name"
+                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
                 </header>
 
                 <sheet>
