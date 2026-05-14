@@ -1,5 +1,5 @@
 {
-    "name": "Skoll",
+    "name": "Skoll Backup",
     "version": "19.0.7.0.0",
     "category": "Tools",
     "summary": "Skoll — LLM task management with sandbox environments",
