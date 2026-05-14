@@ -173,6 +173,23 @@ class AuroraEvaluation(models.Model):
         help="Comma-separated: 'org/repo:pr-123,org/repo:pr-456'. Empty = all.",
     )
 
+    staging_test_id = fields.Many2one(
+        "aurora.harness.staging",
+        string="Staging Test For",
+        readonly=True,
+        index=True,
+        ondelete="set null",
+        help="Set when this evaluation is a Test Harness dry-run dispatched "
+             "from the staging form. Hidden from the default Evaluations list.",
+    )
+    test_eval_promoted = fields.Boolean(
+        string="Test Result Promoted",
+        default=False,
+        readonly=True,
+        help="True once the cron has mirrored this test-eval's terminal "
+             "status back to the linked staging record.",
+    )
+
     build_status = fields.Selection(EVAL_STATUS, default="idle", string="Build Images")
     run_status = fields.Selection(EVAL_STATUS, default="idle", string="Run Instances")
     report_status = fields.Selection(EVAL_STATUS, default="idle", string="Generate Reports")
@@ -1025,4 +1042,50 @@ class AuroraEvaluation(models.Model):
                 body="Evaluation marked as failed by watchdog (no heartbeat for 15+ minutes).",
                 message_type="comment",
                 subtype_xmlid="mail.mt_note",
+            )
+
+    @api.model
+    def _cron_promote_finished_test_eval(self):
+        """Mirror terminal test-eval status back to the linked staging row.
+
+        Picks up evals dispatched by aurora.harness.staging.action_test_harness
+        (staging_test_id set), once they reach a terminal stage. The worker
+        writes eval.stage='done'/'failed' via raw SQL (bypassing the ORM), so
+        this cron is how the staging row learns the outcome.
+
+        Success rule: eval.stage='done' AND resolved/total >= 50% -> staging
+        test_result='success'. Anything else -> 'failed'. Either way, staging
+        stage flips to 'tested'.
+        """
+        finished = self.sudo().search([
+            ("staging_test_id", "!=", False),
+            ("stage", "in", list(EVAL_TERMINAL_STATES)),
+            ("test_eval_promoted", "=", False),
+        ])
+        for rec in finished:
+            staging = rec.staging_test_id
+            if not staging:
+                rec.test_eval_promoted = True
+                continue
+            ratio = 0.0
+            if rec.stage == "done" and rec.total_instances:
+                ratio = rec.resolved_instances / rec.total_instances
+            success = rec.stage == "done" and ratio >= 0.5
+            tail = (rec.log or "")[-2000:]
+            summary = (
+                f"K8s test eval #{rec.id} finished: stage={rec.stage}, "
+                f"resolved={rec.resolved_instances}/{rec.total_instances} "
+                f"(threshold 50%). Result: "
+                f"{'success' if success else 'failed'}.\n"
+                f"--- eval log tail ---\n{tail}"
+            )
+            staging.sudo().write({
+                "stage": "tested",
+                "test_result": "success" if success else "failed",
+                "test_log": summary,
+            })
+            rec.sudo().write({"test_eval_promoted": True})
+            _logger.info(
+                "Promoted test-eval %s -> staging %s (%s)",
+                rec.id, staging.id, "success" if success else "failed",
             )
