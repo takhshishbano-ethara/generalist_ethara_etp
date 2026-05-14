@@ -138,7 +138,9 @@ class TaskForgeDashboardController(http.Controller):
             tasker_group = request.env.ref('etp_user_roles.group_tasker')
             taskers = Employee.search([
                 ('task_forge_active', '=', True),
-                ('user_id.groups_id', 'in', [tasker_group.id]),
+                # Odoo 19: res.users.groups_id → all_group_ids for the
+                # full (implied-inclusive) membership set.
+                ('user_id.all_group_ids', 'in', [tasker_group.id]),
             ])
 
             rankings = []
@@ -327,7 +329,9 @@ class TaskForgeDashboardController(http.Controller):
 
             pl_group = request.env.ref('etp_user_roles.group_project_lead')
             pls = Employee.search([
-                ('user_id.groups_id', 'in', [pl_group.id]),
+                # Odoo 19: res.users.groups_id → all_group_ids for the
+                # full (implied-inclusive) membership set.
+                ('user_id.all_group_ids', 'in', [pl_group.id]),
                 ('task_forge_active', '=', True),
             ])
 

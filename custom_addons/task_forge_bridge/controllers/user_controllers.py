@@ -95,7 +95,9 @@ class TaskForgeUserController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
             pl_group = request.env.ref('etp_user_roles.group_project_lead')
             pls = Employee.search([
-                ('user_id.groups_id', 'in', [pl_group.id]),
+                # Odoo 19: res.users.groups_id → all_group_ids for the
+                # full (implied-inclusive) membership set.
+                ('user_id.all_group_ids', 'in', [pl_group.id]),
                 ('task_forge_active', '=', True),
             ])
             data = [{'id': p.id, 'name': p.name} for p in pls]
@@ -110,7 +112,9 @@ class TaskForgeUserController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
             qr_group = request.env.ref('etp_user_roles.group_quality_reviewer')
             domain = [
-                ('user_id.groups_id', 'in', [qr_group.id]),
+                # Odoo 19: res.users.groups_id → all_group_ids for the
+                # full (implied-inclusive) membership set.
+                ('user_id.all_group_ids', 'in', [qr_group.id]),
                 ('task_forge_active', '=', True),
             ]
             pl_id = kwargs.get('pl_id')

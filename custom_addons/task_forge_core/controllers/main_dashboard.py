@@ -90,6 +90,13 @@ STATUS_LABEL_MAP = {
 
 CATEGORY_VALUES = ('stem', 'non_stem', 'technical')
 
+# Two independent status conventions for "currently running" projects coexist
+# across Task Forge:
+#   - task_forge_status == 'live'                 (task_forge_bridge)
+#   - non_stemp_project_status in (...)           (project_extension, non-STEM)
+# The Founder dashboard treats a project as live when EITHER holds.
+RUNNING_NON_STEM_STATUSES = ['not_started', 'production']
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -155,6 +162,16 @@ def _project_ids_in_category(kw):
     return Project.search(domain).ids
 
 
+def _live_project_domain():
+    """OR-combined 'running project' domain. Fresh list each call so callers
+    can safely append/extend additional AND terms."""
+    return [
+        '|',
+        ('task_forge_status', '=', 'live'),
+        ('non_stemp_project_status', 'in', RUNNING_NON_STEM_STATUSES),
+    ]
+
+
 def _require_cto(user):
     # Role gate intentionally disabled: any @validate_token authenticated user can access these endpoints.
     return None
@@ -194,7 +211,7 @@ def _workforce_breakdown():
     """Return dict with counts of taskers / qr / pl / total active.
 
     Uses `_get_task_forge_role()` per employee because the role is derived
-    from `res.users.groups_id` / `user_role` - not stored directly on the
+    from `res.users.all_group_ids` / `user_role` - not stored directly on the
     employee - so we can't use a single read_group. Cached per-request via
     the Odoo recordset iteration (still O(N) but only one SQL call).
     """
@@ -210,7 +227,8 @@ def _workforce_breakdown():
     return {
         'total': total,
         'taskers': counts.get('tasker', 0),
-        'qr': counts.get('qr', 0) + counts.get('ql', 0),
+        # 'qr': counts.get('qr', 0) + counts.get('ql', 0),
+        'qr': counts.get('qr', 0),
         'pl': counts.get('pl', 0),
         'admin': counts.get('admin', 0),
         'active_percent': round((total / total * 100) if total else 0, 0),
@@ -307,8 +325,8 @@ class MainDashboardController(http.Controller):
             completed_today = TaskLog.search_count(completed_today_domain)
             completed_yesterday = TaskLog.search_count(completed_yesterday_domain)
 
-            # --- Active projects (task_forge_status = live) ---
-            active_proj_domain = [('task_forge_status', '=', 'live')]
+            # --- Active projects (live per either status convention) ---
+            active_proj_domain = _live_project_domain()
             if project_ids is not None:
                 active_proj_domain.append(('id', 'in', project_ids))
             active_projects = Project.search(active_proj_domain)
@@ -647,7 +665,7 @@ class MainDashboardController(http.Controller):
 
             health_filter = kw.get('health')  # healthy | warning | at_risk | None
 
-            proj_domain = [('task_forge_status', '=', 'live')]
+            proj_domain = _live_project_domain()
             proj_domain += _category_domain(kw)
 
             try:
@@ -955,7 +973,7 @@ class MainDashboardController(http.Controller):
             if project_ids is not None:
                 pl_log_domain.append(('project_id', 'in', project_ids))
 
-            pl_project_domain = [('task_forge_status', '=', 'live')]
+            pl_project_domain = _live_project_domain()
             if project_ids is not None:
                 pl_project_domain.append(('id', 'in', project_ids))
             live_projects = Project.search(pl_project_domain)
@@ -1285,7 +1303,7 @@ class MainDashboardController(http.Controller):
             Employee = request.env['hr.employee'].sudo()
             TaskLog = request.env['task.forge.log'].sudo()
 
-            base_project_domain = [('task_forge_status', '=', 'live')]
+            base_project_domain = _live_project_domain()
             if category_pids is not None:
                 base_project_domain.append(('id', 'in', category_pids))
 
