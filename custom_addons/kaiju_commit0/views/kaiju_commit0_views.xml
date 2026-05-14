@@ -138,6 +138,25 @@
                         <field name="build_log" widget="commit0_terminal"
                                invisible="not build_log"/>
 
+                        <div invisible="build_status == 'pending'">
+                            <h5 class="mt-3 mb-2">Workflow Steps</h5>
+                            <p class="text-muted small">Per-step status from Argo. Click a step to view its full pod logs.</p>
+                            <field name="step_ids" readonly="1">
+                                <list>
+                                    <field name="display_name" string="Step"/>
+                                    <field name="phase" widget="badge"
+                                           decoration-info="phase == 'Pending'"
+                                           decoration-warning="phase == 'Running'"
+                                           decoration-success="phase == 'Succeeded'"
+                                           decoration-danger="phase in ('Failed', 'Error')"
+                                           decoration-muted="phase in ('Skipped', 'Omitted')"/>
+                                    <field name="started_at"/>
+                                    <field name="finished_at"/>
+                                    <field name="log_fetched_at" optional="hide"/>
+                                </list>
+                            </field>
+                        </div>
+
                         <div class="c0-output-paths" invisible="build_status != 'done'">
                             <h5 class="mt-3 mb-2">Build Outputs</h5>
                             <group>

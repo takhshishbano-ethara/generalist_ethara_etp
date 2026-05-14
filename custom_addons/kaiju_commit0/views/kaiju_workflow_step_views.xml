@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         LIST VIEW — Workflow Steps
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="view_kaiju_workflow_step_tree" model="ir.ui.view">
+        <field name="name">kaiju.commit0.workflow.step.list</field>
+        <field name="model">kaiju.commit0.workflow.step</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="display_name" string="Step"/>
+                <field name="phase" widget="badge"
+                       decoration-info="phase == 'Pending'"
+                       decoration-warning="phase == 'Running'"
+                       decoration-success="phase == 'Succeeded'"
+                       decoration-danger="phase in ('Failed', 'Error')"
+                       decoration-muted="phase in ('Skipped', 'Omitted')"/>
+                <field name="started_at"/>
+                <field name="finished_at" optional="show"/>
+                <field name="pod_name" optional="hide"/>
+                <field name="template_name" optional="hide"/>
+                <field name="log_fetched_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         FORM VIEW — Workflow Step (with terminal log viewer)
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="view_kaiju_workflow_step_form" model="ir.ui.view">
+        <field name="name">kaiju.commit0.workflow.step.form</field>
+        <field name="model">kaiju.commit0.workflow.step</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_fetch_logs" type="object"
+                            string="Refresh Logs from Argo"
+                            class="btn-primary"
+                            icon="fa-refresh"/>
+                    <field name="phase" widget="statusbar"
+                           statusbar_visible="Pending,Running,Succeeded,Failed"/>
+                </header>
+
+                <sheet>
+                    <div class="oe_title mb-0">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group string="Identifiers">
+                            <field name="node_id"/>
+                            <field name="pod_name"/>
+                            <field name="template_name"/>
+                            <field name="node_type"/>
+                        </group>
+                        <group string="Timing">
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="log_fetched_at"/>
+                            <field name="workflow_name"/>
+                        </group>
+                    </group>
+
+                    <group invisible="not message">
+                        <field name="message" readonly="1"/>
+                    </group>
+
+                    <notebook>
+                        <page string="Logs" name="logs">
+                            <field name="log_text" widget="commit0_terminal" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         ACTION — Standalone steps browser (optional, not menu-linked)
+         ════════════════════════════════════════════════════════════════════ -->
+
+    <record id="action_kaiju_workflow_step" model="ir.actions.act_window">
+        <field name="name">Workflow Steps</field>
+        <field name="res_model">kaiju.commit0.workflow.step</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

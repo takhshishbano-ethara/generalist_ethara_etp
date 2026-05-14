@@ -7,6 +7,8 @@ query status, stop, and terminate workflows via Argo Server's HTTP API.
 
 import json
 import logging
+import ssl
+import urllib.parse
 import urllib.error
 import urllib.request
 
@@ -204,3 +206,132 @@ class ArgoClient(models.AbstractModel):
             {},
         )
         _logger.info("Terminated workflow %s", workflow_name)
+
+    # ── Streaming helper ────────────────────────────────────────────────────
+
+    def _request_stream(self, method, path, params=None, timeout=60):
+        """Execute HTTP request and return raw response body as string.
+
+        Used for SSE / streaming endpoints (e.g. pod logs) where the
+        response is NOT JSON.
+        """
+        config = self._get_config()
+        url = f"{config['base_url']}{path}"
+        if params:
+            url = f"{url}?{urllib.parse.urlencode(params)}"
+        token = self._get_token(config)
+
+        req = urllib.request.Request(url, method=method)
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+
+        ctx = None
+        if not config["verify_tls"]:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                return resp.read().decode()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return ""
+            body_text = e.read().decode() if e.fp else ""
+            _logger.error(
+                "Argo API error: %s %s → HTTP %d: %s",
+                method,
+                url,
+                e.code,
+                body_text[:500],
+            )
+            raise RuntimeError(
+                f"Argo API request failed: HTTP {e.code} — {body_text[:200]}"
+            ) from e
+        except urllib.error.URLError as e:
+            _logger.error(
+                "Argo API connection error: %s %s → %s", method, url, e.reason
+            )
+            raise RuntimeError(
+                f"Cannot reach Argo Server at {config['base_url']}: {e.reason}"
+            ) from e
+
+    # ── Workflow node listing ──────────────────────────────────────────────
+
+    def list_workflow_nodes(self, workflow_name):
+        """Return list of Pod-typed node dicts from a workflow's status.nodes.
+
+        Each dict: {id, name, displayName, type, phase, templateName,
+                     message, startedAt, finishedAt}.
+        Returns [] if workflow not found (404) or has no nodes.
+        """
+        config = self._get_config()
+        namespace = config["namespace"]
+
+        try:
+            result = self._request(
+                "GET", f"/api/v1/workflows/{namespace}/{workflow_name}"
+            )
+        except RuntimeError:
+            return []
+
+        nodes = result.get("status", {}).get("nodes", {})
+        if not nodes:
+            return []
+
+        pod_nodes = []
+        for node_id, node in nodes.items():
+            if node.get("type") != "Pod":
+                continue
+            pod_nodes.append({
+                "id": node.get("id", node_id),
+                "name": node.get("name", ""),
+                "displayName": node.get("displayName", ""),
+                "type": node.get("type", ""),
+                "phase": node.get("phase", ""),
+                "templateName": node.get("templateName", ""),
+                "message": node.get("message", ""),
+                "startedAt": node.get("startedAt", ""),
+                "finishedAt": node.get("finishedAt", ""),
+            })
+        return pod_nodes
+
+    # ── Pod log fetching ───────────────────────────────────────────────────
+
+    def get_pod_logs(self, workflow_name, pod_name, container="main", tail_lines=None):
+        """Fetch logs for a single pod via Argo SSE log endpoint.
+
+        Parses SSE stream lines and returns concatenated log content.
+        Returns empty string on 404 or if no data.
+        Raises RuntimeError on other HTTP errors.
+        """
+        config = self._get_config()
+        namespace = config["namespace"]
+
+        params = {
+            "podName": pod_name,
+            "logOptions.container": container,
+            "logOptions.follow": "false",
+        }
+        if tail_lines is not None:
+            params["logOptions.tailLines"] = str(tail_lines)
+
+        path = f"/api/v1/workflows/{namespace}/{workflow_name}/log"
+        raw = self._request_stream("GET", path, params=params, timeout=60)
+        if not raw:
+            return ""
+
+        output_lines = []
+        for line in raw.splitlines():
+            if not line.startswith("data: "):
+                continue
+            try:
+                evt = json.loads(line[6:])
+                result = evt.get("result", {})
+                content = result.get("content")
+                if content:
+                    output_lines.append(content)
+            except json.JSONDecodeError:
+                continue
+        return "\n".join(output_lines)

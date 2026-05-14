@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from datetime import datetime, timezone
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -10,6 +11,21 @@ PHASE_ORDER = ["config", "build"]
 
 BUILD_WORKFLOW_TEMPLATE = "kaiju-build-pipeline"
 
+
+def _parse_argo_dt(value):
+    """Parse an Argo RFC3339 timestamp into a naive UTC datetime suitable
+    for an Odoo Datetime field. Returns False on empty / invalid input."""
+    if not value:
+        return False
+    try:
+        # Argo emits e.g. '2026-05-14T06:16:53Z' or '...+00:00'
+        text = value.replace("Z", "+00:00") if value.endswith("Z") else value
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except (ValueError, TypeError):
+        return False
 
 class KaijuCommit0(models.Model):
     _name = "kaiju.commit0"
@@ -80,6 +96,9 @@ class KaijuCommit0(models.Model):
     # ── Runs ─────────────────────────────────────────────────────────────────
 
     run_ids = fields.One2many("kaiju.commit0.run", "build_id", string="Runs")
+    step_ids = fields.One2many(
+        "kaiju.commit0.workflow.step", "build_id", string="Workflow Steps"
+    )
     run_count = fields.Integer(string="Run Count", compute="_compute_run_count")
 
     # ── Computed ─────────────────────────────────────────────────────────────
@@ -310,6 +329,15 @@ class KaijuCommit0(models.Model):
 
             phase = status.get("phase", "")
             progress = status.get("progress", "")
+            previous_status = build.build_status
+
+            # Sync per-step records on every poll so the UI updates progressively
+            try:
+                build._sync_steps()
+            except Exception as e:
+                _logger.warning(
+                    "Failed to sync steps for build %s: %s", build.name, e
+                )
 
             if phase in ("Succeeded",):
                 build.write(
@@ -328,7 +356,7 @@ class KaijuCommit0(models.Model):
                         "build_status": "failed",
                         "build_end": fields.Datetime.now(),
                         "build_log": self._append_log(
-                            build.build_log, f"Workflow failed: {phase} — {message}"
+                            build.build_log, f"Workflow failed: {phase} \u2014 {message}"
                         ),
                     }
                 )
@@ -342,6 +370,63 @@ class KaijuCommit0(models.Model):
                     }
                 )
 
+            # On running → terminal transition, persist all step logs once
+            # so they survive Argo pod garbage collection.
+            if (
+                previous_status == "running"
+                and build.build_status in ("done", "failed")
+            ):
+                try:
+                    build._persist_step_logs()
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to persist step logs for build %s: %s",
+                        build.name,
+                        e,
+                    )
+
+    # ── Step Sync & Log Persistence ─────────────────────────────────
+
+    def _sync_steps(self):
+        """Fetch workflow nodes from Argo and upsert step records."""
+        self.ensure_one()
+        if not self.workflow_name:
+            return
+        argo = self.env["kaiju.argo.client"]
+        nodes = argo.list_workflow_nodes(self.workflow_name)
+        if not nodes:
+            return
+        Step = self.env["kaiju.commit0.workflow.step"]
+        existing = {s.node_id: s for s in self.step_ids}
+        for node in nodes:
+            node_id = node.get("id") or ""
+            if not node_id:
+                continue
+            vals = {
+                "display_name": node.get("displayName") or node.get("name") or node_id,
+                "pod_name": node_id,
+                "template_name": node.get("templateName") or "",
+                "node_type": node.get("type") or "Pod",
+                "phase": node.get("phase") or "Pending",
+                "message": node.get("message") or "",
+                "started_at": _parse_argo_dt(node.get("startedAt")),
+                "finished_at": _parse_argo_dt(node.get("finishedAt")),
+            }
+            if node_id in existing:
+                existing[node_id].write(vals)
+            else:
+                vals["node_id"] = node_id
+                vals["build_id"] = self.id
+                Step.create(vals)
+
+    def _persist_step_logs(self):
+        """Fetch and persist logs for every Pod-type step. Called once on
+        running → terminal transition so logs survive Argo pod GC."""
+        self.ensure_one()
+        for step in self.step_ids:
+            if step.node_type != "Pod" or not step.pod_name:
+                continue
+            step.action_fetch_logs()
     @staticmethod
     def _append_log(existing_log, new_line):
         from datetime import datetime
