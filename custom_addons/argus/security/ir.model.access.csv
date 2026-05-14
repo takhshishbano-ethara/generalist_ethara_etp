@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_argus_task_user,argus.task.user,model_argus_task,group_argus_user,1,1,1,0
+access_argus_task_pl,argus.task.pl,model_argus_task,group_argus_pl,1,1,1,0
+access_argus_task_ql,argus.task.ql,model_argus_task,group_argus_ql,1,1,0,0
+access_argus_task_manager,argus.task.manager,model_argus_task,group_argus_manager,1,1,1,1
+access_argus_video_preview_user,argus.video.preview.user,model_argus_video_preview_wizard,group_argus_user,1,1,1,1
+access_argus_video_preview_pl,argus.video.preview.pl,model_argus_video_preview_wizard,group_argus_pl,1,1,1,1
+access_argus_video_preview_ql,argus.video.preview.ql,model_argus_video_preview_wizard,group_argus_ql,1,1,1,1
+access_argus_video_preview_manager,argus.video.preview.manager,model_argus_video_preview_wizard,group_argus_manager,1,1,1,1

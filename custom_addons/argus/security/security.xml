@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="0">
+
+    <!-- Privilege category (Odoo 19 groups attach to res.groups.privilege,
+         not to the legacy ir.module.category directly). -->
+    <record id="module_category_argus" model="ir.module.category">
+        <field name="name">Argus</field>
+        <field name="description">Roles for the Argus video review module.</field>
+        <field name="sequence">35</field>
+    </record>
+
+    <record id="privilege_argus" model="res.groups.privilege">
+        <field name="name">Argus</field>
+        <field name="sequence">35</field>
+        <field name="category_id" ref="module_category_argus"/>
+    </record>
+
+    <!-- ============================ Groups ============================ -->
+    <record id="group_argus_user" model="res.groups">
+        <field name="name">Argus User</field>
+        <field name="privilege_id" ref="privilege_argus"/>
+        <field name="comment">Create tasks; see own + assigned tasks.</field>
+    </record>
+
+    <record id="group_argus_pl" model="res.groups">
+        <field name="name">Project Lead (PL)</field>
+        <field name="privilege_id" ref="privilege_argus"/>
+        <field name="implied_ids" eval="[(4, ref('group_argus_user'))]"/>
+        <field name="comment">Sees every task; can start / submit / annotate.</field>
+    </record>
+
+    <record id="group_argus_ql" model="res.groups">
+        <field name="name">Quality Lead (QL)</field>
+        <field name="privilege_id" ref="privilege_argus"/>
+        <field name="implied_ids" eval="[(4, ref('group_argus_user'))]"/>
+        <field name="comment">Sees every task; controls qc_status + ql_remarks.</field>
+    </record>
+
+    <record id="group_argus_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="privilege_id" ref="privilege_argus"/>
+        <field name="implied_ids" eval="[
+            (4, ref('group_argus_pl')),
+            (4, ref('group_argus_ql')),
+        ]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="comment">Full control — only role that can flip final_decision.</field>
+    </record>
+
+    <!-- ========================== Record rules ========================= -->
+    <!-- Users see only the tasks they own (create_uid) or are assigned
+         to (pl_user_id / ql_user_id).  Leads and managers see all. -->
+    <record id="rule_argus_user_own" model="ir.rule">
+        <field name="name">Argus: users see own / assigned tasks</field>
+        <field name="model_id" ref="model_argus_task"/>
+        <field name="domain_force">[
+            '|', '|',
+            ('create_uid', '=', user.id),
+            ('pl_user_id', '=', user.id),
+            ('ql_user_id', '=', user.id),
+        ]</field>
+        <field name="groups" eval="[(4, ref('group_argus_user'))]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="rule_argus_pl_all" model="ir.rule">
+        <field name="name">Argus: project leads see all</field>
+        <field name="model_id" ref="model_argus_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_argus_pl'))]"/>
+    </record>
+
+    <record id="rule_argus_ql_all" model="ir.rule">
+        <field name="name">Argus: quality leads see all</field>
+        <field name="model_id" ref="model_argus_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_argus_ql'))]"/>
+    </record>
+
+    <record id="rule_argus_manager_all" model="ir.rule">
+        <field name="name">Argus: managers see all</field>
+        <field name="model_id" ref="model_argus_task"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_argus_manager'))]"/>
+    </record>
+
+</odoo>
