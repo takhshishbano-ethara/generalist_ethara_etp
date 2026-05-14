@@ -69,10 +69,19 @@
                         <h1><field name="name" readonly="1"/></h1>
                     </div>
 
-                    <!-- ===== Task metadata ===== -->
+                    <!-- ===== Task metadata =====
+                         The Tasker (Employee) drives the PL / QR
+                         auto-fill via the model's onchange — pick an
+                         employee and the two slots populate from
+                         their task_forge_pl_id / task_forge_qr_id
+                         pointers (defined in task_forge_bridge).
+                         Manager-group users can still override the
+                         two slots manually after the auto-fill. -->
                     <group>
                         <group>
                             <field name="timestamp"/>
+                            <field name="employee_id"
+                                   widget="many2one_avatar_employee"/>
                             <field name="email" widget="email"/>
                         </group>
                         <group>
@@ -237,7 +246,8 @@
                   decoration-muted="not active">
                 <field name="timestamp"/>
                 <field name="name"/>
-                <field name="email"/>
+                <field name="employee_id" widget="many2one_avatar_employee" optional="show"/>
+                <field name="email" optional="hide"/>
                 <field name="pl_user_id" widget="many2one_avatar_user"/>
                 <field name="ql_user_id" widget="many2one_avatar_user"/>
                 <field name="task_status" widget="badge"
@@ -315,6 +325,7 @@
             <search>
                 <field name="name"/>
                 <field name="email"/>
+                <field name="employee_id"/>
                 <field name="input_shortcode"/>
                 <field name="output_shortcode"/>
                 <field name="pl_user_id"/>
@@ -325,7 +336,7 @@
                         domain="[('create_uid', '=', uid)]"/>
                 <filter name="my_pl" string="PL = me"
                         domain="[('pl_user_id', '=', uid)]"/>
-                <filter name="my_ql" string="QL = me"
+                <filter name="my_ql" string="QR = me"
                         domain="[('ql_user_id', '=', uid)]"/>
                 <separator/>
                 <filter name="pending" string="Pending"
@@ -355,7 +366,7 @@
                         context="{'group_by': 'final_decision'}"/>
                 <filter name="group_pl" string="Project Lead"
                         context="{'group_by': 'pl_user_id'}"/>
-                <filter name="group_ql" string="Quality Lead"
+                <filter name="group_ql" string="Quality Reviewer"
                         context="{'group_by': 'ql_user_id'}"/>
                 <filter name="group_month" string="Month"
                         context="{'group_by': 'timestamp:month'}"/>
