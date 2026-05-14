@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+
+    <record id="res_config_settings_view_form_skoll" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.skoll</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Skoll" string="Skoll" name="skoll">
+                    <block title="Bedrock LLM Configuration">
+                        <setting
+                            string="Inference Profile ARN"
+                            help="Full ARN of the AWS Bedrock application inference profile for server-side LLM calls (QC, hints)."
+                        >
+                            <field name="skoll_bedrock_inference_arn" />
+                        </setting>
+                        <setting
+                            string="Bedrock Region"
+                            help="AWS region for the Bedrock endpoint."
+                        >
+                            <field name="skoll_bedrock_region" />
+                        </setting>
+                    </block>
+                    <block title="Moonshot (Kimi K2.6)">
+                        <setting
+                            string="Moonshot API Key"
+                            help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation. Get from platform.moonshot.ai."
+                        >
+                            <field
+                                name="skoll_moonshot_api_key"
+                                password="True"
+                            />
+                        </setting>
+                    </block>
+                    <block title="Sandbox Deployment">
+                        <setting
+                            string="Deployment Mode"
+                            help="Local mode uses Docker Compose (admin only). K8s mode creates Kubernetes resources."
+                        >
+                            <field
+                                name="skoll_deployment_mode"
+                                widget="radio"
+                            />
+                        </setting>
+                    </block>
+                    <block
+                        title="Local Mode (Docker Compose)"
+                        invisible="skoll_deployment_mode != 'local'"
+                    >
+                        <setting
+                            string="Docker Status"
+                            help="Whether Docker daemon is accessible from this server."
+                        >
+                            <field
+                                name="skoll_docker_available"
+                                widget="boolean_toggle"
+                                readonly="True"
+                            />
+                        </setting>
+                    </block>
+                    <block
+                        title="Kubernetes Mode"
+                        invisible="skoll_deployment_mode != 'k8s'"
+                    >
+                        <setting
+                            string="Sandbox Directory"
+                            help="Path to Sandbox directory (for reading persona files and litellm config)."
+                        >
+                            <field name="skoll_sandbox_dir" />
+                        </setting>
+                        <setting
+                            string="OpenClaw Image"
+                            help="Container image for the OpenClaw gateway."
+                        >
+                            <field name="skoll_openclaw_image" />
+                        </setting>
+                        <setting
+                            string="LiteLLM Image"
+                            help="Container image for the LiteLLM proxy."
+                        >
+                            <field name="skoll_litellm_image" />
+                        </setting>
+                        <setting
+                            string="WS Router Host"
+                            help="Public hostname for the WebSocket router Ingress (e.g. skoll-ws.yourdomain.com). Browser uses wss://host/sandbox/task_id/ to reach the gateway."
+                        >
+                            <field name="skoll_ws_router_host" />
+                        </setting>
+                    </block>
+                    <block title="AWS &amp; Provider Credentials">
+                        <setting
+                            string="AWS Bearer Token (Bedrock)"
+                            help="AWS bearer token for Bedrock API access inside sandbox containers."
+                        >
+                            <field
+                                name="skoll_aws_bearer_token"
+                                password="True"
+                            />
+                        </setting>
+                        <setting string="AWS Region">
+                            <field name="skoll_aws_region" />
+                        </setting>
+                        <setting
+                            string="Bedrock Model ARN"
+                            help="ARN for the Bedrock model used inside OpenClaw containers."
+                        >
+                            <field name="skoll_bedrock_model_arn" />
+                        </setting>
+                        <setting
+                            string="LiteLLM Master Key"
+                            help="Master key for the LiteLLM proxy sidecar."
+                        >
+                            <field
+                                name="skoll_litellm_master_key"
+                                password="True"
+                            />
+                        </setting>
+                        <setting
+                            string="LiteLLM DB Password"
+                            help="PostgreSQL password for the LiteLLM database."
+                        >
+                            <field
+                                name="skoll_litellm_db_password"
+                                password="True"
+                            />
+                        </setting>
+                    </block>
+                    <block title="Google Auth (Gog)">
+                        <setting
+                            string="Google OAuth Client Secret (JSON)"
+                            help="Paste the full contents of client_secret.json from Google Cloud Console. Required for gog-based Google authentication."
+                        >
+                            <field
+                                name="skoll_gog_client_secret"
+                                widget="text"
+                            />
+                        </setting>
+                        <setting
+                            string="Gog Keyring Password"
+                            help="Password to encrypt the gog file-based keyring. Used for storing Google OAuth tokens securely."
+                        >
+                            <field
+                                name="skoll_gog_keyring_password"
+                                password="True"
+                            />
+                        </setting>
+                    </block>
+                    <block title="QC &amp; Validation (Debug)">
+                        <setting
+                            string="Disable Prompt QC"
+                            help="Skip LLM-powered prompt quality checks. Enable this for testing and debugging only."
+                        >
+                            <field
+                                name="skoll_disable_prompt_qc"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Disable Trajectory QC"
+                            help="Skip trajectory validation and LLM-powered trajectory QC. Enable this for testing and debugging only."
+                        >
+                            <field
+                                name="skoll_disable_trajectory_qc"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Disable Auto-Hint"
+                            help="Skip automated hint evaluation and generation. Enable this for testing and debugging only."
+                        >
+                            <field
+                                name="skoll_disable_auto_hint"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
