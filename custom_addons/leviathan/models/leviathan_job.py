@@ -1178,6 +1178,10 @@ class LeviathanJob(models.Model):
             _logger.exception("QC rerun failed for job %s", record_id)
             self._write_with_cursor(db_name, record_id, {
                 "state": "done",
+                # Fail-closed: a QC error must not leave qc_verdict blank, or the
+                # job becomes unsubmittable with no clear recovery. Mirrors the
+                # fail-closed behaviour in _run_prd_generation_bg.
+                "qc_verdict": "not_shippable",
                 "qc_report": f"QC rerun error: {exc}",
                 "error_message": f"QC failed: {exc}",
             })
@@ -1559,7 +1563,10 @@ class LeviathanJob(models.Model):
                     "llm_attempts": attempt,
                 })
 
-                if total_score > best_score:
+                # Keep the highest scorer; always keep *something* so a run that
+                # only produces rejected PRDs (score 0) still saves a PRD for the
+                # tasker to edit instead of crashing on upload with prd_text=None.
+                if best_prd_text is None or total_score > best_score:
                     best_prd_text = prd_text
                     best_score = total_score
                     best_grade = score_report["grade"]
