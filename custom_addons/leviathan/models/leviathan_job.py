@@ -19,6 +19,43 @@ _POOL = ThreadPoolExecutor(
 _BATCH_FANOUT_POOL_SIZE = int(os.environ.get("LEVIATHAN_BATCH_FANOUT_SIZE", "250"))
 
 
+def _submit_bg(label, fn, *args, **kwargs):
+    """Submit a background job to the shared pool — with uptime guarantees.
+
+    - Logs a warning when the pool queue is backing up (saturation) so a slow
+      Bedrock/S3 never silently swallows work without a trace.
+    - Wraps the callable so any escaped exception is logged instead of being
+      lost in an un-awaited Future.
+    - If the pool is gone (process recycling), runs inline as a last resort so
+      the job is never silently dropped. The watchdog cron is the final backstop.
+    """
+    try:
+        qsize = _POOL._work_queue.qsize()
+        if qsize > _PRD_POOL_SIZE:
+            _logger.warning(
+                "[leviathan] PRD pool saturated: %d queued / %d workers — jobs "
+                "will run but are delayed; raise LEVIATHAN_PRD_POOL_SIZE.",
+                qsize, _PRD_POOL_SIZE,
+            )
+    except Exception:
+        pass
+
+    def _guarded():
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            _logger.exception("[leviathan] background task '%s' crashed", label)
+
+    try:
+        return _POOL.submit(_guarded)
+    except RuntimeError:
+        _logger.error(
+            "[leviathan] thread pool unavailable for '%s' — running inline", label,
+        )
+        _guarded()
+        return None
+
+
 class LeviathanJob(models.Model):
     _name = "leviathan.job"
     _description = "Leviathan Pipeline Task"
@@ -45,6 +82,7 @@ class LeviathanJob(models.Model):
             ("done", "Done"),
             ("submitted", "Submitted"),
             ("failed", "Failed"),
+            ("discarded", "Discarded"),  # tasker: nothing usable / site unsuitable
             ("cancelled", "Cancelled"),  # legacy, hidden from UI
         ],
         string="Status",
@@ -83,6 +121,20 @@ class LeviathanJob(models.Model):
     duration_seconds = fields.Float(string="Duration (s)")
     llm_attempts = fields.Integer(string="LLM Attempts")
     error_message = fields.Text(string="Error Message")
+    extraction_warnings = fields.Text(
+        string="Extraction Warnings",
+        help="Non-fatal warnings from extraction (e.g. low screenshot count). "
+             "A job with warnings is still a success — shown as a yellow banner, "
+             "not a red failure.",
+    )
+    lambda_callback_json = fields.Json(
+        string="Lambda Callback (raw)",
+        help="Full payload the extraction Lambda posted back — for transparency/audit.",
+    )
+    llm_trace_json = fields.Json(
+        string="LLM Trace (raw)",
+        help="Every PRD-generation attempt + QC request/response — for transparency/audit.",
+    )
     started_at = fields.Datetime(string="Started At")
     completed_at = fields.Datetime(string="Completed At")
     last_heartbeat = fields.Datetime(string="Last Heartbeat")
@@ -765,14 +817,18 @@ class LeviathanJob(models.Model):
         self._trigger_extraction()
 
     def action_cancel(self):
+        """Stop a running task (extracting / generating / scoring) and return it
+        to Draft so the tasker can re-run. Signals background threads to stop."""
         self.ensure_one()
-        if self.state == "submitted":
-            raise UserError("Cannot cancel a submitted task.")
+        if self.state not in ("extracting", "generating", "scoring"):
+            raise UserError("Cancel is only available while a task is running.")
         self.write({
             "state": "draft",
             "cancel_requested": True,
             "error_message": False,
         })
+        _logger.info("[leviathan][job=%s] cancelled by %s", self.name, self.env.user.name)
+        self._notify_state_change("draft")
 
     def action_run_batch_concurrent(self):
         """Server action: fire all selected jobs in parallel via async Lambda invoke.
@@ -806,51 +862,80 @@ class LeviathanJob(models.Model):
                 ICP.get_param("leviathan.batch_concurrency") or _BATCH_FANOUT_POOL_SIZE
             ),
         }
-        if not config["function_name"]:
+
+        # Skip re-extraction: a job that already has a prd_prompt is already
+        # "extracted" — send it straight to PRD generation. Only jobs WITHOUT
+        # extraction data go through the Lambda fan-out.
+        to_generate = eligible.filtered(lambda r: r.prd_prompt)
+        to_extract = eligible - to_generate
+
+        if to_extract and not config["function_name"]:
             raise UserError(
                 "Lambda function name not configured "
                 "(Settings -> Leviathan -> Lambda Function)."
             )
 
         now = fields.Datetime.now()
-        eligible.write({
-            "state": "extracting",
+        db_name = self.env.cr.dbname
+        _common = {
             "via_batch": True,
             "started_at": now,
             "completed_at": False,
             "duration_seconds": False,
             "last_heartbeat": now,
             "error_message": False,
+            "extraction_warnings": False,
             "cancel_requested": False,
-        })
+        }
 
-        record_ids = eligible.ids
-        record_urls = {rec.id: rec.url for rec in eligible}
-        webhook_url = eligible[0]._get_webhook_url()
-        db_name = self.env.cr.dbname
+        # --- Path A: already extracted -> straight to PRD generation ---
+        if to_generate:
+            to_generate.write(dict(_common, state="generating"))
+            gen_ids = to_generate.ids
+            _logger.info(
+                "[leviathan] batch: %d job(s) already extracted -> PRD generation: %s",
+                len(gen_ids), to_generate.mapped("name"),
+            )
 
-        def _deferred():
-            _POOL.submit(
-                lambda: self._fanout_batch_extraction(
-                    db_name=db_name,
-                    record_ids=record_ids,
-                    record_urls=record_urls,
-                    webhook_url=webhook_url,
-                    config=config,
+            def _deferred_generate():
+                for rid in gen_ids:
+                    _submit_bg(
+                        f"prd-gen[job={rid}]",
+                        self._run_prd_generation_bg, db_name, rid,
+                    )
+
+            self.env.cr.postcommit.add(_deferred_generate)
+
+        # --- Path B: no extraction data -> Lambda fan-out ---
+        if to_extract:
+            to_extract.write(dict(_common, state="extracting"))
+            record_ids = to_extract.ids
+            record_urls = {rec.id: rec.url for rec in to_extract}
+            webhook_url = to_extract[0]._get_webhook_url()
+            _logger.info(
+                "[leviathan] batch: %d job(s) dispatching to extraction Lambda",
+                len(record_ids),
+            )
+
+            def _deferred_extract():
+                _submit_bg(
+                    "batch-fanout",
+                    self._fanout_batch_extraction,
+                    db_name, record_ids, record_urls, webhook_url, config,
                 )
+
+            self.env.cr.postcommit.add(_deferred_extract)
+
+        parts = []
+        if to_extract:
+            parts.append(
+                f"{len(to_extract)} extracting (max parallel: {config['batch_concurrency']})"
             )
-
-        self.env.cr.postcommit.add(_deferred)
-
-        msg = (
-            f"{len(eligible)} task(s) dispatching concurrently "
-            f"(max parallel: {config['batch_concurrency']})."
-        )
+        if to_generate:
+            parts.append(f"{len(to_generate)} already extracted → PRD generation")
+        msg = "; ".join(parts) + "."
         if skipped:
-            msg += (
-                f" {len(skipped)} task(s) skipped "
-                f"(wrong state or missing URL)."
-            )
+            msg += f" {len(skipped)} skipped (wrong state or missing URL)."
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -945,31 +1030,108 @@ class LeviathanJob(models.Model):
             )
         self.write({"state": "submitted"})
 
+    def action_discard(self):
+        """Discard a task as unusable — site unsuitable, or nothing extracted.
+
+        Available on Failed tasks and on Done tasks with a NOT SHIPPABLE QC
+        verdict ("not shippable and below"). Terminal state, distinct from
+        'failed' (a pipeline error) and 'submitted' (a good deliverable). A
+        discarded task can be brought back into the workflow via the Assign
+        button.
+        """
+        self.ensure_one()
+        is_failed = self.state == "failed"
+        is_done_unshippable = (
+            self.state == "done" and self.qc_verdict == "not_shippable"
+        )
+        if not (is_failed or is_done_unshippable):
+            raise UserError(
+                "Discard is available on Failed tasks, or Done tasks with a "
+                "NOT SHIPPABLE QC verdict."
+            )
+        # Keep the tasker assigned — the discarded task stays "theirs".
+        self.write({
+            "state": "discarded",
+            "completed_at": fields.Datetime.now(),
+        })
+        _logger.info(
+            "[leviathan][job=%s] discarded by %s", self.name, self.env.user.name,
+        )
+        self._notify_state_change("discarded")
+
+    def action_reopen(self):
+        """Bring a discarded task back into the workflow as a Draft task.
+
+        Keeps the tasker it was assigned to; only if it had none (e.g. a failed
+        batch job) does it fall to the user who clicks Assign."""
+        self.ensure_one()
+        if self.state != "discarded":
+            raise UserError("Only discarded tasks can be reopened.")
+        self.write({
+            "state": "draft",
+            "user_id": self.user_id.id or self.env.uid,
+            "error_message": False,
+            "completed_at": False,
+            "cancel_requested": False,
+        })
+        _logger.info(
+            "[leviathan][job=%s] reopened from discarded by %s",
+            self.name, self.env.user.name,
+        )
+        self._notify_state_change("draft")
+
     def action_retry(self):
         """Retry a failed task.
 
-        If extraction data exists, open the rerun wizard so user can choose
-        between re-extract or just regenerate PRD. Otherwise go straight
-        to extracting.
+        Skip-re-extraction: if a PRD prompt already exists the extraction is
+        done — go straight back to PRD generation. Otherwise reset to draft so
+        the tasker can re-run a fresh extraction.
         """
         self.ensure_one()
         if self.state != "failed":
             raise UserError("Can only retry failed tasks.")
 
-        if self._has_extraction_data:
-            # Has extraction data — let user choose
-            wizard = self.env["leviathan.rerun.wizard"].create({"job_id": self.id})
-            return {
-                "type": "ir.actions.act_window",
-                "name": "Retry Task",
-                "res_model": "leviathan.rerun.wizard",
-                "res_id": wizard.id,
-                "view_mode": "form",
-                "views": [(False, "form")],
-                "target": "new",
-            }
+        if self.prd_prompt:
+            # Already extracted — skip extraction, regenerate the PRD.
+            self.write({
+                "state": "generating",
+                "score": False,
+                "grade": False,
+                "qc_verdict": False,
+                "prd_text": False,
+                "prd_text_html": False,
+                "qc_report": False,
+                "score_report_json": False,
+                "prd_url": False,
+                "llm_attempts": 0,
+                "llm_trace_json": False,
+                "error_message": False,
+                "cancel_requested": False,
+                "started_at": fields.Datetime.now(),
+                "completed_at": False,
+                "duration_seconds": False,
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            _logger.info(
+                "[leviathan][job=%s] retry: prd_prompt present — skipping extraction, "
+                "going straight to PRD generation",
+                self.name,
+            )
+            db_name = self.env.cr.dbname
+            record_id = self.id
+            self.env.cr.postcommit.add(
+                lambda: _submit_bg(
+                    f"prd-gen[job={record_id}]",
+                    self._run_prd_generation_bg, db_name, record_id,
+                )
+            )
+            return
 
-        # No extraction data — reset and re-extract
+        # No extraction data — reset to draft and re-extract from scratch.
+        _logger.info(
+            "[leviathan][job=%s] retry: no prd_prompt — resetting to draft for "
+            "fresh extraction", self.name,
+        )
         self.write({
             "state": "draft",
             "score": False,
@@ -983,6 +1145,9 @@ class LeviathanJob(models.Model):
             "prd_url": False,
             "artifacts_url": False,
             "deliverables_url": False,
+            "lambda_callback_json": False,
+            "llm_trace_json": False,
+            "extraction_warnings": False,
             "llm_attempts": 0,
             "duration_seconds": False,
             "error_message": False,
@@ -1039,12 +1204,12 @@ class LeviathanJob(models.Model):
             db_name = self.env.cr.dbname
             record_id = self.id
 
-            def _deferred():
-                _POOL.submit(
-                    lambda: self._run_prd_generation_bg(db_name, record_id)
+            self.env.cr.postcommit.add(
+                lambda: _submit_bg(
+                    f"prd-gen[job={record_id}]",
+                    self._run_prd_generation_bg, db_name, record_id,
                 )
-
-            self.env.cr.postcommit.add(_deferred)
+            )
 
     def action_rerun_with_extract(self):
         """Rerun with full re-extraction."""
@@ -1104,12 +1269,12 @@ class LeviathanJob(models.Model):
         db_name = self.env.cr.dbname
         record_id = self.id
 
-        def _deferred():
-            _POOL.submit(
-                lambda: self._run_prd_generation_bg(db_name, record_id)
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"prd-gen[job={record_id}]",
+                self._run_prd_generation_bg, db_name, record_id,
             )
-
-        self.env.cr.postcommit.add(_deferred)
+        )
 
     def action_save_prd_edit(self):
         """Save manual PRD edits from the HTML editor back to prd_text."""
@@ -1152,12 +1317,12 @@ class LeviathanJob(models.Model):
         db_name = self.env.cr.dbname
         record_id = self.id
 
-        def _deferred():
-            _POOL.submit(
-                lambda: self._run_qc_only_bg(db_name, record_id)
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"qc-rerun[job={record_id}]",
+                self._run_qc_only_bg, db_name, record_id,
             )
-
-        self.env.cr.postcommit.add(_deferred)
+        )
 
     def _run_qc_only_bg(self, db_name, record_id):
         """Background: re-run only QC on existing PRD text."""
@@ -1362,11 +1527,12 @@ class LeviathanJob(models.Model):
     def _trigger_extraction(self):
         db_name = self.env.cr.dbname
         record_id = self.id
-
-        def _run():
-            self._run_extraction_bg(db_name, record_id)
-
-        self.env.cr.postcommit.add(lambda: _POOL.submit(_run))
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"extract[job={record_id}]",
+                self._run_extraction_bg, db_name, record_id,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1597,6 +1763,15 @@ class LeviathanJob(models.Model):
             best_grade = None
             best_score_report = None
 
+            # Full transparency: capture every LLM interaction for audit.
+            llm_trace = {
+                "prd_system_prompt": prd_system_prompt,
+                "extraction_prompt": job_data["prd_prompt"],
+                "screenshots_attached": len(screenshot_blocks),
+                "attempts": [],
+                "qc": {},
+            }
+
             for attempt in range(1, config["max_attempts"] + 1):
                 if self._is_cancelled(db_name, record_id):
                     self._write_with_cursor(db_name, record_id, {
@@ -1636,6 +1811,14 @@ class LeviathanJob(models.Model):
 
                 self._write_with_cursor(db_name, record_id, {
                     "llm_attempts": attempt,
+                })
+
+                llm_trace["attempts"].append({
+                    "attempt": attempt,
+                    "prd_text": prd_text,
+                    "score": total_score,
+                    "grade": score_report.get("grade"),
+                    "score_report": score_report,
                 })
 
                 # Keep the highest scorer; always keep *something* so a run that
@@ -1706,6 +1889,12 @@ class LeviathanJob(models.Model):
                 qc_verdict = "not_shippable"
                 qc_report = f"QC evaluation failed: {qc_exc}\n\nVerdict defaulted to NOT SHIPPABLE (fail-closed policy)."
 
+            llm_trace["qc"] = {
+                "qc_system_prompt": qc_system_prompt,
+                "verdict": qc_verdict,
+                "report": qc_report,
+            }
+
             # === PHASE 4: Write final results ===
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1727,6 +1916,7 @@ class LeviathanJob(models.Model):
                     "prd_url": prd_url,
                     "qc_verdict": qc_verdict,
                     "qc_report": qc_report,
+                    "llm_trace_json": llm_trace,
                     "completed_at": fields.Datetime.now(),
                     "duration_seconds": duration,
                 })
@@ -1754,15 +1944,20 @@ class LeviathanJob(models.Model):
                 cr.commit()
 
         except Exception as exc:
-            _logger.exception("PRD generation failed for job %s", record_id)
+            _logger.exception("[leviathan][job=%s] PRD generation failed", record_id)
             try:
-                self._write_with_cursor(db_name, record_id, {
+                fail_vals = {
                     "state": "failed",
                     "error_message": str(exc)[:500],
                     "completed_at": fields.Datetime.now(),
-                })
+                }
+                # Persist whatever LLM trace we accumulated before the failure.
+                _trace = locals().get("llm_trace")
+                if _trace:
+                    fail_vals["llm_trace_json"] = _trace
+                self._write_with_cursor(db_name, record_id, fail_vals)
             except Exception:
-                _logger.error("Failed to mark job %s as failed", record_id)
+                _logger.error("[leviathan][job=%s] failed to mark as failed", record_id)
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -1842,7 +2037,7 @@ class LeviathanJob(models.Model):
             ])
             for job in stale_extracting:
                 _logger.warning(
-                    "Watchdog: task %s stuck in extracting for >%dmin, marking failed.",
+                    "[leviathan][job=%s] watchdog: stuck in extracting >%dmin — marking failed",
                     job.name, extracting_threshold,
                 )
                 job._mark_failed(
@@ -1860,7 +2055,7 @@ class LeviathanJob(models.Model):
             ])
             for job in stale_generating:
                 _logger.warning(
-                    "Watchdog: task %s stuck in %s for >%dmin, marking failed.",
+                    "[leviathan][job=%s] watchdog: stuck in %s >%dmin — marking failed",
                     job.name, job.state, generating_threshold,
                 )
                 job._mark_failed(
