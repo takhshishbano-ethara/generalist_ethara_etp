@@ -6,7 +6,7 @@ group whenever fields on the *employee* change.  But the Task Forge
 role classification ALSO depends on:
 
 * ``res.users.user_role`` (defined by ``api_auth_gateway``), and
-* ``res.users.groups_id`` membership of the ``etp_user_roles`` groups
+* ``res.users.group_ids`` membership of the ``etp_user_roles`` groups
   (``group_cto`` / ``group_project_lead`` / ``group_quality_reviewer``
   / ``group_quality_lead``).
 
@@ -31,10 +31,16 @@ _logger = logging.getLogger(__name__)
 
 # Fields on res.users whose change can flip the Task Forge role
 # classification — see ``task_forge_bridge.hr_employee._get_task_forge_role``.
-# We watch ``groups_id`` because ``has_group('etp_user_roles.group_cto')``
+# We watch ``group_ids`` because ``has_group('etp_user_roles.group_cto')``
 # etc. are the primary classifier; ``user_role`` is the Many2one fallback
 # used when group membership is absent.
-_ARGUS_USER_RESYNC_TRIGGERS = frozenset({"groups_id", "user_role"})
+#
+# Odoo 19 note: ``res.users.groups_id`` was renamed to ``group_ids``
+# (directly-assigned groups).  Editing a user's groups in the UI/ORM
+# now lands in ``vals['group_ids']``, so that's the key we must watch
+# — the old ``groups_id`` key would never appear and the re-sync would
+# silently never fire.
+_ARGUS_USER_RESYNC_TRIGGERS = frozenset({"group_ids", "user_role"})
 
 
 class ResUsers(models.Model):

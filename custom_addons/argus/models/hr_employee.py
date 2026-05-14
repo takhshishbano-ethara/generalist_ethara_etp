@@ -198,10 +198,15 @@ class HrEmployee(models.Model):
 
         user_su = user.sudo()
         # New membership = (existing − all_argus_groups) ∪ {target}
-        new_groups = (user_su.groups_id - all_argus_groups) | target
-        if user_su.groups_id == new_groups:
+        # Odoo 19: res.users.groups_id was split into ``group_ids``
+        # (directly-assigned groups, editable) and ``all_group_ids``
+        # (computed, includes implied groups).  We strip + re-add on
+        # the directly-assigned set so implied groups aren't flattened
+        # into explicit memberships.
+        new_groups = (user_su.group_ids - all_argus_groups) | target
+        if user_su.group_ids == new_groups:
             return  # no-op — nothing changed
-        user_su.write({"groups_id": [(6, 0, new_groups.ids)]})
+        user_su.write({"group_ids": [(6, 0, new_groups.ids)]})
         _logger.info(
             "Argus group sync: user %s (login=%s) → %s "
             "(role=%s, is_ql_type=%s)",
