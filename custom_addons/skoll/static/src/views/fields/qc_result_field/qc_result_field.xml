@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="skoll.QcResultField">
+        <div class="o_field_skoll_qc_result o_field_widget">
+            <t t-if="state.html">
+                <div class="skoll-qc-container">
+                    <div t-out="state.html"/>
+                    <div class="skoll-qc-improve-bar">
+                        <button t-if="canImprove"
+                                class="skoll-improve-btn"
+                                t-on-click="onImprove"
+                                title="Improve trajectory based on QC feedback">
+                            <i class="fa fa-magic"/> Improve Trajectory
+                        </button>
+                        <span t-if="state.improving" class="skoll-improve-running">
+                            <i class="fa fa-spinner fa-spin"/> Improving...
+                        </span>
+                    </div>
+                </div>
+            </t>
+            <t t-elif="state.rawFallback">
+                <pre class="skoll-qc-raw"><t t-esc="state.rawFallback"/></pre>
+                <div class="skoll-qc-improve-bar">
+                    <button t-if="canImprove"
+                            class="skoll-improve-btn"
+                            t-on-click="onImprove"
+                            title="Improve trajectory based on QC feedback">
+                        <i class="fa fa-magic"/> Improve Trajectory
+                    </button>
+                    <span t-if="state.improving" class="skoll-improve-running">
+                        <i class="fa fa-spinner fa-spin"/> Improving...
+                    </span>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="skoll-qc-empty">
+                    <i class="fa fa-check-circle-o"/> No QC result yet
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

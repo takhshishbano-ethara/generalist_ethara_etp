@@ -2,159 +2,121 @@
 <templates xml:space="preserve">
 
     <t t-name="skoll.JsonField">
-        <div class="o_field_skoll_json o_field_widget" t-ref="root" t-att-class="{'o_field_skoll_json_readonly': props.readonly}">
-            <t t-if="hasEntries">
-                <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
-                    <div class="skoll-json-entry">
-                            <div class="skoll-json-entry-header">
-                                <span class="skoll-json-session-label">
-                                    Session <t t-esc="entry.index + 1"/>
-                                    <t t-if="entry.timestamp">
-                                        <span class="skoll-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
-                                    </t>
-                                    <t t-if="entry.hasTokens">
-                                        <span class="skoll-json-tokens ms-2 text-muted small">
-                                            In: <t t-esc="formatNumber(entry.tokensIn)"/>
-                                             | Out: <t t-esc="formatNumber(entry.tokensOut)"/>
-                                             | Total: <t t-esc="formatNumber(entry.tokensTotal)"/>
-                                        </span>
-                                    </t>
-                                    <t t-if="entry.deleted">
-                                        <span class="badge bg-danger ms-2">Deleted — QC Failed</span>
-                                    </t>
-                                </span>
-                                <div class="skoll-json-entry-actions">
-                                    <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
-                                    <t t-set="isQcCollapsed" t-value="state.qcCollapsed[entry.index]"/>
-                                    <t t-if="!isGoldenField and hasQcResult and isQcCollapsed">
-                                        <button class="skoll-json-qc-btn skoll-json-qc-btn-show"
-                                                t-on-click="() => this.onShowQc(entry.index)"
-                                                title="Show QC result">
-                                            <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
-                                        </button>
-                                    </t>
-                                    <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
-                                        <t t-if="isQlOrPl">
-                                            <button class="skoll-json-regen-btn"
-                                                    t-att-disabled="isAnyActionRunning"
-                                                    t-on-click="() => this.onGenerateTaskDesc(entry.index)"
-                                                    title="Regenerate task description from this trajectory (QL/PL only).">
-                                                <t t-if="state.taskDescGenerating === entry.index">
-                                                    <i class="fa fa-spinner fa-spin"/>
-                                                </t>
-                                                <t t-else="">
-                                                    <i class="fa fa-refresh"/>
-                                                </t>
-                                            </button>
-                                        </t>
-                                        <button class="skoll-json-edit-btn"
-                                                t-att-disabled="isAnyActionRunning"
-                                                t-on-click="() => this.onEditEntry(entry.index)"
-                                                title="Edit this trajectory">
-                                            <i class="fa fa-pencil"/>
-                                        </button>
-                                        <t t-if="isSkollAdmin">
-                                            <button class="skoll-json-delete-btn"
-                                                    t-att-disabled="isAnyActionRunning"
-                                                    t-on-click="() => this.onDeleteEntry(entry.index)"
-                                                    title="Delete this trajectory session (QL/PL only).">
-                                                <i class="fa fa-trash"/>
-                                            </button>
-                                        </t>
-                                    </t>
-                                </div>
-                            </div>
+        <div class="o_field_skoll_json o_field_widget" t-att-class="{'o_field_skoll_json_readonly': isReadonly || isAiMode}">
 
-                            <t t-set="qc" t-value="state.qcResults[entry.index] || entry.qcResult"/>
-                            <t t-if="qc and !state.qcCollapsed[entry.index]">
-                                <div t-attf-class="skoll-qc-result skoll-qc-#{qc.severity}">
-                                    <div class="skoll-qc-header">
-                                        <span class="skoll-qc-badge">
-                                            <i t-attf-class="fa #{severityIcon(qc.severity)}"/>
-                                            <t t-esc="qc.severity.toUpperCase()"/>
-                                        </span>
-                                        <span class="skoll-qc-summary" t-esc="qc.summary"/>
-                                        <div class="skoll-qc-header-actions">
-                                            <span class="skoll-qc-stats">
-                                                <span class="text-success" t-if="qc.total_passes"><t t-esc="qc.total_passes"/> pass</span>
-                                                <span class="text-warning" t-if="qc.total_warns"><t t-esc="qc.total_warns"/> warn</span>
-                                                <span class="text-danger" t-if="qc.total_fails"><t t-esc="qc.total_fails"/> fail</span>
-                                            </span>
-                                            <button class="skoll-qc-toggle-btn"
-                                                    t-on-click="() => this.onToggleQcChecks(entry.index)">
-                                                <i t-attf-class="fa #{state.qcExpandedChecks[entry.index] ? 'fa-chevron-up' : 'fa-chevron-down'}"/>
-                                            </button>
-                                            <button class="skoll-qc-dismiss-btn"
-                                                    t-on-click="() => this.onDismissQc(entry.index)"
-                                                    title="Collapse QC result">
-                                                <i class="fa fa-chevron-up"/>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <t t-if="state.qcExpandedChecks[entry.index] and qc.checks and qc.checks.length">
-                                        <div class="skoll-qc-checks">
-                                            <t t-foreach="qc.checks" t-as="check" t-key="check.check">
-                                                <div t-attf-class="skoll-qc-check skoll-qc-check-#{check.verdict ? check.verdict.toLowerCase() : 'pass'}">
-                                                    <span class="skoll-qc-check-num" t-esc="check.check"/>
-                                                    <span class="skoll-qc-check-name" t-esc="check.name"/>
-                                                    <span t-attf-class="skoll-qc-check-verdict badge bg-#{check.verdict === 'PASS' ? 'success' : check.verdict === 'WARN' ? 'warning' : 'danger'}"
-                                                          t-esc="check.verdict"/>
-                                                    <t t-if="check.reason">
-                                                        <div class="skoll-qc-check-reason" t-esc="check.reason"/>
-                                                    </t>
-                                                    <t t-if="check.fix">
-                                                        <div class="skoll-qc-check-fix">
-                                                            <i class="fa fa-lightbulb-o"/> <t t-esc="check.fix"/>
-                                                        </div>
-                                                    </t>
-                                                </div>
-                                            </t>
-                                        </div>
-                                    </t>
-                                </div>
-                            </t>
-
-                            <t t-if="state.editingIndex === entry.index">
-                                <div class="skoll-json-edit-container">
-                                    <textarea class="skoll-json-edit-textarea"
-                                              t-ref="editTextarea"
-                                              t-att-value="state.editBuffer"
-                                              t-on-input="onEditInput"
-                                              spellcheck="false"/>
-                                    <t t-if="state.editError">
-                                        <div class="skoll-json-edit-error">
-                                            <i class="fa fa-exclamation-circle"/> <t t-esc="state.editError"/>
-                                        </div>
-                                    </t>
-                                    <div class="skoll-json-edit-actions">
-                                        <button class="btn btn-sm btn-primary" t-on-click="onSaveEntry">
-                                            <i class="fa fa-check"/> Save
-                                        </button>
-                                        <button class="btn btn-sm btn-secondary" t-on-click="onCancelEdit">
-                                            Cancel
-                                        </button>
-                                    </div>
-                                </div>
-                            </t>
-                            <t t-elif="entry.deleted">
-                                <div class="skoll-json-deleted-notice p-3 text-muted">
-                                    <i class="fa fa-trash-o me-1"/>
-                                    Trajectory removed: <t t-esc="entry.deletedReason || 'QC failed'"/>
-                                </div>
-                            </t>
-                            <t t-else="">
-                                <div class="skoll-json-entry-body" t-out="entry.html"/>
-                            </t>
+            <!-- Streaming state (AI mode) -->
+            <t t-if="state.streaming">
+                <div class="skoll-json-viewer skoll-json-viewer-streaming">
+                    <div class="skoll-json-viewer-header">
+                        <span class="skoll-json-viewer-label">
+                            <i class="fa fa-circle skoll-streaming-dot"/> Streaming
+                        </span>
                     </div>
-                    <t t-if="!entry_last">
-                        <hr class="skoll-json-divider"/>
+                    <div class="skoll-json-viewer-body" t-ref="streamBody" t-out="streamHighlightedHtml"/>
+                </div>
+            </t>
+
+            <!-- Manual mode + form edit = always show direct textarea -->
+            <t t-elif="isManualEdit">
+                <div class="skoll-json-manual-container">
+                    <div class="skoll-json-viewer-header">
+                        <span class="skoll-json-viewer-label">
+                            <i class="fa fa-pencil-square-o"/> Golden Trajectory
+                        </span>
+                        <div class="skoll-json-header-actions">
+                            <button t-if="canRunQc and !state.qcRunning"
+                                    class="skoll-qc-btn"
+                                    t-on-click="onRunQc"
+                                    title="Run QC on trajectory">
+                                <i class="fa fa-check-circle"/> Run QC
+                            </button>
+                            <span t-if="state.qcRunning" class="skoll-qc-running">
+                                <i class="fa fa-spinner fa-spin"/> QC Running...
+                            </span>
+                        </div>
+                    </div>
+                    <textarea class="skoll-json-edit-textarea skoll-json-manual-textarea"
+                              t-ref="editTextarea"
+                              t-att-value="manualValue"
+                              t-on-input="onManualInput"
+                              placeholder="Paste or type your golden trajectory JSON here..."
+                              spellcheck="false"/>
+                </div>
+            </t>
+
+            <!-- AI edit mode -->
+            <t t-elif="state.aiEditing">
+                <div class="skoll-json-viewer skoll-json-ai-edit">
+                    <div class="skoll-json-viewer-header">
+                        <span class="skoll-json-viewer-label">
+                            <i class="fa fa-pencil"/> Editing Trajectory
+                        </span>
+                        <div class="skoll-json-header-actions">
+                            <button class="skoll-ai-edit-save-btn" t-on-click="onSaveAiEdit" title="Save changes">
+                                <i class="fa fa-check"/> Save
+                            </button>
+                            <button class="skoll-ai-edit-cancel-btn" t-on-click="onCancelAiEdit" title="Discard changes">
+                                <i class="fa fa-times"/> Cancel
+                            </button>
+                        </div>
+                    </div>
+                    <textarea class="skoll-json-edit-textarea skoll-json-ai-edit-textarea"
+                              t-att-value="state.aiEditBuffer"
+                              t-on-input="onAiEditInput"
+                              spellcheck="false"/>
+                </div>
+            </t>
+
+            <!-- Read-only viewer (AI mode or readonly manual with content) -->
+            <t t-elif="hasContent">
+                <div class="skoll-json-viewer">
+                    <div class="skoll-json-viewer-header">
+                        <span class="skoll-json-viewer-label">
+                            <i class="fa fa-code"/> Golden Trajectory
+                        </span>
+                        <div class="skoll-json-header-actions">
+                            <button class="skoll-copy-btn" t-on-click="onCopyJson" title="Copy JSON">
+                                <t t-if="state.copied">
+                                    <i class="fa fa-check"/> Copied
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-clipboard"/> Copy
+                                </t>
+                            </button>
+                            <button t-if="isAiMode and !isReadonly"
+                                    class="skoll-edit-btn"
+                                    t-on-click="onStartAiEdit"
+                                    title="Edit trajectory">
+                                <i class="fa fa-pencil"/> Edit
+                            </button>
+                            <button t-if="canRunQc and !state.qcRunning"
+                                    class="skoll-qc-btn"
+                                    t-on-click="onRunQc"
+                                    title="Run QC on trajectory">
+                                <i class="fa fa-check-circle"/> Run QC
+                            </button>
+                            <span t-if="state.qcRunning" class="skoll-qc-running">
+                                <i class="fa fa-spinner fa-spin"/> QC Running...
+                            </span>
+                        </div>
+                    </div>
+                    <t t-if="state.truncated">
+                        <div class="skoll-truncation-banner">
+                            <i class="fa fa-exclamation-triangle"/>
+                            Output truncated — the model hit the max token limit. The trajectory JSON is incomplete and will fail structural validation.
+                        </div>
                     </t>
-                </t>
+                    <div class="skoll-json-viewer-body" t-out="state.highlightedHtml"/>
+                </div>
             </t>
+
+            <!-- Empty state -->
             <t t-else="">
-                <div class="text-muted p-3">No trajectory data</div>
+                <div class="skoll-json-empty">
+                    <i class="fa fa-file-code-o"/> No content yet
+                </div>
             </t>
+
         </div>
     </t>
 

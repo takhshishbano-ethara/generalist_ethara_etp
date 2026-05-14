@@ -3,13 +3,39 @@
 import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { formatText } from "@web/views/fields/formatters";
 import { useRecordObserver } from "@web/model/relational_model/utils";
-import { useService } from "@web/core/utils/hooks";
-import { rpc } from "@web/core/network/rpc";
 
-import { Component, markup, useRef, useState, onMounted, onPatched, onWillPatch, onWillUnmount } from "@odoo/owl";
-import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Component, markup, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
+
+const JSON_HIGHLIGHT_CDN =
+    "https://cdn.jsdelivr.net/npm/json-format-highlight@1.0.4/dist/json-format-highlight.min.js";
+
+const HIGHLIGHT_COLORS = {
+    keyColor: "#89b4fa",
+    stringColor: "#a6e3a1",
+    numberColor: "#fab387",
+    trueColor: "#cba6f7",
+    falseColor: "#cba6f7",
+    nullColor: "#f38ba8",
+};
+
+let _highlighterReady = null;
+
+function _loadHighlighter() {
+    if (_highlighterReady) return _highlighterReady;
+    if (window.jsonFormatHighlight) {
+        _highlighterReady = Promise.resolve();
+        return _highlighterReady;
+    }
+    _highlighterReady = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = JSON_HIGHLIGHT_CDN;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error("Failed to load json-format-highlight"));
+        document.head.appendChild(s);
+    });
+    return _highlighterReady;
+}
 
 function escapeHtml(s) {
     const div = document.createElement("div");
@@ -17,46 +43,20 @@ function escapeHtml(s) {
     return div.innerHTML;
 }
 
-function syntaxHighlightJsonToHtml(jsonStr) {
-    return escapeHtml(jsonStr).replace(
-        /("(?:\\.|[^"\\])*")\s*:/g,
-        '<span class="json-key">$1</span>:'
-    ).replace(
-        /:\s*("(?:\\.|[^"\\])*")/g,
-        ': <span class="json-string">$1</span>'
-    ).replace(
-        /:\s*(\d+(?:\.\d+)?)/g,
-        ': <span class="json-number">$1</span>'
-    ).replace(
-        /:\s*(true|false)/g,
-        ': <span class="json-boolean">$1</span>'
-    ).replace(
-        /:\s*(null)/g,
-        ': <span class="json-null">$1</span>'
-    );
+function highlightJson(parsed) {
+    if (window.jsonFormatHighlight) {
+        return window.jsonFormatHighlight(parsed, HIGHLIGHT_COLORS);
+    }
+    return escapeHtml(JSON.stringify(parsed, null, 2));
 }
 
-function parseEntries(raw) {
-    if (!raw) return [];
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
+function formatJsonContent(raw) {
+    if (!raw || !raw.trim()) return null;
     try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-            return parsed;
-        }
-        return [{ session_id: "legacy", timestamp: "", trajectory: parsed }];
+        return JSON.parse(raw.trim());
     } catch (_e) {
-        return [{ session_id: "raw", timestamp: "", trajectory: trimmed }];
+        return null;
     }
-}
-
-function renderTrajectoryHtml(trajectory) {
-    if (typeof trajectory === "string") {
-        return `<pre class="skoll-json-block"><code>${escapeHtml(trajectory)}</code></pre>`;
-    }
-    const pretty = JSON.stringify(trajectory, null, 2);
-    return `<pre class="skoll-json-block"><code>${syntaxHighlightJsonToHtml(pretty)}</code></pre>`;
 }
 
 export class SkollJsonField extends Component {
@@ -68,84 +68,49 @@ export class SkollJsonField extends Component {
 
     setup() {
         this.state = useState({
-            entries: [],
-            deleting: -1,
-            editingIndex: -1,
-            editBuffer: "",
-            editError: "",
-            qcRunning: -1,
-            qcResults: {},
-            qcExpandedChecks: {},
-            qcCollapsed: {},
-            taskDescGenerating: -1,
+            prettyJson: "",
+            highlightedHtml: null,
+            streaming: false,
+            streamText: "",
+            qcRunning: false,
+            truncated: false,
+            aiEditing: false,
+            aiEditBuffer: "",
+            copied: false,
         });
-        this._qcPollingTimers = {};
-        this._taskDescPollingTimers = {};
-        this.orm = useService("orm");
-        this.action = useService("action");
-        this.dialog = useService("dialog");
-        this.notification = useService("notification");
         this.editTextareaRef = useRef("editTextarea");
-        this.rootRef = useRef("root");
-        this._savedScrollPositions = null;
-        this._lastRawValue = null;
+        this._streamBodyRef = useRef("streamBody");
+        this._qcAbortController = null;
+
+        this._onStreamStart = () => this._handleStreamStart();
+        this._onStreamChunk = (ev) => this._handleStreamChunk(ev.detail);
+        this._onStreamEnd = (ev) => this._handleStreamEnd(ev.detail);
+
+        this.env.bus.addEventListener("SKOLL_STREAM_START", this._onStreamStart);
+        this.env.bus.addEventListener("SKOLL_STREAM_CHUNK", this._onStreamChunk);
+        this.env.bus.addEventListener("SKOLL_STREAM_END", this._onStreamEnd);
+
+        _loadHighlighter().catch(() => {});
 
         useRecordObserver((record) => {
-            this._updateEntries(formatText(record.data[this.props.name]));
+            if (!this.state.streaming) {
+                this._updateContent(record.data[this.props.name]);
+            }
         });
-        this._updateEntries(formatText(this.props.record.data[this.props.name]));
+        this._updateContent(this.props.record.data[this.props.name]);
 
-        this._onGoldenStatusChanged = (ev) => {
-            this._handleGoldenStatusChanged(ev.detail);
-        };
-        if (this.isGoldenField) {
-            this.env.bus.addEventListener(
-                "SKOLL:GOLDEN_STATUS_CHANGED",
-                this._onGoldenStatusChanged,
-            );
-        }
-
-        this._onTaskDescTriggered = (ev) => {
-            this._handleTaskDescTriggered(ev.detail);
-        };
-        this.env.bus.addEventListener(
-            "SKOLL:TASK_DESC_TRIGGERED",
-            this._onTaskDescTriggered,
-        );
-
-        this._onQcTriggered = (ev) => {
-            this._handleQcTriggered(ev.detail);
-        };
-        this.env.bus.addEventListener(
-            "SKOLL:QC_TRIGGERED",
-            this._onQcTriggered,
-        );
-
-        onMounted(() => {
-            this._autoResizeEditTextarea();
-            this._resumePendingQc();
-        });
-        onWillPatch(() => this._saveScrollPositions());
+        onMounted(() => this._autoResizeEditTextarea());
         onPatched(() => {
-            this._restoreScrollPositions();
             this._autoResizeEditTextarea();
+            if (this.state.streaming) {
+                requestAnimationFrame(() => this._scrollStreamToBottom());
+            }
         });
         onWillUnmount(() => {
-            this._clearAllPolling();
-            if (this.isGoldenField) {
-                this.env.bus.removeEventListener(
-                    "SKOLL:GOLDEN_STATUS_CHANGED",
-                    this._onGoldenStatusChanged,
-                );
-            }
-            this.env.bus.removeEventListener(
-                "SKOLL:TASK_DESC_TRIGGERED",
-                this._onTaskDescTriggered,
-            );
-            this.env.bus.removeEventListener(
-                "SKOLL:QC_TRIGGERED",
-                this._onQcTriggered,
-            );
+            this.env.bus.removeEventListener("SKOLL_STREAM_START", this._onStreamStart);
+            this.env.bus.removeEventListener("SKOLL_STREAM_CHUNK", this._onStreamChunk);
+            this.env.bus.removeEventListener("SKOLL_STREAM_END", this._onStreamEnd);
+            if (this._qcAbortController) this._qcAbortController.abort();
         });
     }
 
@@ -157,465 +122,219 @@ export class SkollJsonField extends Component {
         }
     }
 
-    _saveScrollPositions() {
-        const root = this.rootRef.el;
-        if (!root) return;
-        const positions = [];
-        const bodies = root.querySelectorAll(".skoll-json-entry-body");
-        for (const body of bodies) {
-            positions.push(body.scrollTop);
-        }
-        const scrollParent = root.closest(".o_field_widget") || root;
-        this._savedScrollPositions = {
-            bodies: positions,
-            rootTop: scrollParent.scrollTop,
-        };
+    _scrollStreamToBottom() {
+        const wrapper = this._streamBodyRef.el;
+        if (!wrapper || !this.state.streaming) return;
+        const pre = wrapper.querySelector(".skoll-json-block") || wrapper;
+        pre.scrollTop = pre.scrollHeight;
     }
 
-    _restoreScrollPositions() {
-        const saved = this._savedScrollPositions;
-        if (!saved) return;
-        this._savedScrollPositions = null;
-
-        const root = this.rootRef.el;
-        if (!root) return;
-
-        const bodies = root.querySelectorAll(".skoll-json-entry-body");
-        for (let i = 0; i < bodies.length && i < saved.bodies.length; i++) {
-            if (saved.bodies[i]) {
-                bodies[i].scrollTop = saved.bodies[i];
-            }
-        }
-        const scrollParent = root.closest(".o_field_widget") || root;
-        if (saved.rootTop) {
-            scrollParent.scrollTop = saved.rootTop;
-        }
-    }
-
-    _resumePendingQc() {
-        for (const entry of this.state.entries) {
-            if (entry.qcStatus === "pending") {
-                this._startQcPolling(entry.index);
-            }
-            if (entry.taskDescriptionStatus === "pending") {
-                this.state.taskDescGenerating = entry.index;
-                this._startTaskDescPolling(entry.index);
-            }
-        }
-    }
-
-    _clearAllPolling() {
-        for (const key of Object.keys(this._qcPollingTimers)) {
-            clearInterval(this._qcPollingTimers[key]);
-        }
-        this._qcPollingTimers = {};
-        for (const key of Object.keys(this._taskDescPollingTimers)) {
-            clearInterval(this._taskDescPollingTimers[key]);
-        }
-        this._taskDescPollingTimers = {};
-    }
-
-    async _handleGoldenStatusChanged(payload) {
-        if (!payload || !payload.task_id) return;
-        if (payload.task_id !== this.props.record.resId) return;
-        try {
-            await this.props.record.load();
-        } catch (e) {
-            console.warn("[SkollJsonField] Failed to reload after golden status change:", e);
-        }
-    }
-
-    _handleTaskDescTriggered(payload) {
-        if (!payload) return;
-        const { field_name, entry_index } = payload;
-        if (field_name !== this.props.name) return;
-        if (this.state.taskDescGenerating >= 0) return;
-        this.state.taskDescGenerating = entry_index;
-        this._startTaskDescPolling(entry_index);
-    }
-
-    _handleQcTriggered(payload) {
-        if (!payload) return;
-        const { field_name, entry_index } = payload;
-        if (field_name !== this.props.name) return;
-        if (this.state.qcRunning >= 0) return;
-        this.state.qcRunning = entry_index;
-        this.state.qcCollapsed[entry_index] = false;
-        delete this.state.qcResults[entry_index];
-        this._startQcPolling(entry_index);
-    }
-
-    _startQcPolling(index) {
-        if (this._qcPollingTimers[index]) return;
-        this._qcPollingTimers[index] = setInterval(async () => {
-            try {
-                await this.props.record.load();
-                const raw = formatText(this.props.record.data[this.props.name]);
-                const entries = parseEntries(raw);
-                if (index < entries.length) {
-                    const status = entries[index].qc_status;
-                    if (status && status !== "pending") {
-                        clearInterval(this._qcPollingTimers[index]);
-                        delete this._qcPollingTimers[index];
-                        if (status === "done" && entries[index].qc_result) {
-                            this.state.qcResults[index] = entries[index].qc_result;
-                            this.state.qcCollapsed[index] = false;
-                        }
-                        this.state.qcRunning = -1;
-                    }
-                }
-            } catch (_e) {
-                // network hiccup — keep polling
-            }
-        }, 5000);
-    }
-
-    _startTaskDescPolling(index) {
-        if (this._taskDescPollingTimers[index]) return;
-        this._taskDescPollingTimers[index] = setInterval(async () => {
-            try {
-                await this.props.record.load();
-                const raw = formatText(this.props.record.data[this.props.name]);
-                const entries = parseEntries(raw);
-                if (index < entries.length) {
-                    const status = entries[index].task_description_status;
-                    if (status && status !== "pending") {
-                        clearInterval(this._taskDescPollingTimers[index]);
-                        delete this._taskDescPollingTimers[index];
-                        this.state.taskDescGenerating = -1;
-                        if (status === "done") {
-                            this.onQcEntry(index);
-                        }
-                    }
-                }
-            } catch (_e) {
-            }
-        }, 5000);
-    }
-
-    _updateEntries(raw) {
-        if (raw === this._lastRawValue) return;
-        this._lastRawValue = raw;
-        const parsed = parseEntries(raw);
-        this.state.entries = parsed.map((entry, idx) => {
-            const tokensIn = Number.isFinite(entry.tokens_in) ? entry.tokens_in : null;
-            const tokensOut = Number.isFinite(entry.tokens_out) ? entry.tokens_out : null;
-            const hasTokens = tokensIn !== null || tokensOut !== null;
-            return {
-                index: idx,
-                sessionId: entry.session_id || `session-${idx + 1}`,
-                timestamp: entry.timestamp || "",
-                trajectory: entry.trajectory,
-                html: entry.deleted
-                    ? markup("")
-                    : markup(renderTrajectoryHtml(entry.trajectory)),
-                deleted: !!entry.deleted,
-                deletedReason: entry.deleted_reason || "",
-                qcStatus: entry.qc_status || null,
-                qcResult: entry.qc_result || null,
-                taskDescriptionStatus: entry.task_description_status || null,
-                hasTokens,
-                tokensIn: tokensIn || 0,
-                tokensOut: tokensOut || 0,
-                tokensTotal: (tokensIn || 0) + (tokensOut || 0),
-            };
-        });
-    }
-
-    formatNumber(n) {
-        return new Intl.NumberFormat().format(n);
-    }
-
-    get hasEntries() {
-        return this.state.entries.length > 0;
-    }
-
-    get isEditable() {
-        return !this.props.readonly;
-    }
-
-    get isAnyActionRunning() {
-        return this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0;
-    }
-
-    get isGoldenField() {
-        return this.props.name === "golden_trajectory";
-    }
-
-    get isSkollAdmin() {
-        return !!this.props.record.data.is_skoll_admin;
-    }
-
-    get isQlOrPl() {
-        return !!this.props.record.data.is_ql_or_pl;
-    }
-
-    onDeleteTrajectory() {
-        if (!this.isSkollAdmin) return;
-        const recordId = this.props.record.resId;
-        const fieldName = this.props.name;
-        if (!recordId) {
-            this.notification.add(_t("Save the record first"), { type: "warning" });
-            return;
-        }
-
-        this.dialog.add(ConfirmationDialog, {
-            title: _t("Delete Trajectory"),
-            body: _t(
-                "Delete this trajectory and all of its recorded turns? The sandbox must be stopped. This cannot be undone.",
-            ),
-            confirmLabel: _t("Delete"),
-            confirmClass: "btn-danger",
-            cancelLabel: _t("Cancel"),
-            confirm: async () => {
-                try {
-                    await this.orm.call(
-                        "skoll.skoll",
-                        "action_delete_trajectory_by_field",
-                        [[recordId]],
-                        { field_name: fieldName },
-                    );
-                    await this.props.record.load();
-                    this.notification.add(_t("Trajectory deleted."), { type: "success" });
-                } catch (e) {
-                    this.notification.add(
-                        e.data?.message || e.message || _t("Failed to delete trajectory"),
-                        { type: "danger" },
-                    );
-                }
-            },
-        });
-    }
-
-    onDeleteEntry(index) {
-        this.dialog.add(ConfirmationDialog, {
-            title: _t("Delete Trajectory Session"),
-            body: _t("Are you sure you want to delete this generated trajectory session? This action cannot be undone."),
-            confirmLabel: _t("Delete"),
-            confirmClass: "btn-danger",
-            cancelLabel: _t("Cancel"),
-            confirm: async () => {
-                this.state.deleting = index;
-                try {
-                    await this.orm.call(
-                        "skoll.skoll",
-                        "action_delete_trajectory_entry",
-                        [this.props.record.resId],
-                        { field_name: this.props.name, entry_index: index }
-                    );
-                    await this.props.record.load();
-                } finally {
-                    this.state.deleting = -1;
-                }
-            },
-        });
-    }
-
-    onEditEntry(index) {
-        const entry = this.state.entries[index];
-        let text;
-        if (typeof entry.trajectory === "string") {
-            text = entry.trajectory;
+    _updateContent(raw) {
+        const parsed = formatJsonContent(raw || "");
+        if (parsed !== null) {
+            this.state.prettyJson = JSON.stringify(parsed, null, 2);
+            const highlighted = highlightJson(parsed);
+            this.state.highlightedHtml = markup(
+                `<pre class="skoll-json-block"><code>${highlighted}</code></pre>`
+            );
         } else {
-            text = JSON.stringify(entry.trajectory, null, 2);
+            this.state.prettyJson = raw || "";
+            if (raw && raw.trim()) {
+                this.state.highlightedHtml = markup(
+                    `<pre class="skoll-json-block"><code>${escapeHtml(raw)}</code></pre>`
+                );
+            } else {
+                this.state.highlightedHtml = null;
+            }
         }
-        this.state.editingIndex = index;
-        this.state.editBuffer = text;
-        this.state.editError = "";
     }
 
-    onEditInput(ev) {
-        this.state.editBuffer = ev.target.value;
-        this.state.editError = "";
+    _handleStreamStart() {
+        this.state.streaming = true;
+        this.state.streamText = "";
+        this.state.highlightedHtml = null;
+        this.state.prettyJson = "";
+        this.state.truncated = false;
+    }
+
+    _handleStreamChunk(data) {
+        if (!data) return;
+        this.state.streamText = data.text || "";
+    }
+
+    _handleStreamEnd(data) {
+        this.state.streaming = false;
+        this.state.truncated = !!data?.truncated;
+        const finalText = data?.text || this.state.streamText;
+        this.state.streamText = "";
+        if (finalText) {
+            this._updateContent(finalText);
+        } else {
+            this._updateContent(this.props.record.data[this.props.name]);
+        }
+    }
+
+    get hasContent() {
+        return !!this.state.prettyJson;
+    }
+
+    get isReadonly() {
+        return this.props.readonly;
+    }
+
+    get isAiMode() {
+        return this.props.record.data.mode === "ai";
+    }
+
+    get isManualEdit() {
+        return !this.isReadonly && !this.isAiMode;
+    }
+
+    get manualValue() {
+        return this.props.record.data[this.props.name] || "";
+    }
+
+    get streamHighlightedHtml() {
+        if (!this.state.streamText) return null;
+        const escaped = escapeHtml(this.state.streamText);
+        return markup(
+            `<pre class="skoll-json-block skoll-json-streaming"><code>${escaped}</code><span class="skoll-stream-cursor">\u2588</span></pre>`
+        );
+    }
+
+    onManualInput(ev) {
+        this.props.record.update({ [this.props.name]: ev.target.value });
         ev.target.style.height = "auto";
         ev.target.style.height = Math.min(ev.target.scrollHeight, 800) + "px";
     }
 
-    onSaveEntry() {
-        const idx = this.state.editingIndex;
-        if (idx < 0) return;
-
-        let newTrajectory;
+    async onCopyJson() {
+        const text = this.state.prettyJson || this.props.record.data[this.props.name] || "";
+        if (!text) return;
         try {
-            newTrajectory = JSON.parse(this.state.editBuffer);
-        } catch (e) {
-            this.state.editError = "Invalid JSON: " + e.message;
-            return;
+            await navigator.clipboard.writeText(text);
+            this.state.copied = true;
+            setTimeout(() => (this.state.copied = false), 2000);
+        } catch (_e) {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+            this.state.copied = true;
+            setTimeout(() => (this.state.copied = false), 2000);
         }
-
-        const raw = this.props.record.data[this.props.name] || "";
-        let entries = parseEntries(raw);
-        if (idx < entries.length) {
-            entries[idx].trajectory = newTrajectory;
-        }
-
-        const newValue = JSON.stringify(entries, null, 2);
-        this.props.record.update({ [this.props.name]: newValue });
-
-        this.state.editingIndex = -1;
-        this.state.editBuffer = "";
-        this.state.editError = "";
     }
 
-    onCancelEdit() {
-        this.state.editingIndex = -1;
-        this.state.editBuffer = "";
-        this.state.editError = "";
+    onStartAiEdit() {
+        this.state.aiEditing = true;
+        this.state.aiEditBuffer = this.state.prettyJson || this.props.record.data[this.props.name] || "";
     }
 
-    async onQcEntry(index) {
-        if (this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0) return;
+    onAiEditInput(ev) {
+        this.state.aiEditBuffer = ev.target.value;
+        ev.target.style.height = "auto";
+        ev.target.style.height = Math.min(ev.target.scrollHeight, 800) + "px";
+    }
+
+    async onSaveAiEdit() {
+        await this.props.record.update({ [this.props.name]: this.state.aiEditBuffer });
+        this._updateContent(this.state.aiEditBuffer);
+        this.state.aiEditing = false;
+        this.state.aiEditBuffer = "";
+    }
+
+    onCancelAiEdit() {
+        this.state.aiEditing = false;
+        this.state.aiEditBuffer = "";
+    }
+
+    get canRunQc() {
+        return this.hasContent && !this.state.streaming && !this.state.qcRunning;
+    }
+
+    async onRunQc() {
+        if (!this.canRunQc) return;
+
+        if (this.props.record.isDirty) {
+            await this.props.record.save();
+        }
 
         const recordId = this.props.record.resId;
-        const fieldName = this.props.name;
         if (!recordId) {
-            this.notification.add(_t("Save the record first"), { type: "warning" });
+            console.warn("QC: record not saved yet");
             return;
         }
 
-        this.state.qcRunning = index;
-        this.state.qcCollapsed[index] = false;
-        delete this.state.qcResults[index];
+        this._qcAbortController = new AbortController();
+        this.state.qcRunning = true;
 
+        let accumulated = "";
         try {
-            const resp = await rpc("/skoll/trajectory_qc", {
-                record_id: recordId,
-                field_name: fieldName,
-                entry_index: index,
+            const resp = await fetch("/skoll/qc_stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ record_id: recordId }),
+                credentials: "same-origin",
+                signal: this._qcAbortController.signal,
             });
-            if (resp.error) {
-                this.notification.add(resp.error, { type: "danger", sticky: false });
-                this.state.qcRunning = -1;
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                console.warn("QC request failed:", resp.status, errText.substring(0, 300));
                 return;
             }
-            this._startQcPolling(index);
-        } catch (e) {
-            this.notification.add(
-                _t("QC failed: ") + (e.message || String(e)),
-                { type: "danger", sticky: false },
-            );
-            this.state.qcRunning = -1;
-        }
-    }
 
-    async onGenerateTaskDesc(index) {
-        if (!this.isQlOrPl) return;
-        if (this.state.taskDescGenerating >= 0 || this.state.qcRunning >= 0) return;
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let sseBuffer = "";
 
-        const recordId = this.props.record.resId;
-        const fieldName = this.props.name;
-        if (!recordId) {
-            this.notification.add(_t("Save the record first"), { type: "warning" });
-            return;
-        }
-
-        this.state.taskDescGenerating = index;
-
-        try {
-            const resp = await rpc("/skoll/generate_task_description", {
-                record_id: recordId,
-                field_name: fieldName,
-                entry_index: index,
-            });
-            if (resp.error) {
-                this.notification.add(resp.error, { type: "danger", sticky: false });
-                this.state.taskDescGenerating = -1;
-                return;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split("\n");
+                sseBuffer = lines.pop() || "";
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    try {
+                        const payload = JSON.parse(line.slice(6));
+                        if (payload.type === "delta" && payload.text) {
+                            accumulated += payload.text;
+                        } else if (payload.type === "error") {
+                            console.warn("QC stream error:", payload.message);
+                        }
+                    } catch (_e) {}
+                }
             }
-            this._startTaskDescPolling(index);
-        } catch (e) {
-            this.notification.add(
-                _t("Description generation failed: ") + (e.message || String(e)),
-                { type: "danger", sticky: false },
-            );
-            this.state.taskDescGenerating = -1;
+
+            if (accumulated.trim()) {
+                await this.props.record.update({ qc_result: accumulated });
+                this._updateQcStatus(accumulated);
+                await this.props.record.save();
+            }
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.warn("QC stream failed:", err);
+            }
+        } finally {
+            this.state.qcRunning = false;
+            this._qcAbortController = null;
+            await this.props.record.load();
         }
     }
 
-    async onAbortQc(index) {
-        const recordId = this.props.record.resId;
-        const fieldName = this.props.name;
-        if (!recordId) return;
-
+    _updateQcStatus(qcText) {
         try {
-            await rpc("/skoll/abort_trajectory_action", {
-                record_id: recordId,
-                field_name: fieldName,
-                entry_index: index,
-                action_type: "qc",
-            });
-        } catch (_e) { /* best-effort */ }
-
-        if (this._qcPollingTimers[index]) {
-            clearInterval(this._qcPollingTimers[index]);
-            delete this._qcPollingTimers[index];
-        }
-        this.state.qcRunning = -1;
-        // Reset local entry status so buttons return to initial state immediately
-        if (this.state.entries[index]) {
-            this.state.entries[index].qcStatus = "aborted";
-        }
-        this.notification.add(_t("QC aborted"), { type: "info" });
-        // Reload record to sync DB state
-        try { await this.props.record.load(); } catch (_e) { /* ignore */ }
-    }
-
-    async onAbortTaskDesc(index) {
-        const recordId = this.props.record.resId;
-        const fieldName = this.props.name;
-        if (!recordId) return;
-
-        try {
-            await rpc("/skoll/abort_trajectory_action", {
-                record_id: recordId,
-                field_name: fieldName,
-                entry_index: index,
-                action_type: "task_description",
-            });
-        } catch (_e) { /* best-effort */ }
-
-        if (this._taskDescPollingTimers[index]) {
-            clearInterval(this._taskDescPollingTimers[index]);
-            delete this._taskDescPollingTimers[index];
-        }
-        this.state.taskDescGenerating = -1;
-        // Reset local entry status so buttons return to initial state immediately
-        if (this.state.entries[index]) {
-            this.state.entries[index].taskDescriptionStatus = "aborted";
-        }
-        this.notification.add(_t("Description generation aborted"), { type: "info" });
-        // Reload record to sync DB state
-        try { await this.props.record.load(); } catch (_e) { /* ignore */ }
-    }
-
-    onToggleQcChecks(index) {
-        this.state.qcExpandedChecks[index] = !this.state.qcExpandedChecks[index];
-    }
-
-    onShowQc(index) {
-        this.state.qcCollapsed[index] = false;
-    }
-
-    onDismissQc(index) {
-        // Just collapse the panel — don't clear persisted QC state
-        this.state.qcCollapsed = this.state.qcCollapsed || {};
-        this.state.qcCollapsed[index] = true;
-        this.state.qcExpandedChecks[index] = false;
-    }
-
-    severityClass(severity) {
-        const map = { low: "success", medium: "warning", high: "danger", critical: "danger" };
-        return map[severity] || "secondary";
-    }
-
-    severityIcon(severity) {
-        const map = {
-            low: "fa-check-circle",
-            medium: "fa-exclamation-circle",
-            high: "fa-exclamation-triangle",
-            critical: "fa-ban",
-        };
-        return map[severity] || "fa-question-circle";
+            const parsed = JSON.parse(qcText.trim());
+            const verdict = (parsed.verdict || "").toLowerCase();
+            if (["pass", "fail", "needs_revision"].includes(verdict)) {
+                this.props.record.update({ qc_status: verdict });
+            }
+        } catch (_e) {}
     }
 }
 
