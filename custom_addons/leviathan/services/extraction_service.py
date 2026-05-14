@@ -1,16 +1,27 @@
-"""HTTP client for the external Leviathan extraction microservice."""
+"""Async invocation of the Leviathan extraction Lambda.
+
+Calls ``lambda:Invoke`` with ``InvocationType='Event'`` so the call returns in
+~50-200 ms regardless of how long the Lambda actually runs (6-15 min).  Results
+arrive only via the webhook callback to ``/api/v1/leviathan/webhook/extraction-complete``.
+
+This module replaces the previous synchronous ``httpx.post`` flow (which held
+an Odoo thread open for the full 15-min Lambda timeout) and the previous
+RabbitMQ + ``consumer.py`` fan-out (which is no longer needed).
+"""
 
 import ipaddress
 import json
 import logging
 import socket
+import threading
+from typing import Any
 from urllib.parse import urlparse
 
-import httpx
+import boto3
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 _logger = logging.getLogger(__name__)
-
-DEFAULT_TIMEOUT = 900  # Lambda extraction can take up to 15 min
 
 _ALLOWED_SCHEMES = {"http", "https"}
 
@@ -27,18 +38,12 @@ _BLOCKED_NETWORKS = [
     ]
 ]
 
+_CLIENT_LOCK = threading.Lock()
+_CLIENT_CACHE: dict[tuple, Any] = {}
+
 
 def validate_url(url: str) -> tuple[bool, str]:
-    """Validate a URL for safety before sending to extraction service.
-
-    Checks:
-    - Scheme is http or https
-    - Hostname is present and resolvable
-    - Resolved IP is not in private/reserved ranges (SSRF protection)
-
-    Returns:
-        (is_valid, error_message) tuple.
-    """
+    """SSRF guard. Returns (is_valid, error_message)."""
     if not url or not url.strip():
         return (False, "URL is empty")
 
@@ -65,39 +70,58 @@ def validate_url(url: str) -> tuple[bool, str]:
     return (True, "")
 
 
-def _extract_region_from_lambda_url(url: str) -> str:
-    """Extract AWS region from Lambda Function URL hostname.
-    Format: <id>.lambda-url.<region>.on.aws
-    """
-    try:
-        parts = urlparse(url).hostname.split(".")
-        idx = parts.index("lambda-url")
-        return parts[idx + 1]
-    except (ValueError, IndexError):
-        return "ap-south-1"
+def _get_lambda_client(region: str, access_key_id: str = "", secret_access_key: str = ""):
+    """Cached boto3 Lambda client with a connection pool big enough for 250
+    concurrent fan-out from a single Odoo worker."""
+    cache_key = (region, access_key_id, secret_access_key)
+    with _CLIENT_LOCK:
+        client = _CLIENT_CACHE.get(cache_key)
+        if client is not None:
+            return client
+
+        kwargs = {
+            "service_name": "lambda",
+            "region_name": region,
+            "config": BotoConfig(
+                max_pool_connections=300,
+                connect_timeout=10,
+                read_timeout=30,
+                retries={"max_attempts": 3, "mode": "adaptive"},
+            ),
+        }
+        if access_key_id and secret_access_key:
+            kwargs["aws_access_key_id"] = access_key_id
+            kwargs["aws_secret_access_key"] = secret_access_key
+
+        client = boto3.client(**kwargs)
+        _CLIENT_CACHE[cache_key] = client
+        return client
 
 
 def trigger_extraction(
     url: str,
     job_id: int,
     callback_url: str,
-    service_url: str,
-    access_key_id: str,
-    secret_access_key: str,
+    function_name: str,
+    region: str,
+    access_key_id: str = "",
+    secret_access_key: str = "",
 ) -> dict:
-    """Trigger extraction on the external Lambda service.
-
-    Uses AWS SigV4 signing for Lambda Function URL authentication.
+    """Fire-and-forget async invoke. Returns in <1s.
 
     Args:
         url: Website URL to extract.
-        job_id: Odoo job record ID (passed to callback).
-        callback_url: Webhook URL for completion notification.
-        service_url: Lambda Function URL base.
-        access_key_id: AWS access key for signing.
-        secret_access_key: AWS secret key for signing.
+        job_id: Odoo job record ID (echoed back in the webhook).
+        callback_url: Webhook URL the Lambda will POST results to.
+        function_name: Lambda function name or full ARN.
+        region: AWS region of the Lambda.
+        access_key_id / secret_access_key: Optional; falls back to pod-role
+            (IRSA on EKS) or instance profile when omitted.
+
     Returns:
-        dict with 'success' bool and optional 'error' or 'extraction_id'.
+        dict with 'success' bool and optional 'error' or 'request_id'.
+        'success=True' here means the invoke was accepted by AWS, NOT that
+        extraction succeeded — that arrives only via the webhook.
     """
     is_valid, error_msg = validate_url(url)
     if not is_valid:
@@ -106,126 +130,69 @@ def trigger_extraction(
         )
         return {"success": False, "error": f"URL validation failed: {error_msg}"}
 
-    if not service_url:
-        return {"success": False, "error": "Extraction service URL not configured"}
+    if not function_name:
+        return {"success": False, "error": "Lambda function name not configured"}
 
-    # Local dev mode: skip SigV4 for localhost URLs
-    is_local = any(h in service_url for h in ["localhost", "127.0.0.1", "0.0.0.0"])
+    payload = {
+        "url": url,
+        "job_id": job_id,
+        "callback_url": callback_url,
+    }
 
     try:
-        endpoint = f"{service_url.rstrip('/')}/api/v1/extract"
-        payload = json.dumps({
-            "url": url,
-            "job_id": job_id,
-            "callback_url": callback_url,
-        })
-
-        def _build_headers():
-            """Build request headers, freshly SigV4-signed on each call.
-
-            Re-signing per attempt is REQUIRED: SigV4 signatures expire after
-            15 minutes, and the Lambda runs synchronously for up to ~15 min — so
-            a retry after a slow first attempt would otherwise send an expired
-            signature and get a bogus 403.
-            """
-            hdrs = {"Content-Type": "application/json"}
-            if is_local:
-                return hdrs
-            from botocore.auth import SigV4Auth
-            from botocore.awsrequest import AWSRequest
-            from botocore.credentials import Credentials
-
-            region = _extract_region_from_lambda_url(service_url)
-            credentials = Credentials(access_key_id, secret_access_key)
-            aws_request = AWSRequest(
-                method="POST",
-                url=endpoint,
-                data=payload,
-                headers=hdrs,
+        client = _get_lambda_client(region, access_key_id, secret_access_key)
+        response = client.invoke(
+            FunctionName=function_name,
+            InvocationType="Event",
+            Payload=json.dumps(payload).encode("utf-8"),
+        )
+        status = response.get("StatusCode")
+        if status != 202:
+            _logger.warning(
+                "Lambda async invoke unexpected status %s for job %d (function=%s)",
+                status, job_id, function_name,
             )
-            SigV4Auth(credentials, "lambda", region).add_auth(aws_request)
-            return dict(aws_request.headers)
+            return {
+                "success": False,
+                "error": f"Lambda invoke returned status {status} (expected 202)",
+            }
 
-        _logger.info("Triggering extraction for URL=%s, job_id=%d", url, job_id)
+        request_id = response.get("ResponseMetadata", {}).get("RequestId", "")
+        _logger.info(
+            "Lambda async invoke OK: job_id=%d, RequestId=%s, url=%s",
+            job_id, request_id, url,
+        )
+        return {"success": True, "request_id": request_id}
 
-        import time as _time
-        last_error = None
-        for attempt in range(3):
-            try:
-                headers = _build_headers()
-                _attempt_start = _time.monotonic()
-                with httpx.Client() as client:
-                    resp = client.post(
-                        endpoint,
-                        content=payload,
-                        headers=headers,
-                        timeout=DEFAULT_TIMEOUT,
-                    )
-                _attempt_elapsed = _time.monotonic() - _attempt_start
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "Unknown")
+        msg = exc.response.get("Error", {}).get("Message", str(exc))
+        _logger.error(
+            "Lambda invoke ClientError for job %d [%s]: %s", job_id, code, msg
+        )
+        if code == "TooManyRequestsException":
+            return {
+                "success": False,
+                "error": (
+                    "Lambda reserved concurrency exhausted. "
+                    "Raise ReservedConcurrentExecutions or throttle batch size."
+                ),
+            }
+        if code == "ResourceNotFoundException":
+            return {
+                "success": False,
+                "error": f"Lambda function '{function_name}' not found in region '{region}'",
+            }
+        if code in ("AccessDeniedException", "UnauthorizedOperation"):
+            return {
+                "success": False,
+                "error": (
+                    f"IAM denied lambda:InvokeFunction on '{function_name}'. "
+                    "Check IRSA role / explicit access key permissions."
+                ),
+            }
+        return {"success": False, "error": f"{code}: {msg}"}
 
-                if resp.status_code < 300:
-                    _json = resp.json()
-                    _logger.info("Extraction triggered successfully: %s", _json)
-                    return {"success": True, "extraction_id": _json.get("extraction_id")}
-
-                # Retryable server errors — but ONLY when they fail fast. A 5xx
-                # that comes back quickly is a cold-start/transient blip worth a
-                # retry; a 5xx after minutes means the Lambda actually ran and
-                # timed out/errored, so retrying just burns another ~15-min run.
-                if resp.status_code in (500, 502, 503, 504, 429) and _attempt_elapsed < 120:
-                    body = (resp.text or "").strip()[:200]
-                    _logger.warning(
-                        "Extraction service [%d] failed fast in %.0fs (attempt %d/3): %s",
-                        resp.status_code, _attempt_elapsed, attempt + 1, body,
-                    )
-                    last_error = f"Service returned {resp.status_code}"
-                    if body:
-                        last_error += f": {body}"
-                    _time.sleep(3 * (attempt + 1))  # 3s, 6s, 9s
-                    continue
-
-                # Non-retryable: 4xx, or a slow 5xx (the Lambda ran and timed
-                # out/errored — not a transient failure, don't re-run it).
-                error_text = (resp.text or "").strip()[:300]
-                _logger.warning(
-                    "Extraction service error %d after %.0fs: %s",
-                    resp.status_code, _attempt_elapsed, error_text,
-                )
-                detail = f"Service returned {resp.status_code}"
-                if error_text:
-                    detail += f": {error_text}"
-                if resp.status_code == 403:
-                    # 403 = AWS IAM/SigV4 rejected the call before Lambda ran.
-                    detail += (
-                        " (Lambda Function URL auth rejected the request — check the "
-                        "Lambda access key/secret and region in Settings, and clock "
-                        "sync on the Odoo host)"
-                    )
-                elif resp.status_code in (500, 502, 503, 504) and _attempt_elapsed >= 120:
-                    detail += (
-                        f" — extraction ran {_attempt_elapsed / 60:.0f} min then the "
-                        "Lambda timed out/errored (not retried; check the Lambda logs)"
-                    )
-                return {"success": False, "error": detail}
-
-            except httpx.TimeoutException:
-                _logger.warning("Extraction timeout (attempt %d/3)", attempt + 1)
-                last_error = "Extraction service timeout"
-                continue
-            except httpx.HTTPError as exc:
-                _logger.warning("Extraction HTTP error (attempt %d/3): %s", attempt + 1, exc)
-                last_error = str(exc)
-                import time as _time
-                _time.sleep(3 * (attempt + 1))
-                continue
-
-        return {"success": False, "error": last_error or "All retries exhausted"}
-
-    except httpx.TimeoutException:
-        return {"success": False, "error": "Extraction service timeout"}
-    except httpx.HTTPError as exc:
-        _logger.error("Extraction service HTTP error: %s", exc)
-        return {"success": False, "error": str(exc)}
     except Exception as exc:
-        _logger.error("Extraction service call failed: %s", exc)
+        _logger.exception("Lambda async invoke failed for job %d", job_id)
         return {"success": False, "error": str(exc)}

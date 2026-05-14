@@ -6,19 +6,33 @@ from odoo import api, fields, models
 class ResConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
-    # -- Extraction Service --
-    leviathan_extraction_service_url = fields.Char(
-        string="Extraction Service URL",
-        config_parameter="leviathan.extraction_service_url",
-        help="Base URL of the external Leviathan extraction microservice",
+    # -- Extraction Lambda (async invoke) --
+    leviathan_lambda_function_name = fields.Char(
+        string="Lambda Function Name",
+        config_parameter="leviathan.lambda_function_name",
+        help="AWS Lambda function name or full ARN for the extraction service. "
+             "Used with boto3 lambda:Invoke (InvocationType=Event).",
+    )
+    leviathan_lambda_region = fields.Char(
+        string="Lambda Region",
+        config_parameter="leviathan.lambda_region",
+        default="ap-south-1",
     )
     leviathan_extraction_access_key_id = fields.Char(
         string="Extraction AWS Access Key ID",
         config_parameter="leviathan.extraction_access_key_id",
+        help="Leave empty to use EKS pod IAM role (IRSA).",
     )
     leviathan_extraction_secret_access_key = fields.Char(
         string="Extraction AWS Secret Access Key",
         config_parameter="leviathan.extraction_secret_access_key",
+    )
+    leviathan_batch_concurrency = fields.Integer(
+        string="Batch Concurrency",
+        config_parameter="leviathan.batch_concurrency",
+        default=250,
+        help="Max parallel Lambda invocations per batch run. Must not exceed "
+             "the Lambda's ReservedConcurrentExecutions setting.",
     )
 
     # -- Bedrock --
