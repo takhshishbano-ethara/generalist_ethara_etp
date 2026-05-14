@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="seq_video_task" model="ir.sequence">
+        <field name="name">Video Task Reference</field>
+        <field name="code">video.task</field>
+        <field name="prefix">VQC/%(year)s/</field>
+        <field name="padding">5</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+</odoo>

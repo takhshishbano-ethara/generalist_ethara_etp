@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =========================================================
+         FORM
+    ========================================================== -->
+    <record id="view_video_task_form" model="ir.ui.view">
+        <field name="name">video.task.form</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <form string="Video Task" class="o_video_qc_form">
+                <header>
+                    <button name="action_download_videos" type="object"
+                            string="Download Videos" class="btn-primary"
+                            invisible="state not in ('draft',)"/>
+                    <button name="action_mark_downloaded" type="object"
+                            string="Mark as Downloaded"
+                            invisible="state != 'draft'"/>
+                    <button name="action_start_editing" type="object"
+                            string="Start Editing" class="btn-primary"
+                            invisible="state not in ('downloaded', 'qc_rejected')"/>
+                    <button name="action_open_editor" type="object"
+                            string="Open Editor" icon="fa-pencil-square-o"
+                            class="btn-secondary"
+                            invisible="state in ('draft', 'completed')"/>
+                    <button name="action_send_to_qc" type="object"
+                            string="Send to QC" class="btn-primary"
+                            invisible="state != 'editing'"/>
+                    <button name="action_complete" type="object"
+                            string="Mark Completed" class="btn-success"
+                            invisible="state != 'qc_approved'"/>
+                    <button name="action_set_draft" type="object"
+                            string="Reset to Draft"
+                            invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,downloaded,editing,qc_pending,qc_approved,completed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_versions" icon="fa-film">
+                            <field name="total_versions_count" widget="statinfo" string="Versions"/>
+                        </button>
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_qc" icon="fa-check-square">
+                            <field name="qc_count" widget="statinfo" string="QC"/>
+                        </button>
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_qc" icon="fa-thumbs-up">
+                            <field name="qc_approved_count" widget="statinfo" string="Approved"/>
+                        </button>
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_qc" icon="fa-thumbs-down">
+                            <field name="qc_rejected_count" widget="statinfo" string="Rejected"/>
+                        </button>
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_processing_logs" icon="fa-terminal">
+                            <field name="processing_log_count" widget="statinfo" string="Logs"/>
+                        </button>
+                    </div>
+                    <field name="thumbnail" widget="image" class="oe_avatar"/>
+                    <div class="oe_title">
+                        <label for="name" class="oe_edit_only"/>
+                        <h1><field name="name" readonly="1"/></h1>
+                        <h3>
+                            <field name="description" placeholder="Short brief..."/>
+                        </h3>
+                    </div>
+
+                    <group>
+                        <group>
+                            <field name="assigned_to"/>
+                            <field name="qc_user_id"/>
+                            <field name="latest_version_id" readonly="1"/>
+                            <field name="latest_qc_status" readonly="1"
+                                   widget="badge"
+                                   decoration-success="latest_qc_status == 'approved'"
+                                   decoration-danger="latest_qc_status == 'rejected'"
+                                   decoration-warning="latest_qc_status in ('pending', 'rework')"/>
+                        </group>
+                        <group>
+                            <field name="color" widget="color_picker"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <!-- ============ Tab 1: Original Videos ============ -->
+                        <page string="Original Videos" name="originals">
+                            <group>
+                                <group string="Source #1">
+                                    <field name="original_video_1_url" placeholder="https://www.instagram.com/reel/..."/>
+                                    <field name="download_status_1" widget="badge"
+                                           decoration-success="download_status_1 == 'done'"
+                                           decoration-danger="download_status_1 == 'error'"
+                                           decoration-info="download_status_1 in ('queued', 'running')"/>
+                                    <field name="original_video_1_attachment"
+                                           options="{'no_create': True}"/>
+                                    <button name="action_open_editor_slot_1" type="object"
+                                            string="Edit this video" icon="fa-pencil-square-o"
+                                            class="btn-primary"
+                                            invisible="not original_video_1_attachment"/>
+                                </group>
+                                <group string="Source #2">
+                                    <field name="original_video_2_url" placeholder="https://www.instagram.com/reel/..."/>
+                                    <field name="download_status_2" widget="badge"
+                                           decoration-success="download_status_2 == 'done'"
+                                           decoration-danger="download_status_2 == 'error'"
+                                           decoration-info="download_status_2 in ('queued', 'running')"/>
+                                    <field name="original_video_2_attachment"
+                                           options="{'no_create': True}"/>
+                                    <button name="action_open_editor_slot_2" type="object"
+                                            string="Edit this video" icon="fa-pencil-square-o"
+                                            class="btn-primary"
+                                            invisible="not original_video_2_attachment"/>
+                                </group>
+                            </group>
+
+                            <!-- Inline players: render the streaming endpoint
+                                 with native HTML5 controls so the user can
+                                 watch the originals (or the trimmed segment
+                                 of the latest version) without leaving the
+                                 form view.  Each preview auto-applies the
+                                 latest version's trim window via a
+                                 ``#t=start,end`` media fragment, so by
+                                 default the user sees the *latest trimmed*
+                                 take of each source. -->
+                            <group>
+                                <group string="Source #1 — Trimmed (latest)"
+                                       invisible="not original_video_1_attachment">
+                                    <field name="original_video_1_play_url"
+                                           widget="video_preview"
+                                           nolabel="1" colspan="2"/>
+                                </group>
+                                <group string="Source #2 — Trimmed (latest)"
+                                       invisible="not original_video_2_attachment">
+                                    <field name="original_video_2_play_url"
+                                           widget="video_preview"
+                                           nolabel="1" colspan="2"/>
+                                </group>
+                            </group>
+
+                            <!-- Prompt + QC action.  ``prompt_text`` is a
+                                 task-level field so the user can capture
+                                 the brief regardless of how many versions
+                                 exist; the editor still saves its own
+                                 per-version prompt on each render. -->
+                            <group string="Prompt &amp; QC">
+                                <field name="prompt_text" nolabel="1"
+                                       placeholder="Capture the creative brief for this task here..."/>
+                                <div>
+                                    <button name="action_qc_placeholder"
+                                            type="object"
+                                            string="QC"
+                                            icon="fa-check-circle"
+                                            class="btn-primary"
+                                            help="Stub action — QC review handler to be implemented."/>
+                                </div>
+                            </group>
+
+                            <field name="download_error" readonly="1"
+                                   invisible="not download_error"/>
+                        </page>
+
+                        <!-- ============ Tab 2: Versions ============ -->
+                        <page string="Versions" name="versions">
+                            <field name="version_ids"
+                                   context="{'default_task_id': id}">
+                                <list>
+                                    <field name="version_no"/>
+                                    <field name="created_by"/>
+                                    <field name="created_on"/>
+                                    <field name="status" widget="badge"/>
+                                    <field name="qc_status" widget="badge"
+                                           decoration-success="qc_status == 'approved'"
+                                           decoration-danger="qc_status == 'rejected'"
+                                           decoration-warning="qc_status in ('pending', 'rework')"/>
+                                    <field name="duration"/>
+                                    <field name="resolution"/>
+                                    <field name="is_latest" widget="boolean_toggle"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- ============ Tab 3: Video Editor launcher ============ -->
+                        <page string="Video Editor" name="editor">
+                            <div class="alert alert-info" role="alert">
+                                <p>
+                                    The editor opens in a dedicated fullscreen workspace with
+                                    timeline, trim handles, crop tool and live preview.
+                                </p>
+                            </div>
+                            <button name="action_open_editor" type="object"
+                                    string="Launch Fullscreen Editor"
+                                    class="btn-primary btn-lg" icon="fa-rocket"/>
+                        </page>
+
+                        <!-- ============ Tab 4: Prompts ============ -->
+                        <!--
+                            Uses the ``prompt_version_ids`` proxy of version_ids
+                            so the OWL renderer treats this list as a distinct
+                            x2many widget and doesn't collide with the
+                            ``version_ids`` declaration in the Versions tab —
+                            which is what was preventing existing records from
+                            opening.
+                         -->
+                        <page string="Prompts" name="prompts">
+                            <field name="prompt_version_ids" readonly="1">
+                                <list>
+                                    <field name="version_no"/>
+                                    <field name="prompt_text"/>
+                                    <field name="prompt_response"/>
+                                    <field name="qc_status" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- ============ Tab 5: QC ============ -->
+                        <page string="QC Review" name="qc">
+                            <field name="qc_version_ids" readonly="1">
+                                <list>
+                                    <field name="version_no"/>
+                                    <field name="prompt_text"/>
+                                    <field name="qc_status" widget="badge"
+                                           decoration-success="qc_status == 'approved'"
+                                           decoration-danger="qc_status == 'rejected'"
+                                           decoration-warning="qc_status in ('pending', 'rework')"/>
+                                    <field name="qc_user"/>
+                                    <field name="qc_date"/>
+                                    <field name="qc_comment"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- ============ Tab 6: Edit History timeline ============ -->
+                        <page string="History Logs" name="history">
+                            <field name="edit_history_ids" readonly="1">
+                                <list>
+                                    <field name="create_date"/>
+                                    <field name="version_id"/>
+                                    <field name="action_type"/>
+                                    <field name="action_data"/>
+                                    <field name="created_by"/>
+                                </list>
+                            </field>
+                            <separator string="Processing Logs"/>
+                            <field name="processing_log_ids" readonly="1">
+                                <list>
+                                    <field name="create_date"/>
+                                    <field name="operation"/>
+                                    <field name="level" widget="badge"
+                                           decoration-danger="level == 'error'"
+                                           decoration-warning="level == 'warning'"/>
+                                    <field name="duration_ms"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- ============ Tab 7: Notes ============ -->
+                        <page string="Notes" name="notes">
+                            <field name="notes" nolabel="1" placeholder="Internal notes..."/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         LIST
+    ========================================================== -->
+    <record id="view_video_task_list" model="ir.ui.view">
+        <field name="name">video.task.list</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <list string="Video Tasks" sample="1"
+                  decoration-info="state == 'editing'"
+                  decoration-success="state == 'qc_approved'"
+                  decoration-danger="state == 'qc_rejected'"
+                  decoration-muted="state == 'completed'">
+                <field name="name"/>
+                <field name="description"/>
+                <field name="assigned_to"/>
+                <field name="qc_user_id"/>
+                <field name="total_versions_count"/>
+                <field name="latest_qc_status" widget="badge"/>
+                <field name="state" widget="badge"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         KANBAN
+    ========================================================== -->
+    <record id="view_video_task_kanban" model="ir.ui.view">
+        <field name="name">video.task.kanban</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="state" class="o_video_qc_kanban" sample="1">
+                <field name="thumbnail"/>
+                <field name="name"/>
+                <field name="state"/>
+                <field name="color"/>
+                <field name="assigned_to"/>
+                <field name="total_versions_count"/>
+                <field name="latest_qc_status"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_card o_video_qc_card">
+                            <div class="o_video_qc_thumb">
+                                <field name="thumbnail" widget="background_image"
+                                       class="o_kanban_image_fill h-100 w-100"
+                                       options="{'preview_image': 'thumbnail'}"/>
+                            </div>
+                            <div class="o_video_qc_body">
+                                <strong><field name="name"/></strong>
+                                <div class="text-muted">
+                                    <field name="description"/>
+                                </div>
+                                <div class="o_video_qc_meta">
+                                    <span class="badge text-bg-secondary">
+                                        v<field name="total_versions_count"/>
+                                    </span>
+                                    <field name="latest_qc_status" widget="label_selection"
+                                           options="{'classes': {'approved':'success', 'rejected':'danger','rework':'warning','pending':'info'}}"/>
+                                </div>
+                                <div class="o_video_qc_footer">
+                                    <field name="assigned_to" widget="many2one_avatar"
+                                           class="oe_kanban_avatar"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         SEARCH
+    ========================================================== -->
+    <record id="view_video_task_search" model="ir.ui.view">
+        <field name="name">video.task.search</field>
+        <field name="model">video.task</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="description"/>
+                <field name="assigned_to"/>
+                <field name="qc_user_id"/>
+                <separator/>
+                <filter name="my_tasks" string="My Tasks"
+                        domain="[('assigned_to', '=', uid)]"/>
+                <filter name="qc_for_me" string="QC Assigned to Me"
+                        domain="[('qc_user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="editing" string="Editing" domain="[('state', '=', 'editing')]"/>
+                <filter name="qc_pending" string="QC Pending" domain="[('state', '=', 'qc_pending')]"/>
+                <filter name="approved" string="Approved" domain="[('state', '=', 'qc_approved')]"/>
+                <filter name="rejected" string="Rejected" domain="[('state', '=', 'qc_rejected')]"/>
+                <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>
+                <separator/>
+                <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                <filter name="group_assigned" string="Assigned To" context="{'group_by': 'assigned_to'}"/>
+                <filter name="group_qc_user" string="QC Reviewer" context="{'group_by': 'qc_user_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_video_task" model="ir.actions.act_window">
+        <field name="name">Video Tasks</field>
+        <field name="res_model">video.task</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_video_task_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first Instagram video task.</p>
+            <p>Paste up to two Instagram reel URLs, download them and start editing.</p>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="instagram_video_qc_manager.VideoPreviewField">
+        <div class="o_video_preview_field">
+            <t t-if="value">
+                <video t-ref="video"
+                       t-att-src="value"
+                       controls="controls"
+                       preload="metadata"
+                       playsinline="playsinline"/>
+            </t>
+            <t t-else="">
+                <div class="o_video_preview_field__empty text-muted">
+                    <i class="fa fa-film me-1"/> No video available yet.
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

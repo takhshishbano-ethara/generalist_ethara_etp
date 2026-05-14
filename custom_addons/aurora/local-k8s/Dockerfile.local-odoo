@@ -2,10 +2,7 @@ FROM aurora-worker:local
 
 USER root
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ make && rm -rf /var/lib/apt/lists/*
-
 # Install full Odoo runtime deps from src/requirements.txt
-# Filter out packages that need unavailable system libs or are too heavy
 COPY src/requirements.txt /tmp/odoo-src-requirements.txt
 
 RUN grep -v -E "python-ldap|pyusb|pyserial|language-tool-python|psycopg2==" /tmp/odoo-src-requirements.txt > /tmp/filtered-requirements.txt \

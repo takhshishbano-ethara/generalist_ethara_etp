@@ -17,9 +17,69 @@
                 </div>
             </t>
             <t t-else="">
+                <t t-if="state.subChatView">
+                    <div class="o_skoll_subchat_header">
+                        <button class="btn btn-link btn-sm p-0 me-2" t-on-click="onBackFromSubChat">
+                            <i class="fa fa-arrow-left me-1"/>Back
+                        </button>
+                        <span t-attf-class="o_skoll_subagent_badge o_skoll_subagent_badge_#{state.subChatView.agent || 'unknown'}">
+                            <t t-out="(state.subChatView.agent || 'sub-agent').charAt(0).toUpperCase() + (state.subChatView.agent || 'sub-agent').slice(1)"/>
+                        </span>
+                        <span class="o_skoll_subchat_title ms-2">
+                            <t t-out="state.subChatView.description || state.subChatView.agent || 'Sub-agent'"/>
+                        </span>
+                    </div>
+                    <div class="o_skoll_chat_messages o_skoll_subchat_messages">
+                        <t t-foreach="state.subChatView.messages" t-as="sam" t-key="sam_index">
+                            <div t-attf-class="o_skoll_msg o_skoll_msg_#{sam.role === 'user' ? 'user' : 'assistant'}">
+                                <div class="o_skoll_msg_meta">
+                                    <span class="o_skoll_msg_role">
+                                        <t t-if="sam.role === 'user'">Prompt</t>
+                                        <t t-elif="sam.role === 'tool'">Tool</t>
+                                        <t t-else="">Response</t>
+                                    </span>
+                                </div>
+                                <div class="o_skoll_msg_bubble o_skoll_subchat_bubble">
+                                    <pre class="o_skoll_subchat_pre"><t t-out="sam.text"/></pre>
+                                </div>
+                            </div>
+                        </t>
+                        <t t-if="!state.subChatView.messages.length">
+                            <div class="o_skoll_subchat_empty text-muted text-center py-4">
+                                <i class="fa fa-clock-o me-1"/>Waiting for sub-agent activity…
+                            </div>
+                        </t>
+                    </div>
+                </t>
+                <t t-else="">
                 <div class="o_skoll_chat_messages">
                     <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
-                        <t t-if="!msg.pending or msg.text or msg.thinkingText or (msg.toolCalls and msg.toolCalls.length)">
+                        <t t-if="msg.type === 'subagent_card'">
+                            <div class="o_skoll_subagent_card" t-on-click="() => this.onOpenSubChat(msg)">
+                                <div class="o_skoll_subagent_toggle">
+                                    <t t-if="msg.status === 'running'">
+                                        <span class="o_skoll_subagent_status_icon text-info">
+                                            <i class="fa fa-circle-o-notch fa-spin"/>
+                                        </span>
+                                    </t>
+                                    <t t-else="">
+                                        <span class="o_skoll_subagent_status_icon text-success">
+                                            <i class="fa fa-check-circle"/>
+                                        </span>
+                                    </t>
+                                    <span t-attf-class="o_skoll_subagent_badge o_skoll_subagent_badge_#{msg.agent || 'unknown'}">
+                                        <t t-out="(msg.agent || 'sub-agent').charAt(0).toUpperCase() + (msg.agent || 'sub-agent').slice(1)"/>
+                                    </span>
+                                    <span class="o_skoll_subagent_prompt_preview">
+                                        <t t-out="msg.description"/>
+                                    </span>
+                                    <span class="o_skoll_subagent_meta">
+                                        <i class="fa fa-chevron-right"/>
+                                    </span>
+                                </div>
+                            </div>
+                        </t>
+                        <t t-elif="!msg.pending or msg.text">
                             <div t-attf-class="o_skoll_msg o_skoll_msg_#{msg.role} #{msg.isHint ? 'o_skoll_msg_hint' : ''} #{msg.isAutoHint ? 'o_skoll_auto_hint_msg' : ''} #{msg.isAutoHintVerdict ? 'o_skoll_auto_hint_verdict' : ''}">
                                 <div class="o_skoll_msg_meta">
                                     <span class="o_skoll_msg_role">
@@ -31,24 +91,6 @@
                                     </span>
                                 </div>
                                 <div t-attf-class="o_skoll_msg_bubble #{msg.isError ? 'o_skoll_msg_error' : ''} #{msg.isTimeout ? 'o_skoll_msg_timeout' : ''} #{msg.isQc ? 'o_skoll_qc_bubble o_skoll_qc_' + (msg.qcSeverity || 'low') : ''} #{msg.role === 'assistant' and !msg.isQc ? 'o_skoll_md' : ''}">
-                                    <t t-if="msg.thinkingText">
-                                        <div class="o_skoll_thinking_section">
-                                            <button class="o_skoll_thinking_toggle btn btn-link btn-sm p-0"
-                                                    t-on-click="() => this.onToggleThinking(msg)">
-                                                <i t-attf-class="fa fa-chevron-#{msg.thinkingExpanded ? 'down' : 'right'} me-1"/>
-                                                <i class="fa fa-lightbulb-o me-1"/>
-                                                <span>Thinking</span>
-                                                <span t-if="msg.pending" class="o_skoll_thinking_live ms-1">
-                                                    <i class="fa fa-circle-o-notch fa-spin"/>
-                                                </span>
-                                            </button>
-                                            <t t-if="msg.thinkingExpanded">
-                                                <div class="o_skoll_thinking_content">
-                                                    <t t-out="msg.thinkingText"/>
-                                                </div>
-                                            </t>
-                                        </div>
-                                    </t>
                                     <t t-if="msg.isQc">
                                         <div class="o_skoll_qc_header">
                                             <span t-attf-class="o_skoll_qc_badge o_skoll_qc_badge_#{msg.qcSeverity || 'low'}">
@@ -84,46 +126,6 @@
                                         <t t-out="msg.text"/>
                                     </t>
                                     <span t-if="msg.pending and msg.text" class="o_skoll_cursor">|</span>
-                                    <t t-if="msg.toolCalls and msg.toolCalls.length">
-                                        <div class="o_skoll_tools_section">
-                                            <button class="o_skoll_tools_toggle btn btn-link btn-sm p-0"
-                                                    t-on-click="() => this.onToggleTools(msg)">
-                                                <i t-attf-class="fa fa-chevron-#{msg.toolsExpanded ? 'down' : 'right'} me-1"/>
-                                                <span><t t-out="msg.toolCalls.length"/> tool(s) used</span>
-                                            </button>
-                                            <t t-if="msg.toolsExpanded">
-                                                <div class="o_skoll_tools_list">
-                                                    <t t-foreach="msg.toolCalls" t-as="tc" t-key="tc.toolCallId || tc_index">
-                                                        <div class="o_skoll_tool_item">
-                                                            <div class="o_skoll_tool_header">
-                                                                <t t-if="tc.isError">
-                                                                    <span class="o_skoll_tool_status text-danger">
-                                                                        <i class="fa fa-times-circle"/>
-                                                                    </span>
-                                                                </t>
-                                                                <t t-elif="tc.result !== null and tc.result !== undefined">
-                                                                    <span class="o_skoll_tool_status text-success">
-                                                                        <i class="fa fa-check-circle"/>
-                                                                    </span>
-                                                                </t>
-                                                                <t t-else="">
-                                                                    <span class="o_skoll_tool_status text-warning">
-                                                                        <i class="fa fa-spinner fa-spin"/>
-                                                                    </span>
-                                                                </t>
-                                                                <span class="o_skoll_tool_name fw-bold"><t t-out="tc.name || 'unknown'"/></span>
-                                                                <span t-if="tc.isError" class="badge bg-danger ms-2">Error</span>
-                                                                <span t-elif="tc.result === null or tc.result === undefined" class="badge bg-warning ms-2">Running</span>
-                                                            </div>
-                                                            <t t-if="tc.result !== null and tc.result !== undefined">
-                                                                <pre t-attf-class="o_skoll_tool_output #{tc.isError ? 'o_skoll_tool_output_error' : ''}"><t t-out="this.formatToolResult(tc.result)"/></pre>
-                                                            </t>
-                                                        </div>
-                                                    </t>
-                                                </div>
-                                            </t>
-                                        </div>
-                                    </t>
                                     <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
                                         <div class="o_skoll_feedback_row">
                                             <t t-if="msg.feedback === 'satisfied'">
@@ -158,6 +160,7 @@
                     </div>
                     <div t-ref="messagesEnd"/>
                 </div>
+                </t>
 
                 <t t-if="state.qcPending">
                     <div t-attf-class="o_skoll_qc_action_bar o_skoll_qc_action_#{state.qcResult.severity}">
@@ -345,6 +348,7 @@
                     </div>
                 </t>
 
+                <t t-if="!state.subChatView">
                 <div class="o_skoll_chat_input">
                     <div class="o_skoll_chat_input_row">
                         <textarea
@@ -372,6 +376,7 @@
                         </t>
                     </div>
                 </div>
+                </t>
             </t>
         </div>
     </t>

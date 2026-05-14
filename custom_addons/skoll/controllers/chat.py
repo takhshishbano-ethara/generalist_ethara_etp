@@ -214,6 +214,14 @@ class SkollChatController(http.Controller):
 
         vals = {}
         if trajectory_messages:
+            try:
+                msgs = json.loads(trajectory_messages)
+                if isinstance(msgs, list) and turn.sandbox_id:
+                    main_key = "odoo:sandbox:%s" % turn.sandbox_id.id
+                    request.env["skoll.sandbox"]._attribute_session_keys(msgs, main_key)
+                    trajectory_messages = json.dumps(msgs, ensure_ascii=False)
+            except (json.JSONDecodeError, TypeError):
+                pass
             vals["trajectory_messages"] = trajectory_messages
             extracted = self._extract_tool_calls_from_trajectory(trajectory_messages)
             if extracted:
@@ -382,6 +390,8 @@ class SkollChatController(http.Controller):
                     "hints": t.hints or "",
                     "hint_text": t.hint_text or "",
                     "is_hint_turn": t.is_hint_turn or False,
+                    "sub_agent_messages": t.sub_agent_messages or "",
+                    "spawn_tree": t.spawn_tree or "",
                 }
             )
 

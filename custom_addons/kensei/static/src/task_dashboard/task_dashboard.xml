@@ -41,10 +41,10 @@
                 </div>
             </div>
 
-            <!-- All Sandbox Cards rendered simultaneously, shown/hidden via CSS -->
+            <!-- Only render active tab panel (lazy rendering) -->
             <t t-foreach="modelTabs" t-as="tab" t-key="tab.type">
                 <t t-set="sbProps" t-value="this._buildSandboxProps(tab.type)"/>
-                <div t-attf-class="o_kensei_dashboard_body #{state.activeTab !== tab.type ? 'o_kensei_panel_hidden' : ''}">
+                <div t-if="state.activeTab === tab.type" class="o_kensei_dashboard_body">
                     <t t-if="sbProps.taskId">
                     <SandboxCard
                         sandboxId="sbProps.sandboxId"
@@ -67,7 +67,6 @@
                     />
 
                     <!-- Test Results Summary (inline, no scroll needed) -->
-                    <t t-if="state.activeTab === tab.type">
                         <div class="o_kensei_test_results_section">
                             <div class="o_kensei_test_results_header">
                                 <span class="o_kensei_test_results_title">
@@ -242,10 +241,8 @@
                                 </div>
                             </t>
                         </div>
-                    </t>
 
                     <!-- Trajectory List -->
-                    <t t-if="state.activeTab === tab.type">
                         <div class="o_kensei_trajectory_list">
                             <div class="o_kensei_trajectory_header">
                                 <span class="o_kensei_trajectory_title">
@@ -365,7 +362,6 @@
                                 </div>
                             </t>
                         </div>
-                    </t>
 
                     </t>
                     <div t-else="" class="o_kensei_empty_state">

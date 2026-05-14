@@ -1014,14 +1014,7 @@ class SkollSandbox(models.Model):
             )
 
         main_key = "odoo:sandbox:%s" % self.id
-        for msg in best_messages:
-            if not isinstance(msg, dict):
-                continue
-            if not msg.get("sessionKey"):
-                msg["sessionKey"] = main_key
-            inner = msg.get("message")
-            if isinstance(inner, dict) and not inner.get("sessionKey"):
-                inner["sessionKey"] = main_key
+        self._attribute_session_keys(best_messages, main_key)
 
         return best_messages
 
@@ -1163,13 +1156,7 @@ class SkollSandbox(models.Model):
                 parent_id = asst_id
 
         main_key = "odoo:sandbox:%s" % self.id
-        for msg in messages:
-            if isinstance(msg, dict):
-                if not msg.get("sessionKey"):
-                    msg["sessionKey"] = main_key
-                inner = msg.get("message")
-                if isinstance(inner, dict) and not inner.get("sessionKey"):
-                    inner["sessionKey"] = main_key
+        self._attribute_session_keys(messages, main_key)
 
         return messages if messages else []
 
@@ -1230,15 +1217,200 @@ class SkollSandbox(models.Model):
                 parent_id = asst_id
 
         main_key = "odoo:sandbox:%s" % self.id
-        for msg in messages:
-            if isinstance(msg, dict):
-                if not msg.get("sessionKey"):
-                    msg["sessionKey"] = main_key
-                inner = msg.get("message")
-                if isinstance(inner, dict) and not inner.get("sessionKey"):
-                    inner["sessionKey"] = main_key
+        self._attribute_session_keys(messages, main_key)
 
         return messages
+
+    @staticmethod
+    def _attribute_session_keys(messages, main_key):
+        """Attribute sessionKey to trajectory messages using content-matching + lookahead.
+
+        The flat chat.history array interleaves main agent and sub-agent messages.
+        Spawn order does NOT match [Subagent Context] appearance order (sub-agents
+        start concurrently and appear by timestamp). We match each context switch to
+        its correct childSessionKey using:
+        1. Content overlap between [Subagent Context] text and spawn task descriptions
+        2. Lookahead into the next 5 messages (tool names + args identify the sub-agent)
+        3. Fallback to first unmatched spawn key if neither works
+        """
+        if not messages:
+            return
+
+        spawn_keys = []
+        task_to_key = {}
+        tcid_to_child_key = {}
+        tcid_to_task_text = {}
+
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            inner = msg.get("message", msg)
+            if not isinstance(inner, dict):
+                continue
+            role = inner.get("role", "")
+            content = inner.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            if role == "toolResult":
+                tool_name = inner.get("toolName", "")
+                tcid = inner.get("toolCallId", "")
+                if tool_name == "sessions_spawn" and content:
+                    text_block = next(
+                        (b for b in content if isinstance(b, dict) and b.get("type") == "text"),
+                        None,
+                    )
+                    if text_block:
+                        try:
+                            result_data = json.loads(text_block.get("text", ""))
+                            child_key = result_data.get("childSessionKey", "")
+                            if child_key:
+                                spawn_keys.append(child_key)
+                                tcid_to_child_key[tcid] = child_key
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            pass
+
+            elif role == "assistant":
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "toolCall" and block.get("name") == "sessions_spawn":
+                        tcid = block.get("id", "")
+                        args = block.get("arguments", {})
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except (json.JSONDecodeError, TypeError):
+                                args = {}
+                        task_text = args.get("task", "") or args.get("prompt", "")
+                        if tcid and task_text:
+                            tcid_to_task_text[tcid] = task_text
+
+        for tcid, child_key in tcid_to_child_key.items():
+            task_text = tcid_to_task_text.get(tcid, "")
+            if task_text:
+                task_to_key[task_text] = child_key
+
+        all_child_keys = set(spawn_keys)
+        unmatched_keys = list(spawn_keys)
+        spawn_order_keys = list(spawn_keys)
+
+        def _word_set(text):
+            return set(text.lower().split())
+
+        def _get_lookahead_text(msgs, start_idx):
+            parts = []
+            count = 0
+            for i in range(start_idx + 1, len(msgs)):
+                if count >= 5:
+                    break
+                m = msgs[i]
+                if not isinstance(m, dict):
+                    continue
+                inn = m.get("message", m)
+                if not isinstance(inn, dict):
+                    continue
+                m_role = inn.get("role", "")
+                m_content = inn.get("content", [])
+                if not isinstance(m_content, list):
+                    continue
+
+                for blk in m_content:
+                    if not isinstance(blk, dict):
+                        continue
+                    if blk.get("type") == "text":
+                        txt = blk.get("text", "")
+                        if "[Subagent Context]" in txt:
+                            return " ".join(parts)
+                        parts.append(txt[:200])
+                    elif blk.get("type") == "toolCall":
+                        parts.append(blk.get("name", ""))
+                        args = blk.get("arguments", {})
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except (json.JSONDecodeError, TypeError):
+                                args = {}
+                        if isinstance(args, dict):
+                            for v in args.values():
+                                if isinstance(v, str):
+                                    parts.append(v[:100])
+
+                if m_role in ("assistant", "user", "toolResult"):
+                    count += 1
+                if m_role == "assistant":
+                    for blk in m_content:
+                        if isinstance(blk, dict) and blk.get("name") in ("sessions_yield", "sessions_yield_resume"):
+                            return " ".join(parts)
+            return " ".join(parts)
+
+        def _match_context_to_key(context_text, lookahead_text):
+            best_key = None
+            best_overlap = 0
+            combined = context_text + " " + lookahead_text
+
+            for task_text, child_key in task_to_key.items():
+                if child_key not in all_child_keys:
+                    continue
+                task_words = _word_set(task_text)
+                combined_words = _word_set(combined)
+                overlap = len(task_words & combined_words)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_key = child_key
+
+            if best_key and best_overlap > 2:
+                all_child_keys.discard(best_key)
+                if best_key in unmatched_keys:
+                    unmatched_keys.remove(best_key)
+                return best_key
+
+            if unmatched_keys:
+                key = unmatched_keys.pop(0)
+                all_child_keys.discard(key)
+                return key
+
+            if spawn_order_keys:
+                return spawn_order_keys[0]
+
+            return main_key
+
+        current_key = main_key
+
+        for idx, msg in enumerate(messages):
+            if not isinstance(msg, dict):
+                continue
+            inner = msg.get("message", msg)
+            if not isinstance(inner, dict):
+                msg.setdefault("sessionKey", current_key)
+                continue
+
+            role = inner.get("role", "")
+            content = inner.get("content", [])
+            text = ""
+            if isinstance(content, list):
+                for blk in content:
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        text = blk.get("text", "")
+                        break
+
+            if role == "user" and "[Subagent Context]" in text:
+                lookahead = _get_lookahead_text(messages, idx)
+                current_key = _match_context_to_key(text, lookahead)
+            elif role == "toolResult" and inner.get("toolName") in ("sessions_yield", "sessions_yield_resume"):
+                current_key = main_key
+            elif role == "assistant":
+                if isinstance(content, list):
+                    for blk in content:
+                        if isinstance(blk, dict) and blk.get("type") == "toolCall":
+                            if blk.get("name") in ("sessions_yield", "sessions_yield_resume"):
+                                current_key = main_key
+                                break
+
+            if not msg.get("sessionKey"):
+                msg["sessionKey"] = current_key
+            if isinstance(inner, dict) and not inner.get("sessionKey"):
+                inner["sessionKey"] = current_key
 
     @staticmethod
     def _collect_sub_agent_messages(turns):
@@ -2868,6 +3040,14 @@ class SkollSandbox(models.Model):
         if trajectory_json:
             if isinstance(trajectory_json, list):
                 trajectory_json = json.dumps(trajectory_json, ensure_ascii=False)
+            try:
+                msgs = json.loads(trajectory_json)
+                if isinstance(msgs, list):
+                    main_key = "odoo:sandbox:%s" % sandbox_id
+                    self._attribute_session_keys(msgs, main_key)
+                    trajectory_json = json.dumps(msgs, ensure_ascii=False)
+            except (json.JSONDecodeError, TypeError):
+                pass
             turn.write({"trajectory_messages": trajectory_json})
 
         return {"success": True}
