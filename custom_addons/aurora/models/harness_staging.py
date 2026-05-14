@@ -654,6 +654,12 @@ class AuroraHarnessStaging(models.Model):
             "specific_prs": ",".join(test_prs),
             "user_id": self.user_id.id,
             "staging_test_id": self.id,
+            # Keep test-evals on the fast single-arch SDK build path. The
+            # multi-arch constraint exempts staging_test_id rows, and we
+            # don't want the buildx multi-arch QEMU overhead for a 4-PR
+            # dry-run. Also bypass the post-report wait window (0 = no wait).
+            "docker_platform": False,
+            "tar_decision_window_minutes": 0,
         })
 
         # stage='evaluating' triggers the worker's auto-load of this row's

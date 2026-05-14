@@ -34,13 +34,24 @@
                 <header>
                     <button name="action_run_evaluation" string="Run Evaluation" type="object"
                             class="btn-primary" invisible="stage != 'draft'" confirm="Start evaluation pipeline?"/>
+                    <button name="action_request_tar_export" string="Export OCI Tars" type="object"
+                            class="btn-primary"
+                            invisible="stage != 'awaiting_tar_decision' or tar_decision != 'pending'"
+                            confirm="Push resolved images to ECR? Cannot be undone for this run."/>
+                    <button name="action_skip_tar_export" string="Skip Tars" type="object"
+                            class="btn-secondary"
+                            invisible="stage != 'awaiting_tar_decision' or tar_decision != 'pending'"
+                            confirm="Skip ECR push for this run?"/>
+                    <button name="action_download_ecr_manifest" string="Download ECR Manifest" type="object"
+                            class="btn-secondary" icon="fa-download"
+                            invisible="oci_export_status != 'done' or ecr_pushed_count == 0"/>
                     <button name="action_cancel" string="Cancel" type="object"
                             class="btn-secondary" invisible="stage in ('draft','done','failed')" confirm="Cancel this evaluation run?"/>
                     <button name="action_reset_to_draft" string="Reset to Draft" type="object"
                             class="btn-secondary" invisible="stage not in ('done','failed')"/>
                     <button name="action_regenerate_report" string="Regenerate Report" type="object"
                             class="btn-secondary" invisible="stage not in ('done','failed')" confirm="Re-run report generation from existing logs?"/>
-                    <field name="stage" widget="aurora_statusbar" statusbar_visible="draft,building_images,running_instances,generating_reports,done"/>
+                    <field name="stage" widget="aurora_statusbar" statusbar_visible="draft,building_images,running_instances,generating_reports,awaiting_tar_decision,done"/>
                 </header>
 
                 <sheet>
@@ -231,8 +242,53 @@
                                     <field name="force_build"/>
                                     <field name="max_workers_build"/>
                                     <field name="max_workers_run"/>
-                                    <field name="docker_platform" placeholder="linux/amd64"/>
+                                    <field name="docker_platform" placeholder="linux/amd64,linux/arm64"/>
+                                    <field name="tar_decision_window_minutes"/>
                                 </group>
+                            </group>
+                        </div>
+                    </div>
+
+                    <!-- ═══ TAR DECISION WINDOW ═══ -->
+                    <div class="alert alert-info mb-3" role="alert"
+                         invisible="stage != 'awaiting_tar_decision'">
+                        <div class="d-flex align-items-start">
+                            <i class="fa fa-hourglass-half me-2 mt-1" title="Decision"/>
+                            <div class="flex-grow-1">
+                                <strong>Awaiting tar export decision</strong>
+                                <p class="mb-2 mt-1 small text-muted">
+                                    The evaluation has finished and <code>final_report.json</code> is uploaded to S3.
+                                    Review the report and click <strong>Export OCI Tars</strong> to push every
+                                    resolved instance's multi-arch image to ECR, or <strong>Skip Tars</strong>
+                                    to finalize without pushing. The worker auto-skips after the deadline.
+                                </p>
+                                <div class="small">
+                                    <strong>Report (S3):</strong>
+                                    <field name="final_report_file" readonly="1" nolabel="1"
+                                           class="d-block font-monospace small"/>
+                                </div>
+                                <div class="small mt-1">
+                                    <strong>Auto-skip after:</strong>
+                                    <field name="tar_decision_deadline" readonly="1" nolabel="1"
+                                           class="d-inline font-monospace small"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ═══ ECR PUSH STATE ═══ -->
+                    <div class="aurora-config-panel"
+                         invisible="oci_export_status in ('idle',)">
+                        <div class="aurora-config-header">
+                            <i class="fa fa-cubes" title="ECR"/> ECR Image Export
+                        </div>
+                        <div class="aurora-config-body">
+                            <group>
+                                <field name="oci_export_status"/>
+                                <field name="ecr_repository" readonly="1"/>
+                                <field name="ecr_pushed_count" readonly="1"/>
+                                <field name="ecr_manifest_s3_uri" readonly="1"/>
+                                <field name="tar_decision" readonly="1"/>
                             </group>
                         </div>
                     </div>
@@ -268,6 +324,8 @@
                                     <field name="resolved"/>
                                     <field name="f2p_count" string="F2P"/>
                                     <field name="p2p_count" string="P2P"/>
+                                    <field name="ecr_image_uri" optional="hide" string="ECR Ref"/>
+                                    <field name="ecr_image_digest" optional="hide" string="ECR Digest"/>
                                 </list>
                             </field>
                         </div>
