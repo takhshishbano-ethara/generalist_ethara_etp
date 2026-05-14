@@ -132,7 +132,7 @@ class KaijuCommit0Run(models.Model):
         parameters = {
             "repo_name": build.repo_name,
             "language": build.language,
-            "branch_name": build.branch_name or "commit0_combined",
+            "branch_name": "commit0_combined",  # constant; pipeline hardcodes commit0_all internally
             "model_preset": model_preset_map.get(self.model_name, self.model_name),
             "num_samples": str(self.num_samples),
             "max_iteration": str(self.max_iteration),

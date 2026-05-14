@@ -52,11 +52,9 @@ class KaijuCommit0(models.Model):
         string="Language Version",
         help="e.g. 3.11, 11, 1.21, 18, 1.75.0",
     )
-    branch_name = fields.Char(
-        string="Branch",
-        default="commit0_combined",
-        help="Git branch to clone from the fork",
-    )
+    # NOTE: branch_name field removed (was vestigial; pipeline hardcodes
+    # "commit0_all" in commit_0/tools/prepare_repo_*.py). Constant value
+    # passed below preserves identical repo_hash / image tags.
 
     # ── Navigation ───────────────────────────────────────────────────────────
 
@@ -198,7 +196,7 @@ class KaijuCommit0(models.Model):
         import hashlib
 
         repo_hash = hashlib.sha256(
-            f"{self.repo_name}:{self.branch_name}".encode()
+            f"{self.repo_name}:commit0_combined".encode()
         ).hexdigest()[:12]
 
         callback_url = self._get_build_callback_url()
@@ -207,7 +205,7 @@ class KaijuCommit0(models.Model):
             "repo_name": self.repo_name,
             "repo_hash": repo_hash,
             "language": self.language,
-            "branch_name": self.branch_name or "commit0_combined",
+            "branch_name": "commit0_combined",
             "odoo_job_id": str(self.id),
             "callback_url": callback_url,
         }

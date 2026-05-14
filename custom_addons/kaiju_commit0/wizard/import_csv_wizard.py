@@ -120,13 +120,10 @@ class ImportCsvWizard(models.TransientModel):
             if language not in VALID_LANGUAGES:
                 language = "python"
 
-            branch_name = row.get("branch_name", "").strip() or "commit0_combined"
-
             vals_list.append(
                 {
                     "repo_name": repo_name,
                     "language": language,
-                    "branch_name": branch_name,
                 }
             )
 

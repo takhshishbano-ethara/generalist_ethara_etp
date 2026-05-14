@@ -82,7 +82,6 @@
                                        placeholder="e.g. Zahgon/gson"
                                        readonly="config_valid"/>
                                 <field name="language" readonly="config_valid"/>
-                                <field name="branch_name" readonly="config_valid"/>
                             </group>
                         </group>
 
