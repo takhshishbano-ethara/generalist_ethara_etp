@@ -218,10 +218,10 @@
                             string="Retry" class="oe_highlight"
                             invisible="state != 'failed'"/>
 
-                    <!-- DISCARD: Failed, or Done + NOT SHIPPABLE QC -->
+                    <!-- DISCARD: any state except already-discarded; both admin and tasker -->
                     <button name="action_discard" type="object"
                             string="Discard" class="btn-secondary"
-                            invisible="state != 'failed' and not (state == 'done' and qc_verdict == 'not_shippable')"
+                            invisible="state == 'discarded'"
                             confirm="Discard this task as unusable? Terminal — but it can be brought back via Assign."/>
 
                     <!-- CANCEL: only while running (extracting / generating / scoring) -->
@@ -303,9 +303,11 @@
 
                     <group>
                         <group>
-                            <field name="url" widget="url" readonly="state == 'submitted'"/>
+                            <!-- URL: tasker always readonly; admin always editable -->
+                            <field name="url" widget="url" readonly="not is_admin"/>
                             <field name="site_name" readonly="1"/>
-                            <field name="category_id" readonly="state == 'submitted'"/>
+                            <!-- Category: editable for both admin and tasker at all times -->
+                            <field name="category_id"/>
                             <field name="user_id"
                                    readonly="not is_admin or state not in ('not_assigned', 'draft')"
                                    options="{'no_create': True}"/>
