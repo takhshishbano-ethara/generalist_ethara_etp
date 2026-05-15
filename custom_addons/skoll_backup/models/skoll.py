@@ -43,7 +43,7 @@ def _get_golden_prompt():
     global _golden_prompt_cache
     if _golden_prompt_cache is not None:
         return _golden_prompt_cache
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_backup")
     if not mod_path:
         return ""
     path = os.path.join(mod_path, "golden_prompt.md")
@@ -59,7 +59,7 @@ def _get_taskdesc_prompt():
     global _taskdesc_prompt_cache
     if _taskdesc_prompt_cache is not None:
         return _taskdesc_prompt_cache
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_backup")
     if not mod_path:
         return ""
     path = os.path.join(mod_path, "task_description_prompt.md")
@@ -106,7 +106,7 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
 
         delivery_schema = ""
         schema_path = os.path.join(
-            get_module_path("skoll") or "", "Delivery_Schema.json"
+            get_module_path("skoll_backup") or "", "Delivery_Schema.json"
         )
         if os.path.isfile(schema_path):
             with open(schema_path, "r") as f:
@@ -702,7 +702,7 @@ def _compose_cmd():
 
 
 def _module_sandbox_dir():
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_backup")
     if not mod_path:
         return None
     return os.path.join(mod_path, "sandbox_docker")
