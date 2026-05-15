@@ -4,7 +4,7 @@
 
         <record id="kaiju_config_argo_server_url" model="ir.config_parameter">
             <field name="key">kaiju.argo_server_url</field>
-            <field name="value">https://argo-workflows-server.argo.svc.cluster.local:2746</field>
+            <field name="value">http://argo-workflows-server.argo-workflows.svc.cluster.local:2746</field>
         </record>
 
         <record id="kaiju_config_argo_namespace" model="ir.config_parameter">
