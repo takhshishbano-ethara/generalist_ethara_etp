@@ -297,6 +297,12 @@ class ArgoClient(models.AbstractModel):
                     display = name
                 else:
                     display = node.get("templateName") or node_id
+            pod_name = self._generate_pod_name(
+                workflow_name=workflow_name,
+                node_name=node.get("name", ""),
+                template_name=node.get("templateName", ""),
+                node_id=node.get("id", node_id),
+            )
             pod_nodes.append({
                 "id": node.get("id", node_id),
                 "name": node.get("name", ""),
@@ -307,8 +313,54 @@ class ArgoClient(models.AbstractModel):
                 "message": node.get("message", ""),
                 "startedAt": node.get("startedAt", ""),
                 "finishedAt": node.get("finishedAt", ""),
+                "podName": pod_name,
             })
         return pod_nodes
+
+    # ── Pod name generation (Argo v2 naming) ───────────────────────────────
+
+    # Argo v3.5+ defaults to PodNameV2: pod names are NOT the raw node_id.
+    # The algorithm (from argo-workflows/workflow/util/pod_name.go):
+    #   if workflow_name == node_name:  return workflow_name
+    #   else: return f"{workflow_name}-{template_name}-{fnv1a_32(node_name)}"
+    # The fnv1a-32 hash is of the node NAME (not node_id), as an unsigned 32-bit int.
+    # See: https://github.com/argoproj/argo-workflows/blob/main/workflow/util/pod_name.go
+
+    _MAX_K8S_NAME_LEN = 253
+    _K8S_HASH_LEN = 10
+    _MAX_POD_PREFIX_LEN = _MAX_K8S_NAME_LEN - _K8S_HASH_LEN  # 243
+
+    @staticmethod
+    def _fnv1a_32(data: str) -> int:
+        """FNV-1a 32-bit hash matching Go's hash/fnv New32a()."""
+        h = 0x811C9DC5
+        prime = 0x01000193
+        mask = 0xFFFFFFFF
+        for b in data.encode("utf-8"):
+            h ^= b
+            h = (h * prime) & mask
+        return h
+
+    @classmethod
+    def _generate_pod_name(cls, workflow_name, node_name, template_name, node_id):
+        """Replicate Argo's GeneratePodName (PodNameV2) algorithm.
+
+        Returns the actual Kubernetes pod name for a given workflow node,
+        matching the Go implementation in argo-workflows/workflow/util/pod_name.go.
+        Falls back to node_id if required fields are missing.
+        """
+        if not workflow_name or not node_name:
+            return node_id or ""
+        if workflow_name == node_name:
+            return workflow_name
+        prefix = workflow_name
+        if template_name:
+            prefix = f"{prefix}-{template_name}"
+        # Truncate prefix to leave room for the hash suffix
+        if len(prefix) > cls._MAX_POD_PREFIX_LEN - 1:
+            prefix = prefix[: cls._MAX_POD_PREFIX_LEN - 1]
+        h = cls._fnv1a_32(node_name)
+        return f"{prefix}-{h}"
 
     # ── Pod log fetching ───────────────────────────────────────────────────
 

@@ -41,6 +41,7 @@ Features
         # task_forge_core here means installing Argus pulls in
         # core + bridge + their transitive deps in one go.
         "task_forge_core",
+        "api_auth_gateway",
     ],
     "external_dependencies": {
         # ``requests`` powers the Bedrock Converse call in
