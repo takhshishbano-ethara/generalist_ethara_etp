@@ -535,4 +535,15 @@
         <field name="group_ids" eval="[(4, ref('leviathan.group_leviathan_admin'))]"/>
     </record>
 
+    <!-- Retry Failed Selected (admin, list) — smart retry preserving tasker -->
+    <record id="action_leviathan_retry_failed_batch" model="ir.actions.server">
+        <field name="name">Retry Failed</field>
+        <field name="model_id" ref="model_leviathan_job"/>
+        <field name="binding_model_id" ref="model_leviathan_job"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_retry_failed_batch()</field>
+        <field name="group_ids" eval="[(4, ref('leviathan.group_leviathan_admin'))]"/>
+    </record>
+
 </odoo>

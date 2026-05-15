@@ -188,6 +188,13 @@ class LeviathanJob(models.Model):
     started_at = fields.Datetime(string="Started At")
     completed_at = fields.Datetime(string="Completed At")
     last_heartbeat = fields.Datetime(string="Last Heartbeat")
+    # Set when a background worker actually picks the job up off the pool queue
+    # (entry to `_run_prd_generation_bg`). Distinct from `started_at` (set at
+    # batch dispatch). The watchdog uses this to tell "queued waiting for a
+    # worker" from "actually running and stuck" — without it, jobs sitting in
+    # _POOL._work_queue for >45 min get false-failed even though no work has
+    # been attempted on them yet.
+    started_processing_at = fields.Datetime(string="Worker Picked Up At")
 
     # Computed HTML for asset previews
     screenshot_urls_html = fields.Html(
@@ -1160,6 +1167,10 @@ class LeviathanJob(models.Model):
                 "completed_at": False,
                 "duration_seconds": False,
                 "last_heartbeat": fields.Datetime.now(),
+                # Cleared — the bg worker will set this when it actually
+                # picks the job up. Until then the watchdog must not see
+                # this row as "actually started".
+                "started_processing_at": False,
             })
             _logger.info(
                 "[leviathan][job=%s] retry: prd_prompt present — skipping extraction, "
@@ -1201,7 +1212,181 @@ class LeviathanJob(models.Model):
             "duration_seconds": False,
             "error_message": False,
             "cancel_requested": False,
+            "started_processing_at": False,
         })
+
+    def action_retry_failed_batch(self):
+        """Bulk smart-retry over selected failed tasks — runs the pipeline
+        end-to-end (admin server-action).
+
+        For each selected task in ``state == 'failed'``:
+
+        - **Has ``prd_prompt``** (extraction succeeded last time): skip
+          re-extraction. State goes to ``generating``; PRD generation +
+          scoring + QC runs in the background. Final state on success
+          will be ``done`` (if tasker assigned) or ``not_assigned`` with
+          full data (if no tasker — auto-released back to the pool by
+          the same ``via_batch`` flow used by Run Batch).
+
+        - **No ``prd_prompt``** (extraction itself failed): full pipeline
+          — Lambda extraction → PRD generation → scoring → QC. State
+          goes to ``extracting`` and the Lambda is dispatched
+          asynchronously. Final state on success follows the same
+          via_batch rule as Path A.
+
+        Tasker assignment is **never changed**. The ``via_batch`` flag is
+        set ``True`` for tasks without a tasker (so the pipeline releases
+        them back to the pool with full data on success) and ``False``
+        for tasks with a tasker (so the result stays with the tasker).
+        """
+        eligible = self.filtered(lambda r: r.state == "failed")
+        if not eligible:
+            raise UserError("No failed tasks selected.")
+        skipped = self - eligible
+
+        to_generate = eligible.filtered(lambda r: r.prd_prompt)
+        to_extract = eligible - to_generate
+
+        # Path B requires Lambda config; if there are any to_extract jobs,
+        # validate config up front so we fail fast rather than mid-dispatch.
+        ICP = self.env["ir.config_parameter"].sudo()
+        config = None
+        if to_extract:
+            config = {
+                "function_name": ICP.get_param("leviathan.lambda_function_name"),
+                "region": ICP.get_param("leviathan.lambda_region") or "ap-south-1",
+                "access_key_id": ICP.get_param("leviathan.extraction_access_key_id") or "",
+                "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key") or "",
+                "batch_concurrency": int(
+                    ICP.get_param("leviathan.batch_concurrency") or _BATCH_FANOUT_POOL_SIZE
+                ),
+            }
+            if not config["function_name"]:
+                raise UserError(
+                    "Lambda function name not configured "
+                    "(Settings -> Leviathan -> Lambda Function). Cannot retry "
+                    "failed tasks that need re-extraction."
+                )
+
+        now = fields.Datetime.now()
+        db_name = self.env.cr.dbname
+
+        # --- Path A: prd_prompt exists → straight to PRD generation ---
+        # via_batch=True for unassigned tasks so the final write at the end
+        # of _run_prd_generation_bg auto-releases them back to the pool with
+        # full data. via_batch=False for tasker-assigned tasks so the result
+        # stays with the tasker as 'done'.
+        gen_ids = []
+        for rec in to_generate:
+            rec.write({
+                "state": "generating",
+                "via_batch": not bool(rec.user_id),
+                "score": False,
+                "grade": False,
+                "qc_verdict": False,
+                "prd_text": False,
+                "prd_text_html": False,
+                "qc_report": False,
+                "score_report_json": False,
+                "prd_url": False,
+                "llm_attempts": 0,
+                "llm_trace_json": False,
+                "error_message": False,
+                "cancel_requested": False,
+                "started_at": now,
+                "completed_at": False,
+                "duration_seconds": False,
+                "last_heartbeat": now,
+                "started_processing_at": False,
+            })
+            gen_ids.append(rec.id)
+
+        if gen_ids:
+            def _deferred_generate():
+                for rid in gen_ids:
+                    _submit_bg(
+                        f"prd-gen[job={rid}]",
+                        self._run_prd_generation_bg, db_name, rid,
+                    )
+
+            self.env.cr.postcommit.add(_deferred_generate)
+
+        # --- Path B: no prd_prompt → full pipeline (Lambda extraction first) ---
+        if to_extract:
+            # Wipe stale data so extraction starts fresh, BUT keep url + the
+            # tasker assignment. Same shape of reset the batch-fanout does.
+            for rec in to_extract:
+                rec.write({
+                    "state": "extracting",
+                    "via_batch": not bool(rec.user_id),
+                    "score": False,
+                    "grade": False,
+                    "qc_verdict": False,
+                    "prd_text": False,
+                    "prd_text_html": False,
+                    "prd_prompt": False,
+                    "qc_report": False,
+                    "score_report_json": False,
+                    "prd_url": False,
+                    "artifacts_url": False,
+                    "deliverables_url": False,
+                    "lambda_callback_json": False,
+                    "llm_trace_json": False,
+                    "extraction_warnings": False,
+                    "llm_attempts": 0,
+                    "screenshot_keys": False,
+                    "asset_keys": False,
+                    "site_discovery_json": False,
+                    "tech_stack": False,
+                    "page_count": False,
+                    "started_at": now,
+                    "completed_at": False,
+                    "duration_seconds": False,
+                    "last_heartbeat": now,
+                    "started_processing_at": False,
+                    "error_message": False,
+                    "cancel_requested": False,
+                })
+
+            record_ids = to_extract.ids
+            record_urls = {rec.id: rec.url for rec in to_extract}
+            webhook_url = to_extract[0]._get_webhook_url()
+
+            def _deferred_extract():
+                _submit_bg(
+                    "retry-failed-fanout",
+                    self._fanout_batch_extraction,
+                    db_name, record_ids, record_urls, webhook_url, config,
+                )
+
+            self.env.cr.postcommit.add(_deferred_extract)
+
+        # Notification
+        n_with_tasker = len(eligible.filtered(lambda r: r.user_id))
+        n_pool = len(eligible) - n_with_tasker
+        parts = []
+        if to_generate:
+            parts.append(f"{len(to_generate)} → PRD generation (had prd_prompt)")
+        if to_extract:
+            parts.append(f"{len(to_extract)} → full pipeline (Lambda extraction)")
+        message = "; ".join(parts) + f". Tasker kept: {n_with_tasker}, pool: {n_pool}."
+        if skipped:
+            message += f" {len(skipped)} ignored (not in 'failed' state)."
+
+        _logger.info(
+            "[leviathan] retry-failed batch by %s: %s",
+            self.env.user.name, message,
+        )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Retry Failed — pipeline dispatched",
+                "message": message,
+                "type": "success",
+                "sticky": False,
+            },
+        }
 
     def action_rerun(self):
         """Rerun pipeline — re-extract or regenerate from existing data."""
@@ -1755,7 +1940,18 @@ class LeviathanJob(models.Model):
                     })
                     return
 
-                record.write({"state": "generating"})
+                # Worker-pickup mark: this is the moment the bg worker
+                # actually started touching the job. The watchdog uses
+                # `started_processing_at` to distinguish "queued in _POOL,
+                # never touched" from "running and stuck". Without this
+                # mark a job that sat in the queue for 45+ min would be
+                # killed by the watchdog even though no real work was
+                # attempted on it yet.
+                record.write({
+                    "state": "generating",
+                    "started_processing_at": fields.Datetime.now(),
+                    "last_heartbeat": fields.Datetime.now(),
+                })
                 cr.commit()
 
             # === PHASE 2: LLM generation loop ===
@@ -1908,7 +2104,14 @@ class LeviathanJob(models.Model):
             )
 
             # === PHASE 3: QC ===
-            self._write_with_cursor(db_name, record_id, {"state": "scoring"})
+            # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
+            # call; without this pulse the gap from the last PRD-gen attempt
+            # to PHASE 4's final write was fully unmonitored — long QC calls
+            # could trip the watchdog while doing real work.
+            self._write_with_cursor(db_name, record_id, {
+                "state": "scoring",
+                "last_heartbeat": fields.Datetime.now(),
+            })
 
             qc_verdict = "not_shippable"
             qc_report = ""
@@ -2098,8 +2301,14 @@ class LeviathanJob(models.Model):
                     f"(no response for {extracting_threshold}+ minutes)"
                 )
 
+            # `started_processing_at != False` excludes jobs sitting in the
+            # _POOL queue waiting for a worker — they look stuck (no
+            # heartbeat update) but no work has been attempted on them.
+            # Without this guard, a 150-job batch on a 50-worker pool
+            # false-fails the 20-30 tail jobs that are simply queued.
             stale_generating = self.search([
                 ("state", "in", ("generating", "scoring")),
+                ("started_processing_at", "!=", False),
                 (
                     "last_heartbeat",
                     "<",
@@ -2108,8 +2317,10 @@ class LeviathanJob(models.Model):
             ])
             for job in stale_generating:
                 _logger.warning(
-                    "[leviathan][job=%s] watchdog: stuck in %s >%dmin — marking failed",
+                    "[leviathan][job=%s] watchdog: stuck in %s >%dmin "
+                    "(started_processing_at=%s, last_heartbeat=%s) — marking failed",
                     job.name, job.state, generating_threshold,
+                    job.started_processing_at, job.last_heartbeat,
                 )
                 job._mark_failed(
                     f"Watchdog: {job.state} timed out "
