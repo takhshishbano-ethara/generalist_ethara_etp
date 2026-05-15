@@ -24,14 +24,30 @@
                             <i class="fa fa-pencil-square-o"/> Golden Trajectory
                         </span>
                         <div class="skoll-json-header-actions">
+                            <button t-if="hasContent" class="skoll-copy-btn" t-on-click="onCopyJson" title="Copy JSON">
+                                <t t-if="state.copied">
+                                    <i class="fa fa-check"/> Copied
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-clipboard"/> Copy
+                                </t>
+                            </button>
                             <button t-if="canRunQc and !state.qcRunning"
                                     class="skoll-qc-btn"
                                     t-on-click="onRunQc"
                                     title="Run QC on trajectory">
                                 <i class="fa fa-check-circle"/> Run QC
                             </button>
+                            <button class="skoll-improve-btn"
+                                    t-on-click="onImprove"
+                                    title="Improve trajectory based on QC feedback">
+                                <i class="fa fa-magic"/> Improve
+                            </button>
                             <span t-if="state.qcRunning" class="skoll-qc-running">
                                 <i class="fa fa-spinner fa-spin"/> QC Running...
+                            </span>
+                            <span t-if="state.improving" class="skoll-improve-running">
+                                <i class="fa fa-spinner fa-spin"/> Improving...
                             </span>
                         </div>
                     </div>
@@ -95,8 +111,16 @@
                                     title="Run QC on trajectory">
                                 <i class="fa fa-check-circle"/> Run QC
                             </button>
+                            <button class="skoll-improve-btn"
+                                    t-on-click="onImprove"
+                                    title="Improve trajectory based on QC feedback">
+                                <i class="fa fa-magic"/> Improve
+                            </button>
                             <span t-if="state.qcRunning" class="skoll-qc-running">
                                 <i class="fa fa-spinner fa-spin"/> QC Running...
+                            </span>
+                            <span t-if="state.improving" class="skoll-improve-running">
+                                <i class="fa fa-spinner fa-spin"/> Improving...
                             </span>
                         </div>
                     </div>

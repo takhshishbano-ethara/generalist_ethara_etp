@@ -90,13 +90,6 @@ STATUS_LABEL_MAP = {
 
 CATEGORY_VALUES = ('stem', 'non_stem', 'technical')
 
-# Two independent status conventions for "currently running" projects coexist
-# across Task Forge:
-#   - task_forge_status == 'live'                 (task_forge_bridge)
-#   - non_stemp_project_status in (...)           (project_extension, non-STEM)
-# The Founder dashboard treats a project as live when EITHER holds.
-RUNNING_NON_STEM_STATUSES = ['not_started', 'production']
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -165,11 +158,7 @@ def _project_ids_in_category(kw):
 def _live_project_domain():
     """OR-combined 'running project' domain. Fresh list each call so callers
     can safely append/extend additional AND terms."""
-    return [
-        '|',
-        ('task_forge_status', '=', 'live'),
-        ('non_stemp_project_status', 'in', RUNNING_NON_STEM_STATUSES),
-    ]
+    return request.env['project.project'].sudo()._task_forge_live_domain()
 
 
 def _require_cto(user):
@@ -216,7 +205,20 @@ def _workforce_breakdown():
     the Odoo recordset iteration (still O(N) but only one SQL call).
     """
     Employee = request.env['hr.employee'].sudo()
-    all_active = Employee.search([('task_forge_active', '=', True)])
+    user_role_ids = [
+        request.env.ref('api_auth_gateway.role_cto_technical').id,
+        request.env.ref('api_auth_gateway.role_pl_technical').id,
+        request.env.ref('api_auth_gateway.role_pl_stem').id,
+        request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+        request.env.ref('api_auth_gateway.role_qc_technical').id,
+        request.env.ref('api_auth_gateway.role_qc_stem').id,
+        request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+        request.env.ref('api_auth_gateway.role_tasker_technical').id,
+        request.env.ref('api_auth_gateway.role_tasker_stem').id,
+        request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+    ]
+
+    all_active = Employee.search([('task_forge_active', '=', True), ('user_id.user_role', 'in', user_role_ids)])
 
     counts = {'admin': 0, 'pl': 0, 'qr': 0, 'ql': 0, 'tasker': 0}
     for emp in all_active:
@@ -224,6 +226,7 @@ def _workforce_breakdown():
         counts[role] = counts.get(role, 0) + 1
 
     total = len(all_active)
+    total_workforce = Employee.search_count([('user_id.user_role', 'in', user_role_ids)])
     return {
         'total': total,
         'taskers': counts.get('tasker', 0),
@@ -231,7 +234,7 @@ def _workforce_breakdown():
         'qr': counts.get('qr', 0),
         'pl': counts.get('pl', 0),
         'admin': counts.get('admin', 0),
-        'active_percent': round((total / total * 100) if total else 0, 0),
+        'active_percent': round((total / total_workforce * 100) if total_workforce else 0, 0),
     }
 
 

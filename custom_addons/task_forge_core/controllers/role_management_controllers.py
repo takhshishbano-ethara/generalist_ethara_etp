@@ -210,8 +210,7 @@ class TaskForgeRoleManagementController(http.Controller):
             if old_field:
                 affected_projects = Project.search([
                     (old_field, 'in', [target_emp.id]),
-                    ('non_stemp_project_status', 'in', ['not_started', 'production']),
-                ])
+                ] + Project._task_forge_live_domain())
                 for proj in affected_projects:
                     write_vals = {old_field: [(3, target_emp.id)]}
                     if new_field:

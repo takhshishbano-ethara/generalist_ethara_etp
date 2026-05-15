@@ -128,7 +128,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
             team_ids = user_id.employee_id._get_team_employee_ids()
 
-            domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = [('project_lead', '=', user_id.employee_id.id)] + request.env['project.project']._task_forge_live_domain()
             if kwargs.get('project_type'):
                 domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -213,7 +213,7 @@ class DashboardController(http.Controller):
             # for project in current_projects:
             employees = request.env['hr.employee'].sudo().search([('id', 'in', team_ids)])
             for emp in employees:
-                project = request.env['project.project'].sudo().search([('project_lead', '=', emp.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])], limit=1)
+                project = request.env['project.project'].sudo().search([('project_lead', '=', emp.id)] + request.env['project.project']._task_forge_live_domain(), limit=1)
                 temp.append({
                     'name':emp.name if emp.name else "",
                     'project_name':project.name if project and project.name else "",
@@ -236,7 +236,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
 
             # 2. Build Project Domain
-            project_domain = [('project_qc_reviewer', '=', employee.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            project_domain = [('project_qc_reviewer', '=', employee.id)] + request.env['project.project']._task_forge_live_domain()
             if kwargs.get('project_type'):
                 project_domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -334,7 +334,7 @@ class DashboardController(http.Controller):
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
 
-            domain = [('project_qc_reviewer', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = [('project_qc_reviewer', '=', user_id.employee_id.id)] + request.env['project.project']._task_forge_live_domain()
             if kwargs.get('project_type'):
                 domain.append(('y_project_type', '=', kwargs.get('project_type')))
 
@@ -436,7 +436,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
             task_domain = []
             if kwargs.get('show_all') in [1, '1']:
                 domain = []
@@ -528,7 +528,7 @@ class DashboardController(http.Controller):
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
             if not user_id.employee_id:
                 return return_Response(message="Employee not found", status=404)
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
 
             if user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 domain += [('project_lead', '=', user_id.employee_id.id)]

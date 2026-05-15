@@ -894,7 +894,7 @@ class EmployeeController(http.Controller):
                 else:
                     data.append(vals)
 
-            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
+            active_projects = request.env['project.project'].sudo().search(request.env['project.project']._task_forge_live_domain())
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)
@@ -955,15 +955,21 @@ class EmployeeController(http.Controller):
             return return_Response(message=str(e), status=400)
 
     @http.route('/api/v2/get_user_role', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
     def get_user_role(self, **kwargs):
         temp = []
         try:
-            domain = [('project_type', '=', 'non-stem')]
+            user = request.env.user
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_cto_technical').id]:
+                domain = []
+            else:
+                domain = [('project_type', '=', 'non-stem')]
             if kwargs.get('project_type'):
                 domain = [('project_type', '=', kwargs.get('project_type'))]
             roles = request.env['api.role'].sudo().search(domain)
             for role in roles:
-                temp.append({'id': role.id, 'name': role.name})
+                # temp.append({'id': role.id, 'name': role.name})
+                temp.append({'id': role.id, 'name': role.user_type})
             return return_Response(
                 message="success",
                 status=200,
@@ -1190,9 +1196,9 @@ class EmployeeController(http.Controller):
             else:
                 return return_Response(message="Insufficient permissions", status=403)
 
-            active_projects = request.env['project.project'].sudo().search([
-                ('non_stemp_project_status', 'in', ['not_started', 'production'])
-            ])
+            active_projects = request.env['project.project'].sudo().search(
+                request.env['project.project']._task_forge_live_domain()
+            )
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)

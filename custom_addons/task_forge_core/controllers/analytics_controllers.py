@@ -44,7 +44,7 @@ class TaskForgeAnalyticsController(http.Controller):
             ])
 
             # Live projects
-            live_projects = Project.search_count([('task_forge_status', '=', 'live')])
+            live_projects = Project.search_count(Project._task_forge_live_domain())
 
             # Average AHT
             tasks_with_time = TaskLog.search([

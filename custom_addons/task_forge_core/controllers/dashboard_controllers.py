@@ -49,7 +49,7 @@ class TaskForgeDashboardController(http.Controller):
                 ('state', '=', 'completed'),
             ])
 
-            live_projects = Project.search_count([('task_forge_status', '=', 'live')])
+            live_projects = Project.search_count(Project._task_forge_live_domain())
 
             open_blockers = Blocker.search_count([('state', 'in', ['pending', 'ack'])])
 
@@ -91,7 +91,7 @@ class TaskForgeDashboardController(http.Controller):
             TaskLog = request.env['task.forge.log'].sudo()
             Blocker = request.env['task.forge.blocker'].sudo()
 
-            projects = Project.search([('task_forge_status', '=', 'live')])
+            projects = Project.search(Project._task_forge_live_domain())
             data = []
 
             for proj in projects:
