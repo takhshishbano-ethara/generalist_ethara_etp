@@ -8,12 +8,6 @@
         <field name="inherit_id" ref="hr.view_employee_form"/>
         <field name="priority">50</field>
         <field name="arch" type="xml">
-            <!-- Add Employment Status (Probation) near the top of the form -->
-            <xpath expr="//field[@name='job_title']" position="after">
-                <field name="employee_state" widget="statusbar" statusbar_visible="probation,confirmed"/>
-                <field name="probation_end_date" invisible="employee_state != 'probation'"/>
-            </xpath>
-
             <!-- Add Late Arrival section in a new notebook page -->
             <xpath expr="//notebook" position="inside">
                 <page string="Attendance &amp; Leave" name="ethara_attendance_leave">
