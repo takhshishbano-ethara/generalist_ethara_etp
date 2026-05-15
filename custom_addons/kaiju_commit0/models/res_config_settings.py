@@ -33,3 +33,17 @@ class KaijuSettings(models.TransientModel):
         string="Webhook Token",
         config_parameter="kaiju.webhook_token",
     )
+    # ── AWS Credentials (for S3 metadata fetch) ───────────────────────
+    kaiju_aws_region = fields.Char(
+        string="AWS Region",
+        config_parameter="kaiju.aws_region",
+        default="ap-south-1",
+    )
+    kaiju_aws_access_key_id = fields.Char(
+        string="AWS Access Key ID",
+        config_parameter="kaiju.aws_access_key_id",
+    )
+    kaiju_aws_secret_access_key = fields.Char(
+        string="AWS Secret Access Key",
+        config_parameter="kaiju.aws_secret_access_key",
+    )
