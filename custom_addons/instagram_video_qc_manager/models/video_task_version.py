@@ -38,13 +38,23 @@ class VideoTaskVersion(models.Model):
     )
     edited_attachment_id = fields.Many2one(
         "ir.attachment",
-        string="Edited Output",
+        string="Edited Output (legacy attachment)",
         ondelete="set null",
+        help=(
+            "DEPRECATED — kept for backwards compatibility with renders "
+            "produced before the on-disk media refactor.  New renders "
+            "write to ``edited_file_path`` instead.  Will be removed in "
+            "a follow-up release once migration is verified."
+        ),
     )
     preview_attachment_id = fields.Many2one(
         "ir.attachment",
-        string="Preview Render",
+        string="Preview Render (legacy attachment)",
         ondelete="set null",
+        help=(
+            "DEPRECATED — kept for backwards compatibility.  See "
+            "``preview_file_path`` for the new on-disk layout."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -71,16 +81,91 @@ class VideoTaskVersion(models.Model):
     crop_2_data_json = fields.Char(string="Source #2 Crop (JSON)")
     edited_attachment_1_id = fields.Many2one(
         "ir.attachment",
-        string="Trimmed Source #1",
+        string="Trimmed Source #1 (legacy attachment)",
         ondelete="set null",
-        help="FFmpeg-rendered trimmed clip for source slot #1.",
+        help=(
+            "DEPRECATED — kept for backwards compatibility with renders "
+            "produced before the on-disk media refactor.  New renders "
+            "write to ``edited_file_1_path`` instead.  Will be removed "
+            "in a follow-up release once migration is verified."
+        ),
     )
     edited_attachment_2_id = fields.Many2one(
         "ir.attachment",
-        string="Trimmed Source #2",
+        string="Trimmed Source #2 (legacy attachment)",
         ondelete="set null",
-        help="FFmpeg-rendered trimmed clip for source slot #2.",
+        help=(
+            "DEPRECATED — kept for backwards compatibility.  See "
+            "``edited_file_2_path`` for the new on-disk layout."
+        ),
     )
+
+    # ---- On-disk path columns ----------------------------------------
+    # Relative paths under ``<media_root>`` (see services.media_storage).
+    # The HTTP controller resolves these back to absolute paths through
+    # ``video.qc.media.storage.absolute()`` which enforces the
+    # path-traversal guard before any ``open(..., 'rb')`` happens.
+    #
+    # Storing the relative path (instead of the absolute) keeps the
+    # database portable across deploys that relocate the root, and
+    # matches the house style established by aurora/dataset_resolver.py.
+    edited_file_path = fields.Char(
+        string="Edited Render Path (legacy single)",
+        readonly=True,
+        copy=False,
+        help="Relative path of the legacy single-slot edited render under <media_root>.",
+    )
+    edited_file_1_path = fields.Char(
+        string="Trimmed Source #1 File",
+        readonly=True,
+        copy=False,
+        help="Relative path of slot #1's trimmed render under <media_root>.",
+    )
+    edited_file_2_path = fields.Char(
+        string="Trimmed Source #2 File",
+        readonly=True,
+        copy=False,
+        help="Relative path of slot #2's trimmed render under <media_root>.",
+    )
+    preview_file_path = fields.Char(
+        string="Preview Render File",
+        readonly=True,
+        copy=False,
+        help="Relative path of the low-bitrate preview render under <media_root>.",
+    )
+    # Snapshot of which source attachment was used as INPUT for each
+    # trim render.  Lets a version remember "this Trim 1 was produced
+    # from THIS source file" even if the task's slot 1 attachment is
+    # later swapped for a different clip.
+    source_1_attachment_id = fields.Many2one(
+        "ir.attachment",
+        string="Source #1 Used",
+        ondelete="set null",
+        readonly=True,
+        help="The original source attachment that produced edited_attachment_1_id.",
+    )
+    source_2_attachment_id = fields.Many2one(
+        "ir.attachment",
+        string="Source #2 Used",
+        ondelete="set null",
+        readonly=True,
+        help="The original source attachment that produced edited_attachment_2_id.",
+    )
+    # Convenience computeds — surface "Trim length" inline in views.
+    trim_1_duration = fields.Float(
+        string="Trim #1 Length (s)",
+        compute="_compute_trim_durations",
+    )
+    trim_2_duration = fields.Float(
+        string="Trim #2 Length (s)",
+        compute="_compute_trim_durations",
+    )
+
+    @api.depends("trim_1_start", "trim_1_end", "trim_2_start", "trim_2_end")
+    def _compute_trim_durations(self):
+        for rec in self:
+            rec.trim_1_duration = max(0.0, (rec.trim_1_end or 0.0) - (rec.trim_1_start or 0.0))
+            rec.trim_2_duration = max(0.0, (rec.trim_2_end or 0.0) - (rec.trim_2_start or 0.0))
 
     resolution = fields.Char(string="Resolution")
     duration = fields.Float(string="Duration (s)")
@@ -176,17 +261,22 @@ class VideoTaskVersion(models.Model):
     )
 
     @api.depends(
+        "edited_file_path",
         "edited_attachment_id",
         "original_attachment_id",
         "trim_start",
         "trim_end",
     )
     def _compute_edited_play_url(self):
+        # URL shape is identical to before the on-disk refactor —
+        # only the storage backend changed.  The controller resolves
+        # the path field first, then the legacy attachment column,
+        # then the source-with-fragment fallback.
         for rec in self:
             if not rec.id:
                 rec.edited_play_url = ""
                 continue
-            if rec.edited_attachment_id:
+            if rec.edited_file_path or rec.edited_attachment_id:
                 rec.edited_play_url = f"/video_qc/version/{rec.id}/edited"
                 continue
             if rec.original_attachment_id:
@@ -202,6 +292,8 @@ class VideoTaskVersion(models.Model):
             rec.edited_play_url = ""
 
     @api.depends(
+        "edited_file_1_path",
+        "edited_file_2_path",
         "edited_attachment_1_id",
         "edited_attachment_2_id",
         "trim_1_start", "trim_1_end",
@@ -215,11 +307,29 @@ class VideoTaskVersion(models.Model):
             rec.edited_2_play_url = rec._slot_play_url(2)
 
     def _slot_play_url(self, slot):
+        """Resolve the play URL for this version's slot.
+
+        Resolution order:
+
+        1. New on-disk render (``edited_file_<slot>_path`` populated)
+           -> ``/video_qc/version/<id>/edited/<slot>`` (controller
+           serves from disk via send_file).
+        2. Legacy attachment from before the on-disk refactor
+           (``edited_attachment_<slot>_id`` populated) -> same URL,
+           controller falls back to ir.attachment streaming.
+        3. No render yet -> source clip + ``#t=start,end`` media
+           fragment so the user previews the intended trim.
+        """
         self.ensure_one()
         if not self.id:
             return ""
-        edited = self.edited_attachment_1_id if slot == 1 else self.edited_attachment_2_id
-        if edited:
+        if slot == 1:
+            path = self.edited_file_1_path
+            legacy = self.edited_attachment_1_id
+        else:
+            path = self.edited_file_2_path
+            legacy = self.edited_attachment_2_id
+        if path or legacy:
             return f"/video_qc/version/{self.id}/edited/{slot}"
         # Fall back to the task's source attachment with a media
         # fragment so the user still sees their intended trim window.
@@ -361,12 +471,20 @@ class VideoTaskVersion(models.Model):
             with Registry(db).cursor() as new_cr:
                 env = api.Environment(new_cr, uid, ctx)
                 rec = env["video.task.version"].browse(rec_id).exists()
-                if rec:
-                    try:
-                        rec._job_render()
-                    except Exception:  # noqa: BLE001
-                        _logger.exception("Deferred render failed for version %s", rec_id)
-                        new_cr.rollback()
+                if not rec:
+                    return
+                # ``_job_render`` handles its own errors internally —
+                # on failure it writes ``status="error"`` + a processing
+                # log row before returning normally.  We deliberately
+                # do NOT wrap that call in try/except + rollback here:
+                # rolling back would erase the error verdict (and
+                # successful render writes during partial failures),
+                # which is what made the "trim saves but trimmed file
+                # never appears" bug invisible to the user.  Letting
+                # the ``with`` block commit naturally means whatever
+                # ``_job_render`` persisted — success OR error —
+                # actually lands in the database.
+                rec._job_render()
 
         self.env.cr.postcommit.add(_run)
         return True
@@ -455,29 +573,51 @@ class VideoTaskVersion(models.Model):
             )
 
             if render_slot_1:
-                edited, cmd, probe = processor.render_for_attachment(
+                # ``render_for_attachment`` now returns the
+                # ``<media_root>``-relative path string instead of an
+                # ir.attachment record.  The HTTP controller streams
+                # the file directly from disk via send_file().
+                edited_rel, cmd, probe = processor.render_for_attachment(
                     self, task.original_video_1_attachment, slot_1_cfg, slot=1,
                 )
-                vals["edited_attachment_1_id"] = edited.id
+                vals["edited_file_1_path"] = edited_rel
+                # The legacy attachment column is explicitly cleared
+                # so we don't end up with two sources of truth pointing
+                # at different files.  Old renders that were stored as
+                # attachments stay where they are on rows we never
+                # re-render — see ``_slot_play_url`` fallback chain.
+                vals["edited_attachment_1_id"] = False
+                # Snapshot which source attachment was used so this row
+                # remembers its lineage even if the task's slot 1
+                # attachment is later swapped.
+                vals["source_1_attachment_id"] = task.original_video_1_attachment.id
                 last_cmd, last_probe = cmd, probe
             else:
                 # Clear any stale render from a previous iteration so the
                 # form's preview correctly falls back to the source view.
+                vals["edited_file_1_path"] = False
                 vals["edited_attachment_1_id"] = False
+                vals["source_1_attachment_id"] = False
 
             if render_slot_2:
-                edited, cmd, probe = processor.render_for_attachment(
+                edited_rel, cmd, probe = processor.render_for_attachment(
                     self, task.original_video_2_attachment, slot_2_cfg, slot=2,
                 )
-                vals["edited_attachment_2_id"] = edited.id
+                vals["edited_file_2_path"] = edited_rel
+                vals["edited_attachment_2_id"] = False
+                vals["source_2_attachment_id"] = task.original_video_2_attachment.id
                 last_cmd, last_probe = cmd, probe
             else:
+                vals["edited_file_2_path"] = False
                 vals["edited_attachment_2_id"] = False
+                vals["source_2_attachment_id"] = False
 
-            # Back-compat: ``edited_attachment_id`` and ``ffmpeg_command``
-            # still point at *something* for downstream code.
-            primary = vals.get("edited_attachment_1_id") or vals.get("edited_attachment_2_id")
-            vals["edited_attachment_id"] = primary or False
+            # Back-compat: ``edited_attachment_id`` and ``edited_file_path``
+            # still point at *something* for downstream code that hasn't
+            # migrated to per-slot fields yet.
+            primary_path = vals.get("edited_file_1_path") or vals.get("edited_file_2_path")
+            vals["edited_file_path"] = primary_path or False
+            vals["edited_attachment_id"] = False
             if last_cmd:
                 vals["ffmpeg_command"] = last_cmd
             if last_probe:
@@ -501,17 +641,57 @@ class VideoTaskVersion(models.Model):
             )
         except Exception as exc:  # noqa: BLE001
             _logger.exception("Render failed for %s", self.display_name)
-            self.write({"status": "error", "processing_error": str(exc)})
-            self.env["video.task.processing.log"].sudo().create(
-                {
-                    "task_id": self.task_id.id,
-                    "version_id": self.id,
-                    "level": "error",
-                    "operation": "render",
-                    "message": str(exc),
-                }
-            )
-            raise
+            # Persist the error verdict directly on the cursor we were
+            # given so the caller's ``with`` block commits it.  The
+            # previous code re-raised here, which made the deferred-job
+            # wrapper call ``new_cr.rollback()`` and wipe out the very
+            # error status we just wrote — leaving the row stuck on
+            # ``processing`` with no diagnostic info and the user
+            # seeing "trimmed video isn't saved".
+            try:
+                self.write({
+                    "status": "error",
+                    "processing_error": str(exc),
+                })
+                self.env["video.task.processing.log"].sudo().create(
+                    {
+                        "task_id": self.task_id.id,
+                        "version_id": self.id,
+                        "level": "error",
+                        "operation": "render",
+                        "message": str(exc),
+                    }
+                )
+                # Post the actual exception text to the TASK's chatter
+                # too, not just the version's processing_error column.
+                # That column is buried inside the version form, so an
+                # editor clicking Save & Render in the dashboard would
+                # never see it.  A chatter message on the task itself
+                # is impossible to miss.
+                self.task_id.message_post(
+                    body=_(
+                        "<b>Render failed for v%(no)s</b>"
+                        "<br/><pre style=\"white-space: pre-wrap;\">%(err)s</pre>"
+                        "<br/><i>Check Settings → Technical → System "
+                        "Parameters for <code>video_qc.ffmpeg_path</code> "
+                        "/ <code>video_qc.media_root</code> if this looks "
+                        "like a missing binary or unwritable directory.</i>"
+                    ) % {
+                        "no": self.version_no,
+                        "err": str(exc),
+                    },
+                    message_type="comment",
+                    subtype_xmlid="mail.mt_note",
+                )
+            except Exception:  # noqa: BLE001
+                # If we can't even record the failure (DB connection
+                # gone, row deleted concurrently, ...) we have nothing
+                # left to do — let the caller commit whatever's there
+                # rather than rolling everything back.
+                _logger.exception(
+                    "Could not persist render-error status for version %s",
+                    self.id,
+                )
 
     # ==================================================================
     # QC entry-points

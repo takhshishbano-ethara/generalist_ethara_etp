@@ -140,15 +140,18 @@
                                 </group>
                             </group>
 
-                            <!-- Prompt + QC action.  ``prompt_text`` is a
-                                 task-level field so the user can capture
-                                 the brief regardless of how many versions
-                                 exist; the editor still saves its own
-                                 per-version prompt on each render. -->
-                            <group string="Prompt &amp; QC">
+                            <!-- Prompt + QC action.  Prompt textarea
+                                 spans the full width of the sheet and is
+                                 tall enough (~ 200px) for long briefs.
+                                 task-level ``prompt_text`` is independent
+                                 of the per-version prompts saved by the
+                                 editor. -->
+                            <div class="o_video_qc_prompt_block">
+                                <label for="prompt_text" string="Prompt" class="o_video_qc_prompt_label"/>
                                 <field name="prompt_text" nolabel="1"
+                                       class="o_video_qc_prompt_textarea"
                                        placeholder="Capture the creative brief for this task here..."/>
-                                <div>
+                                <div class="o_video_qc_prompt_actions">
                                     <button name="action_qc_placeholder"
                                             type="object"
                                             string="QC"
@@ -156,7 +159,7 @@
                                             class="btn-primary"
                                             help="Stub action — QC review handler to be implemented."/>
                                 </div>
-                            </group>
+                            </div>
 
                             <field name="download_error" readonly="1"
                                    invisible="not download_error"/>

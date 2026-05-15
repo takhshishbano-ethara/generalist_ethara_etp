@@ -66,6 +66,157 @@
 }
 
 /* ==========================================================================
+   Trim cards on the version form: two side-by-side blocks, each one is
+   the explicit "trim record" for a source slot — source link, trim
+   window with duration, crop config, and the rendered trim attachment,
+   all anchored to an inline preview at the top.
+   ========================================================================== */
+.o_video_qc_trim_cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 12px 0 18px;
+    @media (max-width: 1000px) {
+        grid-template-columns: 1fr;
+    }
+}
+.o_video_qc_trim_card {
+    background: #fafbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    &__header {
+        display: flex; align-items: center; justify-content: space-between;
+        h4 {
+            margin: 0;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #6c7280;
+            i { margin-right: 6px; color: #ff3478; }
+        }
+    }
+    &__meta {
+        display: flex; flex-direction: column; gap: 4px;
+        font-size: 12px;
+        background: white;
+        border: 1px solid #eef0f3;
+        border-radius: 8px;
+        padding: 8px 12px;
+        .meta-row {
+            display: flex; align-items: center; gap: 6px;
+            .label {
+                color: #6c7280;
+                font-weight: 600;
+                min-width: 88px;
+            }
+            .dur { color: #ff3478; font-weight: 600; }
+            > .o_field_widget { flex: 1; }
+        }
+    }
+    .o_video_preview_field video {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #000;
+        border-radius: 8px;
+    }
+}
+
+/* ==========================================================================
+   Kimi K2.5 grammar-check panels on the QC review wizard.
+   Two side-by-side cards: version prompt | reviewer's next-prompt
+   suggestion.  Each card surfaces the score, summary, issue list, and
+   the corrected rewrite — the reviewer reads it in-place before
+   submitting the verdict.
+   ========================================================================== */
+.o_video_qc_grammar_panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 16px;
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+    }
+}
+.o_video_qc_grammar_panel {
+    background: #fafbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        i { color: #6a5cff; }
+    }
+    h5 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #6c7280;
+        margin: 12px 0 4px;
+    }
+    .o_video_qc_grammar_input {
+        background: white;
+        border: 1px solid #eef0f3;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        max-height: 100px;
+        overflow-y: auto;
+    }
+    .badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+    }
+}
+
+/* ==========================================================================
+   Full-width prompt block used by the task form, dashboard form, and
+   version form's Prompt & QC tab.  Stretches to the sheet width and the
+   textarea grows to ~ 200px so long prompts are comfortable to read.
+   ========================================================================== */
+.o_video_qc_prompt_block {
+    margin: 12px 0 16px;
+    .o_video_qc_prompt_label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #6c7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+    .o_video_qc_prompt_textarea,
+    .o_video_qc_prompt_textarea textarea,
+    .o_video_qc_prompt_textarea .o_input {
+        width: 100% !important;
+        min-height: 220px;
+        max-height: 600px;
+        resize: vertical;
+        font-size: 14px;
+        line-height: 1.45;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                     Helvetica, Arial, sans-serif;
+        padding: 12px 14px;
+        border-radius: 10px;
+    }
+    .o_video_qc_prompt_actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+    }
+}
+
+/* ==========================================================================
    Version form preview block — the inline player at the top of the
    video.task.version form. Sits in its own card so it's visually distinct
    from the metadata groups underneath.

@@ -25,24 +25,74 @@
                         </h1>
                     </div>
 
-                    <!-- Per-slot trim previews.  A single version now
-                         owns ONE trimmed clip for source #1 and ONE for
-                         source #2.  Each player falls back to the source
-                         attachment + media fragment when its slot hasn't
-                         been rendered yet, so the user can still preview
-                         the *intended* trim window. -->
-                    <div class="o_video_qc_version_preview o_video_qc_version_preview--two-up">
-                        <div class="o_video_qc_version_preview__col">
-                            <h5>Source #1 — Trimmed</h5>
+                    <!-- Explicit Trim 1 / Trim 2 cards.  Each card is
+                         the "trim record" for one source slot: it shows
+                         the original source attachment used, the trim
+                         window, the crop config, the trimmed output
+                         attachment, and an inline player.  Falls back
+                         to a source-with-fragment preview when the
+                         slot hasn't been rendered yet. -->
+                    <div class="o_video_qc_trim_cards">
+                        <div class="o_video_qc_trim_card">
+                            <div class="o_video_qc_trim_card__header">
+                                <h4><i class="fa fa-cut"/> Trim 1 — Source #1</h4>
+                            </div>
                             <field name="edited_1_play_url"
                                    widget="video_preview"
                                    nolabel="1" readonly="1"/>
+                            <div class="o_video_qc_trim_card__meta">
+                                <div class="meta-row">
+                                    <span class="label">Source:</span>
+                                    <field name="source_1_attachment_id" readonly="1" nolabel="1"/>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Trim window:</span>
+                                    <field name="trim_1_start" readonly="1" nolabel="1"/>
+                                    <span>→</span>
+                                    <field name="trim_1_end" readonly="1" nolabel="1"/>
+                                    <span class="dur">(<field name="trim_1_duration" readonly="1" nolabel="1"/> s)</span>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Crop:</span>
+                                    <field name="crop_1_data_json" readonly="1" nolabel="1"
+                                           placeholder="No crop"/>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Trim file:</span>
+                                    <field name="edited_attachment_1_id" readonly="1" nolabel="1"/>
+                                </div>
+                            </div>
                         </div>
-                        <div class="o_video_qc_version_preview__col">
-                            <h5>Source #2 — Trimmed</h5>
+
+                        <div class="o_video_qc_trim_card">
+                            <div class="o_video_qc_trim_card__header">
+                                <h4><i class="fa fa-cut"/> Trim 2 — Source #2</h4>
+                            </div>
                             <field name="edited_2_play_url"
                                    widget="video_preview"
                                    nolabel="1" readonly="1"/>
+                            <div class="o_video_qc_trim_card__meta">
+                                <div class="meta-row">
+                                    <span class="label">Source:</span>
+                                    <field name="source_2_attachment_id" readonly="1" nolabel="1"/>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Trim window:</span>
+                                    <field name="trim_2_start" readonly="1" nolabel="1"/>
+                                    <span>→</span>
+                                    <field name="trim_2_end" readonly="1" nolabel="1"/>
+                                    <span class="dur">(<field name="trim_2_duration" readonly="1" nolabel="1"/> s)</span>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Crop:</span>
+                                    <field name="crop_2_data_json" readonly="1" nolabel="1"
+                                           placeholder="No crop"/>
+                                </div>
+                                <div class="meta-row">
+                                    <span class="label">Trim file:</span>
+                                    <field name="edited_attachment_2_id" readonly="1" nolabel="1"/>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -57,10 +107,6 @@
                         <group>
                             <field name="duration"/>
                             <field name="resolution"/>
-                            <field name="trim_1_start"/>
-                            <field name="trim_1_end"/>
-                            <field name="trim_2_start"/>
-                            <field name="trim_2_end"/>
                         </group>
                     </group>
                     <notebook>
@@ -91,20 +137,27 @@
                                    invisible="not processing_error"/>
                         </page>
                         <page string="Prompt &amp; QC">
-                            <group>
-                                <group string="Prompt">
-                                    <field name="prompt_text" nolabel="1"/>
-                                    <field name="prompt_response" nolabel="1"/>
-                                </group>
-                                <group string="QC">
-                                    <field name="qc_status" widget="badge"
-                                           decoration-success="qc_status == 'approved'"
-                                           decoration-danger="qc_status == 'rejected'"
-                                           decoration-warning="qc_status in ('pending', 'rework')"/>
-                                    <field name="qc_user"/>
-                                    <field name="qc_date"/>
-                                    <field name="qc_comment"/>
-                                </group>
+                            <!-- Prompt + AI Response stretch full width
+                                 and get tall (~ 200px) textareas so long
+                                 briefs are easy to read and edit. -->
+                            <div class="o_video_qc_prompt_block">
+                                <label for="prompt_text" string="Prompt"/>
+                                <field name="prompt_text" nolabel="1"
+                                       class="o_video_qc_prompt_textarea"
+                                       placeholder="Describe the AI / content prompt for this version..."/>
+                                <label for="prompt_response" string="AI Response / Notes"/>
+                                <field name="prompt_response" nolabel="1"
+                                       class="o_video_qc_prompt_textarea"
+                                       placeholder="Optional notes..."/>
+                            </div>
+                            <group string="QC">
+                                <field name="qc_status" widget="badge"
+                                       decoration-success="qc_status == 'approved'"
+                                       decoration-danger="qc_status == 'rejected'"
+                                       decoration-warning="qc_status in ('pending', 'rework')"/>
+                                <field name="qc_user"/>
+                                <field name="qc_date"/>
+                                <field name="qc_comment"/>
                             </group>
                         </page>
                         <page string="Edit Actions">

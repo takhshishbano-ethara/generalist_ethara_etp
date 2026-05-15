@@ -4,6 +4,25 @@ Production-grade Odoo 19 module that turns the back-office into a complete
 Instagram video pipeline: download, edit, prompt, QC, version — all in one
 record.
 
+## Media storage
+
+FFmpeg-rendered files (trimmed, cropped, previewed) are written to a local
+directory rooted at `<media_root>/<task.id>/<filename>.mp4` and streamed back
+to the browser via `werkzeug.utils.send_file(..., conditional=True)` —
+HTML5 `<video>` scrubbing produces real HTTP-Range requests (206 Partial
+Content with `Content-Range`).
+
+* `<media_root>` is configurable via the system parameter
+  `video_qc.media_root` (default `/var/lib/odoo/video_qc_media`).
+* Layout: `<media_root>/<task.id>/v<version_no>_edited_slot<N>.mp4` and
+  `v<version_no>_preview.mp4`.
+* See `INSTALL.md` for permission setup and backup implications
+  (filesystem, not in `pg_dump`).
+* Deleting a `video.task` purges its `<media_root>/<task.id>/` directory.
+* A disabled weekly cron (`Video QC: Purge orphan media dirs`) cleans
+  up stale directories whose task id no longer exists — operator
+  enables in production.
+
 ## What's inside
 
 ```

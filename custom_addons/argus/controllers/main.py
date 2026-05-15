@@ -217,6 +217,24 @@ def _fetch_video_url(shortcode, source_url):
     return _fetch_via_yt_dlp(canonical) or _fetch_via_scrape(shortcode)
 
 
+# Accepts reel/, reels/, p/, tv/ variants with optional ``www.`` and
+# trailing slash.  Anything off-spec gets rejected so the public route
+# below can't be weaponised to hit arbitrary URLs.
+_IG_URL_RE = re.compile(
+    r"^https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([\w\-]{1,32})/?",
+    re.IGNORECASE,
+)
+
+
+def get_instagram_video_url(instagram_url):
+    if not instagram_url:
+        return None
+    match = _IG_URL_RE.match(instagram_url.strip())
+    if not match:
+        return None
+    return _fetch_video_url(match.group(1), instagram_url)
+
+
 # ==========================================================================
 # HTML rendering
 # ==========================================================================
@@ -350,6 +368,49 @@ class ArgusVideoPreviewController(http.Controller):
                 # The CDN URL Instagram returns is signed and expires
                 # in a few minutes; force a fresh extraction on every
                 # popup open.
+                ("Cache-Control", "no-store, max-age=0"),
+            ],
+        )
+
+    @http.route(
+        "/argus/instagram/url",
+        type="http",
+        auth="public",
+        methods=["GET", "POST"],
+        csrf=False,
+        cors="*",
+    )
+    def instagram_url(self, link=None, url=None, **kwargs):
+        instagram_link = (
+            link
+            or url
+            or kwargs.get("ig_url")
+            or kwargs.get("instagram_url")
+        )
+        if not instagram_link:
+            try:
+                body = json.loads(request.httprequest.get_data() or b"{}")
+            except (ValueError, TypeError):
+                body = {}
+            if isinstance(body, dict):
+                instagram_link = (
+                    body.get("link")
+                    or body.get("url")
+                    or body.get("ig_url")
+                    or body.get("instagram_url")
+                )
+        video_url = get_instagram_video_url(instagram_link)
+        if video_url:
+            payload = {"ok": True, "video_url": video_url, "source_url": instagram_link}
+            status = 200
+        else:
+            payload = {"ok": False, "error": "Unable to extract video URL", "source_url": instagram_link}
+            status = 404
+        return request.make_response(
+            json.dumps(payload),
+            status=status,
+            headers=[
+                ("Content-Type", "application/json; charset=utf-8"),
                 ("Cache-Control", "no-store, max-age=0"),
             ],
         )

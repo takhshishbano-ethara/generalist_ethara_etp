@@ -265,6 +265,8 @@ class VideoTask(models.Model):
         "latest_version_id.trim_1_end",
         "latest_version_id.trim_2_start",
         "latest_version_id.trim_2_end",
+        "latest_version_id.edited_file_1_path",
+        "latest_version_id.edited_file_2_path",
         "latest_version_id.edited_attachment_1_id",
         "latest_version_id.edited_attachment_2_id",
     )
@@ -275,17 +277,26 @@ class VideoTask(models.Model):
             rec.original_video_2_play_url = rec._slot_play_url(2, ver)
 
     def _slot_play_url(self, slot, ver):
-        """Resolve the play URL for a source slot, preferring the latest
-        rendered per-slot attachment and falling back to the source clip
-        with an ``#t=start,end`` media fragment otherwise."""
+        """Resolve the play URL for a source slot.
+
+        Resolution order (matches video.task.version._slot_play_url):
+
+        1. New on-disk render (``ver.edited_file_<slot>_path`` populated)
+           -> ``/video_qc/version/<ver.id>/edited/<slot>``.
+        2. Legacy attachment (``ver.edited_attachment_<slot>_id``) -> same URL.
+        3. No render -> source clip + ``#t=start,end`` media fragment.
+        """
         self.ensure_one()
         if not self.id:
             return ""
-        # Prefer the rendered per-slot attachment so the user sees the
-        # actually-trimmed file from the last render.
         if ver:
-            edited = ver.edited_attachment_1_id if slot == 1 else ver.edited_attachment_2_id
-            if edited:
+            if slot == 1:
+                path_field = ver.edited_file_1_path
+                legacy = ver.edited_attachment_1_id
+            else:
+                path_field = ver.edited_file_2_path
+                legacy = ver.edited_attachment_2_id
+            if path_field or legacy:
                 return f"/video_qc/version/{ver.id}/edited/{slot}"
         # Fallback: stream the source attachment with a media fragment.
         source = self.original_video_1_attachment if slot == 1 else self.original_video_2_attachment
@@ -355,6 +366,87 @@ class VideoTask(models.Model):
         default.setdefault("state", "draft")
         default.setdefault("version_ids", [])
         return super().copy(default)
+
+    def unlink(self):
+        """Delete the task row, then wipe its on-disk media directory.
+
+        We snapshot the directories that need cleaning BEFORE
+        ``super().unlink()`` (so we still have the task ids) but only
+        ``shutil.rmtree`` them AFTER super returns successfully — that
+        way a constraint failure or access-rule rejection leaves the
+        media in place.  We swallow rmtree errors via ``ignore_errors``
+        plus a wrapping try/except: a stale media dir must never block
+        a DB delete (operator can purge later via the orphan-cron).
+        """
+        import os
+        import shutil
+
+        storage = self.env["video.qc.media.storage"].sudo()
+        dirs_to_purge = []
+        for task in self:
+            if task.id:
+                try:
+                    dirs_to_purge.append(storage.task_dir(task))
+                except Exception:  # noqa: BLE001 — never block unlink on path math
+                    _logger.warning(
+                        "Could not resolve media dir for task %s; skipping purge.",
+                        task.id,
+                    )
+        ok = super().unlink()
+        if ok:
+            for path in dirs_to_purge:
+                try:
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                except Exception:  # noqa: BLE001
+                    _logger.warning(
+                        "Could not remove media dir %s after task delete.", path,
+                    )
+        return ok
+
+    # ==================================================================
+    # Orphan-media housekeeping
+    # ==================================================================
+    @api.model
+    def cron_purge_orphan_media_dirs(self):
+        """Walk ``<media_root>/`` and remove subdirs with no matching task.
+
+        Intended to run weekly (disabled by default — see
+        ``data/cron.xml``).  Subdir names are integers (task ids);
+        anything we can't parse as an int is left alone.  Anything
+        whose id no longer exists in ``video.task`` is removed.
+        """
+        import os
+        import shutil
+
+        storage = self.env["video.qc.media.storage"].sudo()
+        root = storage.get_media_root()
+        if not os.path.isdir(root):
+            return 0
+        try:
+            entries = os.listdir(root)
+        except OSError as exc:
+            _logger.warning("Could not list media root %s: %s", root, exc)
+            return 0
+        live_ids = set(self.with_context(active_test=False).search([]).ids)
+        removed = 0
+        for entry in entries:
+            full = os.path.join(root, entry)
+            if not os.path.isdir(full):
+                continue
+            try:
+                entry_id = int(entry)
+            except ValueError:
+                continue  # unrelated dir — leave it alone
+            if entry_id in live_ids:
+                continue
+            try:
+                shutil.rmtree(full, ignore_errors=True)
+                removed += 1
+                _logger.info("Purged orphan media dir %s", full)
+            except Exception:  # noqa: BLE001
+                _logger.warning("Could not purge orphan media dir %s", full)
+        return removed
 
     # ==================================================================
     # State transitions
