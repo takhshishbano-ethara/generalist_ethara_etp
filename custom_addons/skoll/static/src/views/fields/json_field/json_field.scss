@@ -316,6 +316,52 @@
         }
     }
 
+    .skoll-spawn-tree-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border: 1px solid #45475a;
+        border-radius: 4px;
+        background: linear-gradient(135deg, #89b4fa 0%, #94e2d5 100%);
+        color: #1e1e2e;
+        font-size: 0.75em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            box-shadow: 0 0 10px rgba(137, 180, 250, 0.4);
+            transform: translateY(-1px);
+        }
+
+        &:active {
+            transform: translateY(0);
+        }
+
+        i {
+            font-size: 1.1em;
+        }
+    }
+
+    .skoll-spawn-tree-building {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        font-size: 0.75em;
+        font-weight: 600;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        i {
+            color: #89b4fa;
+        }
+    }
+
     .skoll-improve-running {
         display: inline-flex;
         align-items: center;

@@ -1,822 +1,442 @@
 # -*- coding: utf-8 -*-
-"""
-Multi-agent trajectory validator — flat interleaved schema.
-
-Ported from multi_agent_trajectory_generation.py QC logic.
-Validates the Talos multi-agent golden trajectory format using
-sessions_spawn / sessions_yield with bare/wrapped message wrappers.
-
-Returns structured results compatible with the Skoll QC pipeline.
-"""
 import json
 import re
+from collections import Counter
 from datetime import datetime
 
-# ---------------------------------------------------------------------------
-# Tool Constants (per-role enforcement)
-# ---------------------------------------------------------------------------
+HEX8 = re.compile(r"^[0-9a-f]{8}$")
+TOOLUSE_PREFIX = re.compile(r"^tooluse_")
 
-ORCHESTRATOR_TOOLS = {
-    "sessions_spawn", "sessions_yield", "read", "write", "edit",
-    "exec", "web_search", "web_fetch", "memory_search", "memory_get",
-}
-
-SUBAGENT_TOOLS = {
-    "read", "write", "edit", "exec", "web_search", "web_fetch",
-    "process", "memory_search", "memory_get", "cron", "message",
-    "grep", "find", "ls", "browser", "canvas",
-    "gmail", "outlook-mail", "apple-mail", "google-calendar",
-    "outlook-calendar", "apple-calendar", "calendly", "google-contacts",
-    "outlook-contacts", "apple-contacts", "whatsapp_cli", "telegram-cli",
-    "google-drive", "imagine", "spaces", "user-context", "memory_update",
-}
-
-FORBIDDEN_IN_SUBAGENT = {"sessions_spawn", "sessions_yield"}
-
-REQUIRED_ORCHESTRATOR_TOOLS = {"sessions_spawn", "sessions_yield"}
-
-ALL_VALID_TOOLS = ORCHESTRATOR_TOOLS | SUBAGENT_TOOLS | {
-    "browser", "canvas", "gateway", "agents_list", "sessions_list",
-    "sessions_history", "sessions_send", "subagents", "session_status",
-    "zeitgeist", "nodes",
-}
-
-VALID_TASK_TYPES = {
-    "home_and_organization", "customer_service", "research_and_analysis",
-    "creative_writing", "technical_support", "education_and_learning",
-    "health_and_wellness", "finance_and_budgeting",
-    "commerce_product", "creative_media", "visual_learning",
-    "property_space", "operations_qa", "small_business_docs",
-}
-
-VALID_COMPLETION_STATUS = {"success", "partial_success", "incomplete", "failure"}
-
-HEX8_RE = re.compile(r"^[0-9a-f]{8}$")
-
-# Weighted scoring — double-weight phases
-DOUBLE_WEIGHT_PHASES = {"Phase MA3", "Phase MA4", "Phase MA1"}
-BLOCK_THRESHOLD = 6
+EXPECTED_META_KEYS = {"task_type", "task_description", "task_completion_status", "system_prompt", "platform"}
+VALID_COMPLETION = {"success", "partial_success", "incomplete", "failure"}
+WRAPPER_KEYS = {"type", "id", "parentId", "timestamp", "message"}
+USER_INNER_KEYS = {"role", "content"}
+ASSISTANT_INNER_KEYS = {"role", "content", "stopReason", "responseId"}
+TOOL_RESULT_INNER_KEYS = {"role", "toolCallId", "toolName", "isError", "content"}
+VALID_STOP_REASONS = {"tool_calls", "stop"}
+VALID_CONTENT_TYPES = {"text", "thinking", "toolCall"}
+TEXT_BLOCK_KEYS = {"type", "text"}
+THINKING_BLOCK_KEYS = {"type", "thinking", "thinkingSignature"}
+TOOL_CALL_BLOCK_KEYS = {"type", "id", "name", "arguments", "partialArgs"}
 
 
-# ---------------------------------------------------------------------------
-# Message Navigation Helpers
-# ---------------------------------------------------------------------------
+def _strip_fences(raw):
+    s = (raw or "").strip()
+    if s.startswith("```"):
+        nl = s.find("\n")
+        if nl != -1:
+            s = s[nl + 1:]
+        if s.endswith("```"):
+            s = s[:-3].rstrip()
+    return s
 
-def _get_inner_message(msg):
-    """Navigate through wrapper to get the inner message object.
-
-    Bare format: msg -> msg["message"]
-    Wrapped format: msg -> msg["message"] -> msg["message"]["message"]
-    """
-    if "is_accepted" in msg:
-        return msg.get("message", {}).get("message", {})
-    return msg.get("message", {})
-
-
-def _get_role(msg):
-    return _get_inner_message(msg).get("role", "")
-
-
-def _get_content(msg):
-    return _get_inner_message(msg).get("content", [])
-
-
-def _get_msg_id(msg):
-    if "is_accepted" in msg:
-        return msg.get("message", {}).get("id", "")
-    return msg.get("id", "")
-
-
-def _get_parent_id(msg):
-    if "is_accepted" in msg:
-        return msg.get("message", {}).get("parentId", "")
-    return msg.get("parentId", "")
-
-
-def _get_timestamp(msg):
-    if "is_accepted" in msg:
-        return msg.get("message", {}).get("timestamp", "")
-    return msg.get("timestamp", "")
-
-
-def _is_subagent_user_msg(msg):
-    if _get_role(msg) != "user":
-        return False
-    content = _get_content(msg)
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text = block.get("text", "")
-            if "[Subagent Context]" in text:
-                return True
-    return False
-
-
-def _identify_agent_blocks(messages):
-    """Identify which messages belong to which agent.
-
-    Returns dict: {"subagent_0": [indices], "subagent_1": [indices], "orchestrator": [indices]}
-    """
-    agents = {}
-    current_agent = None
-    current_agent_idx = 0
-
-    for i, msg in enumerate(messages):
-        role = _get_role(msg)
-
-        if role == "user" and _is_subagent_user_msg(msg):
-            current_agent = "subagent_%d" % current_agent_idx
-            current_agent_idx += 1
-            agents.setdefault(current_agent, [])
-            agents[current_agent].append(i)
-        elif role == "user" and not _is_subagent_user_msg(msg):
-            current_agent = "orchestrator"
-            agents.setdefault(current_agent, [])
-            agents[current_agent].append(i)
-        else:
-            if current_agent:
-                agents.setdefault(current_agent, [])
-                agents[current_agent].append(i)
-
-    return agents
-
-
-# ---------------------------------------------------------------------------
-# QC Result
-# ---------------------------------------------------------------------------
-
-class QCResult:
-    """QC result tracker with weighted scoring."""
-
-    def __init__(self):
-        self.checks = []
-        self.blocks = 0
-        self.warnings = 0
-        self.advisories = 0
-        self.weighted_warning_score = 0
-
-    def add(self, phase, check, status, detail=""):
-        self.checks.append({
-            "phase": phase, "check": check,
-            "status": status, "detail": detail,
-        })
-        if status == "BLOCK":
-            self.blocks += 1
-        elif status == "WARNING":
-            self.warnings += 1
-            weight = 2 if phase in DOUBLE_WEIGHT_PHASES else 1
-            self.weighted_warning_score += weight
-        elif status == "ADVISORY":
-            self.advisories += 1
-
-    @property
-    def passed(self):
-        return self.blocks == 0 and self.weighted_warning_score < BLOCK_THRESHOLD
-
-
-# ---------------------------------------------------------------------------
-# Main Validator
-# ---------------------------------------------------------------------------
 
 def validate_trajectory(json_str, task_data=None):
-    """Validate a multi-agent golden trajectory JSON string.
-
-    Args:
-        json_str: raw JSON string of the trajectory
-        task_data: optional dict with keys:
-            - spawned_agents (list of {name, role}), etc.
-
-    Returns:
-        dict with valid (bool), errors, warnings, stats, qc_summary
-    """
+    cleaned = _strip_fences(json_str)
     errors = []
-    warnings = []
-    stats = {
-        "message_count": 0,
-        "subagent_count": 0,
-        "orchestrator_msg_count": 0,
-        "tool_call_count": 0,
-        "unique_tools": set(),
-        "spawn_count": 0,
-        "yield_count": 0,
-    }
 
-    # --- parse ---
     try:
-        data = json.loads(json_str)
+        data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        stripped = json_str.strip() if json_str else ""
-        if stripped and not stripped.endswith("}"):
-            errors.append(_err(
-                "TRUNCATED",
-                "JSON is truncated (output likely hit max_tokens limit). "
-                "Parse error: %s" % str(e),
-            ))
+        if cleaned and not cleaned.rstrip().endswith("}"):
+            errors.append(_e("TRUNCATED", "JSON truncated (likely hit max_tokens). Parse error: %s" % e))
         else:
-            errors.append(_err("PARSE_ERROR", "Invalid JSON: %s" % str(e)))
-        stats["unique_tools"] = []
-        return {"valid": False, "errors": errors, "warnings": warnings, "stats": stats}
+            errors.append(_e("PARSE_ERROR", "Invalid JSON: %s" % e))
+        return _result(False, errors, {}, {})
 
     if not isinstance(data, dict):
-        errors.append(_err("ROOT_TYPE", "Root must be object, got %s" % type(data).__name__))
-        stats["unique_tools"] = []
-        return {"valid": False, "errors": errors, "warnings": warnings, "stats": stats}
+        errors.append(_e("ROOT_TYPE", "Root must be object, got %s" % type(data).__name__))
+        return _result(False, errors, {}, {})
 
-    # Run full multi-agent QC
-    expected_agents = []
-    if task_data and task_data.get("spawned_agents"):
-        sa = task_data["spawned_agents"]
-        if isinstance(sa, str):
-            try:
-                sa = json.loads(sa)
-            except (json.JSONDecodeError, TypeError):
-                sa = []
-        if isinstance(sa, list):
-            expected_agents = sa
+    captured = {}
+    counts = Counter()
 
-    qc = run_multi_agent_qc(data, expected_agents)
+    has_meta = "meta_info" in data
+    has_conv = "conversation" in data or "messages" in data
+    counts["top_level_keys"] = len(data)
 
-    # Convert QC checks to errors/warnings
-    for c in qc.checks:
-        if c["status"] == "BLOCK":
-            errors.append(_err(c["check"], c["detail"] or c["check"], c["phase"]))
-        elif c["status"] == "WARNING":
-            warnings.append(_warn(c["check"], c["detail"] or c["check"], c["phase"]))
+    if not has_meta:
+        errors.append(_e("MISSING_TOP_KEY", "Missing 'meta_info'"))
+    if not has_conv:
+        errors.append(_e("MISSING_TOP_KEY", "Missing 'conversation' (or 'messages')"))
 
-    # Build stats
-    messages = data.get("messages", [])
-    stats["message_count"] = len(messages)
+    extra_top = set(data.keys()) - {"meta_info", "conversation", "messages"}
+    if extra_top:
+        errors.append(_e("EXTRA_TOP_KEY", "Unexpected top-level keys: %s" % sorted(extra_top)))
 
-    agent_blocks = _identify_agent_blocks(messages)
-    subagent_keys = sorted(k for k in agent_blocks if k.startswith("subagent_"))
-    stats["subagent_count"] = len(subagent_keys)
-    stats["orchestrator_msg_count"] = len(agent_blocks.get("orchestrator", []))
+    meta = data.get("meta_info", {})
+    if has_meta:
+        _validate_meta(meta, errors, captured, counts)
 
-    for msg in messages:
-        content = _get_content(msg)
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    stats["tool_call_count"] += 1
-                    name = block.get("name", "")
-                    if name:
-                        stats["unique_tools"].add(name)
-                    if name == "sessions_spawn":
-                        stats["spawn_count"] += 1
-                    elif name == "sessions_yield":
-                        stats["yield_count"] += 1
+    messages = data.get("conversation") or data.get("messages", [])
+    if not isinstance(messages, list):
+        errors.append(_e("CONV_TYPE", "conversation must be array, got %s" % type(messages).__name__))
+        return _result(len(errors) == 0, errors, captured, counts)
 
-    stats["unique_tools"] = sorted(stats["unique_tools"])
-
-    return {
-        "valid": qc.passed,
-        "errors": errors,
-        "warnings": warnings,
-        "stats": stats,
-        "qc_summary": _format_qc_summary(qc),
-    }
-
-
-def run_multi_agent_qc(golden, expected_agents=None):
-    """Run automated QC checks specific to multi-agent trajectories.
-
-    Phases:
-      1   - Structural schema
-      2   - Conversation integrity basics
-      MA1 - Spawn/yield integrity
-      MA2 - Sub-agent completeness
-      MA3 - ParentId chain separation
-      MA4 - Wrapper schema (bare vs wrapped)
-      MA5 - Orchestrator compilation
-      MA6 - Single-prompt rule
-      MA7 - Flow order (sub-agents before orchestrator)
-      MA8 - Tool enforcement per role
-    """
-    if expected_agents is None:
-        expected_agents = []
-
-    qc = QCResult()
-    messages = golden.get("messages", [])
-    meta = golden.get("meta_info", {})
-
-    # ── Phase 1: Structural Schema ──
-
-    if set(golden.keys()) >= {"meta_info", "messages"}:
-        qc.add("Phase 1", "1.1.2 Top-level keys", "PASS")
-    else:
-        qc.add("Phase 1", "1.1.2 Top-level keys", "BLOCK",
-                "Missing keys. Found: %s" % list(golden.keys()))
-
-    # meta_info checks
-    task_type = meta.get("task_type", "")
-    if task_type in VALID_TASK_TYPES:
-        qc.add("Phase 1", "1.2.1 task_type valid", "PASS")
-    else:
-        qc.add("Phase 1", "1.2.1 task_type valid", "BLOCK",
-                "Invalid: '%s'" % task_type)
-
-    desc = meta.get("task_description", "")
-    if len(desc) >= 20:
-        qc.add("Phase 1", "1.2.2 task_description", "PASS")
-    else:
-        qc.add("Phase 1", "1.2.2 task_description", "BLOCK",
-                "Too short (%d chars)" % len(desc))
-
-    status_val = meta.get("task_completion_status", "")
-    if status_val in VALID_COMPLETION_STATUS:
-        qc.add("Phase 1", "1.2.3 completion_status", "PASS")
-    else:
-        qc.add("Phase 1", "1.2.3 completion_status", "BLOCK",
-                "Invalid: '%s'" % status_val)
-
-    if meta.get("platform") == "macOS":
-        qc.add("Phase 1", "1.2.5 platform", "PASS")
-    else:
-        qc.add("Phase 1", "1.2.5 platform", "WARNING",
-                "Expected 'macOS', got '%s'" % meta.get("platform"))
+    counts["messages_total"] = len(messages)
 
     if not messages:
-        qc.add("Phase 1", "1.3.1 messages non-empty", "BLOCK",
-                "Empty messages array")
-        return qc
+        errors.append(_e("EMPTY_CONV", "conversation array is empty"))
+        return _result(len(errors) == 0, errors, captured, counts)
 
-    qc.add("Phase 1", "1.3.1 messages non-empty", "PASS")
+    _validate_messages(messages, errors, captured, counts, task_data)
 
-    # ── Phase 2: Basic Conversation Integrity ──
+    return _result(len(errors) == 0, errors, captured, counts)
 
-    # Timestamp monotonicity across entire flat array
-    timestamps_valid = True
-    timestamps_monotonic = True
+
+def _validate_meta(meta, errors, captured, counts):
+    if not isinstance(meta, dict):
+        errors.append(_e("META_TYPE", "meta_info must be object"))
+        return
+
+    actual = set(meta.keys())
+    missing = EXPECTED_META_KEYS - actual
+    extra = actual - EXPECTED_META_KEYS
+    counts["meta_info_keys"] = len(actual)
+
+    if missing:
+        errors.append(_e("META_MISSING_KEYS", "meta_info missing: %s" % sorted(missing)))
+    if extra:
+        errors.append(_e("META_EXTRA_KEYS", "meta_info unexpected keys: %s" % sorted(extra)))
+
+    captured["task_type"] = meta.get("task_type", "")
+    captured["task_description"] = meta.get("task_description", "")
+    captured["task_completion_status"] = meta.get("task_completion_status", "")
+    captured["system_prompt"] = repr(meta.get("system_prompt", "<ABSENT>"))
+    captured["platform"] = meta.get("platform", "")
+
+    if not meta.get("task_type"):
+        errors.append(_e("META_EMPTY", "task_type is empty"))
+    if not meta.get("task_description"):
+        errors.append(_e("META_EMPTY", "task_description is empty"))
+
+    status = meta.get("task_completion_status", "")
+    if status not in VALID_COMPLETION:
+        errors.append(_e("META_INVALID", "task_completion_status '%s' not in %s" % (status, sorted(VALID_COMPLETION))))
+
+    sp = meta.get("system_prompt")
+    if sp is None:
+        pass
+    elif sp != "":
+        errors.append(_e("META_INVALID", "system_prompt must be empty string, got: '%s'" % str(sp)[:60]))
+
+    plat = meta.get("platform")
+    if plat is not None and plat != "macOS":
+        errors.append(_e("META_INVALID", "platform must be 'macOS', got: '%s'" % plat))
+
+
+def _validate_messages(messages, errors, captured, counts, task_data):
+    all_ids = []
+    all_roles = []
+    tool_call_ids_seen = set()
+    tool_result_ids_seen = set()
+    tool_names = Counter()
+    content_type_counts = Counter()
+    spawn_task_names = []
+    spawn_child_keys = []
+    yield_messages_list = []
+
     prev_ts = None
-    for msg in messages:
-        ts_str = _get_timestamp(msg)
-        if not ts_str:
+    ts_issues = 0
+
+    for idx, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            errors.append(_e("MSG_TYPE", "conversation[%d] is not an object" % idx))
             continue
-        try:
-            if isinstance(ts_str, str):
+
+        present = set(msg.keys())
+        missing_w = WRAPPER_KEYS - present
+        extra_w = present - WRAPPER_KEYS
+        if missing_w:
+            errors.append(_e("WRAPPER_MISSING", "conversation[%d] missing wrapper keys: %s" % (idx, sorted(missing_w))))
+        if extra_w:
+            errors.append(_e("WRAPPER_EXTRA", "conversation[%d] unexpected wrapper keys: %s" % (idx, sorted(extra_w))))
+
+        if msg.get("type") != "message":
+            errors.append(_e("WRAPPER_TYPE", "conversation[%d].type = '%s', expected 'message'" % (idx, msg.get("type"))))
+
+        msg_id = msg.get("id", "")
+        if msg_id:
+            all_ids.append(msg_id)
+            if not HEX8.match(msg_id):
+                errors.append(_e("ID_FORMAT", "conversation[%d].id '%s' not 8-hex" % (idx, msg_id)))
+        else:
+            errors.append(_e("ID_MISSING", "conversation[%d].id is missing or empty" % idx))
+
+        parent_id = msg.get("parentId", "")
+        if idx == 0:
+            if parent_id != "00000000":
+                errors.append(_e("PARENT_FIRST", "conversation[0].parentId = '%s', expected '00000000'" % parent_id))
+        else:
+            expected_parent = messages[idx - 1].get("id", "") if isinstance(messages[idx - 1], dict) else ""
+            if parent_id != expected_parent:
+                errors.append(_e("PARENT_CHAIN", "conversation[%d].parentId = '%s', expected '%s'" % (idx, parent_id, expected_parent)))
+
+        ts_str = msg.get("timestamp", "")
+        if ts_str:
+            try:
                 ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
                 if prev_ts and ts < prev_ts:
-                    timestamps_monotonic = False
+                    ts_issues += 1
                 prev_ts = ts
-        except (ValueError, TypeError):
-            timestamps_valid = False
-
-    if timestamps_valid:
-        qc.add("Phase 2", "2.3.1 Valid ISO 8601", "PASS")
-    else:
-        qc.add("Phase 2", "2.3.1 Valid ISO 8601", "BLOCK",
-                "Invalid timestamp format")
-
-    if timestamps_monotonic:
-        qc.add("Phase 2", "2.3.2 Timestamp monotonicity", "PASS")
-    else:
-        qc.add("Phase 2", "2.3.2 Timestamp monotonicity", "WARNING",
-                "Non-monotonic timestamps in flat array")
-
-    # ToolCall <-> ToolResult pairing
-    tool_call_ids = set()
-    tool_result_ids = set()
-    for msg in messages:
-        role = _get_role(msg)
-        content = _get_content(msg)
-        if role == "assistant" and isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    tool_call_ids.add(block.get("id", ""))
-        elif role == "toolResult":
-            inner = _get_inner_message(msg)
-            tool_result_ids.add(inner.get("toolCallId", ""))
-
-    unmatched = tool_call_ids - tool_result_ids
-    if not unmatched:
-        qc.add("Phase 2", "2.4.1 ToolCall/Result pairing", "PASS")
-    else:
-        qc.add("Phase 2", "2.4.1 ToolCall/Result pairing", "BLOCK",
-                "%d toolCalls without matching toolResult" % len(unmatched))
-
-    # ── Phase MA1: Spawn/Yield Integrity ──
-
-    spawn_calls = []
-    yield_calls = []
-    spawn_results = []
-    yield_results = []
-
-    for msg in messages:
-        role = _get_role(msg)
-        content = _get_content(msg)
-
-        if role == "assistant" and isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    if block.get("name") == "sessions_spawn":
-                        spawn_calls.append(block)
-                    elif block.get("name") == "sessions_yield":
-                        yield_calls.append(block)
-
-        if role == "toolResult":
-            inner = _get_inner_message(msg)
-            tool_name = inner.get("toolName", "")
-            if tool_name == "sessions_spawn":
-                spawn_results.append(msg)
-            elif tool_name == "sessions_yield":
-                yield_results.append(msg)
-
-    # MA1.1: Spawn count matches expected agents
-    if expected_agents:
-        if len(spawn_calls) == len(expected_agents):
-            qc.add("Phase MA1", "MA1.1 Spawn count matches metadata",
-                    "PASS", "%d spawns for %d agents" % (len(spawn_calls), len(expected_agents)))
+            except (ValueError, TypeError):
+                errors.append(_e("TIMESTAMP_FORMAT", "conversation[%d].timestamp '%s' invalid ISO 8601" % (idx, ts_str[:40])))
         else:
-            qc.add("Phase MA1", "MA1.1 Spawn count matches metadata",
-                    "BLOCK",
-                    "Expected %d spawns, found %d" % (len(expected_agents), len(spawn_calls)))
-    else:
-        # No expected agents — just check that there are spawns
-        if spawn_calls:
-            qc.add("Phase MA1", "MA1.1 Has spawns", "PASS",
-                    "%d spawn(s)" % len(spawn_calls))
-        else:
-            qc.add("Phase MA1", "MA1.1 Has spawns", "BLOCK",
-                    "No sessions_spawn found")
+            errors.append(_e("TIMESTAMP_MISSING", "conversation[%d].timestamp is missing" % idx))
 
-    # MA1.2: Every spawn has a matching result
-    if len(spawn_calls) == len(spawn_results):
-        qc.add("Phase MA1", "MA1.2 Spawn/result pairing", "PASS")
-    else:
-        qc.add("Phase MA1", "MA1.2 Spawn/result pairing", "BLOCK",
-                "%d calls vs %d results" % (len(spawn_calls), len(spawn_results)))
-
-    # MA1.3: At least one sessions_yield
-    if yield_calls:
-        qc.add("Phase MA1", "MA1.3 Has sessions_yield", "PASS",
-                "%d yield(s)" % len(yield_calls))
-    else:
-        qc.add("Phase MA1", "MA1.3 Has sessions_yield", "BLOCK",
-                "No sessions_yield found")
-
-    # MA1.4: Spawn args have required fields
-    spawn_arg_issues = []
-    for i, sc in enumerate(spawn_calls):
-        args = sc.get("arguments", {})
-        if not args.get("task"):
-            spawn_arg_issues.append("spawn[%d]: missing 'task'" % i)
-        if not args.get("taskName"):
-            spawn_arg_issues.append("spawn[%d]: missing 'taskName'" % i)
-        if args.get("runtime") != "subagent":
-            spawn_arg_issues.append("spawn[%d]: runtime != 'subagent'" % i)
-        if not sc.get("partialArgs"):
-            spawn_arg_issues.append("spawn[%d]: missing partialArgs" % i)
-
-    if not spawn_arg_issues:
-        qc.add("Phase MA1", "MA1.4 Spawn args complete", "PASS")
-    else:
-        qc.add("Phase MA1", "MA1.4 Spawn args complete", "WARNING",
-                "; ".join(spawn_arg_issues[:5]))
-
-    # ── Phase MA2: Sub-agent Completeness ──
-
-    agent_blocks = _identify_agent_blocks(messages)
-    subagent_keys = sorted(k for k in agent_blocks if k.startswith("subagent_"))
-
-    # MA2.1: Number of sub-agent blocks
-    if expected_agents:
-        if len(subagent_keys) == len(expected_agents):
-            qc.add("Phase MA2", "MA2.1 Sub-agent block count", "PASS",
-                    "%d blocks" % len(subagent_keys))
-        else:
-            qc.add("Phase MA2", "MA2.1 Sub-agent block count", "WARNING",
-                    "Expected %d, found %d" % (len(expected_agents), len(subagent_keys)))
-    else:
-        if subagent_keys:
-            qc.add("Phase MA2", "MA2.1 Sub-agent blocks present", "PASS",
-                    "%d blocks" % len(subagent_keys))
-        else:
-            qc.add("Phase MA2", "MA2.1 Sub-agent blocks present", "WARNING",
-                    "No sub-agent conversation blocks found")
-
-    # MA2.2: Each sub-agent starts with [Subagent Context] user msg
-    for sa_key in subagent_keys:
-        indices = agent_blocks[sa_key]
-        if indices:
-            first_msg = messages[indices[0]]
-            if _is_subagent_user_msg(first_msg):
-                qc.add("Phase MA2", "MA2.2 %s starts with context" % sa_key, "PASS")
-            else:
-                qc.add("Phase MA2", "MA2.2 %s starts with context" % sa_key,
-                        "WARNING", "Missing [Subagent Context] prefix")
-
-    # MA2.3: Each sub-agent ends with stopReason: "stop"
-    for sa_key in subagent_keys:
-        indices = agent_blocks[sa_key]
-        if indices:
-            last_msg = messages[indices[-1]]
-            inner = _get_inner_message(last_msg)
-            if inner.get("stopReason") == "stop":
-                qc.add("Phase MA2", "MA2.3 %s ends with stop" % sa_key, "PASS")
-            else:
-                qc.add("Phase MA2", "MA2.3 %s ends with stop" % sa_key,
-                        "WARNING",
-                        "stopReason: '%s'" % inner.get("stopReason"))
-
-    # MA2.4: Each sub-agent has at least 3 tool calls
-    for sa_key in subagent_keys:
-        indices = agent_blocks[sa_key]
-        tc_count = 0
-        for idx in indices:
-            content = _get_content(messages[idx])
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "toolCall":
-                        tc_count += 1
-        if tc_count >= 3:
-            qc.add("Phase MA2", "MA2.4 %s tool call count" % sa_key,
-                    "PASS", "%d calls" % tc_count)
-        else:
-            qc.add("Phase MA2", "MA2.4 %s tool call count" % sa_key,
-                    "WARNING", "Only %d calls (expected >= 3)" % tc_count)
-
-    # ── Phase MA3: ParentId Chain Separation ──
-
-    for agent_key, indices in agent_blocks.items():
-        if len(indices) < 2:
+        inner = msg.get("message")
+        if not isinstance(inner, dict):
+            errors.append(_e("INNER_TYPE", "conversation[%d].message is not an object" % idx))
             continue
-        ids_in_chain = set()
-        chain_broken = False
-        for idx in indices:
-            msg = messages[idx]
-            msg_id = _get_msg_id(msg)
-            parent_id = _get_parent_id(msg)
 
-            if idx == indices[0]:
-                ids_in_chain.add(msg_id)
-                continue
+        role = inner.get("role", "")
+        all_roles.append(role)
+        counts["role_%s" % role] += 1
 
-            if parent_id not in ids_in_chain:
-                chain_broken = True
-                break
-            ids_in_chain.add(msg_id)
-
-        if not chain_broken:
-            qc.add("Phase MA3", "MA3.1 %s parentId chain" % agent_key, "PASS")
-        else:
-            qc.add("Phase MA3", "MA3.1 %s parentId chain" % agent_key,
-                    "BLOCK", "Chain broken or crosses agent boundary")
-
-    # ── Phase MA4: Wrapper Schema ──
-
-    wrapper_issues = 0
-    for msg in messages:
-        role = _get_role(msg)
         if role == "user":
-            if "is_accepted" in msg:
-                wrapper_issues += 1
-        elif role in ("assistant", "toolResult"):
-            if "is_accepted" not in msg:
-                wrapper_issues += 1
+            _check_keys(inner, USER_INNER_KEYS, "conversation[%d].message (user)" % idx, errors, strict=False)
+        elif role == "assistant":
+            _check_keys(inner, ASSISTANT_INNER_KEYS, "conversation[%d].message (assistant)" % idx, errors)
+            sr = inner.get("stopReason", "")
+            if sr and sr not in VALID_STOP_REASONS:
+                errors.append(_e("STOP_REASON", "conversation[%d] stopReason '%s' not in %s" % (idx, sr, sorted(VALID_STOP_REASONS))))
+            rid = inner.get("responseId", "")
+            if rid and not rid.startswith("chatcmpl-"):
+                errors.append(_e("RESPONSE_ID", "conversation[%d] responseId '%s' should start with 'chatcmpl-'" % (idx, rid[:30])))
+        elif role == "toolResult":
+            _check_keys(inner, TOOL_RESULT_INNER_KEYS, "conversation[%d].message (toolResult)" % idx, errors, strict=False)
+            tc_id = inner.get("toolCallId", "")
+            if tc_id:
+                tool_result_ids_seen.add(tc_id)
+            tn = inner.get("toolName", "")
+            if "isError" not in inner:
+                errors.append(_e("ISERROR_MISSING", "conversation[%d] toolResult missing 'isError'" % idx))
+            if tn in ("sessions_spawn", "sessions_yield", "exec"):
+                if "details" not in inner:
+                    errors.append(_e("DETAILS_MISSING", "conversation[%d] toolResult(%s) missing 'details'" % (idx, tn)))
+                else:
+                    details = inner.get("details", {})
+                    if tn == "sessions_spawn":
+                        csk = details.get("childSessionKey", "")
+                        if csk:
+                            spawn_child_keys.append(csk)
+                        tn_detail = details.get("taskName", "")
+                        if tn_detail:
+                            spawn_task_names.append(tn_detail)
+                    elif tn == "sessions_yield":
+                        ym = details.get("message", "")
+                        if ym:
+                            yield_messages_list.append(ym[:80])
+        else:
+            errors.append(_e("UNKNOWN_ROLE", "conversation[%d] role '%s' not in (user, assistant, toolResult)" % (idx, role)))
 
-    if wrapper_issues == 0:
-        qc.add("Phase MA4", "MA4.1 Wrapper schema correct", "PASS")
-    else:
-        qc.add("Phase MA4", "MA4.1 Wrapper schema correct", "BLOCK",
-                "%d messages with wrong wrapper format" % wrapper_issues)
-
-    # MA4.2: Assistant messages have required fields
-    missing_fields = 0
-    for msg in messages:
-        if _get_role(msg) != "assistant":
+        content = inner.get("content")
+        if not isinstance(content, list):
+            if role != "toolResult":
+                errors.append(_e("CONTENT_TYPE", "conversation[%d] content is not array" % idx))
             continue
-        inner = _get_inner_message(msg)
-        if not inner.get("stopReason"):
-            missing_fields += 1
-        if not inner.get("responseId"):
-            missing_fields += 1
 
-    if missing_fields == 0:
-        qc.add("Phase MA4", "MA4.2 Assistant required fields", "PASS")
-    else:
-        qc.add("Phase MA4", "MA4.2 Assistant required fields", "WARNING",
-                "%d missing stopReason/responseId fields" % missing_fields)
+        for bi, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type", "")
+            content_type_counts[btype] += 1
 
-    # MA4.3: toolCalls have partialArgs
-    missing_partial = 0
-    total_tool_calls = 0
-    for msg in messages:
-        content = _get_content(msg)
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    total_tool_calls += 1
-                    if not block.get("partialArgs"):
-                        missing_partial += 1
+            if btype == "text":
+                _check_block_keys(block, TEXT_BLOCK_KEYS, "conversation[%d].content[%d] (text)" % (idx, bi), errors)
+            elif btype == "thinking":
+                _check_block_keys(block, THINKING_BLOCK_KEYS, "conversation[%d].content[%d] (thinking)" % (idx, bi), errors)
+            elif btype == "toolCall":
+                _check_block_keys(block, TOOL_CALL_BLOCK_KEYS, "conversation[%d].content[%d] (toolCall)" % (idx, bi), errors)
+                tc_id = block.get("id", "")
+                if tc_id:
+                    tool_call_ids_seen.add(tc_id)
+                    if not TOOLUSE_PREFIX.match(tc_id):
+                        errors.append(_e("TOOLCALL_ID_PREFIX", "conversation[%d].content[%d] toolCall.id '%s' should start with 'tooluse_'" % (idx, bi, tc_id[:30])))
+                name = block.get("name", "")
+                if name:
+                    tool_names[name] += 1
+                    if name == "sessions_spawn":
+                        args = block.get("arguments", {})
+                        task_str = args.get("task", "")
+                        tn_arg = args.get("taskName", "")
+                        runtime = args.get("runtime", "")
+                        if not task_str:
+                            errors.append(_e("SPAWN_ARGS", "conversation[%d] sessions_spawn missing 'task' in arguments" % idx))
+                        if not tn_arg:
+                            errors.append(_e("SPAWN_ARGS", "conversation[%d] sessions_spawn missing 'taskName' in arguments" % idx))
+                        if runtime != "subagent":
+                            errors.append(_e("SPAWN_ARGS", "conversation[%d] sessions_spawn runtime='%s', expected 'subagent'" % (idx, runtime)))
+                if not block.get("partialArgs") and block.get("partialArgs") != "":
+                    errors.append(_e("PARTIAL_ARGS", "conversation[%d].content[%d] toolCall missing 'partialArgs'" % (idx, bi)))
+            elif btype:
+                errors.append(_e("UNKNOWN_BLOCK_TYPE", "conversation[%d].content[%d] type '%s' not in (text, thinking, toolCall)" % (idx, bi, btype)))
 
-    if missing_partial == 0:
-        qc.add("Phase MA4", "MA4.3 partialArgs on toolCalls", "PASS",
-                "All %d toolCalls have partialArgs" % total_tool_calls)
-    else:
-        qc.add("Phase MA4", "MA4.3 partialArgs on toolCalls", "WARNING",
-                "%d/%d missing partialArgs" % (missing_partial, total_tool_calls))
+    if ts_issues:
+        errors.append(_e("TIMESTAMP_ORDER", "%d timestamp(s) go backwards (non-monotonic)" % ts_issues))
 
-    # ── Phase MA5: Orchestrator Compilation ──
+    id_counts = Counter(all_ids)
+    dupes = {k: v for k, v in id_counts.items() if v > 1}
+    if dupes:
+        errors.append(_e("DUPLICATE_IDS", "Duplicate message IDs: %s" % dict(dupes)))
 
-    orch_indices = agent_blocks.get("orchestrator", [])
+    unmatched_calls = tool_call_ids_seen - tool_result_ids_seen
+    if unmatched_calls:
+        errors.append(_e("UNMATCHED_TOOLCALL", "%d toolCall(s) without matching toolResult: %s" % (len(unmatched_calls), sorted(unmatched_calls)[:5])))
 
-    if orch_indices:
-        qc.add("Phase MA5", "MA5.1 Orchestrator present", "PASS")
-    else:
-        qc.add("Phase MA5", "MA5.1 Orchestrator present", "BLOCK",
-                "No orchestrator conversation found")
-        return qc
+    role_counter = Counter(all_roles)
+    if role_counter.get("user", 0) != 1:
+        errors.append(_e("USER_COUNT", "Expected exactly 1 user message, found %d" % role_counter.get("user", 0)))
+    if role_counter.get("assistant", 0) < 1:
+        errors.append(_e("NO_ASSISTANT", "No assistant messages found"))
 
-    # MA5.2: Orchestrator has a write call (compilation)
-    has_write = False
-    has_read = False
-    for idx in orch_indices:
-        content = _get_content(messages[idx])
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    if block.get("name") == "write":
-                        has_write = True
-                    elif block.get("name") == "read":
-                        has_read = True
+    if all_roles and all_roles[0] != "user":
+        errors.append(_e("FIRST_ROLE", "First message role is '%s', expected 'user'" % all_roles[0]))
+    if all_roles and all_roles[-1] != "assistant":
+        errors.append(_e("LAST_ROLE", "Last message role is '%s', expected 'assistant'" % all_roles[-1]))
 
-    if has_read:
-        qc.add("Phase MA5", "MA5.2 Orchestrator reads sub-agent outputs", "PASS")
-    else:
-        qc.add("Phase MA5", "MA5.2 Orchestrator reads sub-agent outputs",
-                "WARNING", "No read calls found in orchestrator")
+    if "sessions_spawn" not in tool_names:
+        errors.append(_e("NO_SPAWN", "No sessions_spawn toolCall found"))
+    if "sessions_yield" not in tool_names:
+        errors.append(_e("NO_YIELD", "No sessions_yield toolCall found"))
 
-    if has_write:
-        qc.add("Phase MA5", "MA5.3 Orchestrator compiles deliverable", "PASS")
-    else:
-        qc.add("Phase MA5", "MA5.3 Orchestrator compiles deliverable",
-                "WARNING", "No write call for final compilation")
+    captured["message_ids"] = all_ids
+    captured["roles_sequence"] = all_roles
+    captured["tool_names"] = dict(tool_names)
+    captured["spawn_task_names"] = spawn_task_names
+    captured["spawn_child_session_keys"] = spawn_child_keys
+    captured["yield_messages"] = yield_messages_list
 
-    # MA5.4: Orchestrator ends with stopReason: "stop"
-    if orch_indices:
-        last_orch = messages[orch_indices[-1]]
-        inner = _get_inner_message(last_orch)
-        if inner.get("stopReason") == "stop":
-            qc.add("Phase MA5", "MA5.4 Orchestrator final stop", "PASS")
-        else:
-            qc.add("Phase MA5", "MA5.4 Orchestrator final stop", "WARNING",
-                    "stopReason: '%s'" % inner.get("stopReason"))
-
-    # ── Phase MA6: Single-Prompt Rule ──
-
-    orchestrator_user_msgs = 0
-    for idx in orch_indices:
-        if _get_role(messages[idx]) == "user":
-            orchestrator_user_msgs += 1
-
-    if orchestrator_user_msgs == 1:
-        qc.add("Phase MA6", "MA6.1 Single user prompt", "PASS")
-    else:
-        qc.add("Phase MA6", "MA6.1 Single user prompt", "BLOCK",
-                "Expected 1 orchestrator user msg, found %d" % orchestrator_user_msgs)
-
-    # ── Phase MA7: Flow Order ──
-
-    if subagent_keys and orch_indices:
-        last_subagent_idx = max(
-            max(agent_blocks[k]) for k in subagent_keys
-            if agent_blocks[k]
-        )
-        first_orch_idx = min(orch_indices)
-
-        if last_subagent_idx < first_orch_idx:
-            qc.add("Phase MA7", "MA7.1 Sub-agents before orchestrator", "PASS")
-        else:
-            qc.add("Phase MA7", "MA7.1 Sub-agents before orchestrator",
-                    "WARNING",
-                    "Some sub-agent messages appear after orchestrator start")
-
-    # ── Phase MA8: Tool Enforcement ──
-
-    subagent_forbidden_usage = []
-    for sa_key in subagent_keys:
-        for idx in agent_blocks[sa_key]:
-            content = _get_content(messages[idx])
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "toolCall":
-                        tool_name = block.get("name", "")
-                        if tool_name in FORBIDDEN_IN_SUBAGENT:
-                            subagent_forbidden_usage.append(
-                                "%s: %s" % (sa_key, tool_name)
-                            )
-
-    if not subagent_forbidden_usage:
-        qc.add("Phase MA8", "MA8.1 No forbidden tools in sub-agents", "PASS")
-    else:
-        qc.add("Phase MA8", "MA8.1 No forbidden tools in sub-agents",
-                "BLOCK",
-                "Forbidden tools used: %s" % subagent_forbidden_usage)
-
-    # MA8.2: Orchestrator uses required tools
-    orch_tools_used = set()
-    for idx in orch_indices:
-        content = _get_content(messages[idx])
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    orch_tools_used.add(block.get("name", ""))
-
-    missing_required = REQUIRED_ORCHESTRATOR_TOOLS - orch_tools_used
-    if not missing_required:
-        qc.add("Phase MA8", "MA8.2 Orchestrator uses required tools", "PASS")
-    else:
-        qc.add("Phase MA8", "MA8.2 Orchestrator uses required tools",
-                "BLOCK", "Missing: %s" % missing_required)
-
-    # MA8.3: All tools are valid
-    all_tools_used = set()
-    for msg in messages:
-        content = _get_content(msg)
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "toolCall":
-                    all_tools_used.add(block.get("name", ""))
-
-    invalid_tools = all_tools_used - ALL_VALID_TOOLS
-    if not invalid_tools:
-        qc.add("Phase MA8", "MA8.3 All tools valid", "PASS")
-    else:
-        qc.add("Phase MA8", "MA8.3 All tools valid", "WARNING",
-                "Invalid tools: %s" % invalid_tools)
-
-    return qc
+    counts["unique_message_ids"] = len(set(all_ids))
+    for r, c in role_counter.items():
+        counts["role_%s" % r] = c
+    for ct, c in content_type_counts.items():
+        counts["block_%s" % ct] = c
+    for tn, c in tool_names.items():
+        counts["tool_%s" % tn] = c
+    counts["tool_calls_total"] = sum(tool_names.values())
+    counts["spawns"] = tool_names.get("sessions_spawn", 0)
+    counts["yields"] = tool_names.get("sessions_yield", 0)
 
 
-# ---------------------------------------------------------------------------
-# Output Formatting
-# ---------------------------------------------------------------------------
+def _check_keys(obj, required, path, errors, strict=True):
+    present = set(obj.keys())
+    missing = required - present
+    if missing:
+        errors.append(_e("MISSING_FIELD", "%s missing required: %s" % (path, sorted(missing))))
+    if strict:
+        extra = present - required
+        if extra and extra != {"details"}:
+            pass
 
-def _err(code, msg, path=""):
-    return {"severity": "error", "code": code, "message": msg, "path": path}
+
+def _check_block_keys(block, required, path, errors):
+    present = set(block.keys())
+    missing = required - present
+    if missing:
+        errors.append(_e("BLOCK_MISSING", "%s missing: %s" % (path, sorted(missing))))
 
 
-def _warn(code, msg, path=""):
-    return {"severity": "warning", "code": code, "message": msg, "path": path}
+def _e(code, message):
+    return {"code": code, "message": message}
 
 
-def _format_qc_summary(qc):
-    """Format QCResult as human-readable summary."""
-    verdict = "PASS" if qc.passed else "FAIL"
-    lines = ["QC VERDICT: %s" % verdict]
-    lines.append(
-        "  BLOCKs: %d | WARNINGs: %d (weighted: %d/%d) | ADVISORYs: %d"
-        % (qc.blocks, qc.warnings, qc.weighted_warning_score,
-           BLOCK_THRESHOLD, qc.advisories)
-    )
-    if not qc.passed:
-        lines.append("  BLOCKING issues:")
-        for c in qc.checks:
-            if c["status"] == "BLOCK":
-                lines.append("    - [%s] %s: %s" % (c["phase"], c["check"], c["detail"]))
-        if qc.weighted_warning_score >= BLOCK_THRESHOLD:
-            lines.append(
-                "  WARNING threshold breached (%d >= %d):"
-                % (qc.weighted_warning_score, BLOCK_THRESHOLD)
-            )
-            for c in qc.checks:
-                if c["status"] == "WARNING":
-                    lines.append("    - [%s] %s: %s" % (c["phase"], c["check"], c["detail"]))
-    return "\n".join(lines)
+def _result(valid, errors, captured, counts):
+    return {
+        "valid": valid,
+        "errors": errors,
+        "warnings": [],
+        "captured": captured,
+        "counts": dict(counts),
+        "stats": {
+            "message_count": counts.get("messages_total", 0),
+            "tool_call_count": counts.get("tool_calls_total", 0),
+            "unique_tools": sorted(set(
+                k.replace("tool_", "", 1) for k in counts if k.startswith("tool_") and k != "tool_calls_total"
+            )),
+            "spawn_count": counts.get("spawns", 0),
+            "yield_count": counts.get("yields", 0),
+        },
+    }
 
 
 def format_result(result):
-    """Format validation result as human-readable text."""
     lines = []
-    lines.append("STRUCTURAL VALIDATION: %s" % ("PASS" if result["valid"] else "FAIL"))
-    lines.append("")
 
-    # Include QC summary if available
-    if result.get("qc_summary"):
-        lines.append(result["qc_summary"])
-        lines.append("")
+    verdict = "PASS" if result["valid"] else "FAIL"
+    lines.append("SCHEMA VALIDATION: %s" % verdict)
+    lines.append("")
 
     if result["errors"]:
         lines.append("ERRORS (%d):" % len(result["errors"]))
         for e in result["errors"]:
-            loc = " @ %s" % e["path"] if e.get("path") else ""
-            lines.append("  [%s] %s%s" % (e["code"], e["message"], loc))
+            lines.append("  [%s] %s" % (e["code"], e["message"]))
         lines.append("")
 
-    if result["warnings"]:
-        lines.append("WARNINGS (%d):" % len(result["warnings"]))
-        for w in result["warnings"]:
-            loc = " @ %s" % w["path"] if w.get("path") else ""
-            lines.append("  [%s] %s%s" % (w["code"], w["message"], loc))
+    counts = result.get("counts", {})
+    if counts:
+        lines.append("TAG COUNTS:")
+        lines.append("  Messages total:     %d" % counts.get("messages_total", 0))
+        lines.append("  User messages:      %d" % counts.get("role_user", 0))
+        lines.append("  Assistant messages:  %d" % counts.get("role_assistant", 0))
+        lines.append("  ToolResult messages: %d" % counts.get("role_toolResult", 0))
+        lines.append("  Unique message IDs:  %d" % counts.get("unique_message_ids", 0))
+        lines.append("  ---")
+        lines.append("  text blocks:         %d" % counts.get("block_text", 0))
+        lines.append("  thinking blocks:     %d" % counts.get("block_thinking", 0))
+        lines.append("  toolCall blocks:     %d" % counts.get("block_toolCall", 0))
+        lines.append("  ---")
+        lines.append("  Tool calls total:    %d" % counts.get("tool_calls_total", 0))
+        lines.append("  sessions_spawn:      %d" % counts.get("spawns", 0))
+        lines.append("  sessions_yield:      %d" % counts.get("yields", 0))
+
+        tool_keys = sorted(k for k in counts if k.startswith("tool_") and k not in ("tool_calls_total",))
+        if tool_keys:
+            lines.append("  ---")
+            for tk in tool_keys:
+                display = tk.replace("tool_", "", 1)
+                lines.append("  %s: %d" % (display, counts[tk]))
         lines.append("")
 
-    s = result.get("stats", {})
-    lines.append("STATISTICS:")
-    lines.append("  Messages: %d" % s.get("message_count", 0))
-    lines.append("  Sub-agents: %d" % s.get("subagent_count", 0))
-    lines.append("  Orchestrator messages: %d" % s.get("orchestrator_msg_count", 0))
-    lines.append("  Tool calls: %d" % s.get("tool_call_count", 0))
-    lines.append("  Spawns: %d" % s.get("spawn_count", 0))
-    lines.append("  Yields: %d" % s.get("yield_count", 0))
-    lines.append("  Unique tools: %s" % ", ".join(s.get("unique_tools", [])))
+    captured = result.get("captured", {})
+    if captured:
+        lines.append("CAPTURED ELEMENTS:")
+        if captured.get("task_type"):
+            lines.append("  task_type:              %s" % captured["task_type"])
+        if captured.get("task_description"):
+            lines.append("  task_description:       %s" % captured["task_description"][:120])
+        if captured.get("task_completion_status"):
+            lines.append("  task_completion_status:  %s" % captured["task_completion_status"])
+        if captured.get("platform"):
+            lines.append("  platform:               %s" % captured["platform"])
+        if captured.get("system_prompt"):
+            lines.append("  system_prompt:          %s" % captured["system_prompt"])
+
+        if captured.get("spawn_task_names"):
+            lines.append("  ---")
+            lines.append("  Spawned agents (%d):" % len(captured["spawn_task_names"]))
+            for tn in captured["spawn_task_names"]:
+                lines.append("    - %s" % tn)
+
+        if captured.get("spawn_child_session_keys"):
+            lines.append("  Child session keys (%d):" % len(captured["spawn_child_session_keys"]))
+            for csk in captured["spawn_child_session_keys"]:
+                lines.append("    - %s" % csk[:60])
+
+        if captured.get("yield_messages"):
+            lines.append("  Yield messages (%d):" % len(captured["yield_messages"]))
+            for ym in captured["yield_messages"]:
+                lines.append("    - %s" % ym)
+
+        if captured.get("tool_names"):
+            lines.append("  ---")
+            lines.append("  Tools used:")
+            for tn, c in sorted(captured["tool_names"].items()):
+                lines.append("    %s: %d call(s)" % (tn, c))
+
+        if captured.get("roles_sequence"):
+            lines.append("  ---")
+            lines.append("  Role sequence: %s" % " → ".join(captured["roles_sequence"]))
+        lines.append("")
 
     return "\n".join(lines)

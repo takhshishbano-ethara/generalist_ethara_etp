@@ -5,6 +5,8 @@ import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { useRecordObserver } from "@web/model/relational_model/utils";
 
+import { useService } from "@web/core/utils/hooks";
+import { rpc } from "@web/core/network/rpc";
 import { Component, markup, useState, onWillUnmount } from "@odoo/owl";
 
 const SEVERITY_COLORS = {
@@ -58,6 +60,7 @@ function renderQcHtml(parsed) {
             "content_naturalness",
             "safety_compliance",
             "sub_agent_quality",
+            "spawn_yield_flow",
         ];
         for (const key of order) {
             if (parsed.scores[key] != null) {
@@ -115,6 +118,7 @@ export class SkollQcResultField extends Component {
         });
         this._improveAbort = null;
 
+
         useRecordObserver((record) => this._parse(record.data[this.props.name]));
         this._parse(this.props.record.data[this.props.name]);
 
@@ -123,17 +127,42 @@ export class SkollQcResultField extends Component {
         });
     }
 
+    _extractJson(raw) {
+        let s = (raw || "").trim();
+        if (!s) return null;
+
+        if (s.startsWith("```")) {
+            const nl = s.indexOf("\n");
+            if (nl !== -1) s = s.slice(nl + 1);
+            if (s.endsWith("```")) s = s.slice(0, -3).trimEnd();
+        }
+
+        try {
+            return JSON.parse(s);
+        } catch {}
+
+        const first = s.indexOf("{");
+        const last = s.lastIndexOf("}");
+        if (first !== -1 && last > first) {
+            try {
+                return JSON.parse(s.slice(first, last + 1));
+            } catch {}
+        }
+
+        return null;
+    }
+
     _parse(raw) {
         if (!raw || !raw.trim()) {
             this.state.html = null;
             this.state.rawFallback = "";
             return;
         }
-        try {
-            const parsed = JSON.parse(raw.trim());
+        const parsed = this._extractJson(raw);
+        if (parsed && parsed.verdict) {
             this.state.html = markup(renderQcHtml(parsed));
             this.state.rawFallback = "";
-        } catch {
+        } else {
             this.state.html = null;
             this.state.rawFallback = raw;
         }
@@ -207,8 +236,15 @@ export class SkollQcResultField extends Component {
             }
 
             if (accumulated.trim()) {
-                await this.props.record.update({ content: accumulated });
+                let cleaned = accumulated.trim();
+                if (cleaned.startsWith("```")) {
+                    const nl = cleaned.indexOf("\n");
+                    if (nl !== -1) cleaned = cleaned.slice(nl + 1);
+                    if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3).trimEnd();
+                }
+                await this.props.record.update({ content: cleaned });
                 await this.props.record.save();
+                this._buildSpawnTree();
             }
         } catch (err) {
             if (err.name !== "AbortError") {
@@ -219,6 +255,17 @@ export class SkollQcResultField extends Component {
             this._improveAbort = null;
             await this.props.record.load();
         }
+    }
+
+    async _buildSpawnTree() {
+        const recordId = this.props.record.resId;
+        if (!recordId) return;
+        try {
+            const result = await rpc("/skoll/spawn_tree", { record_id: recordId });
+            if (result.status === "success") {
+                this.env.bus.trigger("SKOLL_SPAWN_TREE_READY", { spawn_tree: result.spawn_tree });
+            }
+        } catch (_e) {}
     }
 }
 

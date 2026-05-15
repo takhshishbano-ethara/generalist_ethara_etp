@@ -38,11 +38,15 @@
                                     title="Run QC on trajectory">
                                 <i class="fa fa-check-circle"/> Run QC
                             </button>
-                            <button class="skoll-improve-btn"
-                                    t-on-click="onImprove"
-                                    title="Improve trajectory based on QC feedback">
-                                <i class="fa fa-magic"/> Improve
+                            <button t-if="hasContent and !state.buildingTree"
+                                    class="skoll-spawn-tree-btn"
+                                    t-on-click="onBuildSpawnTree"
+                                    title="Generate spawn tree visualization">
+                                <i class="fa fa-sitemap"/> Spawn Tree
                             </button>
+                            <span t-if="state.buildingTree" class="skoll-spawn-tree-building">
+                                <i class="fa fa-spinner fa-spin"/> Building Tree...
+                            </span>
                             <span t-if="state.qcRunning" class="skoll-qc-running">
                                 <i class="fa fa-spinner fa-spin"/> QC Running...
                             </span>
@@ -116,6 +120,15 @@
                                     title="Improve trajectory based on QC feedback">
                                 <i class="fa fa-magic"/> Improve
                             </button>
+                            <button t-if="!state.buildingTree"
+                                    class="skoll-spawn-tree-btn"
+                                    t-on-click="onBuildSpawnTree"
+                                    title="Generate spawn tree visualization">
+                                <i class="fa fa-sitemap"/> Spawn Tree
+                            </button>
+                            <span t-if="state.buildingTree" class="skoll-spawn-tree-building">
+                                <i class="fa fa-spinner fa-spin"/> Building Tree...
+                            </span>
                             <span t-if="state.qcRunning" class="skoll-qc-running">
                                 <i class="fa fa-spinner fa-spin"/> QC Running...
                             </span>

@@ -100,6 +100,9 @@
                     <separator string="Golden Trajectory"/>
                     <field name="content" widget="skoll_json" force_save="1"/>
 
+                    <separator string="Spawn Tree"/>
+                    <field name="spawn_tree" widget="skoll_spawn_tree" readonly="1" force_save="1"/>
+
                     <separator string="Quality Check"/>
                     <group>
                         <group>

@@ -4,6 +4,7 @@ import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { useService } from "@web/core/utils/hooks";
+import { rpc } from "@web/core/network/rpc";
 import { useRecordObserver } from "@web/model/relational_model/utils";
 
 import { Component, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
@@ -143,7 +144,13 @@ export class SkollPromptField extends Component {
             }
 
             if (accumulated) {
-                await this.props.record.update({ content: accumulated });
+                let cleaned = accumulated.trim();
+                if (cleaned.startsWith("```")) {
+                    const nl = cleaned.indexOf("\n");
+                    if (nl !== -1) cleaned = cleaned.slice(nl + 1);
+                    if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3).trimEnd();
+                }
+                await this.props.record.update({ content: cleaned });
                 await this.props.record.save();
                 if (stopReason === "max_tokens") {
                     this.state.truncated = true;
@@ -154,6 +161,7 @@ export class SkollPromptField extends Component {
                 } else {
                     this.notification.add(_t("Content generated successfully"), { type: "success" });
                 }
+                this._buildSpawnTree();
             }
         } catch (e) {
             if (e.name !== "AbortError") {
@@ -171,6 +179,18 @@ export class SkollPromptField extends Component {
 
     onStopGenerate() {
         this._abortStream();
+    }
+
+    async _buildSpawnTree() {
+        const recordId = this.props.record.resId;
+        if (!recordId) return;
+        try {
+            const result = await rpc("/skoll/spawn_tree", { record_id: recordId });
+            if (result.status === "success") {
+                this.env.bus.trigger("SKOLL_SPAWN_TREE_READY", { spawn_tree: result.spawn_tree });
+                await this.props.record.load();
+            }
+        } catch (_e) {}
     }
 }
 

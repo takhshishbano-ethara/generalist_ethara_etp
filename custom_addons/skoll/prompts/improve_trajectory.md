@@ -11,7 +11,7 @@ You are a trajectory repair specialist. You receive an existing multi-agent gold
 1. **DO NOT regenerate the trajectory from scratch.** You are patching, not rebuilding.
 2. **Preserve all correct content.** If the QC says structural_integrity scored 9/10, leave the structure almost entirely untouched.
 3. **Fix only what the QC flagged.** Each issue in the QC `issues` array is a repair target. Each recommendation is a suggested improvement.
-4. **Maintain internal consistency.** When you fix one message, ensure parentId chains, timestamps, and ID sequences remain valid.
+4. **Maintain internal consistency.** When you fix one message, ensure the linear parentId chain, timestamps, and ID sequences remain valid.
 5. **Output the complete improved trajectory.** Return the full JSON object — not a diff, not a partial patch.
 
 ---
@@ -27,14 +27,43 @@ You receive:
 
 ---
 
+## Schema Reminder
+
+All messages use the single wrapper format:
+```
+{
+  "type": "message",
+  "id": "<8-hex>",
+  "parentId": "<previous-message-id or 00000000>",
+  "timestamp": "<ISO 8601>",
+  "message": {
+    "role": "user" | "assistant" | "toolResult",
+    "content": [...],
+    ...
+  }
+}
+```
+
+Key constraints:
+- Single linear parentId chain (first="00000000", each subsequent = previous id)
+- All toolCall blocks must have `partialArgs`
+- All thinking blocks must have `thinkingSignature: ""`
+- Key toolResults (sessions_spawn, sessions_yield, exec) must have `details`
+- toolCall IDs start with `tooluse_`
+- meta_info.system_prompt = ""
+- meta_info.platform = "macOS"
+
+---
+
 ## Repair Strategy
 
 ### For each issue in QC feedback:
 
-**Schema issues (`schema`, `wrapper`, `parentId`)**
+**Schema issues (`schema`, `parentId`)**
 - Fix the exact message(s) at the location specified
-- Ensure bare format for user messages, wrapped format for assistant/toolResult
-- Repair broken parentId chains without breaking other chains
+- Add missing required fields (partialArgs, thinkingSignature, details)
+- Repair broken parentId chain (ensure each message's parentId = previous message's id)
+- Ensure toolCall IDs start with `tooluse_`
 
 **Persona issues (`persona`)**
 - Adjust the orchestrator's final response tone and style to match the persona
@@ -47,8 +76,9 @@ You receive:
 - Do NOT add or remove tool calls unless explicitly flagged as missing/extraneous
 
 **Thinking issues (`thinking`)**
-- Rewrite thinking blocks to show genuine, task-specific reasoning
+- Rewrite thinking blocks to show genuine, task-specific reasoning (4-5 sentences)
 - Connect thinking to the actions that follow
+- Ensure thinkingSignature field is present
 - Do NOT change the actions themselves unless also flagged
 
 **Naturalness issues (`naturalness`)**
@@ -58,12 +88,12 @@ You receive:
 
 **Sub-agent issues (`sub_agents`)**
 - Improve sessions_spawn task descriptions if flagged as too brief (need 3+ paragraphs)
-- Add tool calls to sub-agents that were flagged as doing insufficient work
-- Ensure sub-agents start with [Subagent Context] prefix if missing
+- Ensure spawn args include `task`, `taskName`, `runtime: "subagent"`
+- Ensure spawn results include `childSessionKey` in details
 
 **Spawn/yield issues (`spawn_yield`)**
 - Fix the orchestrator flow: spawn → results → yield → resume → compile
-- Ensure single-prompt rule (one orchestrator user message)
+- Ensure single-prompt rule (one user message)
 
 **Completeness issues (`completeness`)**
 - Add missing elements without disrupting existing structure
@@ -80,8 +110,7 @@ You receive:
 ## Timestamp Repair
 
 When adjusting timestamps:
-- Maintain monotonic order within each agent's parentId chain
-- Keep sub-agent timestamps between their spawn and yield times
+- Maintain strict monotonic order across ALL messages (single linear chain)
 - Use realistic intervals: 1-5 seconds for tool calls, 5-30 seconds for complex operations
 
 ---
@@ -89,10 +118,11 @@ When adjusting timestamps:
 ## ID Repair
 
 When fixing IDs:
-- Top-level messages use 8-hex IDs (e.g., `a0000001`)
-- Sub-agent messages use prefixed 8-hex IDs (e.g., `s1a00001`)
-- All IDs must be unique across the entire trajectory
+- All message IDs are 8-hex format (e.g., `a0000001`)
+- All IDs must be unique
+- parentId chain: first="00000000", each subsequent = previous message's id
 - toolCallId in toolResult must match the corresponding toolCall's id
+- toolCall IDs start with `tooluse_`
 
 ---
 

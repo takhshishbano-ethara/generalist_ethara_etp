@@ -3,6 +3,8 @@
 import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
+import { useService } from "@web/core/utils/hooks";
+import { rpc } from "@web/core/network/rpc";
 import { useRecordObserver } from "@web/model/relational_model/utils";
 
 import { Component, markup, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
@@ -50,10 +52,20 @@ function highlightJson(parsed) {
     return escapeHtml(JSON.stringify(parsed, null, 2));
 }
 
+function stripCodeFences(text) {
+    let s = (text || "").trim();
+    if (s.startsWith("```")) {
+        const nl = s.indexOf("\n");
+        if (nl !== -1) s = s.slice(nl + 1);
+        if (s.endsWith("```")) s = s.slice(0, -3).trimEnd();
+    }
+    return s;
+}
+
 function formatJsonContent(raw) {
     if (!raw || !raw.trim()) return null;
     try {
-        return JSON.parse(raw.trim());
+        return JSON.parse(stripCodeFences(raw));
     } catch (_e) {
         return null;
     }
@@ -74,11 +86,13 @@ export class SkollJsonField extends Component {
             streamText: "",
             qcRunning: false,
             improving: false,
+            buildingTree: false,
             truncated: false,
             aiEditing: false,
             aiEditBuffer: "",
             copied: false,
         });
+
         this.editTextareaRef = useRef("editTextarea");
         this._streamBodyRef = useRef("streamBody");
         this._qcAbortController = null;
@@ -398,8 +412,15 @@ export class SkollJsonField extends Component {
             }
 
             if (accumulated.trim()) {
-                await this.props.record.update({ content: accumulated });
+                let cleaned = accumulated.trim();
+                if (cleaned.startsWith("```")) {
+                    const nl = cleaned.indexOf("\n");
+                    if (nl !== -1) cleaned = cleaned.slice(nl + 1);
+                    if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3).trimEnd();
+                }
+                await this.props.record.update({ content: cleaned });
                 await this.props.record.save();
+                this._buildSpawnTree();
             }
         } catch (err) {
             if (err.name !== "AbortError") {
@@ -412,14 +433,64 @@ export class SkollJsonField extends Component {
         }
     }
 
-    _updateQcStatus(qcText) {
+    async onBuildSpawnTree() {
+        const recordId = this.props.record.resId;
+        if (!recordId || this.state.buildingTree) return;
+
+        if (this.props.record.isDirty) {
+            await this.props.record.save();
+        }
+
+        this.state.buildingTree = true;
         try {
-            const parsed = JSON.parse(qcText.trim());
+            const result = await rpc("/skoll/spawn_tree", { record_id: recordId });
+            if (result.status === "success") {
+                this.env.bus.trigger("SKOLL_SPAWN_TREE_READY", { spawn_tree: result.spawn_tree });
+                await this.props.record.load();
+            }
+        } catch (err) {
+            console.warn("Spawn tree build failed:", err);
+        } finally {
+            this.state.buildingTree = false;
+        }
+    }
+
+    async _buildSpawnTree() {
+        const recordId = this.props.record.resId;
+        if (!recordId) return;
+        try {
+            const result = await rpc("/skoll/spawn_tree", { record_id: recordId });
+            if (result.status === "success") {
+                this.env.bus.trigger("SKOLL_SPAWN_TREE_READY", { spawn_tree: result.spawn_tree });
+                await this.props.record.load();
+            }
+        } catch (_e) {}
+    }
+
+    _extractQcJson(raw) {
+        let s = (raw || "").trim();
+        if (s.startsWith("```")) {
+            const nl = s.indexOf("\n");
+            if (nl !== -1) s = s.slice(nl + 1);
+            if (s.endsWith("```")) s = s.slice(0, -3).trimEnd();
+        }
+        try { return JSON.parse(s); } catch {}
+        const first = s.indexOf("{");
+        const last = s.lastIndexOf("}");
+        if (first !== -1 && last > first) {
+            try { return JSON.parse(s.slice(first, last + 1)); } catch {}
+        }
+        return null;
+    }
+
+    _updateQcStatus(qcText) {
+        const parsed = this._extractQcJson(qcText);
+        if (parsed) {
             const verdict = (parsed.verdict || "").toLowerCase();
             if (["pass", "fail", "needs_revision"].includes(verdict)) {
                 this.props.record.update({ qc_status: verdict });
             }
-        } catch (_e) {}
+        }
     }
 }
 

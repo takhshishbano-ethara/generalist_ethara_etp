@@ -84,6 +84,12 @@ class Skoll(models.Model):
         help="Golden trajectory JSON. Editable in Manual mode, LLM-generated in AI mode.",
     )
 
+    spawn_tree = fields.Text(
+        string="Spawn Tree",
+        readonly=True,
+        help="ASCII visualization of the agent spawn tree from the trajectory.",
+    )
+
     qc_status = fields.Selection(
         [
             ("pending", "Pending"),
