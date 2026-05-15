@@ -1200,7 +1200,7 @@ class AuroraEvaluation(models.Model):
             success = rec.stage == "done" and ratio >= 0.5
             tail = (rec.log or "")[-2000:]
             summary = (
-                f"K8s test eval #{rec.id} finished: stage={rec.stage}, "
+                f"K8s test eval {rec.name} finished: stage={rec.stage}, "
                 f"resolved={rec.resolved_instances}/{rec.total_instances} "
                 f"(threshold 50%). Result: "
                 f"{'success' if success else 'failed'}.\n"

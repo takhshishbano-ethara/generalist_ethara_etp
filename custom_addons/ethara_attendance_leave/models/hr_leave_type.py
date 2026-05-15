@@ -9,13 +9,9 @@ class HrLeaveType(models.Model):
         ('sl', 'Sick Leave'),
         ('cl', 'Casual Leave'),
         ('el', 'Earned Leave'),
+        ('lop', 'Loss of Pay'),
     ], string='Ethara Leave Code',
         help='Internal code used by Ethara attendance/leave module for policy enforcement.')
-
-    available_during_probation = fields.Boolean(
-        string='Available During Probation',
-        default=False,
-        help='If checked, this leave type can be taken by employees in probation.')
 
     allow_half_day = fields.Boolean(
         string='Allow Half Day',

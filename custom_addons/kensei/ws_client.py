@@ -266,7 +266,7 @@ class OpenClawClient:
             "method": "connect",
             "params": {
                 "minProtocol": 3,
-                "maxProtocol": 3,
+                "maxProtocol": 4,
                 "client": {
                     "id": "kensei-auto-process",
                     "version": "1.0",

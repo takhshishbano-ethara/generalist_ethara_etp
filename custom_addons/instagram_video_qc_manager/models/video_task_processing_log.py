@@ -35,6 +35,8 @@ class VideoTaskProcessingLog(models.Model):
             ("download", "Download"),
             ("probe", "Probe"),
             ("render", "Render"),
+            ("render_slot_1", "Render (Slot 1)"),
+            ("render_slot_2", "Render (Slot 2)"),
             ("preview", "Preview"),
             ("thumbnail", "Thumbnail"),
             ("cleanup", "Cleanup"),

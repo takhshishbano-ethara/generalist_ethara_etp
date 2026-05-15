@@ -668,7 +668,7 @@ class AuroraHarnessStaging(models.Model):
             "stage": "evaluating",
             "test_result": "idle",
             "test_log": (
-                f"Dispatched K8s test-eval #{evaluation.id} with "
+                f"Dispatched K8s test-eval {evaluation.name} with "
                 f"{len(test_prs)} PR(s): {', '.join(test_prs)}.\n"
                 f"Result will be mirrored back here within ~5 minutes of "
                 f"the eval Job finishing (cron interval)."

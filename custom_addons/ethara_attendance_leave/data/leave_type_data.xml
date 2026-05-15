@@ -15,7 +15,6 @@
             <field name="support_document" eval="True"/>
             <field name="unpaid" eval="False"/>
             <!-- Ethara policy fields -->
-            <field name="available_during_probation" eval="True"/>
             <field name="allow_half_day" eval="False"/>
             <field name="requires_medical_certificate" eval="True"/>
             <field name="medical_cert_threshold_days">2</field>
@@ -38,7 +37,6 @@
             <field name="allocation_validation_type">no_validation</field>
             <field name="unpaid" eval="False"/>
             <!-- Ethara policy fields -->
-            <field name="available_during_probation" eval="False"/>
             <field name="allow_half_day" eval="True"/>
             <field name="requires_medical_certificate" eval="False"/>
             <field name="medical_cert_threshold_days">0</field>
@@ -61,7 +59,6 @@
             <field name="allocation_validation_type">no_validation</field>
             <field name="unpaid" eval="False"/>
             <!-- Ethara policy fields -->
-            <field name="available_during_probation" eval="True"/>
             <field name="allow_half_day" eval="False"/>
             <field name="requires_medical_certificate" eval="False"/>
             <field name="medical_cert_threshold_days">0</field>
@@ -70,6 +67,28 @@
             <field name="max_carry_forward_days">7</field>
             <field name="apply_sandwich_rule" eval="False"/>
             <field name="monthly_accrual_days">1</field>
+        </record>
+
+        <!-- Loss of Pay (LOP) -->
+        <record id="leave_type_lop" model="hr.leave.type">
+            <field name="name">Loss of Pay</field>
+            <field name="ethara_leave_code">lop</field>
+            <field name="sequence">40</field>
+            <field name="color">3</field>
+            <field name="requires_allocation" eval="False"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="True"/>
+            <!-- Ethara policy fields -->
+            <field name="allow_half_day" eval="True"/>
+            <field name="requires_medical_certificate" eval="False"/>
+            <field name="medical_cert_threshold_days">0</field>
+            <field name="advance_notice_days">0</field>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="max_carry_forward_days">0</field>
+            <field name="apply_sandwich_rule" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
         </record>
 
     </data>

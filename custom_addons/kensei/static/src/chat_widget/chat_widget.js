@@ -526,7 +526,7 @@ export class KenseiChatWidget extends Component {
                 method: "connect",
                 params: {
                     minProtocol: 3,
-                    maxProtocol: 3,
+                    maxProtocol: 4,
                     client: { id: "openclaw-control-ui", version: "control-ui", platform: "web", mode: "webchat" },
                     role: "operator",
                     scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],

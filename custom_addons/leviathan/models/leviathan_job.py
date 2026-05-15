@@ -56,6 +56,56 @@ def _submit_bg(label, fn, *args, **kwargs):
         return None
 
 
+# Bedrock Claude rejects images where either dimension exceeds 8000 px with:
+#   "messages.x.content.y.image.source.bytes: At least one of the image
+#    dimensions exceed max allowed size: 8000 pixels"
+# Full-page screenshots from the Lambda routinely exceed this. We downsample
+# to a safe maximum (well under 8000) preserving aspect ratio. PIL ships with
+# Odoo, so the import is free.
+_BEDROCK_MAX_IMAGE_DIM = 7800  # px, leaves margin under the 8000 hard limit
+
+
+def _resize_image_for_bedrock(img_bytes: bytes, fmt: str) -> bytes:
+    """Return ``img_bytes`` unchanged if both dimensions are <= the Bedrock cap,
+    otherwise return a downscaled copy in the same format.
+
+    Aspect ratio is preserved. On any decode/encode error returns the original
+    bytes — better to let Bedrock reject one image than to drop the whole
+    request from a PIL edge case.
+    """
+    try:
+        from PIL import Image
+        import io as _io
+        with Image.open(_io.BytesIO(img_bytes)) as im:
+            w, h = im.size
+            if w <= _BEDROCK_MAX_IMAGE_DIM and h <= _BEDROCK_MAX_IMAGE_DIM:
+                return img_bytes
+            im.thumbnail(
+                (_BEDROCK_MAX_IMAGE_DIM, _BEDROCK_MAX_IMAGE_DIM),
+                Image.LANCZOS,
+            )
+            buf = _io.BytesIO()
+            pil_fmt = "JPEG" if fmt.lower() in ("jpg", "jpeg") else fmt.upper()
+            save_kwargs = {"optimize": True}
+            if pil_fmt == "JPEG":
+                save_kwargs["quality"] = 85
+                if im.mode in ("RGBA", "P"):
+                    im = im.convert("RGB")
+            im.save(buf, format=pil_fmt, **save_kwargs)
+            new_bytes = buf.getvalue()
+            _logger.info(
+                "[leviathan] resized image %dx%d -> %dx%d (%d -> %d bytes) for Bedrock",
+                w, h, im.size[0], im.size[1], len(img_bytes), len(new_bytes),
+            )
+            return new_bytes
+    except Exception as exc:
+        _logger.warning(
+            "[leviathan] image resize failed (%s) — sending original; Bedrock "
+            "may reject if >8000px", exc,
+        )
+        return img_bytes
+
+
 class LeviathanJob(models.Model):
     _name = "leviathan.job"
     _description = "Leviathan Pipeline Task"
@@ -1033,27 +1083,26 @@ class LeviathanJob(models.Model):
     def action_discard(self):
         """Discard a task as unusable — site unsuitable, or nothing extracted.
 
-        Available on Failed tasks and on Done tasks with a NOT SHIPPABLE QC
-        verdict ("not shippable and below"). Terminal state, distinct from
-        'failed' (a pipeline error) and 'submitted' (a good deliverable). A
-        discarded task can be brought back into the workflow via the Assign
-        button.
+        Available on every state except ``discarded`` (already terminal), to
+        both admin and tasker. Distinct from 'failed' (a pipeline error) and
+        'submitted' (a good deliverable). A discarded task can be brought
+        back into the workflow via the Assign button.
+
+        For tasks discarded mid-pipeline, sets ``cancel_requested`` so any
+        running background work bails out at its next checkpoint.
         """
         self.ensure_one()
-        is_failed = self.state == "failed"
-        is_done_unshippable = (
-            self.state == "done" and self.qc_verdict == "not_shippable"
-        )
-        if not (is_failed or is_done_unshippable):
-            raise UserError(
-                "Discard is available on Failed tasks, or Done tasks with a "
-                "NOT SHIPPABLE QC verdict."
-            )
+        if self.state == "discarded":
+            raise UserError("This task is already discarded.")
         # Keep the tasker assigned — the discarded task stays "theirs".
-        self.write({
+        vals = {
             "state": "discarded",
             "completed_at": fields.Datetime.now(),
-        })
+        }
+        # Signal any running background thread to stop at its next check.
+        if self.state in ("extracting", "generating", "scoring"):
+            vals["cancel_requested"] = True
+        self.write(vals)
         _logger.info(
             "[leviathan][job=%s] discarded by %s", self.name, self.env.user.name,
         )
@@ -1377,11 +1426,13 @@ class LeviathanJob(models.Model):
                         )
                         if len(img_bytes) > MAX_IMG_BYTES:
                             continue
+                        ext = key.rsplit(".", 1)[-1].lower()
+                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                        # Bedrock rejects images with any dimension > 8000 px.
+                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
                         total_bytes += len(img_bytes)
                         if total_bytes > 20_000_000:
                             break
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
                         screenshot_blocks.append({
                             "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
                         })
@@ -1729,12 +1780,14 @@ class LeviathanJob(models.Model):
                         if len(img_bytes) > MAX_IMG_BYTES:
                             _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
                             continue
+                        ext = key.rsplit(".", 1)[-1].lower()
+                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                        # Bedrock rejects images with any dimension > 8000 px.
+                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
                         total_bytes += len(img_bytes)
                         if total_bytes > 20_000_000:  # 20MB safety cap
                             _logger.info("Screenshot total size cap reached, stopping")
                             break
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
                         screenshot_blocks.append({
                             "image": {
                                 "format": fmt,

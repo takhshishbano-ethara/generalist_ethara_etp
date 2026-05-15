@@ -36,7 +36,6 @@
                 <group string="Ethara Policy" name="ethara_policy">
                     <group string="General">
                         <field name="ethara_leave_code"/>
-                        <field name="available_during_probation"/>
                         <field name="allow_half_day"/>
                         <field name="monthly_accrual_days"/>
                     </group>

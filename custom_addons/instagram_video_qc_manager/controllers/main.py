@@ -1,17 +1,43 @@
 # -*- coding: utf-8 -*-
 """HTTP endpoints used by the OWL video editor.
 
-* ``/video_qc/version/<id>/source`` streams the source attachment for a version.
-* ``/video_qc/version/<id>/save_edit`` (JSON) persists an edit configuration
-  coming from the editor and optionally queues a render.
-* ``/video_qc/version/<id>/preview`` streams the most recent preview render.
-* ``/video_qc/task/<id>/download_urls`` (JSON) lets the editor trigger the
-  Instagram download manually.
+After the on-disk media refactor, every streaming route serves bytes
+directly from the filesystem under ``<media_root>/<task.id>/`` via
+:func:`werkzeug.utils.send_file` with ``conditional=True`` — that's
+what gives the HTML5 ``<video>`` element real HTTP-Range scrubbing
+(206 Partial Content with ``Content-Range:`` headers) instead of the
+single in-memory blob the old controller produced.
+
+Resolution order for every route:
+
+1. Resolve the version / task row, run ``check_access_rights("read")``
+   and ``check_access_rule("read")`` BEFORE any filesystem I/O.
+2. Prefer the new on-disk path (``*_file_*_path`` Char column) when
+   populated — go through :class:`video.qc.media.storage` for the
+   realpath + allowed-base guard, then ``send_file``.
+3. Fall back to the legacy ``ir.attachment`` row for rendered files
+   produced before this refactor.  This branch keeps the old behaviour
+   so existing tasks don't break.
+4. Otherwise return 404.
+
+URL shapes are unchanged — the OWL editor, kanban, and form views
+all continue to point at the same routes.
 """
 
 import base64
-import json
 import logging
+import mimetypes
+import os
+
+# Werkzeug ships ``send_file`` upstream from 2.0+; Odoo 19 vendors a
+# copy in ``odoo.tools._vendor.send_file`` for older Werkzeug builds.
+# We follow the same try/except dance Odoo's own ``http.py`` uses
+# (see ``src/odoo/http.py:195-197``), so behaviour is identical in
+# either environment.
+try:
+    from werkzeug.utils import send_file as _send_file
+except ImportError:  # pragma: no cover — fallback for old Werkzeug
+    from odoo.tools._vendor.send_file import send_file as _send_file
 
 from odoo import http
 from odoo.exceptions import AccessError, UserError
@@ -36,8 +62,12 @@ class VideoQCController(http.Controller):
             return request.not_found()
         version.check_access_rights("read")
         version.check_access_rule("read")
-        attachment = version.original_attachment_id or version.edited_attachment_id
-        return self._stream_attachment(attachment)
+        # Source clips are always attachments (Instagram downloader),
+        # never on-disk paths — they pre-date the refactor and the
+        # downloader still creates ir.attachment rows.
+        return self._stream(
+            attachment=version.original_attachment_id or version.edited_attachment_id,
+        )
 
     @http.route(
         "/video_qc/version/<int:version_id>/edited",
@@ -51,7 +81,11 @@ class VideoQCController(http.Controller):
             return request.not_found()
         version.check_access_rights("read")
         version.check_access_rule("read")
-        return self._stream_attachment(version.edited_attachment_id)
+        return self._stream(
+            path=version.edited_file_path,
+            attachment=version.edited_attachment_id,
+            filename=f"v{version.version_no}_edited.mp4",
+        )
 
     @http.route(
         "/video_qc/version/<int:version_id>/edited/<int:slot>",
@@ -66,10 +100,17 @@ class VideoQCController(http.Controller):
             return request.not_found()
         version.check_access_rights("read")
         version.check_access_rule("read")
-        attachment = (
-            version.edited_attachment_1_id if slot == 1 else version.edited_attachment_2_id
+        if slot == 1:
+            return self._stream(
+                path=version.edited_file_1_path,
+                attachment=version.edited_attachment_1_id,
+                filename=f"v{version.version_no}_edited_slot1.mp4",
+            )
+        return self._stream(
+            path=version.edited_file_2_path,
+            attachment=version.edited_attachment_2_id,
+            filename=f"v{version.version_no}_edited_slot2.mp4",
         )
-        return self._stream_attachment(attachment)
 
     @http.route(
         "/video_qc/version/<int:version_id>/preview",
@@ -82,7 +123,15 @@ class VideoQCController(http.Controller):
         if not version:
             return request.not_found()
         version.check_access_rights("read")
-        return self._stream_attachment(version.preview_attachment_id or version.edited_attachment_id)
+        version.check_access_rule("read")
+        # Prefer dedicated preview render, fall back to the full
+        # edited file (path-or-attachment), then to legacy attachment
+        # rows for both.
+        return self._stream(
+            path=version.preview_file_path or version.edited_file_path,
+            attachment=version.preview_attachment_id or version.edited_attachment_id,
+            filename=f"v{version.version_no}_preview.mp4",
+        )
 
     @http.route(
         "/video_qc/task/<int:task_id>/original/<int:slot>",
@@ -99,9 +148,78 @@ class VideoQCController(http.Controller):
         attachment = (
             task.original_video_1_attachment if slot == 1 else task.original_video_2_attachment
         )
-        return self._stream_attachment(attachment)
+        # Original sources still live as ir.attachment rows (the
+        # Instagram downloader writes them) — no on-disk migration
+        # is in-scope for THIS refactor (it covers FFmpeg outputs only).
+        return self._stream(attachment=attachment)
 
-    def _stream_attachment(self, attachment):
+    # ------------------------------------------------------------------
+    # Streaming helper
+    # ------------------------------------------------------------------
+    def _stream(self, *, path=None, attachment=None, mimetype=None, filename=None):
+        """Serve a video file.
+
+        Prefers the on-disk ``path`` (relative, under ``<media_root>``)
+        when populated.  Falls back to the legacy ``attachment`` row
+        when ``path`` is empty.
+
+        On-disk branch goes through ``werkzeug.utils.send_file`` with
+        ``conditional=True`` + ``etag=True`` so HTML5 ``<video>``
+        scrubbing produces real HTTP-Range requests (206 Partial
+        Content with ``Content-Range``).  The legacy branch keeps the
+        old in-memory ``make_response(bytes, ...)`` path for renders
+        that were stored as attachments before this refactor — those
+        clips don't get Range support but they keep playing.
+        """
+        if path:
+            storage = request.env["video.qc.media.storage"].sudo()
+            try:
+                abs_path = storage.absolute(path)
+            except (UserError, AccessError) as exc:
+                # Either the stored relative path escapes ``<media_root>``
+                # (path-traversal attempt) or the media root itself isn't
+                # configured.  Don't leak the reason to the browser —
+                # the user gets a clean 404.
+                _logger.warning("Media path resolution rejected: %s", exc)
+                return request.not_found()
+            if not os.path.isfile(abs_path):
+                _logger.info("Media file missing on disk: %s", abs_path)
+                # If the path field references a file that was deleted
+                # out-of-band, optionally fall back to the legacy
+                # attachment row when the caller passed one — keeps
+                # the user-facing UX graceful.
+                if attachment:
+                    return self._stream(attachment=attachment, mimetype=mimetype, filename=filename)
+                return request.not_found()
+            resolved_mimetype = (
+                mimetype
+                or mimetypes.guess_type(abs_path)[0]
+                or "video/mp4"
+            )
+            # ``send_file`` handles If-Modified-Since, If-None-Match,
+            # and Range automatically because we pass conditional=True
+            # + etag=True.  We do NOT load the file into Python memory.
+            return _send_file(
+                abs_path,
+                environ=request.httprequest.environ,
+                mimetype=resolved_mimetype,
+                download_name=filename or os.path.basename(abs_path),
+                conditional=True,
+                etag=True,
+                last_modified=os.path.getmtime(abs_path),
+            )
+        if attachment:
+            return self._stream_attachment_legacy(attachment, filename=filename)
+        return request.not_found()
+
+    def _stream_attachment_legacy(self, attachment, filename=None):
+        """Stream a legacy ir.attachment-backed render.
+
+        Pre-refactor renders were stored as base64 blobs in
+        ``ir.attachment.datas``.  We keep this branch alive so those
+        rows continue to play until the operator runs the post-init
+        migration (which moves them onto the new on-disk layout).
+        """
         if not attachment:
             return request.not_found()
         data = attachment.raw or (
@@ -110,7 +228,10 @@ class VideoQCController(http.Controller):
         headers = [
             ("Content-Type", attachment.mimetype or "application/octet-stream"),
             ("Content-Length", str(len(data))),
-            ("Content-Disposition", f'inline; filename="{attachment.name}"'),
+            (
+                "Content-Disposition",
+                f'inline; filename="{filename or attachment.name}"',
+            ),
             ("Cache-Control", "private, max-age=60"),
             ("Accept-Ranges", "bytes"),
         ]
@@ -146,6 +267,25 @@ class VideoQCController(http.Controller):
         version.check_access_rule("write")
         version.write_editing_config(config or {})
         if render:
+            # Pre-flight check BEFORE we schedule the post-commit job.
+            #
+            # The render itself runs in a deferred new-cursor callback
+            # AFTER this HTTP response is sent, so a missing ffmpeg
+            # there would only surface as ``status=error`` on the
+            # version row — invisible to the user clicking Save &
+            # Render in the editor.  Resolving the binary
+            # synchronously here means a missing install raises a
+            # UserError on this RPC, which the OWL editor's
+            # ``saveAndRender`` catches and shows in a danger
+            # notification with the install instructions.
+            processor = request.env["ffmpeg.processor"].sudo()
+            processor._require_binary("ffmpeg")
+            processor._require_binary("ffprobe")
+            # Same pre-flight on the media root: a writable destination
+            # is a non-negotiable precondition for the render.  This
+            # also triggers MediaStorage's self-healing fallback if
+            # the configured path is unwritable.
+            request.env["video.qc.media.storage"].sudo().get_media_root()
             version.action_render()
         return {
             "ok": True,

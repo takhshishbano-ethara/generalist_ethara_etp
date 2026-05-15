@@ -88,11 +88,14 @@
                         </div>
                     </div>
 
-                    <group string="Prompt (latest version)">
+                    <div class="o_video_qc_prompt_block">
+                        <label for="latest_prompt_text" string="Prompt (latest version)"
+                               class="o_video_qc_prompt_label"/>
                         <field name="latest_prompt_text"
                                nolabel="1" readonly="1"
+                               class="o_video_qc_prompt_textarea"
                                placeholder="No prompt captured on the latest version yet."/>
-                    </group>
+                    </div>
                 </sheet>
             </form>
         </field>

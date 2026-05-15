@@ -80,9 +80,6 @@
                     <button class="btn-action" t-on-click="() => this.newVersion()">
                         <i class="fa fa-plus"/> New Version
                     </button>
-                    <button class="btn-action" t-on-click="() => this.saveDraft()" t-att-disabled="state.saving">
-                        <i class="fa fa-save"/> Save Draft
-                    </button>
                     <button class="btn-action btn-primary" t-on-click="() => this.saveAndRender()"
                             t-att-disabled="state.rendering">
                         <i class="fa fa-cogs"/>
