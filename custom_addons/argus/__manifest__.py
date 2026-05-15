@@ -44,20 +44,7 @@ Features
         "api_auth_gateway",
     ],
     "external_dependencies": {
-        # ``requests`` powers the Bedrock Converse call in
-        # ``services/grammar_checker.py``.  Argus is standalone and
-        # owns its own copy of the call (does NOT import from
-        # task_forge_core) so the operator can configure the two
-        # modules with separate API keys.
-        #
-        # NOTE: ``yt-dlp`` is a *soft* dependency, not listed here.
-        # Listing it would make Odoo refuse to load the module when
-        # it's missing.  Instead the preview controller imports it
-        # behind a try/except and falls back to regex scraping +
-        # finally to Instagram's iframe.  For real in-popup playback
-        # install it manually in the Odoo Python environment:
-        #     pip install yt-dlp
-        "python": ["requests"],
+        "python": ["requests", "yt_dlp", "instaloader"],
     },
     "data": [
         "security/security.xml",

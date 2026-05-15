@@ -63,6 +63,15 @@ except ImportError:  # pragma: no cover
     _HAS_YT_DLP = False
 
 
+try:
+    import instaloader  # type: ignore
+
+    _HAS_INSTALOADER = True
+except ImportError:
+    instaloader = None  # type: ignore
+    _HAS_INSTALOADER = False
+
+
 # Realistic desktop-Chrome UA — Instagram serves a leaner login-walled
 # HTML to obvious bot UAs.
 _UA = (
@@ -151,6 +160,50 @@ def _fetch_via_yt_dlp(canonical_url):
     return None
 
 
+def _fetch_via_instaloader(shortcode):
+    if not _HAS_INSTALOADER:
+        return None
+    try:
+        loader = instaloader.Instaloader(
+            download_videos=False,
+            download_video_thumbnails=False,
+            download_pictures=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            sleep=False,
+            quiet=True,
+        )
+        session_path = (
+            request.env["ir.config_parameter"]
+            .sudo()
+            .get_param("argus.instaloader_session_path")
+        )
+        session_user = (
+            request.env["ir.config_parameter"]
+            .sudo()
+            .get_param("argus.instaloader_session_user")
+        )
+        if session_path and session_user:
+            try:
+                loader.load_session_from_file(session_user, session_path)
+            except Exception as exc:
+                _logger.warning(
+                    "Argus preview: instaloader session load failed (%s): %s",
+                    session_path, exc,
+                )
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+        if not post.is_video:
+            return None
+        return post.video_url or None
+    except Exception as exc:
+        _logger.warning(
+            "Argus preview: instaloader failed on %s: %s",
+            shortcode, exc,
+        )
+        return None
+
+
 def _fetch_via_scrape(shortcode):
     """Last-resort regex scrape of the public Instagram page.
 
@@ -210,11 +263,12 @@ def _fetch_via_scrape(shortcode):
 
 
 def _fetch_video_url(shortcode, source_url):
-    """Try yt-dlp first, then scraping.  Return None if both fail."""
-    # yt-dlp is path-agnostic — pass the canonical reel URL straight
-    # through and let it do its thing.
     canonical = source_url or f"https://www.instagram.com/reel/{shortcode}/"
-    return _fetch_via_yt_dlp(canonical) or _fetch_via_scrape(shortcode)
+    return (
+        _fetch_via_yt_dlp(canonical)
+        or _fetch_via_instaloader(shortcode)
+        or _fetch_via_scrape(shortcode)
+    )
 
 
 # Accepts reel/, reels/, p/, tv/ variants with optional ``www.`` and
