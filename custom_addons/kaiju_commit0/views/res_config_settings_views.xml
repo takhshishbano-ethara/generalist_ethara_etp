@@ -56,6 +56,32 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="AWS Credentials" help="Used by Odoo to read dataset_entries.json from S3 for pipeline metadata. Leave keys blank if Odoo runs on EC2 with an IAM role granting S3 read access.">
+                        <setting string="AWS Region" help="S3 bucket region (matches the Argo pipeline's S3_REGION)">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_region" class="col-lg-3"/>
+                                    <field name="kaiju_aws_region"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="AWS Access Key ID" help="Leave blank to use EC2 instance profile / IRSA credentials. Required only if Odoo has no instance role.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_access_key_id" class="col-lg-3"/>
+                                    <field name="kaiju_aws_access_key_id"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="AWS Secret Access Key" help="Paired with the access key ID. Stored encrypted via Odoo's standard config parameter mechanism.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_secret_access_key" class="col-lg-3"/>
+                                    <field name="kaiju_aws_secret_access_key" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

@@ -11,6 +11,12 @@ PHASE_ORDER = ["config", "build"]
 
 BUILD_WORKFLOW_TEMPLATE = "kaiju-build-pipeline"
 
+# ── Pipeline metadata constants (mirror commit_0/eks/pipeline/prepare.py) ──
+HF_REPO_ID = "Zahgon/Kaiju_testing"
+HF_BASE_URL = "https://huggingface.co/datasets"
+FORK_ORG = "Zahgon"
+GITHUB_BASE_URL = "https://github.com"
+
 
 def _parse_argo_dt(value):
     """Parse an Argo RFC3339 timestamp into a naive UTC datetime suitable
@@ -91,6 +97,54 @@ class KaijuCommit0(models.Model):
     s3_dataset_uri = fields.Char(string="Dataset S3 URI", readonly=True)
     workflow_name = fields.Char(string="Build Workflow", readonly=True)
 
+    # ── Log summary (computed from step_ids) ────────────────────────
+
+    error_summary = fields.Char(
+        string="Error Summary",
+        compute="_compute_error_summary",
+        store=True,
+        help="Truncated error from first failed step — quick triage in list view",
+    )
+    combined_log_text = fields.Text(
+        string="Combined Logs",
+        compute="_compute_combined_log_text",
+        store=False,
+        help="All step logs concatenated in chronological order with step headers",
+    )
+    step_count = fields.Integer(
+        string="Step Count",
+        compute="_compute_step_count",
+        store=False,
+    )
+
+    # ── Pipeline metadata (extracted from S3 dataset_entries.json on completion) ─
+
+    instance_id = fields.Char(string="Instance ID", readonly=True,
+        help="Stable identifier from dataset_entries.json (e.g. 'go-version_go')")
+    forked_repo = fields.Char(string="Forked Repo", readonly=True,
+        help="Forked repository name (org/name) from dataset_entries.json")
+    base_commit = fields.Char(string="Base Commit", readonly=True,
+        help="Stubbed code commit SHA — starting point for the agent")
+    reference_commit = fields.Char(string="Reference Commit", readonly=True,
+        help="Original code commit SHA — ground truth for evaluation")
+    metadata_fetched_at = fields.Datetime(string="Metadata Fetched At", readonly=True)
+    metadata_error = fields.Char(string="Metadata Fetch Error", readonly=True)
+
+    # ── Derived URLs (no DB column, all computed from repo_name/language) ────
+
+    original_repo_url = fields.Char(string="Source Repo",
+        compute="_compute_pipeline_urls", store=False)
+    forked_repo_url = fields.Char(string="Forked Repo URL",
+        compute="_compute_pipeline_urls", store=False)
+    hf_dataset_url = fields.Char(string="HuggingFace Dataset",
+        compute="_compute_pipeline_urls", store=False)
+    test_ids_url = fields.Char(string="Test IDs (GitHub)",
+        compute="_compute_pipeline_urls", store=False)
+    setup_sh_url = fields.Char(string="setup.sh (S3)",
+        compute="_compute_artifact_urls", store=False)
+    dockerfile_url = fields.Char(string="Dockerfile (S3)",
+        compute="_compute_artifact_urls", store=False)
+
     # ── Runs ─────────────────────────────────────────────────────────────────
 
     run_ids = fields.One2many("kaiju.commit0.run", "build_id", string="Runs")
@@ -115,6 +169,105 @@ class KaijuCommit0(models.Model):
     def _compute_is_build_running(self):
         for rec in self:
             rec.is_build_running = rec.build_status == "running"
+
+    @api.depends("step_ids.phase", "step_ids.message", "step_ids.display_name")
+    def _compute_error_summary(self):
+        """Find first failed step and surface its error message for quick triage."""
+        for rec in self:
+            failed = rec.step_ids.filtered(
+                lambda s: s.phase in ("Failed", "Error")
+            ).sorted("started_at")
+            if failed:
+                first = failed[0]
+                step_label = first.display_name or first.node_id or "unknown"
+                msg = (first.message or "(no error message)").strip()
+                if len(msg) > 200:
+                    msg = msg[:197] + "…"
+                rec.error_summary = f"{step_label}: {msg}"
+            else:
+                rec.error_summary = False
+
+    @api.depends("step_ids.log_text", "step_ids.display_name",
+                 "step_ids.phase", "step_ids.started_at", "step_ids.finished_at")
+    def _compute_combined_log_text(self):
+        """Concatenate all step logs chronologically with separators."""
+        for rec in self:
+            steps = rec.step_ids.sorted("started_at")
+            if not steps:
+                rec.combined_log_text = False
+                continue
+            parts = []
+            for i, step in enumerate(steps, start=1):
+                header_bits = [
+                    f"[{i}/{len(steps)}]",
+                    step.display_name or step.node_id or "step",
+                    f"({step.phase or 'Pending'})",
+                ]
+                if step.started_at:
+                    header_bits.append(
+                        f"started {step.started_at.strftime('%H:%M:%S')}"
+                    )
+                if step.finished_at:
+                    header_bits.append(
+                        f"finished {step.finished_at.strftime('%H:%M:%S')}"
+                    )
+                header = " ".join(header_bits)
+                separator = "─" * 6 + " " + header + " " + "─" * max(
+                    6, 100 - len(header) - 14
+                )
+                body = step.log_text or "(no log captured)"
+                parts.append(f"{separator}\n{body}")
+            rec.combined_log_text = "\n\n".join(parts)
+
+    @api.depends("step_ids")
+    def _compute_step_count(self):
+        for rec in self:
+            rec.step_count = len(rec.step_ids)
+
+    @api.depends("repo_name", "language")
+    def _compute_pipeline_urls(self):
+        """Compute static URLs derivable from repo_name + language."""
+        for rec in self:
+            repo_name = rec.repo_name or ""
+            language = rec.language or ""
+            short = repo_name.split("/")[-1] if "/" in repo_name else repo_name
+
+            if repo_name and "/" in repo_name:
+                rec.original_repo_url = f"{GITHUB_BASE_URL}/{repo_name}"
+            else:
+                rec.original_repo_url = False
+
+            if short:
+                rec.forked_repo_url = f"{GITHUB_BASE_URL}/{FORK_ORG}/{short}"
+                rec.test_ids_url = (
+                    f"{GITHUB_BASE_URL}/{FORK_ORG}/{short}/blob/commit0_all/{short}.bz2"
+                )
+            else:
+                rec.forked_repo_url = False
+                rec.test_ids_url = False
+
+            if short and language:
+                rec.hf_dataset_url = (
+                    f"{HF_BASE_URL}/{HF_REPO_ID}/blob/main/entries/"
+                    f"{language}/{short}_entries.json"
+                )
+            else:
+                rec.hf_dataset_url = False
+
+    @api.depends("s3_dataset_uri")
+    def _compute_artifact_urls(self):
+        """Derive setup.sh and Dockerfile S3 URLs from the dataset URI
+        (build-repo-image uploads them next to dataset_entries.json)."""
+        for rec in self:
+            uri = rec.s3_dataset_uri or ""
+            if uri.startswith("s3://") and "/" in uri[5:]:
+                # s3://bucket/key/path/dataset_entries.json -> base = s3://bucket/key/path
+                base = uri.rsplit("/", 1)[0]
+                rec.setup_sh_url = f"{base}/setup.sh"
+                rec.dockerfile_url = f"{base}/Dockerfile"
+            else:
+                rec.setup_sh_url = False
+                rec.dockerfile_url = False
 
     @api.depends("current_phase", "config_valid", "build_status")
     def _compute_navigation_flags(self):
@@ -298,6 +451,12 @@ class KaijuCommit0(models.Model):
                 "image_uri": False,
                 "s3_dataset_uri": False,
                 "workflow_name": False,
+                "instance_id": False,
+                "forked_repo": False,
+                "base_commit": False,
+                "reference_commit": False,
+                "metadata_fetched_at": False,
+                "metadata_error": False,
             }
         )
 
@@ -382,6 +541,15 @@ class KaijuCommit0(models.Model):
                         build.name,
                         e,
                     )
+                # Also pull rich metadata from S3 once on completion
+                try:
+                    build._fetch_pipeline_metadata()
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to fetch pipeline metadata for build %s: %s",
+                        build.name,
+                        e,
+                    )
 
     # ── Step Sync & Log Persistence ─────────────────────────────────
 
@@ -441,6 +609,123 @@ class KaijuCommit0(models.Model):
         except Exception as e:
             _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
         self.step_ids.action_fetch_logs()
+        return {"type": "ir.actions.client", "tag": "reload"}
+
+    # ── Pipeline Metadata (S3 dataset_entries.json) ─────────────────────
+
+    def _fetch_pipeline_metadata(self):
+        """Download dataset_entries.json from S3 and extract identity fields.
+
+        Populates: instance_id, forked_repo, base_commit, reference_commit.
+        URL fields are computed separately from repo_name/language.
+
+        Requires System Parameters:
+            kaiju.aws_access_key_id     (or rely on EC2/IRSA instance profile)
+            kaiju.aws_secret_access_key (or rely on EC2/IRSA instance profile)
+            kaiju.aws_region            (default: ap-south-1)
+        """
+        self.ensure_one()
+        if not self.s3_dataset_uri:
+            self.metadata_error = "No s3_dataset_uri set; nothing to fetch"
+            return
+        if not self.s3_dataset_uri.startswith("s3://"):
+            self.metadata_error = f"Invalid S3 URI: {self.s3_dataset_uri}"
+            return
+
+        try:
+            import boto3  # noqa: F401  (lazy import: requires `pip install boto3`)
+            from botocore.exceptions import BotoCoreError, ClientError
+        except ImportError:
+            self.metadata_error = "boto3 not installed in Odoo venv"
+            _logger.error(
+                "boto3 missing in Odoo venv — cannot fetch S3 metadata for %s", self.name
+            )
+            return
+
+        # Parse s3://bucket/key
+        rest = self.s3_dataset_uri[5:]
+        if "/" not in rest:
+            self.metadata_error = f"Malformed S3 URI: {self.s3_dataset_uri}"
+            return
+        bucket, key = rest.split("/", 1)
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
+        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
+        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+
+        try:
+            import boto3
+            client_kwargs = {"region_name": region}
+            if access_key and secret_key:
+                client_kwargs["aws_access_key_id"] = access_key
+                client_kwargs["aws_secret_access_key"] = secret_key
+            s3 = boto3.client("s3", **client_kwargs)
+            obj = s3.get_object(Bucket=bucket, Key=key)
+            payload = obj["Body"].read()
+        except (BotoCoreError, ClientError, Exception) as e:
+            self.metadata_error = f"S3 fetch failed: {e}"
+            _logger.warning("S3 fetch failed for build %s: %s", self.name, e)
+            return
+
+        import json
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError as e:
+            self.metadata_error = f"Invalid JSON in S3 object: {e}"
+            return
+
+        # dataset_entries.json is a list of entries; find the one matching this repo
+        entries = data if isinstance(data, list) else data.get("data", [data])
+        repo_short = (self.repo_name or "").split("/")[-1]
+        matched = None
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_repo = entry.get("original_repo") or entry.get("repo") or ""
+            if self.repo_name and (self.repo_name in entry_repo or entry_repo in self.repo_name):
+                matched = entry
+                break
+            if repo_short and repo_short in entry_repo:
+                matched = entry
+                break
+        if not matched and entries and isinstance(entries[0], dict):
+            matched = entries[0]  # single-entry case
+
+        if not matched:
+            self.metadata_error = (
+                f"No entry matching {self.repo_name} found in dataset_entries.json"
+            )
+            return
+
+        self.write({
+            "instance_id": matched.get("instance_id") or "",
+            "forked_repo": matched.get("repo") or "",
+            "base_commit": matched.get("base_commit") or "",
+            "reference_commit": matched.get("reference_commit") or "",
+            "metadata_fetched_at": fields.Datetime.now(),
+            "metadata_error": False,
+        })
+        _logger.info(
+            "Fetched pipeline metadata for build %s: instance=%s base=%s ref=%s",
+            self.name,
+            matched.get("instance_id"),
+            (matched.get("base_commit") or "")[:12],
+            (matched.get("reference_commit") or "")[:12],
+        )
+
+    def action_fetch_pipeline_metadata(self):
+        """Manual trigger to pull metadata from S3 (e.g. if auto-fetch failed
+        or the s3_dataset_uri was set after completion)."""
+        self.ensure_one()
+        if not self.s3_dataset_uri:
+            raise UserError(
+                "No S3 dataset URI on this build yet. "
+                "Wait until the prepare step finishes."
+            )
+        self._fetch_pipeline_metadata()
+        if self.metadata_error:
+            raise UserError(f"Metadata fetch failed: {self.metadata_error}")
         return {"type": "ir.actions.client", "tag": "reload"}
 
     @staticmethod

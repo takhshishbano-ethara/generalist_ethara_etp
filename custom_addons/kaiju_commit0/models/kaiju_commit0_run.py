@@ -67,6 +67,25 @@ class KaijuCommit0Run(models.Model):
         "kaiju.commit0.workflow.step", "run_id", string="Workflow Steps"
     )
 
+    # ── Log summary (computed from step_ids) ────────────────────────
+
+    error_summary = fields.Char(
+        string="Error Summary",
+        compute="_compute_error_summary",
+        store=True,
+        help="Truncated error from first failed step — quick triage in list view",
+    )
+    combined_log_text = fields.Text(
+        string="Combined Logs",
+        compute="_compute_combined_log_text",
+        store=False,
+    )
+    step_count = fields.Integer(
+        string="Step Count",
+        compute="_compute_step_count",
+        store=False,
+    )
+
     # ── Metrics ──────────────────────────────────────────────────────────────
 
     pass_rate = fields.Float(string="Pass Rate (%)", digits=(5, 1), readonly=True)
@@ -92,6 +111,54 @@ class KaijuCommit0Run(models.Model):
     def _compute_is_running(self):
         for rec in self:
             rec.is_running = rec.run_status == "running"
+
+    @api.depends("step_ids.phase", "step_ids.message", "step_ids.display_name")
+    def _compute_error_summary(self):
+        for rec in self:
+            failed = rec.step_ids.filtered(
+                lambda s: s.phase in ("Failed", "Error")
+            ).sorted("started_at")
+            if failed:
+                first = failed[0]
+                step_label = first.display_name or first.node_id or "unknown"
+                msg = (first.message or "(no error message)").strip()
+                if len(msg) > 200:
+                    msg = msg[:197] + "…"
+                rec.error_summary = f"{step_label}: {msg}"
+            else:
+                rec.error_summary = False
+
+    @api.depends("step_ids.log_text", "step_ids.display_name",
+                 "step_ids.phase", "step_ids.started_at", "step_ids.finished_at")
+    def _compute_combined_log_text(self):
+        for rec in self:
+            steps = rec.step_ids.sorted("started_at")
+            if not steps:
+                rec.combined_log_text = False
+                continue
+            parts = []
+            for i, step in enumerate(steps, start=1):
+                header_bits = [
+                    f"[{i}/{len(steps)}]",
+                    step.display_name or step.node_id or "step",
+                    f"({step.phase or 'Pending'})",
+                ]
+                if step.started_at:
+                    header_bits.append(f"started {step.started_at.strftime('%H:%M:%S')}")
+                if step.finished_at:
+                    header_bits.append(f"finished {step.finished_at.strftime('%H:%M:%S')}")
+                header = " ".join(header_bits)
+                separator = "─" * 6 + " " + header + " " + "─" * max(
+                    6, 100 - len(header) - 14
+                )
+                body = step.log_text or "(no log captured)"
+                parts.append(f"{separator}\n{body}")
+            rec.combined_log_text = "\n\n".join(parts)
+
+    @api.depends("step_ids")
+    def _compute_step_count(self):
+        for rec in self:
+            rec.step_count = len(rec.step_ids)
 
     # ── CRUD ─────────────────────────────────────────────────────────────────
 
