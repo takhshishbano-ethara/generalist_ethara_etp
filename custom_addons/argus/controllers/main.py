@@ -461,7 +461,16 @@ def _fallback_iframe_html(shortcode, source_url, title=""):
 
 
 def _embed_html(shortcode, source_url, title=""):
-    embed_url = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
+    iframe_host = (
+        request.env["ir.config_parameter"]
+        .sudo()
+        .get_param("argus.preview_iframe_host")
+        or "ddinstagram.com"
+    )
+    if iframe_host == "instagram.com":
+        embed_url = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
+    else:
+        embed_url = f"https://www.{iframe_host}/reel/{shortcode}/"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
