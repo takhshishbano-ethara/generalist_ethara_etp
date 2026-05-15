@@ -293,6 +293,16 @@ class KaijuCommit0Run(models.Model):
                     "Failed to sync steps for run %s: %s", run.name, e
                 )
 
+            # Incrementally persist logs for any finished step that doesn't
+            # yet have logs cached. This ensures logs land in Postgres well
+            # before Argo's pod GC (default 5min) deletes the source pods.
+            try:
+                run._persist_step_logs_incremental()
+            except Exception as e:
+                _logger.warning(
+                    "Incremental log persist failed for run %s: %s", run.name, e
+                )
+
             if phase in ("Succeeded",):
                 run.write(
                     {
@@ -358,7 +368,7 @@ class KaijuCommit0Run(models.Model):
                 continue
             vals = {
                 "display_name": node.get("displayName") or node.get("name") or node_id,
-                "pod_name": node_id,
+                "pod_name": node.get("podName") or node_id,
                 "template_name": node.get("templateName") or "",
                 "node_type": node.get("type") or "Pod",
                 "phase": node.get("phase") or "Pending",
@@ -381,6 +391,32 @@ class KaijuCommit0Run(models.Model):
             if step.node_type != "Pod" or not step.pod_name:
                 continue
             step.action_fetch_logs()
+
+    def _persist_step_logs_incremental(self):
+        """Fetch logs ONLY for steps that have finished but don't yet have logs.
+
+        Called on every cron poll to capture step logs as soon as each pod
+        completes — well before Argo's pod garbage collection (typically 5min)
+        kicks in. Idempotent: skips steps that already have log_text.
+        """
+        self.ensure_one()
+        terminal_phases = ("Succeeded", "Failed", "Error")
+        for step in self.step_ids:
+            if step.node_type != "Pod" or not step.pod_name:
+                continue
+            if step.phase not in terminal_phases:
+                continue
+            if step.has_log:
+                continue  # already captured — don't re-fetch
+            try:
+                step.action_fetch_logs()
+            except Exception as e:
+                _logger.warning(
+                    "Incremental log fetch failed for step %s (pod=%s): %s",
+                    step.display_name or step.node_id,
+                    step.pod_name,
+                    e,
+                )
 
     def action_fetch_all_step_logs(self):
         """Manual trigger: sync step list from Argo, then fetch logs for each step."""
