@@ -21,7 +21,7 @@
         "views/skoll_views.xml",
         "views/menuitems.xml",
     ],
-    "installable": True,
+    "installable": False,
     "application": True,
     "license": "LGPL-3",
     "assets": {

@@ -104,7 +104,8 @@ def _build_user_message(record_id, scenario_text):
     if task and task.spawned_agents:
         parts.append("- The orchestrator MUST spawn exactly %d agents matching the metadata above" % num_agents)
     parts.append("- The sessions_spawn task descriptions must be detailed (3+ paragraphs)")
-    parts.append("- Set system_prompt to \"PLACEHOLDER_SYSTEM_PROMPT\"")
+    parts.append("- Set system_prompt to empty string \"\"")
+    parts.append("- Set platform to \"macOS\"")
     parts.append("- Output ONLY the raw JSON object. No markdown fences, no explanation, no commentary.")
 
     return "\n".join(parts)
@@ -525,13 +526,28 @@ def _update_qc_result(db_name, task_db_id, accumulated, status):
                 vals["qc_status"] = "error"
             else:
                 verdict = "error"
-                try:
-                    parsed = json.loads(accumulated.strip())
-                    v = (parsed.get("verdict") or "").lower()
-                    if v in ("pass", "fail", "needs_revision"):
-                        verdict = v
-                except (json.JSONDecodeError, AttributeError):
-                    pass
+                cleaned = accumulated.strip()
+                if cleaned.startswith("```"):
+                    first_nl = cleaned.find("\n")
+                    if first_nl != -1:
+                        cleaned = cleaned[first_nl + 1:]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3].rstrip()
+                for attempt in (cleaned, None):
+                    if attempt is None:
+                        first_b = cleaned.find("{")
+                        last_b = cleaned.rfind("}")
+                        if first_b == -1 or last_b <= first_b:
+                            break
+                        attempt = cleaned[first_b:last_b + 1]
+                    try:
+                        parsed = json.loads(attempt)
+                        v = (parsed.get("verdict") or "").lower()
+                        if v in ("pass", "fail", "needs_revision"):
+                            verdict = v
+                            break
+                    except (json.JSONDecodeError, AttributeError):
+                        continue
                 vals["qc_status"] = verdict
             task.write(vals)
     except Exception:
@@ -921,6 +937,26 @@ class SkollController(http.Controller):
             headers=sse_headers,
             direct_passthrough=True,
         )
+
+    @http.route("/skoll/spawn_tree", type="json", auth="user", methods=["POST"])
+    def spawn_tree(self, record_id=None, **kw):
+        from odoo.addons.skoll.models.spawn_tree_util import build_spawn_tree
+
+        if not record_id:
+            return {"status": "error", "message": "record_id is required."}
+
+        task = request.env["skoll.skoll"].sudo().browse(int(record_id))
+        if not task.exists():
+            return {"status": "error", "message": "Task not found."}
+
+        content = (task.content or "").strip()
+        if not content:
+            return {"status": "error", "message": "No trajectory content to build spawn tree."}
+
+        tree_text = build_spawn_tree(content)
+        task.write({"spawn_tree": tree_text})
+
+        return {"status": "success", "spawn_tree": tree_text}
 
     @http.route(
         "/api/skoll/upload_tasks",

@@ -39,6 +39,7 @@ Highlights
         "security/ir.model.access.csv",
         "data/sequences.xml",
         "data/mail_templates.xml",
+        "data/cron.xml",
         "wizard/video_qc_review_wizard_views.xml",
         "wizard/video_prompt_wizard_views.xml",
         "views/video_task_views.xml",
@@ -50,6 +51,7 @@ Highlights
         "views/video_dashboard_views.xml",
         "views/menus.xml",
     ],
+    "post_init_hook": "post_init_hook",
     "demo": [
         "data/demo.xml",
     ],

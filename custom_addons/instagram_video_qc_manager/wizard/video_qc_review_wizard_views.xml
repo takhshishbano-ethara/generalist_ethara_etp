@@ -5,7 +5,18 @@
         <field name="name">video.qc.review.wizard.form</field>
         <field name="model">video.qc.review.wizard</field>
         <field name="arch" type="xml">
-            <form string="QC Review">
+            <form string="QC Review" class="o_video_qc_review_wizard">
+                <header>
+                    <!-- Kimi K2.5 grammar check fires on click.  The
+                         service raises UserError when the API key
+                         isn't configured, so the reviewer sees a
+                         clear "configure video_qc.kimi_api_key"
+                         message instead of a silent no-op. -->
+                    <button name="action_run_grammar_check" type="object"
+                            string="Check Grammar (Kimi K2.5)"
+                            icon="fa-spell-check"
+                            class="btn-secondary"/>
+                </header>
                 <sheet>
                     <group>
                         <field name="task_id" readonly="1"/>
@@ -15,11 +26,116 @@
                         <field name="next_prompt"
                                placeholder="Suggested prompt for the next iteration..."
                                invisible="decision != 'rework'"/>
+                        <field name="grammar_score_threshold" readonly="1"/>
+                        <field name="grammar_check_done" invisible="1"/>
+                        <field name="is_approve_blocked" invisible="1"/>
+                        <field name="prompt_grammar_score" invisible="1"/>
                     </group>
+
+                    <!-- ===== Approve-blocked banner =====
+                         Shows the moment the gate trips so the
+                         reviewer knows WHY the Submit button
+                         disappeared. -->
+                    <div class="alert alert-danger" role="alert"
+                         invisible="not is_approve_blocked">
+                        <strong>Approve is blocked.</strong>
+                        The prompt's grammar score
+                        (<field name="prompt_grammar_score" readonly="1"
+                                class="oe_inline"/>) is below the
+                        configured threshold
+                        (<field name="grammar_score_threshold" readonly="1"
+                                class="oe_inline"/>).
+                        Fix the prompt via <em>Attach Prompt</em> on the
+                        version and re-run the grammar check, or pick
+                        <em>Reject</em> / <em>Request Rework</em> below.
+                    </div>
+
+                    <!-- ===== "Awaiting check" hint =====
+                         Stays visible until the reviewer clicks
+                         the header button at least once. -->
+                    <div class="alert alert-info" role="alert"
+                         invisible="grammar_check_done">
+                        Click <strong>Check Grammar (Kimi K2.5)</strong>
+                        in the header to grade the prompt(s).  Approve is
+                        gated on the grammar score; Reject / Request
+                        Rework can be submitted without running it.
+                    </div>
+
+                    <!-- ===== Two-panel results, side by side ===== -->
+                    <div class="o_video_qc_grammar_panels"
+                         invisible="not grammar_check_done">
+                        <!-- Panel 1: the version's current prompt -->
+                        <div class="o_video_qc_grammar_panel">
+                            <h3>
+                                <i class="fa fa-file-text-o"/> Version Prompt
+                                <span class="o_video_qc_grammar_score_badge"
+                                      t-att-class="'badge ' + (
+                                        prompt_grammar_score &gt;= grammar_score_threshold
+                                        and 'text-bg-success' or 'text-bg-danger'
+                                      )">
+                                    <field name="prompt_grammar_score" readonly="1"
+                                           class="oe_inline"/> / 100
+                                </span>
+                            </h3>
+                            <field name="prompt_text_preview" readonly="1" nolabel="1"
+                                   class="o_video_qc_grammar_input"/>
+                            <h5>Summary</h5>
+                            <field name="prompt_grammar_summary" readonly="1" nolabel="1"/>
+                            <h5>Issues</h5>
+                            <field name="prompt_grammar_issues" readonly="1" nolabel="1"
+                                   placeholder="No issues reported."/>
+                            <h5>Corrected</h5>
+                            <field name="prompt_grammar_corrected" readonly="1" nolabel="1"
+                                   placeholder="No rewrite — prompt is already clean."/>
+                        </div>
+
+                        <!-- Panel 2: reviewer's suggested next prompt -->
+                        <div class="o_video_qc_grammar_panel">
+                            <h3>
+                                <i class="fa fa-pencil"/> Suggested Next Prompt
+                                <span t-att-class="'badge ' + (
+                                        next_prompt_grammar_score &gt;= grammar_score_threshold
+                                        and 'text-bg-success' or 'text-bg-secondary'
+                                      )"
+                                      invisible="not next_prompt">
+                                    <field name="next_prompt_grammar_score" readonly="1"
+                                           class="oe_inline"/> / 100
+                                </span>
+                            </h3>
+                            <div class="text-muted" invisible="next_prompt">
+                                <em>Suggest a next-iteration prompt above to
+                                grade it here.</em>
+                            </div>
+                            <div invisible="not next_prompt">
+                                <h5>Summary</h5>
+                                <field name="next_prompt_grammar_summary"
+                                       readonly="1" nolabel="1"/>
+                                <h5>Issues</h5>
+                                <field name="next_prompt_grammar_issues"
+                                       readonly="1" nolabel="1"
+                                       placeholder="No issues reported."/>
+                                <h5>Corrected</h5>
+                                <field name="next_prompt_grammar_corrected"
+                                       readonly="1" nolabel="1"
+                                       placeholder="No rewrite — suggestion is already clean."/>
+                            </div>
+                        </div>
+                    </div>
                 </sheet>
                 <footer>
+                    <!-- Submit QC stays available; the actual block
+                         is enforced server-side in action_apply.  Form
+                         widget hides the button for the Approve case
+                         when the grammar gate trips, so the reviewer
+                         has to flip the radio to Reject / Rework. -->
                     <button name="action_apply" type="object"
-                            string="Submit QC" class="btn-primary"/>
+                            string="Submit QC" class="btn-primary"
+                            invisible="is_approve_blocked"/>
+                    <button name="action_apply" type="object"
+                            string="Submit (Approve blocked — pick Reject / Rework)"
+                            class="btn-warning"
+                            invisible="not is_approve_blocked"
+                            confirm="The current verdict is Approve but the grammar gate is tripped. Switch the radio to Reject or Request Rework first."/>
                     <button special="cancel" string="Cancel" class="btn-secondary"/>
                 </footer>
             </form>

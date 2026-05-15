@@ -21,7 +21,7 @@ PARAM_ARGO_NAMESPACE = "kaiju.argo_namespace"
 PARAM_ARGO_TOKEN_PATH = "kaiju.argo_token_path"
 PARAM_ARGO_VERIFY_TLS = "kaiju.argo_verify_tls"
 
-DEFAULT_ARGO_URL = "https://argo-workflows-server.argo.svc.cluster.local:2746"
+DEFAULT_ARGO_URL = "http://argo-workflows-server.argo-workflows.svc.cluster.local:2746"
 DEFAULT_NAMESPACE = "argo"
 DEFAULT_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
@@ -210,10 +210,14 @@ class ArgoClient(models.AbstractModel):
     # ── Streaming helper ────────────────────────────────────────────────────
 
     def _request_stream(self, method, path, params=None, timeout=60):
-        """Execute HTTP request and return raw response body as string.
+        """Execute HTTP request against an Argo SSE endpoint and return
+        the full event-stream body as a string.
 
-        Used for SSE / streaming endpoints (e.g. pod logs) where the
-        response is NOT JSON.
+        Sets `Accept: text/event-stream` (required by Argo's HTTP1 facade).
+        Reads the response line-by-line until EOF so the stream is drained
+        properly — SSE responses don't carry Content-Length so a plain
+        `resp.read()` can return empty or hang depending on the urllib
+        buffering behaviour.
         """
         config = self._get_config()
         url = f"{config['base_url']}{path}"
@@ -222,7 +226,8 @@ class ArgoClient(models.AbstractModel):
         token = self._get_token(config)
 
         req = urllib.request.Request(url, method=method)
-        req.add_header("Content-Type", "application/json")
+        # SSE: tell server to send event-stream framing.
+        req.add_header("Accept", "text/event-stream")
         if token:
             req.add_header("Authorization", f"Bearer {token}")
 
@@ -233,29 +238,43 @@ class ArgoClient(models.AbstractModel):
             ctx.verify_mode = ssl.CERT_NONE
 
         try:
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                return resp.read().decode()
+            resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
         except urllib.error.HTTPError as e:
             if e.code == 404:
+                _logger.info("Argo SSE endpoint returned 404: %s %s", method, url)
                 return ""
             body_text = e.read().decode() if e.fp else ""
             _logger.error(
-                "Argo API error: %s %s → HTTP %d: %s",
-                method,
-                url,
-                e.code,
-                body_text[:500],
+                "Argo SSE error: %s %s → HTTP %d: %s",
+                method, url, e.code, body_text[:500],
             )
             raise RuntimeError(
                 f"Argo API request failed: HTTP {e.code} — {body_text[:200]}"
             ) from e
         except urllib.error.URLError as e:
             _logger.error(
-                "Argo API connection error: %s %s → %s", method, url, e.reason
+                "Argo SSE connection error: %s %s → %s", method, url, e.reason
             )
             raise RuntimeError(
                 f"Cannot reach Argo Server at {config['base_url']}: {e.reason}"
             ) from e
+
+        # Read the SSE stream line-by-line. The server holds the connection
+        # open and sends `data: {...}\n` frames; when the pod is finished and
+        # follow=true, the server closes the stream cleanly (EOF). With
+        # follow=false on some Argo versions the stream is empty.
+        chunks = []
+        try:
+            with resp:
+                while True:
+                    line = resp.readline()
+                    if not line:
+                        break  # EOF
+                    chunks.append(line.decode("utf-8", errors="replace"))
+        except (OSError, ssl.SSLError) as e:
+            # Stream interrupted — return whatever we got so far.
+            _logger.warning("SSE stream interrupted for %s: %s", url, e)
+        return "".join(chunks)
 
     # ── Workflow node listing ──────────────────────────────────────────────
 
@@ -422,25 +441,65 @@ class ArgoClient(models.AbstractModel):
             )
             return ""
 
-        # Parse SSE event stream: lines starting with `data: ` carry a JSON
-        # payload like {"result": {"podName": "...", "content": "..."}}.
+        # Parse the response stream. Argo's grpc-gateway can emit logs in TWO
+        # different on-the-wire formats depending on version/config:
+        #
+        #   1. True SSE (RFC standard):  `data: {"result":...}\n\n`
+        #      Used by Argo's official HTTP1 client and browser EventSource.
+        #
+        #   2. NDJSON (grpc-gateway raw): `{"result":...}\n`
+        #      What grpc-gateway v1.16.0 actually emits in ForwardResponseStream
+        #      when no custom Delimiter is set (Argo's marshaler doesn't set one).
+        #
+        # We accept BOTH formats. See research:
+        #   - https://github.com/argoproj/argo-workflows/blob/main/pkg/apiclient/http1/server-sent-events-client.go
+        #   - https://github.com/grpc-ecosystem/grpc-gateway/blob/v1.16.0/runtime/handler.go
+        #   - https://github.com/argoproj/argo-workflows/issues/13384 (empty response root cause)
         output_lines = []
-        sse_frame_count = 0
+        frame_count = 0
+        skipped_count = 0
+        decoded_format = None  # "sse" or "ndjson" — set on first successful parse
         for line in raw.splitlines():
-            if not line.startswith("data: "):
+            line = line.rstrip("\r")  # strip optional CRLF artifact
+            if not line:
                 continue
-            sse_frame_count += 1
+            if line.startswith(":"):
+                continue  # SSE comment / keepalive
+            # Strip SSE `data: ` prefix if present; otherwise treat line as raw JSON
+            if line.startswith("data: "):
+                payload = line[6:]
+            elif line.startswith("data:"):
+                payload = line[5:]  # tolerate missing space after colon
+            else:
+                payload = line
+            # Argo wraps every gRPC message as `{"result": <LogEntry>}`
             try:
-                evt = json.loads(line[6:])
-                result = evt.get("result", {})
-                content = result.get("content")
-                if content:
-                    output_lines.append(content)
+                evt = json.loads(payload)
             except json.JSONDecodeError as e:
-                _logger.debug("Skipping malformed SSE frame: %s", e)
+                _logger.debug("Skipping malformed log frame: %r (%s)", payload[:200], e)
+                skipped_count += 1
                 continue
+            frame_count += 1
+            # Detect format on first parse for diagnostic logging
+            if decoded_format is None:
+                decoded_format = "sse" if line.startswith("data:") else "ndjson"
+            # Extract content. Argo schema: {"result": {"content": "...", "podName": "..."}}
+            result = evt.get("result") or {}
+            content = result.get("content")
+            # IMPORTANT: don't drop empty-string content — it may be a legitimate
+            # blank log line. Only drop None.
+            if content is not None:
+                output_lines.append(content)
+            elif evt.get("error"):
+                # grpc-gateway error frame: {"error":{"http_code":N,"message":"..."}}
+                err = evt["error"]
+                _logger.warning(
+                    "Argo log endpoint returned error frame for pod=%s: %s",
+                    pod_name, err.get("message") or err,
+                )
         _logger.info(
-            "Parsed %d SSE frames -> %d log lines for pod=%s (%d bytes raw)",
-            sse_frame_count, len(output_lines), pod_name, len(raw),
+            "Argo log parse: format=%s frames=%d lines=%d skipped=%d raw_bytes=%d pod=%s",
+            decoded_format or "unknown", frame_count, len(output_lines),
+            skipped_count, len(raw), pod_name,
         )
         return "\n".join(output_lines)
