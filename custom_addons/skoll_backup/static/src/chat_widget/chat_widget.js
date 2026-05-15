@@ -507,6 +507,12 @@ export class SkollChatWidget extends Component {
 
             if (frame.type === "event" && frame.event === "agent") {
                 const p = frame.payload || {};
+                // If the server stamps a sessionKey and it belongs to a subagent session,
+                // skip main-widget processing — subagent content arrives via session.message.
+                const evtKey = p.sessionKey || "";
+                if (evtKey.includes(":subagent:")) {
+                    return;
+                }
                 const agentStream = p.stream;
                 const agentData = p.data || {};
 
@@ -832,7 +838,7 @@ export class SkollChatWidget extends Component {
             console.log(LOG_PREFIX, `🔧 TOOL STREAM: phase=${phase} name=${toolName} id=${toolCallId} args=${JSON.stringify(data.args || null).substring(0, 300)}`);
             if (phase === "start" && toolCallId) {
                 _logToolCall(session, { toolCallId, name: toolName, args: data.args, phase: "start", source_event: "chat.tool" });
-                if (widget) widget.state.activityText = `Running ${toolName}…`;
+                if (widget && session.streaming && !session._activeChildKey) widget.state.activityText = `Running ${toolName}…`;
                 console.log(LOG_PREFIX, `🔧 Tool START: ${toolName} (${toolCallId}) — total tool calls now: ${session._toolCalls.length}`);
                 this._routeToolEventToChild(toolName, "start", data.args, null, false);
             } else if (phase === "end" && toolCallId) {
@@ -853,7 +859,7 @@ export class SkollChatWidget extends Component {
         } else if (stream === "thinking") {
             const thinkingText = data.text || data.delta || "";
             console.log(LOG_PREFIX, `🧠 THINKING STREAM: len=${thinkingText.length} delta_len=${(data.delta || "").length}`);
-            if (widget) widget.state.activityText = "Thinking…";
+            if (widget && session.streaming && !session._activeChildKey) widget.state.activityText = "Thinking…";
             if (!session._thinkingBuf) session._thinkingBuf = "";
             if (data.text) {
                 session._thinkingBuf = data.text;
@@ -871,7 +877,7 @@ export class SkollChatWidget extends Component {
             }
         } else if (stream === "lifecycle" && data.phase === "start") {
             console.log(LOG_PREFIX, "🏁 Lifecycle START — Thinking…");
-            if (widget) widget.state.activityText = "Thinking…";
+            if (widget && session.streaming && !session._activeChildKey) widget.state.activityText = "Thinking…";
         } else if (stream === "lifecycle" && data.phase === "end") {
             console.group(`${LOG_PREFIX} 🏁 Lifecycle END`);
             console.log("Tool calls collected:", session._toolCalls.length, session._toolCalls.map(t => t.name));
@@ -896,6 +902,13 @@ export class SkollChatWidget extends Component {
             if (msg && toolCalls && toolCalls.length > 0) {
                 msg.toolCalls = toolCalls;
                 msg.toolsExpanded = toolCalls.some(tc => tc.isError);
+            }
+            // Discard pending messages that ended up with no text and no tool calls —
+            // these are tool-only turns where no assistant text was produced and would
+            // render as blank grey bubbles.
+            if (msg && !msg.text && !(msg.toolCalls && msg.toolCalls.length > 0)) {
+                const idx = messages.lastIndexOf(msg);
+                if (idx !== -1) messages.splice(idx, 1);
             }
             session._streamBuf = "";
             session._lastFlushedWordCount = 0;
@@ -956,7 +969,7 @@ export class SkollChatWidget extends Component {
                 for (const tc of deltaTools) {
                     if (!session._toolCallMap.has(tc.toolCallId)) {
                         _logToolCall(session, { toolCallId: tc.toolCallId, name: tc.name, args: tc.args, phase: "start", source_event: "delta.embedded" });
-                        if (widget) widget.state.activityText = `Running ${tc.name}…`;
+                        if (widget && session.streaming && !session._activeChildKey) widget.state.activityText = `Running ${tc.name}…`;
                     }
                 }
                 this._syncLiveToolCalls(session, messages, widget);
