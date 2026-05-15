@@ -216,8 +216,11 @@ class KaijuWorkflowStep(models.Model):
                 )
                 fetched += 1
             else:
+                # Pod returned no log content. Still record the attempt so we
+                # can distinguish 'never fetched' from 'fetched but empty'.
+                step.write({"log_fetched_at": fields.Datetime.now()})
                 _logger.info(
-                    "Empty logs returned for step %s (pod=%s) — keeping cached value",
+                    "Empty logs returned for step %s (pod=%s) — marking fetched_at",
                     step.display_name or step.node_id,
                     step.pod_name,
                 )

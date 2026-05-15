@@ -365,7 +365,12 @@ class ArgoClient(models.AbstractModel):
     # ── Pod log fetching ───────────────────────────────────────────────────
 
     def get_pod_logs(self, workflow_name, pod_name, container="main", tail_lines=None):
-        """Fetch logs for a single pod via Argo SSE log endpoint.
+        """Fetch logs for a single pod via Argo's SSE log endpoint.
+
+        Uses the recommended WorkflowLogs endpoint
+        `/api/v1/workflows/{ns}/{wf}/log?podName=X` (the dedicated PodLogs
+        endpoint is marked DEPRECATED in upstream Argo as of v3.5+). Falls
+        back to the deprecated path if the new endpoint fails for any reason.
 
         Parses SSE stream lines and returns concatenated log content.
         Returns empty string on 404 or if no data.
@@ -374,29 +379,68 @@ class ArgoClient(models.AbstractModel):
         config = self._get_config()
         namespace = config["namespace"]
 
-        params = {
-            "podName": pod_name,
+        # logOptions.follow=true is REQUIRED for Argo's SSE endpoint to emit
+        # `data:` frames consistently. With follow=false, the stream often
+        # completes immediately without sending log content. For completed
+        # pods, follow=true still terminates quickly because the pod is done.
+        base_params = {
             "logOptions.container": container,
-            "logOptions.follow": "false",
+            "logOptions.follow": "true",
         }
         if tail_lines is not None:
-            params["logOptions.tailLines"] = str(tail_lines)
+            base_params["logOptions.tailLines"] = str(tail_lines)
 
-        path = f"/api/v1/workflows/{namespace}/{workflow_name}/log"
-        raw = self._request_stream("GET", path, params=params, timeout=60)
+        # Primary: WorkflowLogs endpoint (recommended, non-deprecated).
+        primary_path = f"/api/v1/workflows/{namespace}/{workflow_name}/log"
+        primary_params = dict(base_params, podName=pod_name)
+        _logger.info(
+            "Fetching pod logs (WorkflowLogs): namespace=%s workflow=%s pod=%s container=%s",
+            namespace, workflow_name, pod_name, container,
+        )
+        raw = ""
+        try:
+            raw = self._request_stream("GET", primary_path, params=primary_params, timeout=60)
+        except RuntimeError as e:
+            _logger.warning(
+                "WorkflowLogs endpoint failed for pod=%s: %s. Trying deprecated PodLogs endpoint.",
+                pod_name, e,
+            )
+            try:
+                fallback_path = f"/api/v1/workflows/{namespace}/{workflow_name}/{pod_name}/log"
+                raw = self._request_stream("GET", fallback_path, params=base_params, timeout=60)
+            except RuntimeError as e2:
+                _logger.error(
+                    "Both log endpoints failed for pod=%s: primary=%s fallback=%s",
+                    pod_name, e, e2,
+                )
+                raise
+
         if not raw:
+            _logger.info(
+                "Empty response from Argo log endpoint for pod=%s (workflow=%s)",
+                pod_name, workflow_name,
+            )
             return ""
 
+        # Parse SSE event stream: lines starting with `data: ` carry a JSON
+        # payload like {"result": {"podName": "...", "content": "..."}}.
         output_lines = []
+        sse_frame_count = 0
         for line in raw.splitlines():
             if not line.startswith("data: "):
                 continue
+            sse_frame_count += 1
             try:
                 evt = json.loads(line[6:])
                 result = evt.get("result", {})
                 content = result.get("content")
                 if content:
                     output_lines.append(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                _logger.debug("Skipping malformed SSE frame: %s", e)
                 continue
+        _logger.info(
+            "Parsed %d SSE frames -> %d log lines for pod=%s (%d bytes raw)",
+            sse_frame_count, len(output_lines), pod_name, len(raw),
+        )
         return "\n".join(output_lines)
