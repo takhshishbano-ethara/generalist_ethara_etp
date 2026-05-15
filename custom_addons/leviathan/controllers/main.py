@@ -75,6 +75,20 @@ class LeviathanController(http.Controller):
                 content_type="application/json",
             )
 
+        # Lightweight "extraction started" ping — the Lambda sends this when it
+        # actually picks the job up. Update last_heartbeat so the watchdog
+        # measures real progress, not time-since-state-change (a job merely
+        # queued in AWS shouldn't be killed for being slow to start).
+        if data.get("status") == "started":
+            if record.state == "extracting":
+                record.write({"last_heartbeat": fields.Datetime.now()})
+                _logger.info("[leviathan][job=%s] extraction started ping", record.name)
+            return Response(
+                json.dumps({"status": "ack"}),
+                status=200,
+                content_type="application/json",
+            )
+
         if record.state != "extracting":
             _logger.info(
                 "Webhook for job %s ignored: state is '%s' "
@@ -118,6 +132,7 @@ class LeviathanController(http.Controller):
             screenshot_keys = data.get("screenshot_keys", [])
             asset_keys = data.get("asset_keys", [])
             is_partial = data.get("partial", False)
+            warnings = data.get("warnings") or []
 
             ICP = request.env["ir.config_parameter"].sudo()
             s3_bucket = ICP.get_param("leviathan.s3_bucket")
@@ -174,17 +189,27 @@ class LeviathanController(http.Controller):
                 write_vals["screenshot_keys"] = screenshot_keys
             if asset_keys:
                 write_vals["asset_keys"] = asset_keys
-            if is_partial:
-                _logger.warning(
-                    "Job %s received partial extraction data (deadline reached)",
-                    record.name,
+            # Surface partial/warnings WITHOUT polluting error_message — a
+            # successful-but-imperfect extraction is not a red failure. The
+            # tasker sees a non-red "Partial extraction" banner instead.
+            if warnings or is_partial:
+                summary = warnings or ["Extraction was partial (deadline reached)."]
+                write_vals["extraction_warnings"] = (
+                    "\n".join(f"• {w}" for w in summary)[:1000]
                 )
-                write_vals.setdefault("error_message", "")
-                write_vals["error_message"] = (
-                    (write_vals["error_message"] or "") +
-                    "Warning: Extraction was partial (deadline reached). "
-                    "PRD generated on incomplete data."
-                )[:500]
+                _logger.info(
+                    "[leviathan][job=%s] extraction succeeded with warnings: %s",
+                    record.name, summary,
+                )
+            else:
+                write_vals["extraction_warnings"] = False
+
+            # Full transparency: persist the complete Lambda callback. Artifacts
+            # are trimmed to filenames — their content is large and already on S3.
+            callback_snapshot = dict(data)
+            if isinstance(callback_snapshot.get("artifacts"), dict):
+                callback_snapshot["artifacts"] = sorted(callback_snapshot["artifacts"].keys())
+            write_vals["lambda_callback_json"] = callback_snapshot
 
             write_vals["state"] = "generating"
             record.write(write_vals)
@@ -205,9 +230,10 @@ class LeviathanController(http.Controller):
             record_id = record.id
 
             def _deferred():
-                from ..models.leviathan_job import _POOL
-                _POOL.submit(
-                    lambda: record._run_prd_generation_bg(db_name, record_id)
+                from ..models.leviathan_job import _submit_bg
+                _submit_bg(
+                    f"prd-gen[job={record_id}]",
+                    record._run_prd_generation_bg, db_name, record_id,
                 )
 
             request.env.cr.postcommit.add(_deferred)

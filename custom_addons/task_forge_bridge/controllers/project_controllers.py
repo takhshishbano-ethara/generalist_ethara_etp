@@ -28,8 +28,7 @@ class TaskForgeProjectController(http.Controller):
                 projects = Project.search([
                     '|',
                     ('id', 'in', alloc_ids),
-                    ('task_forge_status', '=', 'live'),
-                ])
+                ] + Project._task_forge_live_domain())
             else:
                 projects = Project.search([])
 

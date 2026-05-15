@@ -9,6 +9,56 @@ asynchronously and post back to the existing webhook.
 
 ---
 
+## 0. This Release — Pre-Deploy Checklist
+
+These came out of the load-failure post-mortem and are easy to miss. Verify
+**before** the standing setup in §1+.
+
+### 0.1 Lambda zip must contain
+
+- [ ] **`--single-process` REMOVED** from every Chromium launch arg in `handler.py`
+      and `modules/site_discoverer.py`. It is the #1 cause of all-black screenshots
+      and has regressed once already.
+- [ ] `template.yaml` → `EphemeralStorage: Size: 4096` (512 MB default → `ENOSPC` on
+      browser launch).
+- [ ] `template.yaml` → `EventInvokeConfig: MaximumRetryAttempts: 0`. Async (`Event`)
+      invokes are auto-retried by AWS on Lambda timeout — without this a single
+      timed-out extraction silently re-runs up to 2 more times (3× cost + duplicate
+      callbacks).
+- [ ] `template.yaml` → `ReservedConcurrentExecutions: 250`.
+- [ ] Browser-resilience helpers present: `_relaunch_if_dead`, `_bounded`,
+      `_screenshot_with_retry`, and the `playwright-*` `/tmp` cleanup.
+
+```bash
+cd leviathan-extraction-lambda
+grep -rc single-process handler.py modules/site_discoverer.py        # expect: 0  0
+grep -cE 'EphemeralStorage|EventInvokeConfig|ReservedConcurrentExecutions: 250' template.yaml  # expect: 3
+python3 -m py_compile handler.py config.py modules/*.py && echo "compile OK"
+```
+
+### 0.2 Odoo deploy must include
+
+- [ ] Module version is **`19.0.2.1.0`** — see §10 for what shipped. The
+      `19.0.2.0.0` pre-migration (renames `via_rabbitmq`→`via_batch`, seeds config,
+      removes the old RabbitMQ server action) runs if the DB is older; the
+      `19.0.2.1.0` additions (new fields, `discarded` state) are auto-created on
+      `-u leviathan` — no migration file needed.
+- [ ] **Confirm prod actually picks up `19.0.2.1.0`.** A prior cycle ran stale code
+      (recursive `write()` → infinite recursion). Check the deployed image tag and
+      `__manifest__.py` version after rollout.
+- [ ] `Settings → Leviathan` has **Lambda Function Name** + **Region** set
+      (replaces the old Function-URL field).
+
+### 0.3 `odoo.conf` — log noise (shared multi-project instance)
+
+Quiet per-request HTTP-client logging from every team's modules:
+
+```ini
+log_handler = :INFO,httpx:WARNING,botocore:WARNING,boto3:WARNING,urllib3:WARNING,werkzeug:WARNING
+```
+
+---
+
 ## 1. Capacity Model
 
 | Knob | Default | Where set | Effect |
@@ -323,3 +373,92 @@ The 19.0.1.x branch is preserved on git. To roll back:
    strictly required.
 3. **Bring back the RabbitMQ consumer**: re-apply its Deployment YAML and
    restore `services/rabbitmq_service.py` from git history.
+
+---
+
+## 10. Shipped in 19.0.2.1.0 (Lambda + Odoo)
+
+**Guiding principle (product):** the deliverable is the **PRD**. Screenshots and
+assets are *inputs* — the tasker supplies/fixes them manually at review time, so
+missing/blank assets are **not** a pipeline failure. A job is `failed` (red)
+**only** when (1) extraction produced nothing usable for a PRD, or (2) PRD
+generation failed. Everything else is a **successful extraction** → proceeds to
+PRD gen, surfaced as a non-red "Partial extraction" warning banner.
+
+Tested locally: module upgrades clean, all views load, simulated state-transition
+suite passes (skip-re-extraction, discard, transparency fields).
+
+### 10.1 Lambda — `handler.py` (needs a new zip)
+
+- **Extraction success redefined** — `_finalize_and_callback`: `success` is now
+  based on a usable `prd_prompt`, **not** screenshot count. 0/low screenshots →
+  `partial: true` + a `warnings` list, never a hard failure.
+- **`phase_log` + `extraction_summary`** added to the callback payload — per-job
+  transparency on what every phase did and what was captured.
+- **`status: "started"` ping** — POSTed to the Odoo webhook at Phase 1 so the
+  watchdog measures real progress, not time-in-state.
+- All browser-resilience work retained (`_relaunch_if_dead`, `_bounded`,
+  `_screenshot_with_retry`, `--single-process` removed, `/tmp` self-cleanup).
+
+### 10.2 Odoo — `19.0.2.1.0` (GitHub; auto-migrates on update)
+
+- **Failure semantics** — webhook + `_run_prd_generation_bg` only set `failed`
+  on the two real conditions above; a `success:true` callback (incl. `partial`,
+  incl. 0 screenshots) **always** proceeds to `generating`. Partial/warnings go
+  to a new `extraction_warnings` field (yellow banner), never `error_message`.
+- **Skip re-extraction** — a job that already has a `prd_prompt` is "extracted":
+  **Batch Run** and **Retry** send it straight to `generating`. Only jobs
+  *without* a `prd_prompt` go through the Lambda fan-out. The explicit
+  "Re-extract" wizard still forces a fresh extraction.
+- **`discarded` terminal state** — for tasks that are genuinely unusable
+  (site unsuitable / nothing extracted). The **Discard** button shows on
+  *Failed* tasks and *Done* tasks with a **NOT SHIPPABLE** QC verdict ("not
+  shippable and below"). Discarding **keeps the tasker assigned** — the task
+  stays "theirs". A discarded task is not a dead end: the **Assign** button
+  reopens it as a Draft (keeping its tasker, or the clicker if it had none).
+  **Cancel** is unchanged and separate: it shows only on the
+  running stages (extracting / generating / scoring) and returns the task to
+  Draft, signalling background threads to stop.
+- **Robust self-recovering pool** — all background work goes through
+  `_submit_bg()`: logs pool saturation, wraps every callable so a crash is
+  logged not lost, and runs inline if the pool is gone. Watchdog is the backstop.
+- **Full transparency** — new `lambda_callback_json` (raw Lambda payload) and
+  `llm_trace_json` (every PRD-gen attempt + QC request/response) fields,
+  populated as the pipeline runs — captured for audit (no dedicated UI tab).
+- **Watchdog 'started' ping** — webhook handles `status:"started"`, updating
+  `last_heartbeat` so queued-but-not-started jobs aren't killed.
+- **Log prefixing** — key lifecycle logs prefixed `[leviathan][job=<name>]`.
+
+Also already committed to the branch (earlier "error fixes" commit, ships with
+this push):
+- `extraction_service.py` — SigV4 re-signed per retry attempt + only fast 5xx
+  are retried (a slow 5xx = the Lambda ran and timed out; don't re-run it).
+- `_run_prd_generation_bg` — generation loop keeps the best PRD even when every
+  attempt scores 0, so a run of rejected PRDs no longer crashes on S3 upload.
+- `_run_qc_only_bg` — QC errors fail **closed** (`qc_verdict = not_shippable`)
+  instead of leaving the verdict blank.
+
+**Migration:** no schema rename — new fields/columns and the `discarded`
+selection value are auto-created on `-u leviathan`. The version bump
+(`19.0.2.0.0` → `19.0.2.1.0`) triggers it automatically on deploy.
+
+### 10.3 Reading the logs on stage (Grafana)
+
+The Odoo instance is shared across projects. To see only Leviathan during a
+stage test, filter by logger name or the `[leviathan]` prefix:
+
+```
+{namespace="ethara", container="etp-be"} |= "addons.leviathan"        # all Leviathan logs
+{namespace="ethara", container="etp-be"} |= "[leviathan][job="        # per-job lifecycle
+{namespace="ethara", container="etp-be"} |~ "leviathan.*ERROR|WARNING" # leviathan problems only
+```
+
+Lambda logs are in **CloudWatch** (`/aws/lambda/<function>`), already `[job=N]`
+prefixed — filter `[job=` for one job, or `Callback to` / `success` / `warnings`
+for the outcome. The `log_handler` in §0.3 quiets the `httpx`/`boto3` per-request
+noise that otherwise drowns the stream.
+
+### 10.4 Out of scope (already built)
+
+Tasker review / edit / regenerate / re-extract flows are the manual-fix path the
+product relies on and were left unchanged.

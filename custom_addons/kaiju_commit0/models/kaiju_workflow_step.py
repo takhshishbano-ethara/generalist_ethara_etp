@@ -56,6 +56,32 @@ class KaijuWorkflowStep(models.Model):
     started_at = fields.Datetime(string="Started At")
     finished_at = fields.Datetime(string="Finished At")
 
+    duration_seconds = fields.Float(
+        string="Duration (s)",
+        compute="_compute_duration",
+        store=False,
+    )
+
+    # ── Log metrics ─────────────────────────────────────────────────────────
+
+    log_size = fields.Integer(
+        string="Log Size (bytes)",
+        compute="_compute_log_size",
+        store=False,
+    )
+    log_size_human = fields.Char(
+        string="Log Size",
+        compute="_compute_log_size",
+        store=False,
+        help="Human-readable log size (e.g. '8.2 KB')",
+    )
+    has_log = fields.Boolean(
+        string="Has Log",
+        compute="_compute_log_size",
+        store=False,
+        help="True when log_text is non-empty — distinguishes 'fetched but empty' from 'never fetched'",
+    )
+
     # ── Parent references ────────────────────────────────────────────────────
 
     build_id = fields.Many2one(
@@ -112,6 +138,34 @@ class KaijuWorkflowStep(models.Model):
                 rec.workflow_name = rec.run_id.workflow_name or ""
             else:
                 rec.workflow_name = ""
+
+    @api.depends("started_at", "finished_at")
+    def _compute_duration(self):
+        for rec in self:
+            if rec.started_at and rec.finished_at:
+                delta = rec.finished_at - rec.started_at
+                rec.duration_seconds = delta.total_seconds()
+            else:
+                rec.duration_seconds = 0.0
+
+    @api.depends("log_text")
+    def _compute_log_size(self):
+        for rec in self:
+            if not rec.log_text:
+                rec.log_size = 0
+                rec.log_size_human = ""
+                rec.has_log = False
+                continue
+            size = len(rec.log_text.encode("utf-8", errors="replace"))
+            rec.log_size = size
+            rec.has_log = True
+            # Human-readable
+            if size < 1024:
+                rec.log_size_human = f"{size} B"
+            elif size < 1024 * 1024:
+                rec.log_size_human = f"{size / 1024:.1f} KB"
+            else:
+                rec.log_size_human = f"{size / (1024 * 1024):.1f} MB"
 
     # ── Actions ──────────────────────────────────────────────────────────────
 

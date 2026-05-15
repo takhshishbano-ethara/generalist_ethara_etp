@@ -1,6 +1,6 @@
 {
     "name": "Leviathan",
-    "version": "19.0.2.0.0",
+    "version": "19.0.2.1.0",
     "category": "Tools",
     "summary": "Leviathan — Automated PRD Generation Pipeline (async-Lambda, 250-concurrent)",
     "description": (
@@ -8,7 +8,12 @@
         "PRD generation using AWS Bedrock LLM with deterministic scoring.\n\n"
         "v19.0.2.0.0: RabbitMQ removed. Batch fan-out now uses direct async "
         "lambda:Invoke (InvocationType=Event). Capacity scales with Lambda "
-        "ReservedConcurrentExecutions (default 250)."
+        "ReservedConcurrentExecutions (default 250).\n\n"
+        "v19.0.2.1.0: PRD is the deliverable — fail only on nothing-extracted "
+        "or PRD-gen failure (not missing screenshots). Skip re-extraction when "
+        "a PRD prompt already exists. New 'discarded' terminal state + Discard "
+        "button. Robust self-recovering thread pool. Full transparency: raw "
+        "Lambda callback + LLM trace per job. Watchdog 'started' ping."
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],

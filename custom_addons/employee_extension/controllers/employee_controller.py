@@ -894,7 +894,7 @@ class EmployeeController(http.Controller):
                 else:
                     data.append(vals)
 
-            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
+            active_projects = request.env['project.project'].sudo().search(request.env['project.project']._task_forge_live_domain())
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)
@@ -1190,9 +1190,9 @@ class EmployeeController(http.Controller):
             else:
                 return return_Response(message="Insufficient permissions", status=403)
 
-            active_projects = request.env['project.project'].sudo().search([
-                ('non_stemp_project_status', 'in', ['not_started', 'production'])
-            ])
+            active_projects = request.env['project.project'].sudo().search(
+                request.env['project.project']._task_forge_live_domain()
+            )
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)

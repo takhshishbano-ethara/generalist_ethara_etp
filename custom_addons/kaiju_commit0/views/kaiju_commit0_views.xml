@@ -23,6 +23,8 @@
                        decoration-warning="build_status == 'running'"
                        decoration-success="build_status == 'done'"
                        decoration-danger="build_status == 'failed'"/>
+                <field name="error_summary" optional="show"
+                       decoration-danger="build_status == 'failed'"/>
                 <field name="run_count" string="Runs"/>
                 <field name="image_uri" optional="hide"/>
             </list>
@@ -57,6 +59,13 @@
                             icon="fa-cloud-download"
                             invisible="not workflow_name"
                             help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
+
+                    <button name="action_fetch_pipeline_metadata" type="object"
+                            string="Refresh Metadata"
+                            class="btn-secondary"
+                            icon="fa-refresh"
+                            invisible="not s3_dataset_uri"
+                            help="Re-download dataset_entries.json from S3 and refresh pipeline metadata (base/reference commits, instance ID, forked repo)."/>
                 </header>
 
                 <sheet>
@@ -73,6 +82,7 @@
                     <field name="can_go_back" invisible="1"/>
                     <field name="can_create_run" invisible="1"/>
                     <field name="run_count" invisible="1"/>
+                    <field name="step_count" invisible="1"/>
 
                     <!-- ══════════════════════════════════════════════════
                          SCREEN 1: Configuration
@@ -144,32 +154,146 @@
                         <field name="build_log" widget="commit0_terminal"
                                invisible="not build_log"/>
 
-                        <div invisible="build_status == 'pending'">
-                            <h5 class="mt-3 mb-2">Workflow Steps</h5>
-                            <p class="text-muted small">Per-step status from Argo. Click a step to view its full pod logs.</p>
-                            <field name="step_ids" readonly="1">
-                                <list>
-                                    <field name="display_name" string="Step"/>
-                                    <field name="phase" widget="badge"
-                                           decoration-info="phase == 'Pending'"
-                                           decoration-warning="phase == 'Running'"
-                                           decoration-success="phase == 'Succeeded'"
-                                           decoration-danger="phase in ('Failed', 'Error')"
-                                           decoration-muted="phase in ('Skipped', 'Omitted')"/>
-                                    <field name="started_at"/>
-                                    <field name="finished_at"/>
-                                    <field name="log_fetched_at" optional="hide"/>
-                                </list>
-                            </field>
+                        <!-- ═══ Error Banner (only when failed) ═══ -->
+                        <div class="alert alert-danger mt-3"
+                             invisible="build_status != 'failed' or not error_summary"
+                             role="alert">
+                            <div class="d-flex align-items-start">
+                                <i class="fa fa-exclamation-triangle fa-lg me-2 mt-1"/>
+                                <div>
+                                    <strong>Build failed.</strong>
+                                    <div class="mt-1">
+                                        <field name="error_summary" readonly="1" nolabel="1"/>
+                                    </div>
+                                    <small class="text-muted">Check the failed step's logs below.</small>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="c0-output-paths" invisible="build_status != 'done'">
-                            <h5 class="mt-3 mb-2">Build Outputs</h5>
-                            <group>
-                                <field name="image_uri" string="Image URI"/>
-                                <field name="s3_dataset_uri" string="Dataset S3 URI"/>
-                                <field name="workflow_name" string="Argo Workflow"/>
-                            </group>
+                        <!-- ═══ Workflow Steps + Logs (notebook with two views) ═══ -->
+                        <div invisible="build_status == 'pending'">
+                            <h5 class="mt-3 mb-2">
+                                <i class="fa fa-tasks me-2"/>Workflow Steps &amp; Logs
+                                <span class="badge text-bg-secondary ms-2"
+                                      invisible="step_count == 0">
+                                    <field name="step_count" readonly="1" nolabel="1"/> steps
+                                </span>
+                            </h5>
+
+                            <notebook>
+                                <page string="Per-Step" name="per_step">
+                                    <p class="text-muted small">
+                                        Each row is one pipeline pod (prepare, build-repo-image, callback).
+                                        Click a step to view its full pod logs.
+                                    </p>
+                                    <field name="step_ids" readonly="1">
+                                        <list decoration-danger="phase in ('Failed', 'Error')"
+                                              decoration-warning="phase == 'Running'"
+                                              decoration-success="phase == 'Succeeded'"
+                                              decoration-muted="phase in ('Skipped', 'Omitted')">
+                                            <field name="display_name" string="Step"/>
+                                            <field name="phase" widget="badge"
+                                                   decoration-info="phase == 'Pending'"
+                                                   decoration-warning="phase == 'Running'"
+                                                   decoration-success="phase == 'Succeeded'"
+                                                   decoration-danger="phase in ('Failed', 'Error')"
+                                                   decoration-muted="phase in ('Skipped', 'Omitted')"/>
+                                            <field name="started_at" string="Started"/>
+                                            <field name="finished_at" string="Finished"/>
+                                            <field name="duration_seconds" string="Duration (s)"
+                                                   widget="float_time" optional="show"/>
+                                            <field name="log_size_human" string="Log Size"
+                                                   optional="show"/>
+                                            <field name="has_log" widget="boolean_toggle"
+                                                   string="Captured" optional="show" readonly="1"/>
+                                            <field name="log_fetched_at" string="Fetched"
+                                                   optional="hide"/>
+                                            <field name="pod_name" optional="hide"/>
+                                            <field name="template_name" optional="hide"/>
+                                            <field name="message" optional="hide"/>
+                                        </list>
+                                    </field>
+                                </page>
+
+                                <page string="Combined Logs" name="combined_logs">
+                                    <p class="text-muted small">
+                                        All step logs concatenated chronologically with step headers —
+                                        useful for tracing the full pipeline execution flow.
+                                        Use <kbd>Ctrl+F</kbd> in your browser to search across all steps.
+                                    </p>
+                                    <field name="combined_log_text" widget="commit0_terminal"
+                                           nolabel="1" readonly="1"
+                                           invisible="not combined_log_text"/>
+                                    <div class="alert alert-info" invisible="combined_log_text">
+                                        <i class="fa fa-info-circle me-2"/>
+                                        No logs captured yet. Click
+                                        <b>Fetch Logs from Argo</b> in the header.
+                                    </div>
+                                </page>
+                            </notebook>
+                        </div>
+
+                        <!-- ═══ Pipeline Metadata — cleaner grouped layout ═══ -->
+                        <div class="c0-pipeline-metadata mt-3" invisible="build_status != 'done'">
+                            <h5 class="mt-3 mb-2">
+                                <i class="fa fa-link me-2"/>Pipeline Artifacts &amp; Links
+                            </h5>
+                            <p class="text-muted small" invisible="metadata_fetched_at">
+                                Click <b>Refresh Metadata</b> in the header to populate identity fields from S3.
+                            </p>
+                            <p class="text-danger small" invisible="not metadata_error">
+                                <i class="fa fa-exclamation-triangle me-1"/>
+                                Metadata fetch error: <field name="metadata_error" readonly="1" nolabel="1"/>
+                            </p>
+
+                            <notebook>
+                                <page string="Identity" name="identity">
+                                    <group>
+                                        <group string="Repository">
+                                            <field name="instance_id"
+                                                   invisible="not instance_id"/>
+                                            <field name="original_repo_url" widget="url" string="Source"/>
+                                            <field name="forked_repo_url" widget="url" string="Fork"/>
+                                            <field name="test_ids_url" widget="url" string="Test IDs Branch"/>
+                                        </group>
+                                        <group string="Commits">
+                                            <field name="base_commit"
+                                                   invisible="not base_commit"/>
+                                            <field name="reference_commit"
+                                                   invisible="not reference_commit"/>
+                                            <field name="metadata_fetched_at"
+                                                   invisible="not metadata_fetched_at"/>
+                                        </group>
+                                    </group>
+                                </page>
+
+                                <page string="Datasets" name="datasets">
+                                    <group>
+                                        <group string="Storage">
+                                            <field name="s3_dataset_uri" string="S3 (raw)"/>
+                                            <field name="hf_dataset_url" widget="url" string="HuggingFace"/>
+                                        </group>
+                                    </group>
+                                </page>
+
+                                <page string="Image &amp; Build Artifacts" name="artifacts">
+                                    <group>
+                                        <group string="Container">
+                                            <field name="image_uri" string="Image (ECR)"/>
+                                        </group>
+                                        <group string="Build Files (S3)">
+                                            <field name="setup_sh_url" string="setup.sh"/>
+                                            <field name="dockerfile_url" string="Dockerfile"/>
+                                        </group>
+                                    </group>
+                                </page>
+
+                                <page string="Workflow" name="workflow">
+                                    <group>
+                                        <field name="workflow_name" string="Argo Workflow"/>
+                                    </group>
+                                </page>
+                            </notebook>
                         </div>
 
                         <div class="mt-4" invisible="build_status != 'done'">
