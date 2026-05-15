@@ -41,6 +41,7 @@ but extraction will fall back to the iframe.
 import json
 import logging
 import re
+import time
 
 import requests
 
@@ -337,14 +338,25 @@ def _fetch_via_instaloader(shortcode):
         return None
 
 
+_VIDEO_URL_CACHE_TTL = 240
+_VIDEO_URL_CACHE = {}
+
+
 def _fetch_video_url(shortcode, source_url):
+    now = time.time()
+    cached = _VIDEO_URL_CACHE.get(shortcode)
+    if cached and cached[1] > now:
+        return cached[0]
     canonical = source_url or f"https://www.instagram.com/reel/{shortcode}/"
-    return (
+    video_url = (
         _fetch_via_remote(shortcode, canonical)
         or _fetch_via_instaloader(shortcode)
-        # or _fetch_via_yt_dlp(canonical)
-        # or _fetch_via_scrape(shortcode)
+        or _fetch_via_yt_dlp(canonical)
+        or _fetch_via_scrape(shortcode)
     )
+    if video_url:
+        _VIDEO_URL_CACHE[shortcode] = (video_url, now + _VIDEO_URL_CACHE_TTL)
+    return video_url
 
 
 def get_instagram_video_url(instagram_url):
@@ -500,7 +512,19 @@ class ArgusVideoPreviewController(http.Controller):
         if not re.match(r"^[\w\-]{1,32}$", shortcode or ""):
             return request.not_found()
         source = source_url or f"https://www.instagram.com/reel/{shortcode}/"
-        html = _embed_html(shortcode=shortcode, source_url=source, title=title or "")
+        try:
+            video_url = _fetch_video_url(shortcode, source)
+        except Exception as exc:
+            _logger.warning("Argus preview: extraction crashed: %s", exc)
+            video_url = None
+        if video_url:
+            html = _player_html(
+                video_url=video_url, source_url=source, title=title or "",
+            )
+        else:
+            html = _embed_html(
+                shortcode=shortcode, source_url=source, title=title or "",
+            )
         return request.make_response(
             html,
             headers=[
