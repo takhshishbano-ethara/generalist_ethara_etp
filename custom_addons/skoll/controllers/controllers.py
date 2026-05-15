@@ -57,35 +57,14 @@ def _build_user_message(record_id, scenario_text):
         parts.append("- Task ID: %s" % (task.task_id or ""))
         if task.persona_id:
             parts.append("- Persona: %s" % task.persona_id.name)
-        if task.personality_archetype:
-            parts.append("- Personality Archetype: %s" % task.personality_archetype)
-        if task.confirmation_threshold:
-            parts.append("- Confirmation Threshold: %d" % task.confirmation_threshold)
-
-        if task.service_stack:
-            parts.append("- Service Stack: %s" % task.service_stack)
-        if task.difficulty_tags:
-            parts.append("- Difficulty Tags: %s" % task.difficulty_tags)
-        if task.safety_scenarios:
-            parts.append("- Safety Scenarios: %s" % task.safety_scenarios)
-
-        heart_parts = []
-        for label, val in (
-            ("Health", task.heart_health),
-            ("Exploration", task.heart_exploration),
-            ("Advice", task.heart_advice),
-            ("Relationships", task.heart_relationships),
-            ("Time", task.heart_time),
-        ):
-            if val:
-                heart_parts.append("%s=%s" % (label, val))
-        if heart_parts:
-            parts.append("- HEART Affinities: %s" % ", ".join(heart_parts))
-
-        if task.task_hooks:
-            parts.append("- Task Hooks:\n%s" % "\n".join(
-                "  - %s" % line for line in task.task_hooks.strip().splitlines() if line.strip()
-            ))
+        if task.life_domain_ids:
+            parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+        if task.cluster_ids:
+            parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+        if task.task_type_ids:
+            parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+        if task.pattern_taxonomy_ids:
+            parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
         parts.append("")
 
         prompt_text = (scenario_text or "").strip() or (task.seed_prompt or "").strip()
@@ -458,24 +437,14 @@ def _build_improve_message(task, trajectory, qc_result, structural_result):
     parts.append("## Task Input Data\n")
     if task.persona_id:
         parts.append("- Persona: %s" % task.persona_id.name)
-    if task.personality_archetype:
-        parts.append("- Personality Archetype: %s" % task.personality_archetype)
-    if task.service_stack:
-        parts.append("- Service Stack: %s" % task.service_stack)
-    if task.difficulty_tags:
-        parts.append("- Difficulty Tags: %s" % task.difficulty_tags)
-    heart_parts = []
-    for label, val in (
-        ("Health", task.heart_health),
-        ("Exploration", task.heart_exploration),
-        ("Advice", task.heart_advice),
-        ("Relationships", task.heart_relationships),
-        ("Time", task.heart_time),
-    ):
-        if val:
-            heart_parts.append("%s=%s" % (label, val))
-    if heart_parts:
-        parts.append("- HEART Affinities: %s" % ", ".join(heart_parts))
+    if task.life_domain_ids:
+        parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+    if task.cluster_ids:
+        parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+    if task.task_type_ids:
+        parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+    if task.pattern_taxonomy_ids:
+        parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
@@ -499,30 +468,14 @@ def _build_qc_message(task, content):
     parts.append("## Task Input Data\n")
     if task.persona_id:
         parts.append("- Persona: %s" % task.persona_id.name)
-    if task.personality_archetype:
-        parts.append("- Personality Archetype: %s" % task.personality_archetype)
-    if task.confirmation_threshold:
-        parts.append("- Confirmation Threshold: %d" % task.confirmation_threshold)
-    if task.service_stack:
-        parts.append("- Service Stack: %s" % task.service_stack)
-    if task.difficulty_tags:
-        parts.append("- Difficulty Tags: %s" % task.difficulty_tags)
-    if task.safety_scenarios:
-        parts.append("- Safety Scenarios: %s" % task.safety_scenarios)
-    heart_parts = []
-    for label, val in (
-        ("Health", task.heart_health),
-        ("Exploration", task.heart_exploration),
-        ("Advice", task.heart_advice),
-        ("Relationships", task.heart_relationships),
-        ("Time", task.heart_time),
-    ):
-        if val:
-            heart_parts.append("%s=%s" % (label, val))
-    if heart_parts:
-        parts.append("- HEART Affinities: %s" % ", ".join(heart_parts))
-    if task.task_hooks:
-        parts.append("- Task Hooks: %s" % task.task_hooks.replace("\n", "; "))
+    if task.life_domain_ids:
+        parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+    if task.cluster_ids:
+        parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+    if task.task_type_ids:
+        parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+    if task.pattern_taxonomy_ids:
+        parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
@@ -1038,45 +991,33 @@ class SkollController(http.Controller):
                     "memory_md": item["memory.md"].strip(),
                     "agent_md": item["agent.md"].strip(),
                 }
-                if item.get("personality_archetype"):
-                    vals["personality_archetype"] = str(item["personality_archetype"]).strip()
-                if item.get("confirmation_threshold") is not None:
-                    try:
-                        vals["confirmation_threshold"] = int(item["confirmation_threshold"])
-                    except (ValueError, TypeError):
-                        pass
+                TAG_FIELDS = (
+                    ("life_domain", "life_domain_ids", "skoll.tag.life_domain"),
+                    ("cluster", "cluster_ids", "skoll.tag.cluster"),
+                    ("task_type", "task_type_ids", "skoll.tag.task_type"),
+                    ("pattern_taxonomy", "pattern_taxonomy_ids", "skoll.tag.pattern_taxonomy"),
+                )
+                for jsonl_key, model_field, tag_model in TAG_FIELDS:
+                    raw = (item.get(jsonl_key) or "").strip()
+                    if not raw:
+                        continue
+                    TagModel = request.env[tag_model].sudo()
+                    tag_ids = []
+                    for part in raw.split(","):
+                        tag_name = part.strip()
+                        if not tag_name:
+                            continue
+                        tag = TagModel.search([("name", "=ilike", tag_name)], limit=1)
+                        if not tag:
+                            tag = TagModel.create({"name": tag_name})
+                        tag_ids.append(tag.id)
+                    if tag_ids:
+                        vals[model_field] = [(6, 0, tag_ids)]
 
-                for jsonl_key, model_field in (
-                    ("service_stack", "service_stack"),
-                    ("difficulty_tags", "difficulty_tags"),
-                    ("safety_scenarios", "safety_scenarios"),
-                ):
-                    v = item.get(jsonl_key)
-                    if v is not None:
-                        if isinstance(v, list):
-                            vals[model_field] = ", ".join(str(x) for x in v)
-                        elif isinstance(v, str) and v.strip():
-                            vals[model_field] = v.strip()
-
-                ha = item.get("heart_affinities")
-                if ha and isinstance(ha, dict):
-                    for key, field in (
-                        ("Health", "heart_health"),
-                        ("Exploration", "heart_exploration"),
-                        ("Advice", "heart_advice"),
-                        ("Relationships", "heart_relationships"),
-                        ("Time", "heart_time"),
-                    ):
-                        level = (ha.get(key) or "").lower()
-                        if level in ("high", "medium", "low"):
-                            vals[field] = level
-
-                th = item.get("task_hooks")
-                if th is not None:
-                    if isinstance(th, list):
-                        vals["task_hooks"] = "\n".join(str(x) for x in th)
-                    elif isinstance(th, str) and th.strip():
-                        vals["task_hooks"] = th.strip()
+                for plain_key in ("credential", "password", "prerequisites"):
+                    v = (item.get(plain_key) or "").strip()
+                    if v:
+                        vals[plain_key] = v
 
                 sa = item.get("spawned_agents")
                 if sa is not None:

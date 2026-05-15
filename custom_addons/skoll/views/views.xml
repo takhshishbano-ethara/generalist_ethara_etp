@@ -8,9 +8,10 @@
             <list>
                 <field name="task_id"/>
                 <field name="persona_id"/>
-                <field name="personality_archetype" optional="show"/>
-                <field name="difficulty_tags" optional="hide"/>
-                <field name="confirmation_threshold" optional="hide"/>
+                <field name="life_domain_ids" widget="many2many_tags" optional="show"/>
+                <field name="cluster_ids" widget="many2many_tags" optional="show"/>
+                <field name="task_type_ids" widget="many2many_tags" optional="show"/>
+                <field name="pattern_taxonomy_ids" widget="many2many_tags" optional="hide"/>
                 <field name="mode"/>
                 <field name="qc_status" decoration-success="qc_status == 'pass'"
                        decoration-danger="qc_status in ('fail', 'error')"
@@ -45,30 +46,27 @@
                     </group>
                     <group string="Task Metadata">
                         <group>
-                            <field name="personality_archetype" readonly="1"/>
-                            <field name="service_stack" readonly="1"/>
-                            <field name="difficulty_tags" readonly="1"/>
-                            <field name="confirmation_threshold" readonly="1"/>
+                            <field name="life_domain_ids" widget="many2many_tags" readonly="1"/>
+                            <field name="cluster_ids" widget="many2many_tags" readonly="1"/>
                         </group>
                         <group>
-                            <field name="safety_scenarios" readonly="1"/>
+                            <field name="task_type_ids" widget="many2many_tags" readonly="1"/>
+                            <field name="pattern_taxonomy_ids" widget="many2many_tags" readonly="1"/>
                         </group>
                     </group>
-                    <group string="HEART Affinities">
+                    <group string="Credentials" invisible="not credential and not password">
                         <group>
-                            <field name="heart_health" readonly="1"/>
-                            <field name="heart_exploration" readonly="1"/>
-                            <field name="heart_advice" readonly="1"/>
+                            <field name="credential" readonly="1"/>
                         </group>
                         <group>
-                            <field name="heart_relationships" readonly="1"/>
-                            <field name="heart_time" readonly="1"/>
+                            <field name="password" readonly="1"/>
                         </group>
                     </group>
-                    <group string="Task Context" invisible="not task_hooks and not spawned_agents">
-                        <field name="task_hooks" readonly="1" nolabel="1"
-                               placeholder="No task hooks" colspan="2"
-                               invisible="not task_hooks"/>
+                    <div class="w-100 mb-3" invisible="not prerequisites">
+                        <label for="prerequisites" string="Prerequisites" class="fw-bold mb-1"/>
+                        <field name="prerequisites" widget="skoll_markdown" readonly="1"/>
+                    </div>
+                    <group string="Task Context" invisible="not spawned_agents">
                         <field name="spawned_agents" readonly="1" nolabel="1"
                                placeholder="No spawned agents" colspan="2"
                                invisible="not spawned_agents"/>

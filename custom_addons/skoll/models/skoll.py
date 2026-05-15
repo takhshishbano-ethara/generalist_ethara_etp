@@ -38,40 +38,36 @@ class Skoll(models.Model):
         help="Manual = free-text editing. AI = content generated via LLM (read-only).",
     )
 
-    service_stack = fields.Char(string="Service Stack", readonly=True)
-
-    heart_health = fields.Selection(
-        [("high", "High"), ("medium", "Medium"), ("low", "Low")],
-        string="Health", readonly=True,
+    life_domain_ids = fields.Many2many(
+        "skoll.tag.life_domain",
+        "skoll_task_life_domain_rel", "task_id", "tag_id",
+        string="Life Domain", readonly=True,
     )
-    heart_exploration = fields.Selection(
-        [("high", "High"), ("medium", "Medium"), ("low", "Low")],
-        string="Exploration", readonly=True,
+    cluster_ids = fields.Many2many(
+        "skoll.tag.cluster",
+        "skoll_task_cluster_rel", "task_id", "tag_id",
+        string="Cluster", readonly=True,
     )
-    heart_advice = fields.Selection(
-        [("high", "High"), ("medium", "Medium"), ("low", "Low")],
-        string="Advice", readonly=True,
+    task_type_ids = fields.Many2many(
+        "skoll.tag.task_type",
+        "skoll_task_type_rel", "task_id", "tag_id",
+        string="Task Type", readonly=True,
     )
-    heart_relationships = fields.Selection(
-        [("high", "High"), ("medium", "Medium"), ("low", "Low")],
-        string="Relationships", readonly=True,
-    )
-    heart_time = fields.Selection(
-        [("high", "High"), ("medium", "Medium"), ("low", "Low")],
-        string="Time", readonly=True,
+    pattern_taxonomy_ids = fields.Many2many(
+        "skoll.tag.pattern_taxonomy",
+        "skoll_task_pattern_rel", "task_id", "tag_id",
+        string="Pattern Taxonomy", readonly=True,
     )
 
-    personality_archetype = fields.Char(string="Personality Archetype", readonly=True)
-    task_hooks = fields.Text(string="Task Hooks", readonly=True)
-    difficulty_tags = fields.Char(string="Difficulty Tags", readonly=True)
-    confirmation_threshold = fields.Integer(string="Confirmation Threshold", readonly=True)
-    safety_scenarios = fields.Char(string="Safety Scenarios", readonly=True)
     spawned_agents = fields.Text(string="Spawned Agents", readonly=True)
+
+    credential = fields.Char(string="Credential", readonly=True)
+    password = fields.Char(string="Password", readonly=True)
+    prerequisites = fields.Text(string="Prerequisites", readonly=True)
 
     seed_prompt = fields.Text(
         string="Seed Prompt",
         readonly=True,
-        help="Original seed prompt uploaded via JSONL. Not editable.",
     )
 
     agent_md = fields.Text(string="Agent MD")

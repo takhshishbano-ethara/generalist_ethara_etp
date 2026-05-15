@@ -73,6 +73,7 @@ export class SkollJsonField extends Component {
             streaming: false,
             streamText: "",
             qcRunning: false,
+            improving: false,
             truncated: false,
             aiEditing: false,
             aiEditBuffer: "",
@@ -81,6 +82,7 @@ export class SkollJsonField extends Component {
         this.editTextareaRef = useRef("editTextarea");
         this._streamBodyRef = useRef("streamBody");
         this._qcAbortController = null;
+        this._improveAbortController = null;
 
         this._onStreamStart = () => this._handleStreamStart();
         this._onStreamChunk = (ev) => this._handleStreamChunk(ev.detail);
@@ -111,6 +113,7 @@ export class SkollJsonField extends Component {
             this.env.bus.removeEventListener("SKOLL_STREAM_CHUNK", this._onStreamChunk);
             this.env.bus.removeEventListener("SKOLL_STREAM_END", this._onStreamEnd);
             if (this._qcAbortController) this._qcAbortController.abort();
+            if (this._improveAbortController) this._improveAbortController.abort();
         });
     }
 
@@ -256,6 +259,18 @@ export class SkollJsonField extends Component {
         return this.hasContent && !this.state.streaming && !this.state.qcRunning;
     }
 
+    get canImprove() {
+        const qcStatus = this.props.record.data.qc_status;
+        return (
+            this.hasContent &&
+            !this.state.streaming &&
+            !this.state.qcRunning &&
+            !this.state.improving &&
+            (qcStatus === "fail" || qcStatus === "needs_revision") &&
+            !!this.props.record.data.qc_result
+        );
+    }
+
     async onRunQc() {
         if (!this.canRunQc) return;
 
@@ -323,6 +338,76 @@ export class SkollJsonField extends Component {
         } finally {
             this.state.qcRunning = false;
             this._qcAbortController = null;
+            await this.props.record.load();
+        }
+    }
+
+    async onImprove() {
+        if (!this.canImprove) return;
+
+        if (this.props.record.isDirty) {
+            await this.props.record.save();
+        }
+
+        const recordId = this.props.record.resId;
+        if (!recordId) return;
+
+        this._improveAbortController = new AbortController();
+        this.state.improving = true;
+
+        this.env.bus.trigger("SKOLL_STREAM_START");
+
+        let accumulated = "";
+        try {
+            const resp = await fetch("/skoll/improve_stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ record_id: recordId }),
+                credentials: "same-origin",
+                signal: this._improveAbortController.signal,
+            });
+
+            if (!resp.ok) {
+                console.warn("Improve request failed:", resp.status);
+                return;
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let sseBuffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split("\n");
+                sseBuffer = lines.pop() || "";
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    try {
+                        const payload = JSON.parse(line.slice(6));
+                        if (payload.type === "delta" && payload.text) {
+                            accumulated += payload.text;
+                            this.env.bus.trigger("SKOLL_STREAM_CHUNK", { text: accumulated });
+                        } else if (payload.type === "stop") {
+                            const truncated = payload.stopReason === "max_tokens";
+                            this.env.bus.trigger("SKOLL_STREAM_END", { text: accumulated, truncated });
+                        }
+                    } catch (_e) {}
+                }
+            }
+
+            if (accumulated.trim()) {
+                await this.props.record.update({ content: accumulated });
+                await this.props.record.save();
+            }
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.warn("Improve stream failed:", err);
+            }
+        } finally {
+            this.state.improving = false;
+            this._improveAbortController = null;
             await this.props.record.load();
         }
     }
