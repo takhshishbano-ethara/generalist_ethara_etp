@@ -303,10 +303,24 @@ class ArgoClient(models.AbstractModel):
         for node_id, node in nodes.items():
             if node.get("type") != "Pod":
                 continue
+            # Resolve the effective template name. Argo's own helper
+            # `GetTemplateFromNode` (workflow/util/util.go) prefers
+            # `node.templateRef.template` when present (i.e. when the
+            # DAG task uses `templateRef:` to point at another
+            # WorkflowTemplate), falling back to `node.templateName`
+            # (inline templates). This is the SAME value Argo's
+            # controller uses to compute pod names — see
+            # workflow/controller/workflowpod.go:209.
+            tmpl_ref = node.get("templateRef") or {}
+            effective_template = (
+                tmpl_ref.get("template")
+                or node.get("templateName")
+                or ""
+            )
             # Derive a clean human-readable name:
             # 1. Prefer Argo's `displayName` (typically the DAG step name, e.g. "prepare")
             # 2. Strip the workflow prefix from `name` (e.g. "wf.prepare" → "prepare")
-            # 3. Fall back to `templateName`, then raw node_id
+            # 3. Fall back to the resolved template, then raw node_id
             display = node.get("displayName") or ""
             if not display:
                 name = node.get("name") or ""
@@ -315,11 +329,13 @@ class ArgoClient(models.AbstractModel):
                 elif name:
                     display = name
                 else:
-                    display = node.get("templateName") or node_id
-            pod_name = self._generate_pod_name(
+                    display = effective_template or node_id
+            # Prefer Argo's authoritative `podName` if present (v3.5+ emits
+            # this directly on the node). Otherwise compute via PodNameV2.
+            pod_name = node.get("podName") or self._generate_pod_name(
                 workflow_name=workflow_name,
                 node_name=node.get("name", ""),
-                template_name=node.get("templateName", ""),
+                template_name=effective_template,
                 node_id=node.get("id", node_id),
             )
             pod_nodes.append({
@@ -328,7 +344,9 @@ class ArgoClient(models.AbstractModel):
                 "displayName": display,
                 "type": node.get("type", ""),
                 "phase": node.get("phase", ""),
-                "templateName": node.get("templateName", ""),
+                # Expose the RESOLVED template name (templateRef-aware) so
+                # downstream consumers (_sync_steps) store the correct value.
+                "templateName": effective_template,
                 "message": node.get("message", ""),
                 "startedAt": node.get("startedAt", ""),
                 "finishedAt": node.get("finishedAt", ""),
@@ -364,17 +382,31 @@ class ArgoClient(models.AbstractModel):
     def _generate_pod_name(cls, workflow_name, node_name, template_name, node_id):
         """Replicate Argo's GeneratePodName (PodNameV2) algorithm.
 
-        Returns the actual Kubernetes pod name for a given workflow node,
-        matching the Go implementation in argo-workflows/workflow/util/pod_name.go.
+        Mirrors workflow/util/pod_name.go in argo-workflows v3.5+:
+
+            if workflow_name == node_name:  return workflow_name
+            if ".inline" in node_name:      prefix = workflow_name
+            else:                            prefix = f"{wf}-{template_name}"
+            return f"{prefix}-{fnv1a_32(node_name)}"
+
+        IMPORTANT: `template_name` MUST be the RESOLVED template name
+        (i.e., `templateRef.template` for templateRef nodes, or the inline
+        `templateName` for inline nodes). Use Argo's `GetTemplateFromNode`
+        helper logic upstream (in `list_workflow_nodes`) to compute this.
         Falls back to node_id if required fields are missing.
         """
         if not workflow_name or not node_name:
             return node_id or ""
         if workflow_name == node_name:
             return workflow_name
-        prefix = workflow_name
-        if template_name:
-            prefix = f"{prefix}-{template_name}"
+        if ".inline" in node_name:
+            prefix = workflow_name
+        elif template_name:
+            prefix = f"{workflow_name}-{template_name}"
+        else:
+            # No template name resolved — best effort, mirrors Argo's
+            # own behavior (produces a `wf--hash` double-dash name).
+            prefix = workflow_name
         # Truncate prefix to leave room for the hash suffix
         if len(prefix) > cls._MAX_POD_PREFIX_LEN - 1:
             prefix = prefix[: cls._MAX_POD_PREFIX_LEN - 1]

@@ -10,7 +10,7 @@
         <field name="model">kaiju.commit0.workflow.step</field>
         <field name="arch" type="xml">
             <list>
-                <field name="display_name" string="Step"/>
+                <field name="display_name" string="Step" widget="char"/>
                 <field name="phase" widget="badge"
                        decoration-info="phase == 'Pending'"
                        decoration-warning="phase == 'Running'"
@@ -71,6 +71,16 @@
                     <notebook>
                         <page string="Logs" name="logs">
                             <field name="log_text" widget="commit0_terminal" nolabel="1"/>
+                        </page>
+                        <page string="Fetch Diagnostic" name="diagnostic"
+                              invisible="not last_fetch_diagnostic">
+                            <div class="alert alert-info" role="alert">
+                                <strong>Last log-fetch attempt details.</strong>
+                                Use this to troubleshoot when logs are missing.
+                                Updates every time you click <em>Refresh Logs from Argo</em>.
+                            </div>
+                            <field name="last_fetch_diagnostic" nolabel="1" readonly="1"
+                                   widget="text"/>
                         </page>
                     </notebook>
                 </sheet>
