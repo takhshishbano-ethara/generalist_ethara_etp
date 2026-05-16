@@ -43,6 +43,20 @@ _INLINE_REPORT_CAP = 128 * 1024
 _INLINE_FIX_PATCH_CAP = 256 * 1024
 _LOG_TAIL_BYTES = 64 * 1024
 
+ECR_RESOURCE_TAGS: list[tuple[str, str]] = [
+    ("Environment", "Production"),
+    ("Project", "Aurora"),
+    ("Owner", "Ethara AI"),
+    ("Team", "DevOps"),
+    ("ManagedBy", "Ethara-internel"),
+    ("CostCenter", "RD-001 / OPS-002"),
+    ("map-migrated", "migWBK9WXSX89"),
+]
+
+
+def _ecr_tag_cli_args() -> list[str]:
+    return [f"Key={k},Value={v}" for k, v in ECR_RESOURCE_TAGS]
+
 
 def load_s3_config() -> dict:
     from .pipeline import S3_BUCKET, S3_REGION, S3_AURORA_PREFIX
@@ -709,33 +723,67 @@ def push_resolved_images_to_ecr(conn, rec_id: int, workdir: str, output_dir: str
 
 
 def ensure_ecr_repository(ecr_registry: str, region: str, repo_path: str) -> None:
-    """Best-effort create-if-missing for an ECR repository.
-
-    Safe to call repeatedly. Swallows 'already exists'; raises only for true
-    failures (auth, network).
-    """
     import subprocess
+    import json as _json
+
+    repo_arn: Optional[str] = None
+
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["aws", "ecr", "describe-repositories",
-             "--region", region, "--repository-names", repo_path],
+             "--region", region, "--repository-names", repo_path,
+             "--output", "json"],
             capture_output=True, text=True, check=True, timeout=30,
         )
-        return
+        data = _json.loads(result.stdout or "{}")
+        repos = data.get("repositories") or []
+        if repos:
+            repo_arn = repos[0].get("repositoryArn")
     except subprocess.CalledProcessError:
-        pass  # repo doesn't exist — create it
+        pass  # repo doesn't exist — fall through to create
     except FileNotFoundError:
         return  # aws CLI missing; let the push surface the real error
 
-    try:
-        subprocess.run(
-            ["aws", "ecr", "create-repository",
-             "--region", region, "--repository-name", repo_path,
-             "--image-scanning-configuration", "scanOnPush=true"],
-            capture_output=True, text=True, check=True, timeout=30,
-        )
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or "").lower()
-        if "repositoryalreadyexists" in stderr or "already exists" in stderr:
-            return
-        raise
+    if repo_arn is None:
+        try:
+            result = subprocess.run(
+                ["aws", "ecr", "create-repository",
+                 "--region", region, "--repository-name", repo_path,
+                 "--image-scanning-configuration", "scanOnPush=true",
+                 "--tags", *_ecr_tag_cli_args(),
+                 "--output", "json"],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            data = _json.loads(result.stdout or "{}")
+            repo_arn = (data.get("repository") or {}).get("repositoryArn")
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").lower()
+            if not ("repositoryalreadyexists" in stderr or "already exists" in stderr):
+                raise
+            # race: another caller created it — re-describe to recover the ARN
+            try:
+                result = subprocess.run(
+                    ["aws", "ecr", "describe-repositories",
+                     "--region", region, "--repository-names", repo_path,
+                     "--output", "json"],
+                    capture_output=True, text=True, check=True, timeout=30,
+                )
+                repos = (_json.loads(result.stdout or "{}").get("repositories") or [])
+                if repos:
+                    repo_arn = repos[0].get("repositoryArn")
+            except Exception:
+                pass
+
+    if repo_arn:
+        try:
+            subprocess.run(
+                ["aws", "ecr", "tag-resource",
+                 "--region", region, "--resource-arn", repo_arn,
+                 "--tags", *_ecr_tag_cli_args()],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+        except subprocess.CalledProcessError as exc:
+            _logger.warning(
+                "ecr tag-resource failed for %s: %s",
+                repo_path, (exc.stderr or "").strip(),
+            )
