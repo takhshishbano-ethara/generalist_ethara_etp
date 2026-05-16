@@ -252,6 +252,22 @@ class LeviathanJob(models.Model):
             or self.asset_keys
         )
 
+    def _smart_state_on_assign(self):
+        """State a task should land in when (re)assigned to a user.
+
+        Released tasks keep their data; on pick-up the state restores so the
+        new owner sees the right buttons:
+          - prd_text exists           -> done   (Submit / Rerun / Regenerate)
+          - extraction data, no PRD   -> failed (Retry opens rerun wizard)
+          - nothing                   -> draft  (Run Pipeline)
+        """
+        self.ensure_one()
+        if self.prd_text:
+            return "done"
+        if self._has_extraction_data:
+            return "failed"
+        return "draft"
+
     # ------------------------------------------------------------------
     # Prompt helpers (read from Settings, fallback to file)
     # ------------------------------------------------------------------
@@ -668,16 +684,32 @@ class LeviathanJob(models.Model):
 
     def write(self, vals):
         res = super().write(vals)
-        # Auto-promote to draft when admin assigns a user to not_assigned task
+        # Auto-promote when admin assigns a user to a not_assigned task.
+        # The target state preserves whatever progress the task already has
+        # (see _smart_state_on_assign): released done tasks come back as done,
+        # released failed-with-data tasks come back as failed (Retry visible),
+        # everything else lands in draft. Plain rec.write() is used (not
+        # super(LeviathanJob, ...).write) so mail.thread chatter records the
+        # state restoration. Recursion is bounded: the recursive vals carries
+        # only `state`, so this promote/demote block does not re-enter.
         if "user_id" in vals and vals["user_id"]:
             to_promote = self.filtered(lambda r: r.state == "not_assigned")
-            if to_promote:
-                super(LeviathanJob, to_promote).write({"state": "draft"})
+            for rec in to_promote:
+                new_state = rec._smart_state_on_assign()
+                if rec.state == new_state:
+                    continue
+                promote_vals = {"state": new_state}
+                if new_state == "failed" and not rec.error_message:
+                    promote_vals["error_message"] = (
+                        "Reassigned with prior extraction data — "
+                        "click Retry to resume."
+                    )
+                rec.write(promote_vals)
         # Auto-demote to not_assigned when user is removed from draft task
         if "user_id" in vals and not vals["user_id"]:
             to_demote = self.filtered(lambda r: r.state == "draft")
             if to_demote:
-                super(LeviathanJob, to_demote).write({"state": "not_assigned"})
+                to_demote.write({"state": "not_assigned"})
         return res
 
     # ------------------------------------------------------------------
@@ -721,8 +753,7 @@ class LeviathanJob(models.Model):
         if not task:
             raise UserError("No tasks available. Check back later.")
 
-        # Smart state: if PRD exists (released done task), go to done
-        new_state = "done" if task.prd_text else "draft"
+        new_state = task._smart_state_on_assign()
         task.write({"user_id": user.id, "state": new_state})
         task._notify_state_change(new_state)
 

@@ -164,3 +164,34 @@ class TestBulkAssignWizard(LeviathanTestCase):
             active_ids=[a.id, b.id, c.id],
         ).create({"user_id": self.tasker.id})
         self.assertEqual(wiz.task_count, 3)
+
+    def test_skips_submitted_tasks(self):
+        live = self._create_job()
+        submitted = self._create_job(
+            user_id=self.tasker.id, prd_text="PRD", qc_verdict="shippable",
+        )
+        submitted.write({"state": "done"})
+        submitted.write({"state": "submitted"})
+        wiz = self.env["leviathan.bulk.assign.wizard"].with_context(
+            active_ids=[live.id, submitted.id],
+        ).create({"user_id": self.other_user.id})
+        result = wiz.action_assign()
+        live.invalidate_recordset()
+        submitted.invalidate_recordset()
+        self.assertEqual(live.user_id, self.other_user)
+        self.assertEqual(submitted.user_id, self.tasker)
+        self.assertEqual(submitted.state, "submitted")
+        self.assertEqual(result.get("tag"), "display_notification")
+        self.assertIn("skipped", result["params"]["message"])
+
+    def test_all_submitted_raises(self):
+        a = self._create_job(
+            user_id=self.tasker.id, prd_text="P", qc_verdict="shippable",
+        )
+        a.write({"state": "done"})
+        a.write({"state": "submitted"})
+        wiz = self.env["leviathan.bulk.assign.wizard"].with_context(
+            active_ids=[a.id],
+        ).create({"user_id": self.other_user.id})
+        with self.assertRaises(UserError):
+            wiz.action_assign()

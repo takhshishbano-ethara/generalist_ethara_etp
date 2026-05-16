@@ -28,5 +28,29 @@ class BulkAssignWizard(models.TransientModel):
             raise UserError("No tasks selected.")
 
         tasks = self.env["leviathan.job"].browse(active_ids)
-        tasks.write({"user_id": self.user_id.id})
-        return {"type": "ir.actions.act_window_close"}
+        eligible = tasks.filtered(lambda t: t.state != "submitted")
+        skipped = tasks - eligible
+        if not eligible:
+            raise UserError(
+                "All selected tasks are in 'Submitted' state and cannot be reassigned."
+            )
+
+        eligible.write({"user_id": self.user_id.id})
+
+        if not skipped:
+            return {"type": "ir.actions.act_window_close"}
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Bulk Assign Complete",
+                "message": (
+                    f"{len(eligible)} task(s) assigned. "
+                    f"{len(skipped)} 'Submitted' task(s) skipped."
+                ),
+                "type": "warning",
+                "sticky": False,
+                "next": {"type": "ir.actions.act_window_close"},
+            },
+        }
