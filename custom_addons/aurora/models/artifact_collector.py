@@ -563,6 +563,17 @@ def push_resolved_images_to_ecr(conn, rec_id: int, workdir: str, output_dir: str
     oci_tars_root = Path(workdir) / "oci_tars"
     import tempfile as _tempfile
 
+    ecr_repo_path = "aurora"
+    if kind == "ecr" and resolved_ids:
+        try:
+            ensure_ecr_repository(ecr_registry, ecr_region, ecr_repo_path)
+        except Exception as exc:
+            _logger.warning(
+                "Failed to ensure ECR repository %s exists: %s. "
+                "Push will fail if the repo isn't pre-created.",
+                ecr_repo_path, exc,
+            )
+
     for iid in sorted(resolved_ids):
         inst = by_id.get(iid)
         if not inst:
@@ -588,22 +599,18 @@ def push_resolved_images_to_ecr(conn, rec_id: int, workdir: str, output_dir: str
             )
             continue
 
-        ecr_repo_path = f"aurora/{org}__{repo}".lower()
+        pr_number = getattr(pr, "number", None)
+        if not pr_number:
+            _logger.error(
+                "PR number missing for %s; refusing to push (would collide on the shared aurora repo).",
+                iid,
+            )
+            continue
         # Tag from PR number (mutable). The digest captured below is the
         # immutable handle stored alongside on the instance row.
-        pr_number = getattr(pr, "number", None) or "unknown"
-        ecr_tag = f"pr-{pr_number}"
+        raw_tag = f"{org}__{repo}__pr-{pr_number}".lower()
+        ecr_tag = re.sub(r"[^a-zA-Z0-9_.-]", "_", raw_tag)[:300]
         ecr_ref = f"{ecr_registry}/{ecr_repo_path}:{ecr_tag}"
-
-        if kind == "ecr":
-            try:
-                ensure_ecr_repository(ecr_registry, ecr_region, ecr_repo_path)
-            except Exception as exc:
-                _logger.warning(
-                    "Failed to ensure ECR repository %s exists: %s. "
-                    "Push will fail if the repo isn't pre-created.",
-                    ecr_repo_path, exc,
-                )
 
         # Capture the manifest digest reliably via --digestfile. Skopeo's
         # stdout/stderr only contain per-blob sha256 lines during transfer;
@@ -683,11 +690,7 @@ def push_resolved_images_to_ecr(conn, rec_id: int, workdir: str, output_dir: str
         pushed_count += 1
         _logger.info("Pushed %s -> %s (%s)", iid, ecr_ref, digest or "no-digest")
 
-    ecr_repository_uri = (
-        f"{ecr_registry}/aurora/{org_for_repo}__{repo_for_repo}".lower()
-        if org_for_repo and repo_for_repo
-        else ""
-    )
+    ecr_repository_uri = f"{ecr_registry}/{ecr_repo_path}".lower() if resolved_ids else ""
 
     manifest_s3_uri = ""
     if manifest_entries:
