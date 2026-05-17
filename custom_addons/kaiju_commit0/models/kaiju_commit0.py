@@ -149,14 +149,37 @@ class KaijuCommit0(models.Model):
         readonly=True,
         default="dataset_entries.json",
     )
+    dataset_json_text = fields.Text(
+        string="Dataset JSON",
+        compute="_compute_dataset_json_text",
+        store=False,
+        readonly=True,
+        help="Pretty-printed JSON view of dataset_file for inline display.",
+    )
     workflow_name = fields.Char(string="Build Workflow", readonly=True)
+
+    # ── Async submission tracking (Phase 1 — CSV decouple) ───────────
+    submit_attempts = fields.Integer(
+        string="Submit Attempts",
+        default=0,
+        readonly=True,
+        copy=False,
+        help="Number of times the submit cron has tried to launch this build. "
+             "Capped at 3 — beyond this the build is marked failed permanently.",
+    )
+    submit_error = fields.Char(
+        string="Last Submit Error",
+        readonly=True,
+        copy=False,
+        help="Last error encountered when the submit cron tried to launch this build.",
+    )
 
     # ── Log summary (computed from step_ids) ────────────────────────
 
     error_summary = fields.Char(
         string="Error Summary",
         compute="_compute_error_summary",
-        store=True,
+        store=False,
         help="Truncated error from first failed step — quick triage in list view",
     )
     combined_log_text = fields.Text(
@@ -327,6 +350,28 @@ class KaijuCommit0(models.Model):
             else:
                 rec.setup_sh_url = False
                 rec.dockerfile_url = False
+
+    @api.depends("dataset_file")
+    def _compute_dataset_json_text(self):
+        """Decode the cached base64 dataset_file blob into pretty-printed JSON
+        for inline display. Falls back to raw decoded text if not valid JSON."""
+        import base64
+        import json
+        for rec in self:
+            if not rec.dataset_file:
+                rec.dataset_json_text = False
+                continue
+            try:
+                raw = base64.b64decode(rec.dataset_file)
+                text = raw.decode("utf-8", errors="replace")
+                try:
+                    parsed = json.loads(text)
+                    rec.dataset_json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                except (ValueError, TypeError):
+                    # Not valid JSON — show raw decoded text
+                    rec.dataset_json_text = text
+            except Exception as e:  # noqa: BLE001
+                rec.dataset_json_text = f"<could not decode dataset_file: {e}>"
 
     @api.depends("current_phase", "repo_name", "language", "build_status")
     def _compute_navigation_flags(self):
@@ -529,27 +574,140 @@ class KaijuCommit0(models.Model):
 
     # ── Cron: Poll Argo for running builds ───────────────────────────────────
 
+    # ── Cron: Submit pending builds to Argo (Phase 1) ───────────────
+
+    SUBMIT_BATCH = 20
+    SUBMIT_MAX_ATTEMPTS = 3
+
+    @api.model
+    def _cron_submit_pending_builds(self):
+        """Drain pending builds queued by CSV import to Argo.
+
+        Wizard creates rows fast (no Argo HTTP per row, no timeout) — this cron
+        submits them asynchronously, bounded per-tick to keep Argo + DB stable.
+
+        - UserError → permanent failure, NOT retried (bad config).
+        - Transient Exception → increment attempts, retry up to SUBMIT_MAX_ATTEMPTS.
+        - Per-row savepoint isolates failures so one bad row doesn't poison batch.
+        """
+        start_ts = fields.Datetime.now()
+        pending = self.search(
+            [
+                ("build_status", "=", "pending"),
+                ("workflow_name", "=", False),
+                ("submit_attempts", "<", self.SUBMIT_MAX_ATTEMPTS),
+            ],
+            order="create_date asc",
+            limit=self.SUBMIT_BATCH,
+        )
+        if not pending:
+            return
+        _logger.info(
+            "[kaiju.commit0] submit_pending: draining %s pending builds",
+            len(pending),
+        )
+        submitted = 0
+        permanent_fail = 0
+        transient_fail = 0
+        for build in pending:
+            try:
+                with self.env.cr.savepoint():
+                    build.action_run_build()
+                    build.write({"submit_error": False})
+                submitted += 1
+            except UserError as e:
+                # Bad config — don't retry, mark terminal failed.
+                build.write({
+                    "submit_attempts": build.submit_attempts + 1,
+                    "submit_error": str(e)[:255],
+                    "build_status": "failed",
+                    "build_end": fields.Datetime.now(),
+                    "build_log": self._append_log(
+                        build.build_log,
+                        f"Submit failed (permanent — bad config): {e}",
+                    ),
+                })
+                permanent_fail += 1
+                _logger.warning(
+                    "[kaiju.commit0] submit_pending: PERMANENT fail build %s: %s",
+                    build.name, e,
+                )
+            except Exception as e:  # noqa: BLE001 — transient, retry budgeted
+                attempts = build.submit_attempts + 1
+                if attempts >= self.SUBMIT_MAX_ATTEMPTS:
+                    build.write({
+                        "submit_attempts": attempts,
+                        "submit_error": str(e)[:255],
+                        "build_status": "failed",
+                        "build_end": fields.Datetime.now(),
+                        "build_log": self._append_log(
+                            build.build_log,
+                            f"Submit failed (exhausted {self.SUBMIT_MAX_ATTEMPTS} attempts): {e}",
+                        ),
+                    })
+                    permanent_fail += 1
+                    _logger.warning(
+                        "[kaiju.commit0] submit_pending: EXHAUSTED build %s (%s attempts): %s",
+                        build.name, attempts, e,
+                    )
+                else:
+                    build.write({
+                        "submit_attempts": attempts,
+                        "submit_error": str(e)[:255],
+                    })
+                    transient_fail += 1
+                    _logger.warning(
+                        "[kaiju.commit0] submit_pending: TRANSIENT fail build %s (attempt %s/%s): %s",
+                        build.name, attempts, self.SUBMIT_MAX_ATTEMPTS, e,
+                    )
+        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
+        _logger.info(
+            "[kaiju.commit0] submit_pending: done batch=%s submitted=%s permanent_fail=%s transient_fail=%s elapsed=%.2fs",
+            len(pending), submitted, permanent_fail, transient_fail, elapsed,
+        )
+
+    # ── Cron: Poll Argo for running builds ───────────────────────────────────
+
+    POLL_RUNNING_LIMIT = 20
+    POLL_TERMINAL_INCOMPLETE_LIMIT = 10
+
     @api.model
     def _cron_poll_build_status(self):
-        """Called by ir.cron every 60s to update running builds from Argo."""
+        """Called by ir.cron every 60s to update running builds from Argo.
+
+        Bounded per tick (POLL_RUNNING_LIMIT + POLL_TERMINAL_INCOMPLETE_LIMIT)
+        so a large backlog can't stack ticks. Ordered by build_end asc so the
+        builds closest to Argo pod GC (5 min) are polled first.
+        """
+        start_ts = fields.Datetime.now()
         running_builds = self.search(
-            [("build_status", "=", "running"), ("workflow_name", "!=", False)]
+            [("build_status", "=", "running"), ("workflow_name", "!=", False)],
+            order="build_start asc, create_date asc",
+            limit=self.POLL_RUNNING_LIMIT,
         )
         # Defense in depth: also re-poll terminal builds that have no step records
         # yet OR have steps without logs. Catches the race where callback finalizes
         # status before _sync_steps runs (and before pod GC at 5min destroys pods).
-        # Bounded to recently-finished builds (last 10min) to avoid scanning history.
+        # Pure SQL via stored has_log + polish OR to include zero-step builds.
         recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
         terminal_incomplete = self.search([
-            ("build_status", "in", ("done", "failed")),
-            ("workflow_name", "!=", False),
-            ("build_end", ">=", recent_cutoff),
-        ]).filtered(
-            lambda b: not b.step_ids or any(not s.log_text for s in b.step_ids)
+                ("build_status", "in", ("done", "failed")),
+                ("workflow_name", "!=", False),
+                ("build_end", ">=", recent_cutoff),
+                "|",
+                ("step_ids", "=", False),
+                ("step_ids.has_log", "=", False),
+            ],
+            order="build_end asc, create_date asc",
+            limit=self.POLL_TERMINAL_INCOMPLETE_LIMIT,
         )
         all_builds = running_builds | terminal_incomplete
         if not all_builds:
             return
+        _logger.info(
+            "[kaiju.commit0] poll_build: tick running=%s terminal_incomplete=%s",
+            len(running_builds), len(terminal_incomplete),
+        )
 
         argo = self.env["kaiju.argo.client"]
         for build in all_builds:
@@ -645,6 +803,11 @@ class KaijuCommit0(models.Model):
                         build.name,
                         e,
                     )
+        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
+        _logger.info(
+            "[kaiju.commit0] poll_build: done processed=%s elapsed=%.2fs",
+            len(all_builds), elapsed,
+        )
 
     # ── Step Sync & Log Persistence ─────────────────────────────────
 

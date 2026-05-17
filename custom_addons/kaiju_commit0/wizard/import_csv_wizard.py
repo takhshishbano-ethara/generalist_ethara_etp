@@ -36,6 +36,9 @@ class ImportCsvWizard(models.TransientModel):
         readonly=True,
     )
     total_rows = fields.Integer(string="Total Rows", readonly=True)
+    queued_count = fields.Integer(
+        string="Queued", compute="_compute_counts", store=True
+    )
     imported_count = fields.Integer(
         string="Imported", compute="_compute_counts", store=True
     )
@@ -49,6 +52,9 @@ class ImportCsvWizard(models.TransientModel):
     @api.depends("result_line_ids.status")
     def _compute_counts(self):
         for wiz in self:
+            wiz.queued_count = sum(
+                1 for l in wiz.result_line_ids if l.status == "queued"
+            )
             wiz.imported_count = sum(
                 1 for l in wiz.result_line_ids if l.status == "imported"
             )
@@ -85,7 +91,11 @@ class ImportCsvWizard(models.TransientModel):
         if not parsed:
             raise UserError("No rows found in the file.")
 
-        # ── Phase 2: create + start builds, capture per-row status ──
+        # ── Phase 2: create build records ONLY (no Argo submit here) ──
+        # Argo submit happens asynchronously via _cron_submit_pending_builds.
+        # This keeps the wizard sub-second even for 400-row uploads (avoids
+        # HTTP timeout) and bounds the burst on Argo + DB.
+        Build = self.env["kaiju.commit0"]
         line_vals = []
         for row in parsed:
             line = {
@@ -103,23 +113,43 @@ class ImportCsvWizard(models.TransientModel):
                 line_vals.append((0, 0, line))
                 continue
 
-            # Create + start build
-            try:
-                build = self.env["kaiju.commit0"].create(
-                    {
-                        "repo_name": row["repo_name"],
-                        "language": row["language"],
-                    }
-                )
-                build.action_validate_config()
-                build.action_run_build()
-                line["status"] = "imported"
-                line["build_id"] = build.id
-            except (UserError, RuntimeError, ValueError) as e:
+            # Dedup pre-check: hard-error rows that conflict with active builds
+            # (only pending/running block — done/failed don't, so re-runs work).
+            existing = Build.search(
+                [
+                    ("repo_name", "=", row["repo_name"]),
+                    ("language", "=", row["language"]),
+                    ("build_status", "in", ("pending", "running")),
+                ],
+                limit=1,
+            )
+            if existing:
                 line["status"] = "failed"
-                line["error_message"] = str(e)
+                line["error_message"] = (
+                    f"Duplicate — build {existing.name} already "
+                    f"{existing.build_status} for this repo/language."
+                )
+                line["build_id"] = existing.id
+                line_vals.append((0, 0, line))
+                continue
+
+            # Create the build record only — cron will submit it to Argo.
+            try:
+                with self.env.cr.savepoint():
+                    build = Build.create(
+                        {
+                            "repo_name": row["repo_name"],
+                            "language": row["language"],
+                            "build_status": "pending",
+                        }
+                    )
+                line["status"] = "queued"
+                line["build_id"] = build.id
+            except Exception as e:  # noqa: BLE001 — surface in result table
+                line["status"] = "failed"
+                line["error_message"] = str(e)[:255]
                 _logger.warning(
-                    "Bulk import: failed to start build for %s: %s",
+                    "Bulk import: failed to create build for %s: %s",
                     row.get("repo_name"),
                     e,
                 )
@@ -153,14 +183,14 @@ class ImportCsvWizard(models.TransientModel):
         build_ids = [
             l.build_id.id
             for l in self.result_line_ids
-            if l.build_id and l.status == "imported"
+            if l.build_id and l.status in ("queued", "imported")
         ]
         if not build_ids:
-            raise UserError("No builds were successfully imported.")
+            raise UserError("No builds were successfully created.")
 
         return {
             "type": "ir.actions.act_window",
-            "name": "Imported Builds",
+            "name": "Imported / Queued Builds",
             "res_model": "kaiju.commit0",
             "view_mode": "list,form",
             "domain": [("id", "in", build_ids)],
@@ -182,6 +212,7 @@ class ImportCsvWizard(models.TransientModel):
                 "imported_count": 0,
                 "failed_count": 0,
                 "skipped_count": 0,
+                "queued_count": 0,
             }
         )
         return {
@@ -276,6 +307,7 @@ class ImportCsvWizardLine(models.TransientModel):
     language = fields.Char(string="Language", readonly=True)
     status = fields.Selection(
         [
+            ("queued", "Queued"),
             ("imported", "Imported"),
             ("failed", "Failed"),
             ("skipped", "Skipped"),

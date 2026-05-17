@@ -137,10 +137,18 @@
                             </group>
                         </div>
 
-                        <div class="c0-phase-action" invisible="build_status in ('done', 'running')">
+                        <!-- Hide Start Build when: already running/done, OR CSV-queued waiting for submit cron -->
+                        <div class="c0-phase-action" invisible="build_status in ('done', 'running') or (build_status == 'pending' and submit_attempts &gt; 0)">
                             <button name="action_run_build" type="object"
                                     string="Start Build"
                                     class="btn-primary"/>
+                        </div>
+                        <!-- Queued indicator (CSV import created this record; submit cron will launch within ~1 min) -->
+                        <div class="alert alert-info" role="alert"
+                             invisible="not (build_status == 'pending' and submit_attempts &gt; 0)">
+                            <i class="fa fa-clock-o me-2"/>
+                            <strong>Queued.</strong> Waiting for submit cron (runs every minute). Attempts: <field name="submit_attempts" readonly="1" class="d-inline"/>/3.
+                            <div invisible="not submit_error" class="mt-1 text-muted small">Last error: <field name="submit_error" readonly="1" nolabel="1" class="d-inline"/></div>
                         </div>
 
                         <field name="build_log" widget="commit0_terminal"
@@ -241,19 +249,26 @@
                             <notebook>
                                 <page string="Datasets" name="datasets">
                                     <group>
-                                        <group string="Dataset">
-                                            <field name="dataset_filename" invisible="1"/>
-                                            <field name="dataset_file"
-                                                   widget="binary"
-                                                   filename="dataset_filename"
-                                                   string="Dataset"
-                                                   readonly="1"/>
+                                        <group string="Hugging Face">
                                             <field name="hf_dataset_url"
                                                    widget="url"
                                                    string="Hugging Face"
-                                                   readonly="1"/>
+                                                   readonly="1"
+                                                   nolabel="1"/>
                                         </group>
                                     </group>
+                                    <separator string="Dataset (dataset_entries.json)"/>
+                                    <p class="text-muted small" invisible="dataset_json_text">
+                                        No dataset cached yet. Click <b>Refresh Metadata</b> in the header to download from S3.
+                                    </p>
+                                    <field name="dataset_filename" invisible="1"/>
+                                    <field name="dataset_file" invisible="1"/>
+                                    <field name="dataset_json_text"
+                                           widget="ace"
+                                           options="{'mode': 'json'}"
+                                           nolabel="1"
+                                           readonly="1"
+                                           invisible="not dataset_json_text"/>
                                 </page>
                             </notebook>
                         </div>

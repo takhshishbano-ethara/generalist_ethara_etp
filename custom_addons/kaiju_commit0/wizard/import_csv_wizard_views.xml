@@ -38,6 +38,8 @@
                     <group>
                         <group>
                             <field name="total_rows" readonly="1"/>
+                            <field name="queued_count" readonly="1"
+                                   class="text-info font-weight-bold"/>
                             <field name="imported_count" readonly="1"
                                    class="text-success font-weight-bold"/>
                         </group>
@@ -51,8 +53,8 @@
 
                     <div class="alert alert-success" role="alert"
                          invisible="failed_count != 0 or skipped_count != 0">
-                        <strong>All rows imported successfully.</strong>
-                        Builds are now running in the background.
+                        <strong>All rows accepted.</strong>
+                        Queued builds will be submitted to Argo in the background by the submit cron (within ~1 min).
                     </div>
 
                     <div class="alert alert-warning" role="alert"
@@ -66,6 +68,7 @@
                             <field name="repo_name"/>
                             <field name="language"/>
                             <field name="status" widget="badge"
+                                   decoration-info="status == 'queued'"
                                    decoration-success="status == 'imported'"
                                    decoration-danger="status == 'failed'"
                                    decoration-warning="status == 'skipped'"/>
@@ -86,8 +89,8 @@
 
                     <!-- Result screen footer -->
                     <button name="action_view_imported_builds" type="object"
-                            string="View Imported Builds" class="btn-primary"
-                            invisible="state != 'result' or imported_count == 0"/>
+                            string="View Created Builds" class="btn-primary"
+                            invisible="state != 'result' or (queued_count == 0 and imported_count == 0)"/>
                     <button name="action_import_another" type="object"
                             string="Import Another File" class="btn-secondary"
                             invisible="state != 'result'"/>

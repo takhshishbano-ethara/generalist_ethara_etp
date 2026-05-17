@@ -81,31 +81,12 @@ class KaijuCallbackController(http.Controller):
 
         from odoo import fields as odoo_fields
 
-        # CRITICAL: Sync steps + persist logs BEFORE flipping to terminal state.
-        # Once build_status='done'/'failed', the cron stops polling this record —
-        # if pods get GC'd (5min) before we capture logs, they are gone forever.
-        # Run sync/persist eagerly so logs are in Postgres before pod GC fires.
-        try:
-            build._sync_steps()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed to sync steps for build %s: %s", build.name, e,
-            )
-        try:
-            build._persist_step_logs_incremental()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed to persist incremental logs for build %s: %s",
-                build.name, e,
-            )
-        # Belt-and-braces full persist (idempotent: skips steps with has_log=True)
-        try:
-            build._persist_step_logs()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed full step-log persist for build %s: %s",
-                build.name, e,
-            )
+        # NOTE: Step sync, log fetch, and S3 metadata are INTENTIONALLY NOT done here.
+        # They block the callback handler for 30s–several minutes, causing the Argo
+        # callback-on-exit pod's curl to hang (no --max-time), which then SIGTERMs
+        # at activeDeadlineSeconds (~10min) — the 635s onExit hang.
+        # The cron (_cron_poll_build_status) back-fills steps + logs + metadata
+        # within 60s for terminal builds (Set 2: terminal-but-incomplete in last 10min).
 
         if status == "success":
             build.write(
@@ -119,14 +100,7 @@ class KaijuCallbackController(http.Controller):
                     ),
                 }
             )
-            # Pull rich S3 metadata once on completion (after image/dataset URIs set)
-            try:
-                build._fetch_pipeline_metadata()
-            except Exception as e:
-                _logger.warning(
-                    "Callback: failed to fetch pipeline metadata for build %s: %s",
-                    build.name, e,
-                )
+            # Pipeline metadata (dataset_entries.json from S3) is back-filled by cron.
         else:
             message = data.get("message", "Pipeline reported failure")
             build.write(
@@ -136,6 +110,11 @@ class KaijuCallbackController(http.Controller):
                     "build_log": self._append_log(build.build_log, f"✗ {message}"),
                 }
             )
+
+        _logger.info("Build callback processed: build=%s status=%s", build.name, status)
+        return Response(
+            json.dumps({"ok": True}), status=200, content_type="application/json"
+        )
 
     @http.route(
         "/kaiju/callback/run", type="http", auth="none", methods=["POST"], csrf=False
@@ -197,28 +176,10 @@ class KaijuCallbackController(http.Controller):
 
         from odoo import fields as odoo_fields
 
-        # CRITICAL: capture per-step logs BEFORE flipping to terminal status,
-        # otherwise the cron stops polling and pod GC (5min) destroys the source.
-        try:
-            run._sync_steps()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed to sync steps for run %s: %s", run.name, e,
-            )
-        try:
-            run._persist_step_logs_incremental()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed to persist incremental logs for run %s: %s",
-                run.name, e,
-            )
-        try:
-            run._persist_step_logs()
-        except Exception as e:
-            _logger.warning(
-                "Callback: failed full step-log persist for run %s: %s",
-                run.name, e,
-            )
+        # NOTE: Step sync + log fetch are INTENTIONALLY NOT done here. They block
+        # the callback for 30s–minutes and cause the Argo callback-on-exit pod to
+        # hang on its curl call. The cron (_cron_poll_run_status) back-fills
+        # steps + logs within 60s for terminal runs.
 
         if status == "success":
             run.write(

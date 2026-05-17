@@ -85,7 +85,7 @@ class KaijuWorkflowStep(models.Model):
     has_log = fields.Boolean(
         string="Has Log",
         compute="_compute_log_size",
-        store=False,
+        store=True,
         help="True when log_text is non-empty — distinguishes 'fetched but empty' from 'never fetched'",
     )
 
@@ -128,6 +128,32 @@ class KaijuWorkflowStep(models.Model):
             "Node ID must be unique within a run.",
         ),
     ]
+
+    # ── Partial indexes for cron back-fill queries (Phase 1) ─────────────
+    # Plain index on a Boolean is near-useless (planner prefers seqscan on 50/50
+    # split). Partial indexes only on rows where has_log IS FALSE — the rows the
+    # cron actually cares about — give cheap lookups even at 100k+ step records.
+
+    def _auto_init(self):
+        res = super()._auto_init()
+        cr = self.env.cr
+        # Partial index on (build_id) WHERE has_log IS FALSE — supports the cron's
+        # terminal_incomplete domain ('step_ids.has_log','=',False) without scanning all rows.
+        cr.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {self._table}_build_no_log_idx
+            ON {self._table} (build_id)
+            WHERE has_log IS FALSE AND build_id IS NOT NULL
+            """
+        )
+        cr.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {self._table}_run_no_log_idx
+            ON {self._table} (run_id)
+            WHERE has_log IS FALSE AND run_id IS NOT NULL
+            """
+        )
+        return res
 
     # ── Computed ─────────────────────────────────────────────────────────────
 
