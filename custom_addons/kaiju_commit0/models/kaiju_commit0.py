@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -12,7 +12,7 @@ PHASE_ORDER = ["config", "build"]
 BUILD_WORKFLOW_TEMPLATE = "kaiju-build-pipeline"
 
 # ── Pipeline metadata constants (mirror commit_0/eks/pipeline/prepare.py) ──
-HF_REPO_ID = "Zahgon/Kaiju_testing"
+HF_REPO_ID = "ethara/Kaiju-phase2"
 HF_BASE_URL = "https://huggingface.co/datasets"
 FORK_ORG = "Zahgon"
 GITHUB_BASE_URL = "https://github.com"
@@ -64,18 +64,60 @@ class KaijuCommit0(models.Model):
 
     # ── Navigation ───────────────────────────────────────────────────────────
 
+    # current_phase auto-flips to 'build' once a workflow is submitted or the
+    # build leaves 'pending'. The user does not have to click Next on existing
+    # records — they land directly on the Build screen.
+    # Inverse method preserves user navigation (Next/Back) within a session;
+    # on form reload, compute reasserts 'build' for any non-pending record.
     current_phase = fields.Selection(
         [
             ("config", "Configuration"),
             ("build", "Build"),
         ],
         string="Current Phase",
+        compute="_compute_current_phase",
+        inverse="_inverse_current_phase",
+        store=True,
+        readonly=False,
         default="config",
     )
 
+    @api.depends("workflow_name", "build_status")
+    def _compute_current_phase(self):
+        """Auto-land on Build phase for any record that has progressed past initial config.
+
+        Triggers:
+          - workflow_name set (Argo submission happened) → 'build'
+          - build_status not in ('pending', False) → 'build'
+          - Otherwise → 'config' (new records)
+
+        User can still click Back via the navigation bar; the inverse stores the
+        override. On next form load / recompute, this method will reassert 'build'
+        for any non-pending record, which is the desired behavior for existing builds.
+        """
+        for rec in self:
+            if rec.workflow_name or (rec.build_status and rec.build_status != "pending"):
+                rec.current_phase = "build"
+            else:
+                rec.current_phase = "config"
+
+    def _inverse_current_phase(self):
+        """No-op inverse — stored value is written automatically.
+
+        Required because Selection with compute+store+readonly=False needs an
+        inverse to allow direct writes from Next/Back navigation actions and
+        the stepper widget.
+        """
+        # The framework persists the assigned value; nothing else to do.
+        return
+
     # ── Phase: Config Validation ─────────────────────────────────────────────
 
-    config_valid = fields.Boolean(string="Config Validated", default=False)
+    # Defaults to True — manual "Validate Configuration" button removed;
+    # validation happens inline in action_run_build and _compute_navigation_flags.
+    # Kept as a field so existing data, Reset button visibility, and the wizard's
+    # back-compat action_validate_config() call continue to work.
+    config_valid = fields.Boolean(string="Config Validated", default=True)
 
     # ── Phase: Build (prepare + build-repo-image) ────────────────────────────
 
@@ -95,6 +137,18 @@ class KaijuCommit0(models.Model):
 
     image_uri = fields.Char(string="Image URI", readonly=True)
     s3_dataset_uri = fields.Char(string="Dataset S3 URI", readonly=True)
+    dataset_file = fields.Binary(
+        string="Dataset (dataset_entries.json)",
+        readonly=True,
+        attachment=True,
+        help="Cached copy of dataset_entries.json downloaded from S3 on metadata fetch. "
+             "Click to view/download in Odoo without needing S3 access.",
+    )
+    dataset_filename = fields.Char(
+        string="Dataset Filename",
+        readonly=True,
+        default="dataset_entries.json",
+    )
     workflow_name = fields.Char(string="Build Workflow", readonly=True)
 
     # ── Log summary (computed from step_ids) ────────────────────────
@@ -246,10 +300,15 @@ class KaijuCommit0(models.Model):
                 rec.forked_repo_url = False
                 rec.test_ids_url = False
 
-            if short and language:
+            # Hugging Face URL format:
+            #   https://huggingface.co/datasets/ethara/Kaiju-phase2/tree/main/datasets/{language}/{repo_with_underscore}
+            # where {repo_with_underscore} = repo_name with '/' replaced by '_'
+            # e.g. language=go, repo_name=trustmaster/goflow -> trustmaster_goflow
+            if repo_name and language:
+                repo_underscored = repo_name.replace("/", "_")
                 rec.hf_dataset_url = (
-                    f"{HF_BASE_URL}/{HF_REPO_ID}/blob/main/entries/"
-                    f"{language}/{short}_entries.json"
+                    f"{HF_BASE_URL}/{HF_REPO_ID}/tree/main/datasets/"
+                    f"{language}/{repo_underscored}"
                 )
             else:
                 rec.hf_dataset_url = False
@@ -269,7 +328,7 @@ class KaijuCommit0(models.Model):
                 rec.setup_sh_url = False
                 rec.dockerfile_url = False
 
-    @api.depends("current_phase", "config_valid", "build_status")
+    @api.depends("current_phase", "repo_name", "language", "build_status")
     def _compute_navigation_flags(self):
         for rec in self:
             idx = (
@@ -280,7 +339,10 @@ class KaijuCommit0(models.Model):
             rec.can_go_back = idx > 0
 
             if rec.current_phase == "config":
-                rec.can_go_next = rec.config_valid
+                # Inline validation: repo must be set in owner/repo format.
+                rec.can_go_next = bool(
+                    rec.repo_name and "/" in rec.repo_name and rec.language
+                )
             else:
                 rec.can_go_next = False
 
@@ -335,8 +397,13 @@ class KaijuCommit0(models.Model):
     def action_run_build(self):
         """Submit build workflow to Argo Server (prepare + build-repo-image)."""
         self.ensure_one()
-        if not self.config_valid:
-            raise UserError("Validate configuration first.")
+        # Inline validation — the manual "Validate Configuration" button was removed.
+        if not self.repo_name:
+            raise UserError("Repository name is required.")
+        if "/" not in self.repo_name:
+            raise UserError("Repository must be in 'owner/repo' format (e.g. 'Zahgon/gson').")
+        if not self.language:
+            raise UserError("Language is required.")
         if self.build_status == "done":
             raise UserError("Build already complete. Create a new run instead.")
         if self.build_status == "running":
@@ -468,11 +535,24 @@ class KaijuCommit0(models.Model):
         running_builds = self.search(
             [("build_status", "=", "running"), ("workflow_name", "!=", False)]
         )
-        if not running_builds:
+        # Defense in depth: also re-poll terminal builds that have no step records
+        # yet OR have steps without logs. Catches the race where callback finalizes
+        # status before _sync_steps runs (and before pod GC at 5min destroys pods).
+        # Bounded to recently-finished builds (last 10min) to avoid scanning history.
+        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
+        terminal_incomplete = self.search([
+            ("build_status", "in", ("done", "failed")),
+            ("workflow_name", "!=", False),
+            ("build_end", ">=", recent_cutoff),
+        ]).filtered(
+            lambda b: not b.step_ids or any(not s.log_text for s in b.step_ids)
+        )
+        all_builds = running_builds | terminal_incomplete
+        if not all_builds:
             return
 
         argo = self.env["kaiju.argo.client"]
-        for build in running_builds:
+        for build in all_builds:
             try:
                 status = argo.get_workflow_status(build.workflow_name)
             except RuntimeError as e:
@@ -506,7 +586,12 @@ class KaijuCommit0(models.Model):
                     "Incremental log persist failed for build %s: %s", build.name, e
                 )
 
-            if phase in ("Succeeded",):
+            # Skip status write if already in terminal state (callback won the race).
+            # We still want to run _sync_steps/_persist_step_logs (above) for back-fill,
+            # but we MUST NOT overwrite the callback-set build_end / image_uri.
+            if build.build_status in ("done", "failed"):
+                pass  # callback already finalized; back-fill steps/logs only
+            elif phase in ("Succeeded",):
                 build.write(
                     {
                         "build_status": "done",
@@ -523,7 +608,7 @@ class KaijuCommit0(models.Model):
                         "build_status": "failed",
                         "build_end": fields.Datetime.now(),
                         "build_log": self._append_log(
-                            build.build_log, f"Workflow failed: {phase} \u2014 {message}"
+                            build.build_log, f"Workflow failed: {phase} — {message}"
                         ),
                     }
                 )
@@ -734,6 +819,18 @@ class KaijuCommit0(models.Model):
             )
             return
 
+        # Cache the raw dataset file as a binary attachment so users can
+        # view/download it inside Odoo without needing S3 access.
+        import base64
+        dataset_filename = key.rsplit("/", 1)[-1] if key else "dataset_entries.json"
+        try:
+            dataset_b64 = base64.b64encode(payload)
+        except Exception as e:
+            _logger.warning(
+                "Failed to base64-encode dataset payload for build %s: %s", self.name, e,
+            )
+            dataset_b64 = False
+
         self.write({
             "instance_id": matched.get("instance_id") or "",
             "forked_repo": matched.get("repo") or "",
@@ -741,6 +838,8 @@ class KaijuCommit0(models.Model):
             "reference_commit": matched.get("reference_commit") or "",
             "metadata_fetched_at": fields.Datetime.now(),
             "metadata_error": False,
+            "dataset_file": dataset_b64,
+            "dataset_filename": dataset_filename,
         })
         _logger.info(
             "Fetched pipeline metadata for build %s: instance=%s base=%s ref=%s",

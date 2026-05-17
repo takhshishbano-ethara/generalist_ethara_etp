@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from datetime import timedelta
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -265,11 +266,22 @@ class KaijuCommit0Run(models.Model):
         running_runs = self.search(
             [("run_status", "=", "running"), ("workflow_name", "!=", False)]
         )
-        if not running_runs:
+        # Defense in depth: re-poll recently-finished runs missing steps/logs
+        # (catches callback-wins-race where steps weren't synced before pod GC).
+        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
+        terminal_incomplete = self.search([
+            ("run_status", "in", ("done", "failed")),
+            ("workflow_name", "!=", False),
+            ("run_end", ">=", recent_cutoff),
+        ]).filtered(
+            lambda r: not r.step_ids or any(not s.log_text for s in r.step_ids)
+        )
+        all_runs = running_runs | terminal_incomplete
+        if not all_runs:
             return
 
         argo = self.env["kaiju.argo.client"]
-        for run in running_runs:
+        for run in all_runs:
             try:
                 status = argo.get_workflow_status(run.workflow_name)
             except RuntimeError as e:
@@ -303,7 +315,10 @@ class KaijuCommit0Run(models.Model):
                     "Incremental log persist failed for run %s: %s", run.name, e
                 )
 
-            if phase in ("Succeeded",):
+            # Skip status write if already terminal (callback won). Step sync above runs unconditionally.
+            if run.run_status in ("done", "failed"):
+                pass
+            elif phase in ("Succeeded",):
                 run.write(
                     {
                         "run_status": "done",
@@ -320,7 +335,7 @@ class KaijuCommit0Run(models.Model):
                         "run_status": "failed",
                         "run_end": fields.Datetime.now(),
                         "run_log": self._append_log(
-                            run.run_log, f"Workflow failed: {phase} \u2014 {message}"
+                            run.run_log, f"Workflow failed: {phase} — {message}"
                         ),
                     }
                 )

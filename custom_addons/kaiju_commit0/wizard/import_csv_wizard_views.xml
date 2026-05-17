@@ -6,21 +6,94 @@
         <field name="model">kaiju.commit0.import.wizard</field>
         <field name="arch" type="xml">
             <form string="Import Bulk Builds">
-                <group>
-                    <field name="file" filename="filename"/>
-                    <field name="filename" invisible="1"/>
-                </group>
-                <div class="alert alert-info" role="alert">
-                    <strong>Expected CSV columns:</strong> repo_name, language<br/>
-                    <small class="text-muted">
-                        Only <code>repo_name</code> is required (owner/repo format).
-                        Language defaults to "python".
-                    </small>
+                <field name="state" invisible="1"/>
+
+                <!-- ══════════════════════════════════════════════════
+                     SCREEN 1: Upload
+                     ══════════════════════════════════════════════════ -->
+                <div invisible="state != 'upload'">
+                    <group>
+                        <field name="file" filename="filename"/>
+                        <field name="filename" invisible="1"/>
+                    </group>
+                    <div class="alert alert-info" role="alert">
+                        <strong>Expected CSV columns:</strong> repo_name, language<br/>
+                        <small class="text-muted">
+                            Only <code>repo_name</code> is required (owner/repo format).
+                            Language defaults to "python".
+                        </small>
+                    </div>
                 </div>
+
+                <!-- ══════════════════════════════════════════════════
+                     SCREEN 2: Result Summary
+                     ══════════════════════════════════════════════════ -->
+                <div invisible="state != 'result'">
+                    <div class="row mb-3">
+                        <div class="col">
+                            <h3>Import Summary</h3>
+                        </div>
+                    </div>
+
+                    <group>
+                        <group>
+                            <field name="total_rows" readonly="1"/>
+                            <field name="imported_count" readonly="1"
+                                   class="text-success font-weight-bold"/>
+                        </group>
+                        <group>
+                            <field name="failed_count" readonly="1"
+                                   class="text-danger font-weight-bold"/>
+                            <field name="skipped_count" readonly="1"
+                                   class="text-warning font-weight-bold"/>
+                        </group>
+                    </group>
+
+                    <div class="alert alert-success" role="alert"
+                         invisible="failed_count != 0 or skipped_count != 0">
+                        <strong>All rows imported successfully.</strong>
+                        Builds are now running in the background.
+                    </div>
+
+                    <div class="alert alert-warning" role="alert"
+                         invisible="failed_count == 0 and skipped_count == 0">
+                        <strong>Some rows did not import.</strong>
+                        Review the table below for per-row status and reason.
+                    </div>
+
+                    <field name="result_line_ids" nolabel="1" readonly="1">
+                        <list create="false" delete="false" edit="false">
+                            <field name="repo_name"/>
+                            <field name="language"/>
+                            <field name="status" widget="badge"
+                                   decoration-success="status == 'imported'"
+                                   decoration-danger="status == 'failed'"
+                                   decoration-warning="status == 'skipped'"/>
+                            <field name="error_message"/>
+                            <field name="build_id" optional="show"/>
+                        </list>
+                    </field>
+                </div>
+
                 <footer>
+                    <!-- Upload screen footer -->
                     <button name="action_import" type="object"
-                            string="Import" class="btn-primary"/>
-                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                            string="Import" class="btn-primary"
+                            invisible="state != 'upload'"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"
+                            invisible="state != 'upload'"/>
+
+                    <!-- Result screen footer -->
+                    <button name="action_view_imported_builds" type="object"
+                            string="View Imported Builds" class="btn-primary"
+                            invisible="state != 'result' or imported_count == 0"/>
+                    <button name="action_import_another" type="object"
+                            string="Import Another File" class="btn-secondary"
+                            invisible="state != 'result'"/>
+                    <button string="Close" class="btn-secondary"
+                            special="cancel"
+                            invisible="state != 'result'"/>
                 </footer>
             </form>
         </field>

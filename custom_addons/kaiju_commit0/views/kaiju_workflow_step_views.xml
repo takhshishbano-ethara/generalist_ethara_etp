@@ -36,10 +36,8 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_fetch_logs" type="object"
-                            string="Refresh Logs from Argo"
-                            class="btn-primary"
-                            icon="fa-refresh"/>
+                    <!-- Refresh Logs button removed — logs are fetched automatically
+                         by the cron poller and the workflow callback. -->
                     <field name="phase" widget="statusbar"
                            statusbar_visible="Pending,Running,Succeeded,Failed"/>
                 </header>
@@ -77,7 +75,8 @@
                             <div class="alert alert-info" role="alert">
                                 <strong>Last log-fetch attempt details.</strong>
                                 Use this to troubleshoot when logs are missing.
-                                Updates every time you click <em>Refresh Logs from Argo</em>.
+                                Updates automatically every time the cron poller (60s)
+                                or workflow callback attempts to fetch this step's logs.
                             </div>
                             <field name="last_fetch_diagnostic" nolabel="1" readonly="1"
                                    widget="text"/>

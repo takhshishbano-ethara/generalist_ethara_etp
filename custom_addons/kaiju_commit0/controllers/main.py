@@ -58,12 +58,54 @@ class KaijuCallbackController(http.Controller):
         if not job_id or not status:
             return Response("Missing job_id or status", status=400)
 
-        build = request.env["kaiju.commit0"].sudo().browse(int(job_id))
+        try:
+            record_id = int(job_id)
+        except (ValueError, TypeError):
+            return Response("Invalid job_id", status=400)
+
+        build = request.env["kaiju.commit0"].sudo().browse(record_id)
         if not build.exists():
             _logger.warning("Build callback for non-existent record id=%s", job_id)
             return Response("Not found", status=404)
 
+        # Idempotency: if already in terminal state, skip duplicate callback
+        if build.build_status in ("done", "failed"):
+            _logger.info(
+                "Build %s already finalized (status=%s); ignoring duplicate callback",
+                build.name, build.build_status,
+            )
+            return Response(
+                json.dumps({"ok": True, "duplicate": True}),
+                status=200, content_type="application/json",
+            )
+
         from odoo import fields as odoo_fields
+
+        # CRITICAL: Sync steps + persist logs BEFORE flipping to terminal state.
+        # Once build_status='done'/'failed', the cron stops polling this record —
+        # if pods get GC'd (5min) before we capture logs, they are gone forever.
+        # Run sync/persist eagerly so logs are in Postgres before pod GC fires.
+        try:
+            build._sync_steps()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed to sync steps for build %s: %s", build.name, e,
+            )
+        try:
+            build._persist_step_logs_incremental()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed to persist incremental logs for build %s: %s",
+                build.name, e,
+            )
+        # Belt-and-braces full persist (idempotent: skips steps with has_log=True)
+        try:
+            build._persist_step_logs()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed full step-log persist for build %s: %s",
+                build.name, e,
+            )
 
         if status == "success":
             build.write(
@@ -77,6 +119,14 @@ class KaijuCallbackController(http.Controller):
                     ),
                 }
             )
+            # Pull rich S3 metadata once on completion (after image/dataset URIs set)
+            try:
+                build._fetch_pipeline_metadata()
+            except Exception as e:
+                _logger.warning(
+                    "Callback: failed to fetch pipeline metadata for build %s: %s",
+                    build.name, e,
+                )
         else:
             message = data.get("message", "Pipeline reported failure")
             build.write(
@@ -86,11 +136,6 @@ class KaijuCallbackController(http.Controller):
                     "build_log": self._append_log(build.build_log, f"✗ {message}"),
                 }
             )
-
-        _logger.info("Build callback processed: build=%s status=%s", build.name, status)
-        return Response(
-            json.dumps({"ok": True}), status=200, content_type="application/json"
-        )
 
     @http.route(
         "/kaiju/callback/run", type="http", auth="none", methods=["POST"], csrf=False
@@ -129,12 +174,51 @@ class KaijuCallbackController(http.Controller):
         if not job_id or not status:
             return Response("Missing job_id or status", status=400)
 
-        run = request.env["kaiju.commit0.run"].sudo().browse(int(job_id))
+        try:
+            record_id = int(job_id)
+        except (ValueError, TypeError):
+            return Response("Invalid job_id", status=400)
+
+        run = request.env["kaiju.commit0.run"].sudo().browse(record_id)
         if not run.exists():
             _logger.warning("Run callback for non-existent record id=%s", job_id)
             return Response("Not found", status=404)
 
+        # Idempotency: skip duplicate callback if already finalized
+        if run.run_status in ("done", "failed"):
+            _logger.info(
+                "Run %s already finalized (status=%s); ignoring duplicate callback",
+                run.name, run.run_status,
+            )
+            return Response(
+                json.dumps({"ok": True, "duplicate": True}),
+                status=200, content_type="application/json",
+            )
+
         from odoo import fields as odoo_fields
+
+        # CRITICAL: capture per-step logs BEFORE flipping to terminal status,
+        # otherwise the cron stops polling and pod GC (5min) destroys the source.
+        try:
+            run._sync_steps()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed to sync steps for run %s: %s", run.name, e,
+            )
+        try:
+            run._persist_step_logs_incremental()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed to persist incremental logs for run %s: %s",
+                run.name, e,
+            )
+        try:
+            run._persist_step_logs()
+        except Exception as e:
+            _logger.warning(
+                "Callback: failed full step-log persist for run %s: %s",
+                run.name, e,
+            )
 
         if status == "success":
             run.write(
