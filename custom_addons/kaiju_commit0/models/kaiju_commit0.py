@@ -353,22 +353,61 @@ class KaijuCommit0(models.Model):
 
     @api.depends("dataset_file")
     def _compute_dataset_json_text(self):
-        """Decode the cached base64 dataset_file blob into pretty-printed JSON
-        for inline display. Falls back to raw decoded text if not valid JSON."""
+        """Decode the cached dataset_file blob into pretty-printed JSON for
+        inline display. Falls back to raw decoded text if not valid JSON.
+
+        Odoo's ``fields.Binary(attachment=True)`` typically returns the
+        base64-encoded ``ir.attachment.datas`` value (bytes or str). However,
+        during the same transaction where the value was just written, the in-
+        memory cache may hold the raw bytes that were assigned. This compute
+        therefore tries base64 decoding first and falls back to treating the
+        value as raw bytes if that fails."""
         import base64
+        import binascii
         import json
+
+        def _to_raw(blob):
+            if isinstance(blob, memoryview):
+                blob = bytes(blob)
+            if isinstance(blob, bytearray):
+                blob = bytes(blob)
+            if isinstance(blob, str):
+                blob = blob.encode("ascii", errors="ignore")
+            # First attempt: treat as base64 (the common attachment-read shape).
+            try:
+                return base64.b64decode(blob, validate=False)
+            except (binascii.Error, ValueError):
+                # Fall through to raw-bytes interpretation.
+                pass
+            # Second attempt: assume the value is already the raw payload.
+            return blob if isinstance(blob, bytes) else bytes(blob)
+
         for rec in self:
-            if not rec.dataset_file:
+            blob = rec.dataset_file
+            if not blob:
                 rec.dataset_json_text = False
                 continue
             try:
-                raw = base64.b64decode(rec.dataset_file)
+                raw = _to_raw(blob)
                 text = raw.decode("utf-8", errors="replace")
+                # Heuristic: if base64 round-tripped to garbage (non-JSON), try
+                # treating the original blob as raw bytes instead.
                 try:
                     parsed = json.loads(text)
-                    rec.dataset_json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
                 except (ValueError, TypeError):
-                    # Not valid JSON — show raw decoded text
+                    if isinstance(blob, (bytes, bytearray, memoryview)):
+                        try:
+                            alt = bytes(blob).decode("utf-8", errors="replace")
+                            parsed = json.loads(alt)
+                            text = alt
+                        except (ValueError, TypeError):
+                            parsed = None
+                    else:
+                        parsed = None
+                if parsed is not None:
+                    rec.dataset_json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                else:
+                    # Not valid JSON — show raw decoded text.
                     rec.dataset_json_text = text
             except Exception as e:  # noqa: BLE001
                 rec.dataset_json_text = f"<could not decode dataset_file: {e}>"
