@@ -34,6 +34,12 @@
               action="action_gohan_import_wizard"
               sequence="5"/>
 
+    <menuitem id="menu_gohan_add_category"
+              name="Add Category"
+              parent="menu_gohan_config"
+              action="action_gohan_category_new"
+              sequence="7"/>
+
     <menuitem id="menu_gohan_settings"
               name="Settings"
               parent="menu_gohan_config"

@@ -38,6 +38,7 @@
         "data/cron.xml",
         "views/res_config_settings_views.xml",
         "views/gohan_job_views.xml",
+        "views/gohan_category_views.xml",
         "views/menuitems.xml",
     ],
     "assets": {
