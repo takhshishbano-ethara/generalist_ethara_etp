@@ -189,8 +189,6 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 ],
                 "dangerouslyDisableDeviceAuth": True,
             },
-            "maxPayload": 104857600,
-            "maxBufferedBytes": 209715200,
             "http": {
                 "endpoints": {
                     "responses": {"enabled": True},
