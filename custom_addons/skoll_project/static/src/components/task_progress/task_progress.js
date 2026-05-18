@@ -27,28 +27,6 @@ const STEPS = [
         },
         comingSoon: false,
     },
-    {
-        key: "glm",
-        label: "Kimi K2.6",
-        field: "glm_session_status",
-        iconMap: {
-            not_started: "fa-microchip",
-            in_progress: "fa-microchip",
-            completed: "fa-check-circle",
-        },
-        comingSoon: false,
-    },
-    {
-        key: "oneP",
-        label: "1P",
-        field: "oneP_session_status",
-        iconMap: {
-            not_started: "fa-microchip",
-            in_progress: "fa-microchip",
-            completed: "fa-check-circle",
-        },
-        comingSoon: false,
-    },
 ];
 
 export class TaskProgressWidget extends Component {

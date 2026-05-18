@@ -7,7 +7,7 @@
             <div class="skoll-prompt-container">
                 <div class="skoll-prompt-header">
                     <span class="skoll-prompt-label">
-                        <i class="fa fa-terminal"/> Prompt
+                        <i class="fa fa-magic"/> Golden Trajectory Generation
                     </span>
                     <t t-if="isAiMode and !isReadonly">
                         <div class="skoll-prompt-actions">
@@ -21,32 +21,25 @@
                                 <button class="skoll-prompt-generate-btn"
                                         t-att-disabled="!canGenerate"
                                         t-on-click="onGenerate">
-                                    <i class="fa fa-magic"/> Generate
+                                    <i class="fa fa-magic"/> Generate from Claude 4.7 Trajectory
                                 </button>
                             </t>
                         </div>
                     </t>
                 </div>
 
-                <t t-if="isReadonly">
-                    <div class="skoll-prompt-readonly">
-                        <t t-if="state.value">
-                            <t t-esc="state.value"/>
-                        </t>
-                        <t t-else="">
-                            <span class="text-muted">No prompt</span>
-                        </t>
-                    </div>
-                </t>
-                <t t-else="">
-                    <textarea class="skoll-prompt-textarea"
-                              t-ref="promptTextarea"
-                              t-att-value="state.value"
-                              t-on-input="onInput"
-                              t-att-placeholder="props.placeholder || 'Enter your prompt here...'"
-                              t-att-disabled="state.generating"
-                              spellcheck="false"/>
-                </t>
+                <div class="skoll-prompt-source-info">
+                    <t t-if="hasClaudeTrajectory">
+                        <div class="skoll-prompt-source-ready">
+                            <i class="fa fa-check-circle"/> Claude 4.7 trajectory available as generation source
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <div class="skoll-prompt-source-missing">
+                            <i class="fa fa-exclamation-triangle"/> No Claude 4.7 trajectory available. Generate or capture a Claude trajectory first.
+                        </div>
+                    </t>
+                </div>
             </div>
 
         </div>

@@ -78,7 +78,7 @@ def _parse_spawned_agents(raw):
     return []
 
 
-def _build_user_message(task, scenario_text):
+def _build_user_message(task, claude_trajectory=""):
     parts = []
 
     if task:
@@ -86,23 +86,21 @@ def _build_user_message(task, scenario_text):
         parts.append("- Task ID: %s" % (task.task_id or ""))
         if task.persona_id:
             parts.append("- Persona: %s" % task.persona_id.name)
-        if task.heart_taxonomy:
-            parts.append("- HEART Taxonomy: %s" % ", ".join(task.heart_taxonomy.mapped("name")))
-        if task.task_type:
-            parts.append("- Task Type: %s" % task.task_type)
-        if task.difficulty:
-            parts.append("- Difficulty: %s" % task.difficulty)
-        if task.trajectory_modifier:
-            parts.append("- Trajectory Modifier: %s" % task.trajectory_modifier)
-        if task.safety_critical:
-            parts.append("- Safety Critical: %s" % task.safety_critical)
+        if task.life_domain_ids:
+            parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+        if task.cluster_ids:
+            parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+        if task.task_type_ids:
+            parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+        if task.pattern_taxonomy_ids:
+            parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
         parts.append("")
 
-        prompt_text = (scenario_text or "").strip() or (task.seed_prompt or "").strip()
-        if prompt_text:
+        seed = (task.seed_prompt or "").strip()
+        if seed:
             parts.append("## THE USER'S SINGLE COMPLEX PROMPT")
             parts.append("(This is the ONLY user message. The orchestrator must decompose it into parallel sub-agent tasks.)\n")
-            parts.append(prompt_text)
+            parts.append(seed)
             parts.append("")
 
         spawned_agents = _parse_spawned_agents(task.spawned_agents)
@@ -119,10 +117,21 @@ def _build_user_message(task, scenario_text):
             parts.append("### SOUL.md\n%s\n" % task.soul_md.strip())
         if task.memory_md and task.memory_md.strip():
             parts.append("### MEMORY.md\n%s\n" % task.memory_md.strip())
+
+        traj_text = (claude_trajectory or "").strip()
+        if traj_text:
+            parts.append("## REFERENCE TRAJECTORY (Claude 4.7)\n")
+            parts.append("Use this previously generated Claude 4.7 trajectory as the primary reference. ")
+            parts.append("Analyze its structure, tool calls, agent spawns, and conversation flow. ")
+            parts.append("Generate the golden trajectory based on this reference, improving quality ")
+            parts.append("and fixing any issues while preserving the overall task execution approach.\n")
+            parts.append("```json")
+            parts.append(traj_text)
+            parts.append("```")
+            parts.append("")
     else:
-        prompt_text = (scenario_text or "").strip() or "Generate a diverse, high-quality golden trajectory."
         parts.append("## THE USER'S SINGLE COMPLEX PROMPT\n")
-        parts.append(prompt_text)
+        parts.append("Generate a diverse, high-quality golden trajectory.")
         parts.append("")
 
     num_agents = len(_parse_spawned_agents(task.spawned_agents)) if task and task.spawned_agents else 2
@@ -148,12 +157,14 @@ def _build_qc_message(task, content):
     parts.append("## Task Input Data\n")
     if task.persona_id:
         parts.append("- Persona: %s" % task.persona_id.name)
-    if task.heart_taxonomy:
-        parts.append("- HEART Taxonomy: %s" % ", ".join(task.heart_taxonomy.mapped("name")))
-    if task.task_type:
-        parts.append("- Task Type: %s" % task.task_type)
-    if task.difficulty:
-        parts.append("- Difficulty: %s" % task.difficulty)
+    if task.life_domain_ids:
+        parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+    if task.cluster_ids:
+        parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+    if task.task_type_ids:
+        parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+    if task.pattern_taxonomy_ids:
+        parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
@@ -184,10 +195,14 @@ def _build_improve_message(task, trajectory, qc_result, structural_result):
     parts.append("## Task Input Data\n")
     if task.persona_id:
         parts.append("- Persona: %s" % task.persona_id.name)
-    if task.heart_taxonomy:
-        parts.append("- HEART Taxonomy: %s" % ", ".join(task.heart_taxonomy.mapped("name")))
-    if task.task_type:
-        parts.append("- Task Type: %s" % task.task_type)
+    if task.life_domain_ids:
+        parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
+    if task.cluster_ids:
+        parts.append("- Cluster: %s" % ", ".join(task.cluster_ids.mapped("name")))
+    if task.task_type_ids:
+        parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
+    if task.pattern_taxonomy_ids:
+        parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
@@ -517,7 +532,6 @@ class SkollGoldenGenerationController(http.Controller):
         except (json.JSONDecodeError, TypeError):
             body = {}
 
-        prompt = body.get("prompt", "")
         record_id = body.get("record_id")
         max_tokens = int(body.get("max_tokens", SONNET_MAX_TOKENS))
         temperature = float(body.get("temperature", 0.2))
@@ -537,8 +551,15 @@ class SkollGoldenGenerationController(http.Controller):
             if not task.exists():
                 task = None
 
+        if not task or not (task.claude_trajectory or "").strip():
+            return WerkzeugResponse(
+                _sse_line({"type": "error", "message": "No Claude 4.7 trajectory available. Generate or capture a Claude trajectory first."}),
+                mimetype="text/event-stream",
+                headers=sse_headers,
+            )
+
         system_prompt = _load_system_prompt()
-        user_message = _build_user_message(task, prompt)
+        user_message = _build_user_message(task, claude_trajectory=task.claude_trajectory or "")
 
         db_name = request.env.cr.dbname
         uid = request.env.uid

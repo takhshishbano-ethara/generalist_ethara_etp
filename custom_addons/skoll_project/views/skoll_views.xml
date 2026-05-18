@@ -71,12 +71,15 @@
                 <field name="auto_process_error" readonly="1"
                        invisible="auto_process_status != 'failed'"/>
               </group>
-              <group string="Classification">
-                <field name="heart_taxonomy" widget="many2many_tags" readonly="not is_skoll_admin"/>
-                <field name="task_type" readonly="not is_skoll_admin"/>
-                <field name="difficulty" readonly="not is_skoll_admin"/>
-                <field name="trajectory_modifier" readonly="not is_skoll_admin"/>
-                <field name="safety_critical" readonly="not is_skoll_admin"/>
+              <group string="Task Metadata">
+                <group>
+                  <field name="life_domain_ids" widget="many2many_tags" readonly="1"/>
+                  <field name="cluster_ids" widget="many2many_tags" readonly="1"/>
+                </group>
+                <group>
+                  <field name="task_type_ids" widget="many2many_tags" readonly="1"/>
+                  <field name="pattern_taxonomy_ids" widget="many2many_tags" readonly="1"/>
+                </group>
               </group>
               <group string="Assignment">
                 <field name="employee_id" readonly="not is_skoll_admin"/>
@@ -130,16 +133,6 @@
             <group string="Trajectories" colspan="2">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="skoll_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
-              <separator string="Kimi K2.6 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="skoll_json" nolabel="1" placeholder="Kimi K2.6 Trajectory" colspan="2"/>
-              <separator string="1PA Trajectory" colspan="2"/>
-              <field name="onePA_trajectory" widget="skoll_json" nolabel="1" placeholder="1PA Trajectory" colspan="2"/>
-              <separator string="1PB Trajectory" colspan="2"/>
-              <field name="onePB_trajectory" widget="skoll_json" nolabel="1" placeholder="1PB Trajectory" colspan="2"/>
-              <separator string="1PC Trajectory" colspan="2"/>
-              <field name="onePC_trajectory" widget="skoll_json" nolabel="1" placeholder="1PC Trajectory" colspan="2"/>
-              <separator string="1PD Trajectory" colspan="2"/>
-              <field name="onePD_trajectory" widget="skoll_json" nolabel="1" placeholder="1PD Trajectory" colspan="2"/>
             </group>
             <field name="golden_status" invisible="1"/>
             <field name="golden_error" invisible="1"/>
@@ -147,11 +140,9 @@
             <group string="Golden Trajectory">
               <field name="golden_input_mode" widget="radio" options="{'horizontal': true}" colspan="2"/>
 
-              <!-- AI mode: streaming generation via prompt_field -->
+              <!-- AI mode: generate golden from Claude 4.7 trajectory -->
               <div colspan="2" invisible="golden_input_mode != 'ai'">
-                <label for="golden_prompt" string="Generation Prompt" class="fw-bold mb-1"/>
-                <field name="golden_prompt" widget="skoll_prompt" nolabel="1"
-                       placeholder="Enter a scenario prompt to generate golden trajectory..."/>
+                <field name="golden_prompt" widget="skoll_prompt" nolabel="1"/>
                 <separator string="Generated Golden Trajectory"/>
                 <field name="golden_trajectory" widget="skoll_json" nolabel="1"
                        placeholder="Golden Trajectory (AI)" readonly="1" force_save="1"/>

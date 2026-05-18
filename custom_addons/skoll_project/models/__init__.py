@@ -6,4 +6,5 @@ from . import (
     skoll_persona,
     skoll_sandbox,
     skoll_sandbox_k8s,
+    skoll_tags,
 )

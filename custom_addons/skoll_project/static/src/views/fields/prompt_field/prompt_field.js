@@ -7,7 +7,7 @@ import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 import { useRecordObserver } from "@web/model/relational_model/utils";
 
-import { Component, useRef, useState, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onWillUnmount } from "@odoo/owl";
 
 export class SkollPromptField extends Component {
     static template = "skoll.PromptField";
@@ -18,30 +18,19 @@ export class SkollPromptField extends Component {
 
     setup() {
         this.state = useState({
-            value: "",
             generating: false,
             truncated: false,
+            hasClaudeTrajectory: false,
         });
         this.notification = useService("notification");
-        this.textareaRef = useRef("promptTextarea");
         this._abortController = null;
 
         useRecordObserver((record) => {
-            this.state.value = record.data[this.props.name] || "";
+            this.state.hasClaudeTrajectory = !!(record.data.claude_trajectory || "").trim();
         });
-        this.state.value = this.props.record.data[this.props.name] || "";
+        this.state.hasClaudeTrajectory = !!(this.props.record.data.claude_trajectory || "").trim();
 
-        onMounted(() => this._autoResize());
-        onPatched(() => this._autoResize());
         onWillUnmount(() => this._abortStream());
-    }
-
-    _autoResize() {
-        const el = this.textareaRef.el;
-        if (el) {
-            el.style.height = "auto";
-            el.style.height = Math.min(el.scrollHeight, 400) + "px";
-        }
     }
 
     _abortStream() {
@@ -59,14 +48,12 @@ export class SkollPromptField extends Component {
         return this.props.record.data.golden_input_mode === "ai";
     }
 
-    get canGenerate() {
-        return this.isAiMode && !this.isReadonly;
+    get hasClaudeTrajectory() {
+        return this.state.hasClaudeTrajectory;
     }
 
-    onInput(ev) {
-        this.state.value = ev.target.value;
-        this.props.record.update({ [this.props.name]: ev.target.value });
-        this._autoResize();
+    get canGenerate() {
+        return this.isAiMode && !this.isReadonly && this.hasClaudeTrajectory;
     }
 
     async onGenerate() {
@@ -85,7 +72,6 @@ export class SkollPromptField extends Component {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    prompt: this.state.value,
                     record_id: this.props.record.resId,
                 }),
                 credentials: "same-origin",
@@ -159,7 +145,7 @@ export class SkollPromptField extends Component {
                         { type: "warning", sticky: true },
                     );
                 } else {
-                    this.notification.add(_t("Content generated successfully"), { type: "success" });
+                    this.notification.add(_t("Golden trajectory generated from Claude 4.7 trajectory"), { type: "success" });
                 }
                 this._buildSpawnTree();
             }

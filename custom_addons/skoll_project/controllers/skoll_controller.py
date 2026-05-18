@@ -109,10 +109,6 @@ class Skoll(http.Controller):
                     'task_id': task_id,
                     'persona_id': persona.id,
                     'task_status': 'NotSubmitted',
-                    'task_type': (item.get('task_type') or '').strip() or False,
-                    'difficulty': (item.get('difficulty') or '').strip() or False,
-                    'trajectory_modifier': (item.get('trajectory_modifier') or '').strip() or False,
-                    'safety_critical': (item.get('safety_critical') or '').strip() or False,
                     'seed_prompt': item.get('seed_prompt', ''),
                     'initial_prompt': item.get('initial_prompt', ''),
                     'system_prompt': item.get('system_prompt', ''),
@@ -124,16 +120,28 @@ class Skoll(http.Controller):
                     'gog_auth': gog_auth_str,
                 }
 
-                domain_name = (item.get('domain') or '').strip()
-                if domain_name:
-                    taxonomy_ids = []
-                    for tag in [t.strip() for t in domain_name.split(',') if t.strip()]:
-                        tax = TaxonomyModel.search([('name', '=ilike', tag)], limit=1)
-                        if not tax:
-                            tax = TaxonomyModel.create({'name': tag})
-                        taxonomy_ids.append(tax.id)
-                    if taxonomy_ids:
-                        vals['heart_taxonomy'] = [(6, 0, taxonomy_ids)]
+                TAG_FIELDS = (
+                    ('life_domain', 'life_domain_ids', 'skoll.tag.life_domain'),
+                    ('cluster', 'cluster_ids', 'skoll.tag.cluster'),
+                    ('task_type', 'task_type_ids', 'skoll.tag.task_type'),
+                    ('pattern_taxonomy', 'pattern_taxonomy_ids', 'skoll.tag.pattern_taxonomy'),
+                )
+                for jsonl_key, model_field, tag_model in TAG_FIELDS:
+                    raw = (item.get(jsonl_key) or '').strip()
+                    if not raw:
+                        continue
+                    TagModel = request.env[tag_model].sudo()
+                    tag_ids = []
+                    for part in raw.split(','):
+                        tag_name = part.strip()
+                        if not tag_name:
+                            continue
+                        tag = TagModel.search([('name', '=ilike', tag_name)], limit=1)
+                        if not tag:
+                            tag = TagModel.create({'name': tag_name})
+                        tag_ids.append(tag.id)
+                    if tag_ids:
+                        vals[model_field] = [(6, 0, tag_ids)]
 
                 for service in ('outlook', 'eventbrite', 'strava', 'oura', 'instagram', 'facebook', 'threads'):
                     svc_creds = creds.get(service, {})

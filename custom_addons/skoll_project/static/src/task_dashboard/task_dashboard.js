@@ -10,20 +10,10 @@ import { rpc } from "@web/core/network/rpc";
 
 const MODEL_TABS = [
     { type: "claude", label: "Claude 4.7", icon: "fa-microchip" },
-    { type: "glm", label: "Kimi K2.6", icon: "fa-cube" },
-    { type: "1pa", label: "1PA", icon: "fa-flask" },
-    { type: "1pb", label: "1PB", icon: "fa-flask" },
-    { type: "1pc", label: "1PC", icon: "fa-flask" },
-    { type: "1pd", label: "1PD", icon: "fa-flask" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
     claude: "claude_trajectory",
-    glm: "glm_trajectory",
-    "1pa": "onePA_trajectory",
-    "1pb": "onePB_trajectory",
-    "1pc": "onePC_trajectory",
-    "1pd": "onePD_trajectory",
 };
 
 const STATUS_POLL_INTERVAL_MS = 5000;
@@ -107,7 +97,7 @@ export class TaskDashboard extends Component {
 
         await this.orm.call("skoll.skoll", "ensure_sandboxes", [[this.taskId]]);
 
-        if (sandboxes.length === 0 || sandboxes.length < 6) {
+        if (sandboxes.length === 0 || sandboxes.length < MODEL_TABS.length) {
             sandboxes = await this.orm.searchRead(
                 "skoll.sandbox",
                 [["skoll_id", "=", this.taskId]],

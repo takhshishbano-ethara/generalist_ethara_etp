@@ -17,3 +17,15 @@ access_skoll_domain_admin,skoll.domain.admin,model_skoll_domain,group_skoll_admi
 access_skoll_generation_tasker,skoll.generation.tasker,model_skoll_generation,etp_user_roles.group_tasker,1,0,0,0
 access_skoll_generation_ql,skoll.generation.ql,model_skoll_generation,etp_user_roles.group_quality_lead,1,0,0,0
 access_skoll_generation_admin,skoll.generation.admin,model_skoll_generation,group_skoll_admin,1,1,1,1
+access_skoll_tag_life_domain_tasker,skoll.tag.life_domain.tasker,model_skoll_tag_life_domain,etp_user_roles.group_tasker,1,0,0,0
+access_skoll_tag_life_domain_ql,skoll.tag.life_domain.ql,model_skoll_tag_life_domain,etp_user_roles.group_quality_lead,1,1,1,1
+access_skoll_tag_life_domain_admin,skoll.tag.life_domain.admin,model_skoll_tag_life_domain,group_skoll_admin,1,1,1,1
+access_skoll_tag_cluster_tasker,skoll.tag.cluster.tasker,model_skoll_tag_cluster,etp_user_roles.group_tasker,1,0,0,0
+access_skoll_tag_cluster_ql,skoll.tag.cluster.ql,model_skoll_tag_cluster,etp_user_roles.group_quality_lead,1,1,1,1
+access_skoll_tag_cluster_admin,skoll.tag.cluster.admin,model_skoll_tag_cluster,group_skoll_admin,1,1,1,1
+access_skoll_tag_task_type_tasker,skoll.tag.task_type.tasker,model_skoll_tag_task_type,etp_user_roles.group_tasker,1,0,0,0
+access_skoll_tag_task_type_ql,skoll.tag.task_type.ql,model_skoll_tag_task_type,etp_user_roles.group_quality_lead,1,1,1,1
+access_skoll_tag_task_type_admin,skoll.tag.task_type.admin,model_skoll_tag_task_type,group_skoll_admin,1,1,1,1
+access_skoll_tag_pattern_taxonomy_tasker,skoll.tag.pattern_taxonomy.tasker,model_skoll_tag_pattern_taxonomy,etp_user_roles.group_tasker,1,0,0,0
+access_skoll_tag_pattern_taxonomy_ql,skoll.tag.pattern_taxonomy.ql,model_skoll_tag_pattern_taxonomy,etp_user_roles.group_quality_lead,1,1,1,1
+access_skoll_tag_pattern_taxonomy_admin,skoll.tag.pattern_taxonomy.admin,model_skoll_tag_pattern_taxonomy,group_skoll_admin,1,1,1,1

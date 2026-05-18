@@ -38,11 +38,6 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "Kimi K2.6"),
-    ("1pa", "1PA"),
-    ("1pb", "1PB"),
-    ("1pc", "1PC"),
-    ("1pd", "1PD"),
 ]
 
 MODEL_DEFAULTS = {
@@ -650,7 +645,7 @@ class SkollSandbox(models.Model):
             model_name = default.replace("litellm/", "")
 
         meta_info = {
-            "task_type": task.task_type or "",
+            "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
@@ -901,14 +896,16 @@ class SkollSandbox(models.Model):
                 model_name = default.replace("litellm/", "")
 
         meta_info = {
-            "task_type": task.task_type or "",
+            "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
             "persona": task.persona_id.name if task.persona_id else "",
             "model": model_name,
-            "difficulty": task.difficulty or "",
+            "life_domain": ", ".join(task.life_domain_ids.mapped("name")) if task.life_domain_ids else "",
+            "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
+            "pattern_taxonomy": ", ".join(task.pattern_taxonomy_ids.mapped("name")) if task.pattern_taxonomy_ids else "",
             "conv_id": str(uuid.uuid4()),
         }
 

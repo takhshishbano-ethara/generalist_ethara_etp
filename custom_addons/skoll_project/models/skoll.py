@@ -814,6 +814,34 @@ class Skoll(models.Model):
         ],
         string="Safety Critical",
     )
+    life_domain_ids = fields.Many2many(
+        "skoll.tag.life_domain",
+        "skoll_task_life_domain_rel",
+        "task_id",
+        "tag_id",
+        string="Life Domain",
+    )
+    cluster_ids = fields.Many2many(
+        "skoll.tag.cluster",
+        "skoll_task_cluster_rel",
+        "task_id",
+        "tag_id",
+        string="Cluster",
+    )
+    task_type_ids = fields.Many2many(
+        "skoll.tag.task_type",
+        "skoll_task_type_rel",
+        "task_id",
+        "tag_id",
+        string="Task Type Tags",
+    )
+    pattern_taxonomy_ids = fields.Many2many(
+        "skoll.tag.pattern_taxonomy",
+        "skoll_task_pattern_rel",
+        "task_id",
+        "tag_id",
+        string="Pattern Taxonomy",
+    )
     system_prompt = fields.Text(string="System Prompt")
     seed_prompt = fields.Text(string="Seed Prompt")
     initial_prompt = fields.Text(string="Initial Prompt")
@@ -1014,7 +1042,7 @@ class Skoll(models.Model):
     def ensure_sandboxes(self):
         for rec in self:
             existing = rec.sandbox_ids.mapped("model_type")
-            for mtype in ("claude", "glm", "1pa", "1pb", "1pc", "1pd"):
+            for mtype in ("claude",):
                 if mtype not in existing:
                     self.env["skoll.sandbox"].create(
                         {"skoll_id": rec.id, "model_type": mtype}
@@ -1287,14 +1315,16 @@ class Skoll(models.Model):
                 break
 
         meta_info = {
-            "task_type": self.task_type or "",
+            "task_type": ", ".join(self.task_type_ids.mapped("name")) if self.task_type_ids else "",
             "task_description": self.task_id or "",
             "task_completion_status": "success",
             "system_prompt": self.system_prompt or "",
             "platform": "macOS",
             "persona": self.persona_id.name if self.persona_id else "",
             "model": model_name,
-            "difficulty": self.difficulty or "",
+            "life_domain": ", ".join(self.life_domain_ids.mapped("name")) if self.life_domain_ids else "",
+            "cluster": ", ".join(self.cluster_ids.mapped("name")) if self.cluster_ids else "",
+            "pattern_taxonomy": ", ".join(self.pattern_taxonomy_ids.mapped("name")) if self.pattern_taxonomy_ids else "",
             "conv_id": str(uuid.uuid4()),
         }
 
