@@ -92,7 +92,18 @@ def build_prd_prompt(
     # Final instruction
     parts.append("\n\n---\n\n## WRITE THE PRD NOW\n")
     parts.append("Using ONLY the extracted data above, write the complete PRD following the exact SOP skeleton structure in the system prompt.\n")
-    parts.append(f"Target {_word_target(site_data)} words. Every value must be concrete and specific.\n")
+    # Strong word-count contract — Bedrock under-delivers (often ~3000)
+    # without an emphatic instruction at the user-message level. Kept in
+    # sync with Odoo's services/scoring_service.PRD_MAX_WORDS and
+    # qc_service ranges (4000-5000) — anything under 4000 is rejected by
+    # automated QC.
+    parts.append(
+        f"WORD COUNT CONTRACT (HARD): produce {_word_target(site_data)} words "
+        f"(range 4,000-5,000). 5,000 is a hard ceiling, NEVER exceed. "
+        f"PRDs under 4,000 words are flagged BELOW TARGET by automated "
+        f"QC and rejected. Use the full word budget — comprehensive over "
+        f"concise. Every value concrete and specific.\n"
+    )
     parts.append("""
 REMINDERS:
 - Start with the metadata block (Project, Category, Version, URL) then a 2-3 sentence framing statement BEFORE Section 1
@@ -116,7 +127,7 @@ REMINDERS:
 
 
 def _word_target(site_data: dict) -> str:
-    return "3000"
+    return "5000"
 
 
 def _format_metadata(site_data: dict) -> str:

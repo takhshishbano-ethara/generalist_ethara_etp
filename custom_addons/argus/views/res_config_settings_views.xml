@@ -53,6 +53,17 @@
                                 </div>
                             </div>
                         </setting>
+                        <setting string="Remote extractor"
+                                 help="Local extractor service URL. Run scripts/local_extractor.py on a residential network and expose it via Tailscale or cloudflared to bypass Instagram cloud-IP bot blocking.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="argus_remote_extractor_url" class="col-lg-3"/>
+                                    <field name="argus_remote_extractor_url"
+                                           class="col-lg-6"
+                                           placeholder="http://laptop.tailnet:8080"/>
+                                </div>
+                            </div>
+                        </setting>
                         <setting string="QC system prompt"
                                  help="Instructions sent to Kimi as the system prompt for the QC review. Leave blank to use the built-in default. If you customise, you MUST keep the JSON-response contract (score / level / feedback / issues / corrected_text) — see the field help for details.">
                             <div class="content-group">

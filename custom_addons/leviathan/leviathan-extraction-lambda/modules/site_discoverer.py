@@ -150,25 +150,35 @@ def _classify_category(detected_keys: list[str], raw: dict) -> str:
     key_set = set(detected_keys)
 
     # ---- 3D & WebGL (canvas must be a PRIMARY element, not decorative) ----
-    # Tightened: require an actual 3D library (three/babylon/pixi with webgl)
-    # OR a fullscreen canvas that also has meaningful render area.
-    # Raw webgl contexts alone over-promote decorative Stripe-style shaders.
+    # Tightened (May 2026): false-positive pattern was sites with small
+    # Three.js logos / decorative WebGL backgrounds being labeled 3d_webgl.
+    # New rule: require ALL FOUR signals together (3D lib + WebGL + actual
+    # fullscreen canvas + meaningful area). Stripe-style decorative shaders
+    # tend to be fullscreen but use no 3D library; the lib check filters
+    # those out. The "no-lib fullscreen-canvas" fallback is gone — a
+    # canvas without a 3D library is almost never a real 3D experience.
     has_three = "three_js" in key_set
     has_3d_lib = has_three or "babylon" in key_set or "pixi" in key_set
     has_webgl = meta.get("webgl_contexts", 0) > 0
     canvas_is_fullscreen = meta.get("canvas_is_fullscreen", False)
     largest_canvas_area = meta.get("largest_canvas_area", 0)
-    canvas_is_primary = canvas_is_fullscreen or largest_canvas_area > 800_000
-    if has_3d_lib and has_webgl and canvas_is_primary:
-        return CATEGORIES["3d_webgl"]
-    if has_webgl and canvas_is_fullscreen and largest_canvas_area > 1_200_000:
+    if (has_3d_lib
+            and has_webgl
+            and canvas_is_fullscreen
+            and largest_canvas_area > 1_500_000):
         return CATEGORIES["3d_webgl"]
 
     # ---- Representation Format (horizontal scroll / pinned / scrollytelling) ----
+    # Tightened (May 2026): old rules were too permissive — sticky nav +
+    # IntersectionObserver on a standard SaaS page would wrongly classify.
+    # Kept: clear signals (horizontal scroll containers, pin+scrub at scale,
+    # explicit scrollama-style data-step sections).
+    # Removed: sticky_sections + io_targets noise combo (every modern site
+    # hits this). translate_x + sticky_sections combo (false positives on
+    # sticky-nav). Raised scrolly_steps + scroll_snap thresholds.
     horiz_inline = meta.get("horizontal_scroll_sections", 0)
     horiz_computed = meta.get("horizontal_scroll_computed", 0)
     has_horizontal_pin = meta.get("has_horizontal_pin", False)
-    has_translate_x = meta.get("has_translate_x_container", False)
     if horiz_inline > 0 or horiz_computed > 0 or has_horizontal_pin:
         return CATEGORIES["representation"]
     has_pin = meta.get("has_pin", False)
@@ -176,26 +186,24 @@ def _classify_category(detected_keys: list[str], raw: dict) -> str:
     st_count = meta.get("scroll_trigger_count", 0)
     if has_pin and has_scrub and st_count >= 5:
         return CATEGORIES["representation"]
-    # Scrollytelling pattern: scrollama-style [data-step] elements
     scrolly_steps = meta.get("scrollytelling_step_count", 0)
-    sticky_sections = meta.get("sticky_section_count", 0)
     scroll_snap = meta.get("scroll_snap_count", 0)
-    io_targets = meta.get("io_target_count", 0)
-    if scrolly_steps >= 3:
+    # Explicit scrollytelling pattern — raised from 3 to 5 (a 3-step
+    # feature highlight is not a scrollytelling experience).
+    if scrolly_steps >= 5:
         return CATEGORIES["representation"]
-    # Sticky-backdrop scrollytelling (no explicit data-step but heavy IO + sticky)
-    if sticky_sections >= 2 and io_targets >= 10:
-        return CATEGORIES["representation"]
-    # Horizontal translateX scroll (e.g., Porsche) combined with sticky pinning
-    if has_translate_x and sticky_sections >= 1:
-        return CATEGORIES["representation"]
-    # Scroll-snap galleries with multiple snap sections
-    if scroll_snap >= 3:
+    # Scroll-snap gallery — raised from 3 to 5.
+    if scroll_snap >= 5:
         return CATEGORIES["representation"]
 
     # ---- SVG & Vector Graphics ----
-    has_lottie = "lottie" in key_set or meta.get("has_lottie_players", 0) > 0
-    has_svg_anim = meta.get("svg_animated_count", 0) >= 3
+    # Tightened (May 2026): a single Lottie loading-spinner or 3 small
+    # animated icons wrongly classified everyday sites as SVG. Now requires
+    # multiple Lottie players OR a large animated-SVG count.
+    has_lottie = meta.get("has_lottie_players", 0) >= 2 or (
+        "lottie" in key_set and meta.get("has_lottie_players", 0) >= 1
+    )
+    has_svg_anim = meta.get("svg_animated_count", 0) >= 6
     has_draw_svg = (
         "DrawSVGPlugin" in libraries_map
         or "MorphSVGPlugin" in libraries_map

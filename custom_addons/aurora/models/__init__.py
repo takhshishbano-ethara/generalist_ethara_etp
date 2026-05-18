@@ -8,6 +8,7 @@ from . import pipeline_result
 from . import github_token
 from . import pool_metrics
 from . import import_tokens_wizard
+from . import import_dataset_wizard
 from . import dataset_resolver
 from . import evaluation_executor
 from . import evaluation
