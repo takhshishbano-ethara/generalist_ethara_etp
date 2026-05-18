@@ -389,6 +389,12 @@ class TaskForgeExportController(http.Controller):
 
             tasks = TaskLog.search(domain, order='create_date desc')
 
+            Blocker = request.env['task.forge.blocker'].sudo()
+            blockers = Blocker.search([('task_id', 'in', tasks.ids)]) if tasks else Blocker
+            blocker_names_by_task = {}
+            for blk in blockers:
+                blocker_names_by_task.setdefault(blk.task_id.id, []).append(blk.name or '')
+
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
             fmt = self._get_formats(wb)
@@ -422,7 +428,7 @@ class TaskForgeExportController(http.Controller):
                     round(int(t.pause_time) / 60, 2) if t.pause_time else 0,
                     t.quality_score or 0,
                     t.task_score or 0,
-                    t.blocker_reason or '',
+                    ", ".join(n for n in blocker_names_by_task.get(t.id, []) if n),
                 ]
                 self._write_row(ws, fmt, idx + 3, row, col_types)
 
