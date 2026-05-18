@@ -471,6 +471,7 @@ def _embed_html(shortcode, source_url, title=""):
         embed_url = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
     else:
         embed_url = f"https://www.{iframe_host}/reel/{shortcode}/"
+    fallback_embed = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -497,9 +498,19 @@ def _embed_html(shortcode, source_url, title=""):
     <a href="{_esc(source_url)}" target="_blank" rel="noopener">Open in Instagram ↗</a>
   </div>
   <div class="stage">
-    <iframe src="{embed_url}" scrolling="no" allowtransparency="true"
+    <iframe id="ig-embed-frame" src="{embed_url}" scrolling="no" allowtransparency="true"
             allow="autoplay; encrypted-media; picture-in-picture"></iframe>
   </div>
+  <script>
+    (function() {{
+      var frame = document.getElementById('ig-embed-frame');
+      var loaded = false;
+      frame.addEventListener('load', function() {{ loaded = true; }});
+      setTimeout(function() {{
+        if (!loaded) frame.src = "{fallback_embed}";
+      }}, 4000);
+    }})();
+  </script>
 </body>
 </html>"""
 

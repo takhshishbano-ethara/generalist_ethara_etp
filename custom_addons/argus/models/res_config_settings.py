@@ -55,6 +55,20 @@ class ResConfigSettings(models.TransientModel):
             "you want a more lenient gate."
         ),
     )
+    argus_remote_extractor_url = fields.Char(
+        string="Remote Extractor URL",
+        config_parameter="argus.remote_extractor_url",
+        help=(
+            "Base URL of a local extractor service (see "
+            "scripts/local_extractor.py).  When set, Argus POSTs the "
+            "Instagram link to ``<url>/extract`` and reads back the "
+            "direct CDN .mp4 — sidestepping Instagram's cloud-IP bot "
+            "blocking.  Run the script on a residential network and "
+            "expose it here via Tailscale (e.g. "
+            "``http://laptop.tailnet:8080``) or cloudflared "
+            "(``cloudflared tunnel --url http://localhost:8080``)."
+        ),
+    )
     # NOTE: ``Text`` fields cannot use the ``config_parameter=``
     # shortcut on res.config.settings — the framework only accepts
     # boolean / integer / float / char / selection / many2one /
