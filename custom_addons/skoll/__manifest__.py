@@ -22,7 +22,7 @@ persona system, 3-tier access control, and dark-mode JSON viewer.
     'demo': [
         'demo/demo.xml',
     ],
-    'installable': True,
+    'installable': False,
     'application': True,
     'license': 'LGPL-3',
     'assets': {
