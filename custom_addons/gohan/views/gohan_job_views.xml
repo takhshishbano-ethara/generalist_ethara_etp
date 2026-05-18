@@ -401,7 +401,27 @@
                         </page>
 
                         <!-- ============================== -->
-                        <!-- TAB 3: Assets                  -->
+                        <!-- TAB 3: API & Backend Signals    -->
+                        <!-- ============================== -->
+                        <!-- Mirrors vegeta's "API and Signals" tab. Shows
+                             ONLY backend-data sections (API docs, captured
+                             network endpoints + response samples, auth flow,
+                             inferred entities/flows/roles, sitemap taxonomy,
+                             extraction-quality tier). The frontend "Assets"
+                             tab below is intentionally kept invisible-when-
+                             empty so blocked-site jobs (Turo) don't show it. -->
+                        <page string="API &amp; Backend" invisible="not backend_signals_html">
+                            <div class="mb-3" invisible="state != 'done'">
+                                <button name="action_open_rerun_wizard" type="object"
+                                        string="Re-extract Website" class="btn btn-sm btn-secondary"
+                                        confirm="Re-extract this website? Opens the rerun wizard."/>
+                            </div>
+                            <field name="backend_signals_html" widget="html"
+                                   readonly="1" nolabel="1" sanitize="False"/>
+                        </page>
+
+                        <!-- ============================== -->
+                        <!-- TAB 4: Assets (frontend, optional) -->
                         <!-- ============================== -->
                         <page string="Assets" invisible="not screenshot_keys and not asset_keys">
                             <!-- Re-extract: available to both admin and tasker on done -->

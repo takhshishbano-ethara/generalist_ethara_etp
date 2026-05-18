@@ -290,6 +290,19 @@ class GohanJob(models.Model):
         string="Extraction Summary", compute="_compute_asset_score_html",
         sanitize=False,
     )
+    backend_signals_html = fields.Html(
+        string="API & Backend Signals",
+        compute="_compute_backend_signals_html",
+        sanitize=False,
+        help="Renders the backend-data sections of the extraction "
+             "callback as colored cards: API docs (OpenAPI/Swagger/"
+             "GraphQL probes), captured network endpoints + response "
+             "samples, auth flow, inferred entities + flows + roles, "
+             "and the extraction quality tier. Mirrors the 'API and "
+             "Signals' tab in the vegeta module so taskers see the "
+             "backend ground truth at a glance, without scrolling the "
+             "raw lambda_callback_json blob.",
+    )
     score_report_html = fields.Html(
         string="Score Report (HTML)", compute="_compute_score_report_html",
         sanitize=False,
@@ -744,6 +757,168 @@ class GohanJob(models.Model):
                     if not akeys else
                     "<p class='text-muted'>Configure S3 bucket in settings to preview</p>"
                 )
+
+    @api.depends("lambda_callback_json", "site_discovery_json")
+    def _compute_backend_signals_html(self):
+        """Render the backend-data sections of the extraction as colored
+        cards. Mirrors vegeta's ``signals_html`` UX: one card per section
+        (API docs, network, auth, entities, flows, roles, extraction
+        quality), each with a colored header.
+
+        Reads from ``lambda_callback_json`` (full callback) and
+        ``site_discovery_json`` (parsed during webhook). No new
+        persistent field needed -- everything is derived.
+        """
+        from markupsafe import escape
+
+        def _fmt(value, depth=0):
+            if value is None or value == "" or value == [] or value == {}:
+                return '<span style="color:#adb5bd;font-style:italic;">empty</span>'
+            if isinstance(value, bool):
+                color = "#28a745" if value else "#dc3545"
+                return (
+                    f'<span style="color:{color};font-weight:600;">'
+                    f'{str(value).lower()}</span>'
+                )
+            if isinstance(value, (int, float)):
+                return (
+                    f'<span style="font-family:monospace;color:#0066cc;">'
+                    f'{value}</span>'
+                )
+            if isinstance(value, str):
+                if value.startswith(("http://", "https://")):
+                    safe = escape(value)
+                    return (
+                        f'<a href="{safe}" target="_blank" '
+                        f'style="color:#0066cc;text-decoration:none;'
+                        f'word-break:break-all;overflow-wrap:anywhere;">{safe}</a>'
+                    )
+                return (
+                    f'<span style="font-family:monospace;'
+                    f'word-break:break-word;overflow-wrap:anywhere;">'
+                    f'{escape(value)}</span>'
+                )
+            if isinstance(value, list):
+                if not value:
+                    return '<span style="color:#adb5bd;font-style:italic;">empty list</span>'
+                if all(isinstance(it, (str, int, float, bool)) for it in value):
+                    chips = ""
+                    for it in value:
+                        safe = escape(str(it))
+                        chips += (
+                            f'<span style="display:inline-block;margin:2px 4px 2px 0;'
+                            f'padding:2px 8px;background:#e7f3ff;color:#0066cc;'
+                            f'border-radius:3px;font-size:12px;font-family:monospace;'
+                            f'word-break:break-all;overflow-wrap:anywhere;">'
+                            f'{safe}</span>'
+                        )
+                    return f'<div style="word-break:break-word;">{chips}</div>'
+                parts = []
+                for idx, it in enumerate(value[:20]):
+                    parts.append(
+                        f'<div style="margin:6px 0;padding:8px;background:#fafbfc;'
+                        f'border-left:3px solid #dee2e6;border-radius:3px;">'
+                        f'<div style="font-size:11px;color:#6c757d;'
+                        f'margin-bottom:4px;">[{idx}]</div>'
+                        f'{_fmt(it, depth + 1)}</div>'
+                    )
+                if len(value) > 20:
+                    parts.append(
+                        f'<div style="margin:6px 0;color:#6c757d;font-style:italic;'
+                        f'font-size:12px;">... and {len(value) - 20} more</div>'
+                    )
+                return "".join(parts)
+            if isinstance(value, dict):
+                if not value:
+                    return '<span style="color:#adb5bd;font-style:italic;">empty</span>'
+                rows = ""
+                for k in sorted(value.keys()):
+                    rows += (
+                        f'<tr style="border-bottom:1px solid #f1f3f5;">'
+                        f'<td style="padding:6px 12px 6px 0;vertical-align:top;'
+                        f'font-weight:600;color:#495057;white-space:nowrap;">'
+                        f'{escape(str(k))}</td>'
+                        f'<td style="padding:6px 0;vertical-align:top;">'
+                        f'{_fmt(value[k], depth + 1)}</td></tr>'
+                    )
+                return (
+                    f'<table style="width:100%;border-collapse:collapse;'
+                    f'font-size:13px;">{rows}</table>'
+                )
+            return (
+                f'<span style="font-family:monospace;">{escape(str(value))}</span>'
+            )
+
+        # Title, header color, hint subline. Order = display order.
+        section_meta = [
+            ("extraction_quality", "Extraction Quality Tier", "#6f42c1",
+             "Score cap + reason (AUTHENTICATED / API_DOCS / MARKETING_RICH / MARKETING_ONLY)"),
+            ("api_doc_extracted",  "API Documentation",       "#0066cc",
+             "OpenAPI / Swagger / GraphQL probe results"),
+            ("network",            "Network & API Endpoints", "#fd7e14",
+             "Captured XHR/fetch endpoints, response body samples, CMS/CDN"),
+            ("auth_data",          "Authentication",          "#dc3545",
+             "Login forms, OAuth providers, protected paths, cookies"),
+            ("inferred_data_model","Inferred Data Model",     "#20c997",
+             "Entities + relationships derived from API patterns + forms"),
+            ("inferred_flows",     "Inferred User Flows",     "#17a2b8",
+             "Signup / login / reset / core-product flows"),
+            ("inferred_roles",     "Inferred Roles",          "#ffc107",
+             "Visitor / Authenticated / Admin + access matrix"),
+            ("sitemap_taxonomy",   "Sitemap Taxonomy",        "#6c757d",
+             "URLs grouped by purpose (feature / integration / blog / docs / etc.)"),
+        ]
+
+        for rec in self:
+            callback = rec.lambda_callback_json or {}
+            # network data may live inside `lambda_callback_json` under
+            # multiple keys depending on the Lambda version: pull from
+            # whichever is present. summarize_network output landed in
+            # `extraction_summary.network_endpoints` (count) and
+            # detailed data is in raw_data.json on S3 — but for the UI
+            # we surface the in-callback fields we have.
+            network_block = (
+                callback.get("network")
+                or callback.get("network_data")
+                or {
+                    "api_endpoints_count": (
+                        callback.get("extraction_summary") or {}
+                    ).get("network_endpoints", 0),
+                }
+            )
+            data_source = {
+                "extraction_quality": (
+                    callback.get("extraction_quality")
+                    or {"tier": callback.get("eq_tier")}
+                ),
+                "api_doc_extracted": callback.get("api_doc_extracted"),
+                "network":           network_block,
+                "auth_data":         callback.get("auth_data"),
+                "inferred_data_model": callback.get("inferred_data_model"),
+                "inferred_flows":      callback.get("inferred_flows"),
+                "inferred_roles":      callback.get("inferred_roles"),
+                "sitemap_taxonomy":    callback.get("sitemap_taxonomy"),
+            }
+            if not any(data_source.values()):
+                rec.backend_signals_html = ""
+                continue
+            html_parts = []
+            for key, title, color, hint in section_meta:
+                value = data_source.get(key)
+                if value is None or value == "" or value == [] or value == {}:
+                    continue
+                html_parts.append(
+                    f'<div style="margin-bottom:16px;border:1px solid #dee2e6;'
+                    f'border-radius:6px;overflow:hidden;">'
+                    f'<div style="padding:8px 12px;background:{color};color:#fff;">'
+                    f'<span style="font-weight:700;font-size:14px;">{escape(title)}</span>'
+                    f'<span style="margin-left:10px;font-size:11px;opacity:0.85;">'
+                    f'{escape(hint)}</span>'
+                    f'</div>'
+                    f'<div style="padding:12px;background:#fff;">{_fmt(value)}</div>'
+                    f'</div>'
+                )
+            rec.backend_signals_html = "".join(html_parts)
 
     @api.depends("screenshot_keys", "asset_keys")
     def _compute_asset_score_html(self):
