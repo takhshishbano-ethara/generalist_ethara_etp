@@ -64,6 +64,7 @@
         gap: 4px;
     }
 
+    .kensei-json-copy-btn,
     .kensei-json-edit-btn,
     .kensei-json-delete-btn,
     .kensei-json-qc-btn,
@@ -84,6 +85,12 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+    }
+
+    .kensei-json-copy-btn:hover {
+        color: #94e2d5;
+        border-color: #94e2d5;
+        background: rgba(148, 226, 213, 0.1);
     }
 
     .kensei-json-edit-btn:hover {

@@ -573,8 +573,6 @@ class KenseiChatController(http.Controller):
 
             safe_name = "%s_%s" % (uuid.uuid4().hex[:8], name.replace("/", "_").replace("\\", "_"))
 
-            self._write_to_container(sandbox, persona_name, safe_name, file_bytes)
-
             s3_files.append({
                 "object_key": safe_name,
                 "data": file_bytes,
@@ -630,6 +628,7 @@ class KenseiChatController(http.Controller):
             self._write_to_k8s_pod(sandbox, filename, file_bytes)
         else:
             self._write_to_local_volume(sandbox, persona_name, filename, file_bytes)
+
 
     def _write_to_local_volume(self, sandbox, persona_name, filename, file_bytes):
         workdir = sandbox.docker_workdir

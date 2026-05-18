@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from datetime import timedelta
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -72,7 +73,7 @@ class KaijuCommit0Run(models.Model):
     error_summary = fields.Char(
         string="Error Summary",
         compute="_compute_error_summary",
-        store=True,
+        store=False,
         help="Truncated error from first failed step — quick triage in list view",
     )
     combined_log_text = fields.Text(
@@ -259,17 +260,48 @@ class KaijuCommit0Run(models.Model):
 
     # ── Cron: Poll Argo for running runs ─────────────────────────────────────
 
+    POLL_RUNNING_LIMIT = 20
+    POLL_TERMINAL_INCOMPLETE_LIMIT = 10
+
     @api.model
     def _cron_poll_run_status(self):
-        """Called by ir.cron every 60s to update running evaluations from Argo."""
+        """Called by ir.cron every 60s to update running evaluations from Argo.
+
+        Bounded per tick (POLL_RUNNING_LIMIT + POLL_TERMINAL_INCOMPLETE_LIMIT)
+        so a large backlog can't stack ticks. Ordered by run_end asc so the
+        runs closest to Argo pod GC (5 min) are polled first.
+        """
+        start_ts = fields.Datetime.now()
         running_runs = self.search(
-            [("run_status", "=", "running"), ("workflow_name", "!=", False)]
+            [("run_status", "=", "running"), ("workflow_name", "!=", False)],
+            order="run_start asc, create_date asc",
+            limit=self.POLL_RUNNING_LIMIT,
         )
-        if not running_runs:
+        # Defense in depth: re-poll recently-finished runs missing steps/logs
+        # (catches callback-wins-race where steps weren't synced before pod GC).
+        # Pure SQL via stored has_log + polish OR to include zero-step runs.
+        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
+        terminal_incomplete = self.search([
+                ("run_status", "in", ("done", "failed")),
+                ("workflow_name", "!=", False),
+                ("run_end", ">=", recent_cutoff),
+                "|",
+                ("step_ids", "=", False),
+                ("step_ids.has_log", "=", False),
+            ],
+            order="run_end asc, create_date asc",
+            limit=self.POLL_TERMINAL_INCOMPLETE_LIMIT,
+        )
+        all_runs = running_runs | terminal_incomplete
+        if not all_runs:
             return
+        _logger.info(
+            "[kaiju.commit0.run] poll_run: tick running=%s terminal_incomplete=%s",
+            len(running_runs), len(terminal_incomplete),
+        )
 
         argo = self.env["kaiju.argo.client"]
-        for run in running_runs:
+        for run in all_runs:
             try:
                 status = argo.get_workflow_status(run.workflow_name)
             except RuntimeError as e:
@@ -303,7 +335,10 @@ class KaijuCommit0Run(models.Model):
                     "Incremental log persist failed for run %s: %s", run.name, e
                 )
 
-            if phase in ("Succeeded",):
+            # Skip status write if already terminal (callback won). Step sync above runs unconditionally.
+            if run.run_status in ("done", "failed"):
+                pass
+            elif phase in ("Succeeded",):
                 run.write(
                     {
                         "run_status": "done",
@@ -320,7 +355,7 @@ class KaijuCommit0Run(models.Model):
                         "run_status": "failed",
                         "run_end": fields.Datetime.now(),
                         "run_log": self._append_log(
-                            run.run_log, f"Workflow failed: {phase} \u2014 {message}"
+                            run.run_log, f"Workflow failed: {phase} — {message}"
                         ),
                     }
                 )
@@ -346,6 +381,11 @@ class KaijuCommit0Run(models.Model):
                         run.name,
                         e,
                     )
+        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
+        _logger.info(
+            "[kaiju.commit0.run] poll_run: done processed=%s elapsed=%.2fs",
+            len(all_runs), elapsed,
+        )
 
     # ── Step Sync & Log Persistence ─────────────────────────────────
 

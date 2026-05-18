@@ -133,6 +133,36 @@ class TestStartTaskWizard(LeviathanTestCase):
         action = wiz.action_confirm()
         self.assertEqual(action["res_id"], ct.id)
 
+    def test_skips_already_assigned_tasks(self):
+        already = self._create_job(
+            url="https://already.com", user_id=self.tasker.id,
+        )
+        free = self._create_job(url="https://free.com")
+        wiz = self.env["leviathan.start.task.wizard"].create({})
+        action = wiz.action_confirm()
+        self.assertEqual(
+            action["res_id"], free.id,
+            "action_start_task must skip rows where user_id IS NOT NULL — "
+            "the WHERE clause must guard against re-claiming an owned task.",
+        )
+
+    def test_query_uses_for_update_skip_locked(self):
+        import inspect
+        import re
+
+        src = inspect.getsource(self.Job.action_start_task)
+        self.assertRegex(
+            src,
+            r"FOR\s+UPDATE\s+SKIP\s+LOCKED",
+            "action_start_task SQL must use FOR UPDATE SKIP LOCKED to be "
+            "race-safe against concurrent Start Task clicks.",
+        )
+        self.assertRegex(
+            src,
+            r"user_id\s+IS\s+NULL",
+            "WHERE clause must guard against re-claiming an owned row.",
+        )
+
 
 @tagged("post_install", "-at_install", "leviathan")
 class TestBulkAssignWizard(LeviathanTestCase):
@@ -164,3 +194,34 @@ class TestBulkAssignWizard(LeviathanTestCase):
             active_ids=[a.id, b.id, c.id],
         ).create({"user_id": self.tasker.id})
         self.assertEqual(wiz.task_count, 3)
+
+    def test_skips_submitted_tasks(self):
+        live = self._create_job()
+        submitted = self._create_job(
+            user_id=self.tasker.id, prd_text="PRD", qc_verdict="shippable",
+        )
+        submitted.write({"state": "done"})
+        submitted.write({"state": "submitted"})
+        wiz = self.env["leviathan.bulk.assign.wizard"].with_context(
+            active_ids=[live.id, submitted.id],
+        ).create({"user_id": self.other_user.id})
+        result = wiz.action_assign()
+        live.invalidate_recordset()
+        submitted.invalidate_recordset()
+        self.assertEqual(live.user_id, self.other_user)
+        self.assertEqual(submitted.user_id, self.tasker)
+        self.assertEqual(submitted.state, "submitted")
+        self.assertEqual(result.get("tag"), "display_notification")
+        self.assertIn("skipped", result["params"]["message"])
+
+    def test_all_submitted_raises(self):
+        a = self._create_job(
+            user_id=self.tasker.id, prd_text="P", qc_verdict="shippable",
+        )
+        a.write({"state": "done"})
+        a.write({"state": "submitted"})
+        wiz = self.env["leviathan.bulk.assign.wizard"].with_context(
+            active_ids=[a.id],
+        ).create({"user_id": self.other_user.id})
+        with self.assertRaises(UserError):
+            wiz.action_assign()

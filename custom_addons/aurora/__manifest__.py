@@ -1,6 +1,6 @@
 {
     "name": "Aurora Pipeline",
-    "version": "19.0.4.0.1",
+    "version": "19.0.5.0.0",
     "category": "Productivity",
     "summary": "Aurora data-collection pipeline",
     "description": """
@@ -25,6 +25,7 @@
         "views/evaluation_instance_views.xml",
         "views/harness_staging_views.xml",
         "views/registry_wizard_views.xml",
+        "views/import_dataset_wizard_views.xml",
         "views/token_views.xml",
         "views/discovery_views.xml",
         "views/discovery_wizard_views.xml",

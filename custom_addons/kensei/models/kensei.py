@@ -848,6 +848,7 @@ model_list:
     litellm_params:
       model: moonshot/kimi-k2.6
       api_key: os.environ/MOONSHOT_API_KEY
+      temperature: 1.0
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -2909,12 +2910,32 @@ class Kensei(models.Model):
         if claude_sandbox.turn_ids:
             return {"skip": True, "reason": "has_turns"}
 
+        input_files = []
+        for sb in task.sandbox_ids:
+            for turn in sb.turn_ids:
+                if not turn.attachments:
+                    continue
+                try:
+                    atts = json.loads(turn.attachments)
+                    if isinstance(atts, list):
+                        for att in atts:
+                            stored_as = att.get("storedAs", "")
+                            if stored_as and stored_as not in {f["storedAs"] for f in input_files}:
+                                input_files.append({
+                                    "storedAs": stored_as,
+                                    "name": att.get("name", stored_as),
+                                    "mimeType": att.get("mimeType", "application/octet-stream"),
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
         return {
             "task_id": task_id,
             "sandbox_id": claude_sandbox.id,
             "docker_status": claude_sandbox.docker_status or "stopped",
             "initial_prompt": task.initial_prompt or "",
             "system_prompt": task.system_prompt or "",
+            "input_files": input_files,
         }
 
     @api.model

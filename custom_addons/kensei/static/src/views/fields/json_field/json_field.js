@@ -479,6 +479,19 @@ export class KenseiJsonField extends Component {
         });
     }
 
+    async onCopyEntry(index) {
+        const entry = this.state.entries[index];
+        const text = typeof entry.trajectory === "string"
+            ? entry.trajectory
+            : JSON.stringify(entry.trajectory, null, 2);
+        try {
+            await navigator.clipboard.writeText(text);
+            this.notification.add(_t("Trajectory copied to clipboard"), { type: "success" });
+        } catch {
+            this.notification.add(_t("Failed to copy — check browser permissions"), { type: "warning" });
+        }
+    }
+
     onEditEntry(index) {
         const entry = this.state.entries[index];
         let text;

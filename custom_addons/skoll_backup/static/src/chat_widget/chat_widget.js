@@ -511,6 +511,11 @@ export class SkollChatWidget extends Component {
                 // skip main-widget processing — subagent content arrives via session.message.
                 const evtKey = p.sessionKey || "";
                 if (evtKey.includes(":subagent:")) {
+                    // Mark the subagent card done when its own session lifecycle ends —
+                    // this is the precise signal the task is fully complete.
+                    if (p.stream === "lifecycle" && (p.data?.phase === "end" || p.data?.phase === "error")) {
+                        this._markSubAgentCompleted(evtKey);
+                    }
                     return;
                 }
                 const agentStream = p.stream;
@@ -918,10 +923,7 @@ export class SkollChatWidget extends Component {
             session._rawEvents = [];
             session.streaming = false;
             this._stopIncrementalSave();
-            if (session._activeChildKey) {
-                this._markSubAgentCompleted(session._activeChildKey);
-                session._activeChildKey = null;
-            }
+            session._activeChildKey = null;
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";

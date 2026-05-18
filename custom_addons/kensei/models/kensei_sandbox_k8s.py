@@ -196,10 +196,12 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         },
         "browser": {
-            "enabled": True,
-            "headless": True,
-            "noSandbox": True,
-            "defaultProfile": "openclaw",
+            "enabled": False,
+        },
+        "tools": {
+            "browser": {"enabled": False},
+            "web_search": {"enabled": False},
+            "web_fetch": {"enabled": False},
         },
         "models": {"providers": {}},
     }
@@ -272,7 +274,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
     config_dict["agents"] = {
         "defaults": {
             "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
-            "imageModel": {"primary": "litellm/" + MODEL_DEFAULTS.get(model_type, "claude-opus-4.7")},
+            "imageModel": {"primary": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")},
             "thinkingDefault": "xhigh",
         }
     }

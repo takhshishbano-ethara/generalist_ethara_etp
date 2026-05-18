@@ -2629,7 +2629,7 @@ class KenseiSandbox(models.Model):
             config["agents"] = {
                 "defaults": {
                     "model": default_model,
-                    "imageModel": {"primary": "litellm/" + default_model},
+                    "imageModel": {"primary": default_model},
                     "thinkingDefault": "xhigh",
                 }
             }

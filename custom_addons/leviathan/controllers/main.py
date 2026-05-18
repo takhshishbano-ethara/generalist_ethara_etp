@@ -10,23 +10,35 @@ from odoo.http import request, Response
 
 _logger = logging.getLogger(__name__)
 
+# Defense in depth — cap webhook body size so a misbehaving Lambda or a
+# token-stolen attacker can't OOM the HTTP worker by streaming a multi-GB
+# JSON payload. Default 10 MB, override via LEVIATHAN_WEBHOOK_MAX_BYTES.
+_WEBHOOK_MAX_BYTES = int(
+    os.environ.get("LEVIATHAN_WEBHOOK_MAX_BYTES", str(10 * 1024 * 1024))
+)
+
 
 def _verify_webhook_token():
     """Verify the X-Leviathan-Token header against the shared secret.
 
-    If LEVIATHAN_WEBHOOK_TOKEN env var is not set, auth is bypassed with a
-    warning.  In production the env var MUST be set — deployment scripts
-    enforce this.
+    ``LEVIATHAN_WEBHOOK_TOKEN`` accepts a comma-separated list of tokens
+    (``"prod,old,new"``) so the secret can be rotated without a pod
+    restart: deploy with both old and new accepted, switch the Lambda to
+    the new one, then drop the old from the list on the next deploy. Each
+    token is compared in constant time via ``hmac.compare_digest``.
     """
-    secret = os.environ.get("LEVIATHAN_WEBHOOK_TOKEN")
-    if not secret:
+    secret_env = os.environ.get("LEVIATHAN_WEBHOOK_TOKEN", "")
+    if not secret_env:
         _logger.error(
             "LEVIATHAN_WEBHOOK_TOKEN not set -- rejecting webhook. "
             "Set this env var in production!"
         )
         return False
-    token = request.httprequest.headers.get("X-Leviathan-Token")
-    return hmac.compare_digest(token or "", secret)
+    received = request.httprequest.headers.get("X-Leviathan-Token") or ""
+    accepted = [t.strip() for t in secret_env.split(",") if t.strip()]
+    if not accepted:
+        return False
+    return any(hmac.compare_digest(received, t) for t in accepted)
 
 
 class LeviathanController(http.Controller):
@@ -50,8 +62,35 @@ class LeviathanController(http.Controller):
                 content_type="application/json",
             )
 
+        # Cap payload size — defense in depth against a misbehaving
+        # upstream streaming a multi-GB body. Werkzeug enforces this at
+        # the request level too; we re-check at app level so the cap is
+        # visible in code and tunable per environment.
+        declared_len = request.httprequest.content_length
+        if isinstance(declared_len, int) and declared_len > _WEBHOOK_MAX_BYTES:
+            _logger.warning(
+                "Webhook rejected: Content-Length %d > cap %d",
+                declared_len, _WEBHOOK_MAX_BYTES,
+            )
+            return Response(
+                json.dumps({"error": "Payload too large"}),
+                status=413,
+                content_type="application/json",
+            )
+        body = request.httprequest.data
+        if isinstance(body, (bytes, bytearray)) and len(body) > _WEBHOOK_MAX_BYTES:
+            _logger.warning(
+                "Webhook rejected: body length %d > cap %d",
+                len(body), _WEBHOOK_MAX_BYTES,
+            )
+            return Response(
+                json.dumps({"error": "Payload too large"}),
+                status=413,
+                content_type="application/json",
+            )
+
         try:
-            data = json.loads(request.httprequest.data)
+            data = json.loads(body)
         except (json.JSONDecodeError, ValueError):
             return Response(
                 json.dumps({"error": "Invalid JSON body"}),
@@ -142,29 +181,23 @@ class LeviathanController(http.Controller):
             s3_folder = ICP.get_param("leviathan.s3_folder") or "leviathan"
             cdn_url = ICP.get_param("leviathan.s3_cdn_url")
 
-            artifacts_url = None
-            if artifacts and s3_bucket:
-                from ..services.s3_service import (
-                    upload_artifacts_to_s3,
-                    get_artifacts_folder_url,
-                )
-
-                upload_artifacts_to_s3(
-                    artifacts=artifacts,
-                    job_name=record.name,
-                    bucket=s3_bucket,
-                    access_key_id=s3_key_id,
-                    secret_key=s3_secret,
-                    region=s3_region,
-                    folder=s3_folder,
-                    cdn_url=cdn_url,
-                )
-                artifacts_url = get_artifacts_folder_url(
-                    job_name=record.name,
-                    bucket=s3_bucket,
-                    folder=s3_folder,
-                    cdn_url=cdn_url,
-                )
+            # Defer the multi-MB artifacts upload to a background thread so
+            # the webhook returns in <50 ms. Under a 250-callback burst this
+            # is the difference between Lambda's callback budget surviving
+            # vs. ALB queue fill -> webhook timeout -> Lambda retries (which
+            # we disabled at the Lambda config level) or stranded jobs in
+            # `extracting` state. PRD generation doesn't read artifacts_url,
+            # so the two run concurrently. See model._upload_artifacts_bg
+            # for failure semantics.
+            artifacts_pending = bool(artifacts and s3_bucket)
+            s3_config = {
+                "bucket": s3_bucket,
+                "key_id": s3_key_id,
+                "secret": s3_secret,
+                "region": s3_region,
+                "folder": s3_folder,
+                "cdn_url": cdn_url,
+            }
 
             write_vals = {
                 "prd_prompt": prd_prompt,
@@ -183,8 +216,6 @@ class LeviathanController(http.Controller):
                     write_vals["page_count"] = len(pages)
                 write_vals["site_discovery_json"] = site_discovery
 
-            if artifacts_url:
-                write_vals["artifacts_url"] = artifacts_url
             if screenshot_keys:
                 write_vals["screenshot_keys"] = screenshot_keys
             if asset_keys:
@@ -225,12 +256,23 @@ class LeviathanController(http.Controller):
                 pass
 
             # Use postcommit to ensure data is committed before
-            # background thread reads it (fixes race condition LG-3)
+            # background threads read it (fixes race condition LG-3).
             db_name = request.env.cr.dbname
             record_id = record.id
+            # Capture artifacts off the request — the closure executes
+            # post-commit, and the request scope is gone by then.
+            artifacts_for_bg = artifacts if artifacts_pending else None
 
             def _deferred():
                 from ..models.leviathan_job import _submit_bg
+                # 1) Artifacts upload to S3 — async, must not block webhook
+                if artifacts_for_bg:
+                    _submit_bg(
+                        f"artifacts-upload[job={record_id}]",
+                        record._upload_artifacts_bg,
+                        db_name, record_id, artifacts_for_bg, s3_config,
+                    )
+                # 2) PRD generation — runs concurrently with the upload
                 _submit_bg(
                     f"prd-gen[job={record_id}]",
                     record._run_prd_generation_bg, db_name, record_id,

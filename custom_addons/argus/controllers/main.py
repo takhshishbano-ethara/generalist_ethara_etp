@@ -41,6 +41,7 @@ but extraction will fall back to the iframe.
 import json
 import logging
 import re
+import time
 
 import requests
 
@@ -103,6 +104,12 @@ _VIDEO_URL_PATTERNS = (
 )
 
 
+_IG_URL_RE = re.compile(
+    r"^https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([\w\-]{1,32})/?",
+    re.IGNORECASE,
+)
+
+
 def _unescape(url):
     """Decode the encodings Instagram uses inline (JSON + HTML)."""
     return (
@@ -116,32 +123,45 @@ def _unescape(url):
 # Extraction
 # ==========================================================================
 def _fetch_via_yt_dlp(canonical_url):
-    """Extract a direct ``.mp4`` URL with yt-dlp.
-
-    Returns ``None`` if yt-dlp isn't installed or extraction failed —
-    callers should treat ``None`` as "fall back to the next strategy".
-    """
     if not _HAS_YT_DLP:
         return None
     opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        # ``mp4`` first so the URL we hand to the browser's <video>
-        # element is playable without any client-side muxing.
         "format": "best[ext=mp4]/best",
-        # Don't write any files / cache to disk — pure extraction.
         "writeinfojson": False,
         "writethumbnail": False,
-        # Faster start-up: skip plugin loading & geo bypass attempts
-        # we don't need.
         "extractor_args": {"instagram": {"comment_count": ["0"]}},
         "socket_timeout": 12,
+        "http_headers": {
+            "User-Agent": _UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Upgrade-Insecure-Requests": "1",
+        },
     }
+    cookies_path = (
+        request.env["ir.config_parameter"]
+        .sudo()
+        .get_param("argus.yt_dlp_cookies_path")
+    )
+    if cookies_path:
+        opts["cookiefile"] = cookies_path
+    cookies_browser = (
+        request.env["ir.config_parameter"]
+        .sudo()
+        .get_param("argus.yt_dlp_cookies_from_browser")
+    )
+    if cookies_browser and not cookies_path:
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(canonical_url, download=False)
-    except Exception as exc:  # pragma: no cover - depends on remote
+    except Exception as exc:
         _logger.warning(
             "Argus preview: yt-dlp failed on %s: %s",
             canonical_url, exc,
@@ -149,8 +169,6 @@ def _fetch_via_yt_dlp(canonical_url):
         return None
     if not info:
         return None
-    # yt-dlp's normal shape: top-level ``url`` is the chosen format's
-    # direct URL.  For playlists it's a list under ``entries``.
     url = info.get("url")
     if url:
         return url
@@ -158,50 +176,6 @@ def _fetch_via_yt_dlp(canonical_url):
         if entry and entry.get("url"):
             return entry["url"]
     return None
-
-
-def _fetch_via_instaloader(shortcode):
-    if not _HAS_INSTALOADER:
-        return None
-    try:
-        loader = instaloader.Instaloader(
-            download_videos=False,
-            download_video_thumbnails=False,
-            download_pictures=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            sleep=False,
-            quiet=True,
-        )
-        session_path = (
-            request.env["ir.config_parameter"]
-            .sudo()
-            .get_param("argus.instaloader_session_path")
-        )
-        session_user = (
-            request.env["ir.config_parameter"]
-            .sudo()
-            .get_param("argus.instaloader_session_user")
-        )
-        if session_path and session_user:
-            try:
-                loader.load_session_from_file(session_user, session_path)
-            except Exception as exc:
-                _logger.warning(
-                    "Argus preview: instaloader session load failed (%s): %s",
-                    session_path, exc,
-                )
-        post = instaloader.Post.from_shortcode(loader.context, shortcode)
-        if not post.is_video:
-            return None
-        return post.video_url or None
-    except Exception as exc:
-        _logger.warning(
-            "Argus preview: instaloader failed on %s: %s",
-            shortcode, exc,
-        )
-        return None
 
 
 def _fetch_via_scrape(shortcode):
@@ -262,22 +236,127 @@ def _fetch_via_scrape(shortcode):
     return None
 
 
-def _fetch_video_url(shortcode, source_url):
+def _fetch_via_remote(shortcode, source_url):
+    remote_url = (
+        request.env["ir.config_parameter"]
+        .sudo()
+        .get_param("argus.remote_extractor_url")
+    )
+    if not remote_url:
+        return None
     canonical = source_url or f"https://www.instagram.com/reel/{shortcode}/"
-    return (
-        _fetch_via_yt_dlp(canonical)
+    endpoint = remote_url.rstrip("/") + "/extract"
+    try:
+        resp = requests.post(
+            endpoint,
+            json={"url": canonical},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        _logger.warning(
+            "Argus preview: remote extractor %s unreachable: %s",
+            endpoint, exc,
+        )
+        return None
+    if resp.status_code != 200:
+        _logger.info(
+            "Argus preview: remote extractor returned HTTP %s",
+            resp.status_code,
+        )
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    if isinstance(data, dict) and data.get("ok"):
+        return data.get("video_url") or None
+    return None
+
+
+def _fetch_via_instaloader(shortcode):
+    if not _HAS_INSTALOADER:
+        return None
+    try:
+        loader = instaloader.Instaloader(
+            download_videos=False,
+            download_video_thumbnails=False,
+            download_pictures=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            sleep=False,
+            quiet=True,
+        )
+        params = request.env["ir.config_parameter"].sudo()
+        session_path = params.get_param("argus.instaloader_session_path")
+        session_user = params.get_param("argus.instaloader_session_user")
+        username = params.get_param("argus.instaloader_username")
+        password = params.get_param("argus.instaloader_password")
+
+        logged_in = False
+        if session_path and session_user:
+            try:
+                loader.load_session_from_file(session_user, session_path)
+                logged_in = True
+            except Exception as exc:
+                _logger.warning(
+                    "Argus preview: instaloader session load failed (%s): %s",
+                    session_path, exc,
+                )
+
+        if not logged_in and username and password:
+            try:
+                loader.login(username, password)
+                logged_in = True
+                if session_path:
+                    try:
+                        loader.save_session_to_file(session_path)
+                        if not session_user:
+                            params.set_param(
+                                "argus.instaloader_session_user", username
+                            )
+                    except Exception as exc:
+                        _logger.warning(
+                            "Argus preview: instaloader session save failed (%s): %s",
+                            session_path, exc,
+                        )
+            except Exception as exc:
+                _logger.warning(
+                    "Argus preview: instaloader login failed for %s: %s",
+                    username, exc,
+                )
+
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+        if not post.is_video:
+            return None
+        return post.video_url or None
+    except Exception as exc:
+        _logger.warning(
+            "Argus preview: instaloader failed on %s: %s",
+            shortcode, exc,
+        )
+        return None
+
+
+_VIDEO_URL_CACHE_TTL = 240
+_VIDEO_URL_CACHE = {}
+
+
+def _fetch_video_url(shortcode, source_url):
+    now = time.time()
+    cached = _VIDEO_URL_CACHE.get(shortcode)
+    if cached and cached[1] > now:
+        return cached[0]
+    canonical = source_url or f"https://www.instagram.com/reel/{shortcode}/"
+    video_url = (
+        _fetch_via_remote(shortcode, canonical)
         or _fetch_via_instaloader(shortcode)
+        or _fetch_via_yt_dlp(canonical)
         or _fetch_via_scrape(shortcode)
     )
-
-
-# Accepts reel/, reels/, p/, tv/ variants with optional ``www.`` and
-# trailing slash.  Anything off-spec gets rejected so the public route
-# below can't be weaponised to hit arbitrary URLs.
-_IG_URL_RE = re.compile(
-    r"^https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([\w\-]{1,32})/?",
-    re.IGNORECASE,
-)
+    if video_url:
+        _VIDEO_URL_CACHE[shortcode] = (video_url, now + _VIDEO_URL_CACHE_TTL)
+    return video_url
 
 
 def get_instagram_video_url(instagram_url):
@@ -381,6 +460,61 @@ def _fallback_iframe_html(shortcode, source_url, title=""):
 </html>"""
 
 
+def _embed_html(shortcode, source_url, title=""):
+    iframe_host = (
+        request.env["ir.config_parameter"]
+        .sudo()
+        .get_param("argus.preview_iframe_host")
+        or "ddinstagram.com"
+    )
+    if iframe_host == "instagram.com":
+        embed_url = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
+    else:
+        embed_url = f"https://www.{iframe_host}/reel/{shortcode}/"
+    fallback_embed = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Argus Preview</title>
+<style>
+  html, body {{ margin:0; padding:0; height:100%; background:#000;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+  body {{ display:flex; flex-direction:column; }}
+  .bar {{ background:#111; color:#eee; padding:8px 12px;
+          display:flex; justify-content:space-between; align-items:center;
+          font-size:12px; }}
+  .bar a {{ color:#7ab8ff; text-decoration:none; }}
+  .bar a:hover {{ text-decoration:underline; }}
+  .stage {{ flex:1; display:flex; align-items:center; justify-content:center;
+            padding:16px; box-sizing:border-box; overflow:hidden; }}
+  iframe {{ width:min(540px, 100%); height:100%; border:0; background:#000;
+            border-radius:8px; }}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <span>{_esc(title)}</span>
+    <a href="{_esc(source_url)}" target="_blank" rel="noopener">Open in Instagram ↗</a>
+  </div>
+  <div class="stage">
+    <iframe id="ig-embed-frame" src="{embed_url}" scrolling="no" allowtransparency="true"
+            allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+  </div>
+  <script>
+    (function() {{
+      var frame = document.getElementById('ig-embed-frame');
+      var loaded = false;
+      frame.addEventListener('load', function() {{ loaded = true; }});
+      setTimeout(function() {{
+        if (!loaded) frame.src = "{fallback_embed}";
+      }}, 4000);
+    }})();
+  </script>
+</body>
+</html>"""
+
+
 # ==========================================================================
 # Route
 # ==========================================================================
@@ -395,39 +529,32 @@ class ArgusVideoPreviewController(http.Controller):
         csrf=False,
     )
     def preview(self, shortcode, title="", source_url="", **kwargs):
-        """Extract + render the direct video, or render the fallback."""
-        # Sanitise shortcode — Instagram codes are 11-12 chars of
-        # [A-Za-z0-9_-]; reject anything off-spec so we can't be
-        # weaponised into hitting arbitrary URLs.
         if not re.match(r"^[\w\-]{1,32}$", shortcode or ""):
             return request.not_found()
         source = source_url or f"https://www.instagram.com/reel/{shortcode}/"
-        video_url = _fetch_video_url(shortcode, source)
+        try:
+            video_url = _fetch_video_url(shortcode, source)
+        except Exception as exc:
+            _logger.warning("Argus preview: extraction crashed: %s", exc)
+            video_url = None
         if video_url:
             html = _player_html(
-                video_url=video_url,
-                source_url=source,
-                title=title or "",
+                video_url=video_url, source_url=source, title=title or "",
             )
         else:
-            html = _fallback_iframe_html(
-                shortcode=shortcode,
-                source_url=source,
-                title=title or "",
+            html = _embed_html(
+                shortcode=shortcode, source_url=source, title=title or "",
             )
         return request.make_response(
             html,
             headers=[
                 ("Content-Type", "text/html; charset=utf-8"),
-                # The CDN URL Instagram returns is signed and expires
-                # in a few minutes; force a fresh extraction on every
-                # popup open.
                 ("Cache-Control", "no-store, max-age=0"),
             ],
         )
 
     @http.route(
-        "/argus/instagram/url",
+        "/api/argus/instagram/url",
         type="http",
         auth="public",
         methods=["GET", "POST"],
@@ -453,13 +580,50 @@ class ArgusVideoPreviewController(http.Controller):
                     or body.get("ig_url")
                     or body.get("instagram_url")
                 )
-        video_url = get_instagram_video_url(instagram_link)
-        if video_url:
-            payload = {"ok": True, "video_url": video_url, "source_url": instagram_link}
-            status = 200
-        else:
-            payload = {"ok": False, "error": "Unable to extract video URL", "source_url": instagram_link}
-            status = 404
+        instagram_link = (instagram_link or "").strip()
+        try:
+            match = _IG_URL_RE.match(instagram_link)
+            if not match:
+                payload = {
+                    "ok": False,
+                    "type": "none",
+                    "error": "Not a valid Instagram URL",
+                    "source_url": instagram_link,
+                }
+                status = 400
+            else:
+                shortcode = match.group(1)
+                embed_url = f"https://www.instagram.com/reel/{shortcode}/embed/captioned/"
+                try:
+                    video_url = _fetch_video_url(shortcode, instagram_link)
+                except Exception as exc:
+                    _logger.warning("Argus instagram_url: extraction crashed: %s", exc)
+                    video_url = None
+                if video_url:
+                    payload = {
+                        "ok": True,
+                        "type": "video",
+                        "video_url": video_url,
+                        "embed_url": embed_url,
+                        "source_url": instagram_link,
+                    }
+                else:
+                    payload = {
+                        "ok": True,
+                        "type": "iframe",
+                        "embed_url": embed_url,
+                        "source_url": instagram_link,
+                    }
+                status = 200
+        except Exception as exc:
+            _logger.exception("Argus instagram_url: unhandled error")
+            payload = {
+                "ok": False,
+                "type": "error",
+                "error": str(exc),
+                "source_url": instagram_link,
+            }
+            status = 500
         return request.make_response(
             json.dumps(payload),
             status=status,

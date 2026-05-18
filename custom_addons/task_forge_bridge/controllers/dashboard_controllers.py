@@ -198,7 +198,7 @@ class DashboardController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
             team_ids = user_id.employee_id._get_team_employee_ids()
 
-            # domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            # domain = [('project_lead', '=', user_id.employee_id.id), ('non_stemp_project_status', 'in', ['production'])]
             # if kwargs.get('project_type'):
             #     domain.append(('y_project_type', '=', kwargs.get('project_type')))
             #

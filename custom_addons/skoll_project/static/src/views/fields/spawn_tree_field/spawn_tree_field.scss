@@ -1,0 +1,118 @@
+.o_field_skoll_spawn_tree {
+    width: 100%;
+
+    .skoll-spawn-tree-viewer {
+        border: 1px solid #313244;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .skoll-spawn-tree-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 12px;
+        background: #181825;
+        border-bottom: 1px solid #313244;
+    }
+
+    .skoll-spawn-tree-label {
+        font-size: 0.8em;
+        font-weight: 600;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        i {
+            margin-right: 6px;
+            color: #6c7086;
+        }
+    }
+
+    .skoll-spawn-tree-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .skoll-spawn-tree-copy-btn,
+    .skoll-spawn-tree-refresh-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border: 1px solid #45475a;
+        border-radius: 4px;
+        background: #313244;
+        color: #cdd6f4;
+        font-size: 0.75em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            background: #45475a;
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        &:active {
+            transform: translateY(0);
+        }
+
+        i {
+            font-size: 1.1em;
+        }
+    }
+
+    .skoll-spawn-tree-copy-btn .fa-check {
+        color: #a6e3a1;
+    }
+
+    .skoll-spawn-tree-loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        font-size: 0.75em;
+        font-weight: 600;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        i {
+            color: #89b4fa;
+        }
+    }
+
+    .skoll-spawn-tree-body {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        padding: 16px 18px;
+        margin: 0;
+        overflow-x: auto;
+        overflow-y: auto;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.82em;
+        line-height: 1.5;
+        white-space: pre;
+        border: none;
+        border-radius: 0;
+    }
+
+    .skoll-spawn-tree-empty {
+        padding: 24px;
+        text-align: center;
+        color: #6c7086;
+        font-size: 0.9em;
+        background: #181825;
+        border: 1px dashed #313244;
+        border-radius: 6px;
+
+        i {
+            margin-right: 6px;
+        }
+    }
+}

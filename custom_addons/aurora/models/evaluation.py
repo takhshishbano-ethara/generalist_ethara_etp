@@ -123,6 +123,16 @@ class AuroraEvaluation(models.Model):
         string="Source Pipeline",
         help="Select a completed collect pipeline. Dataset file is auto-filled.",
     )
+    dataset_source = fields.Selection(
+        [("pipeline", "From Pipeline"), ("custom", "Custom Import")],
+        string="Dataset Source",
+        default="pipeline",
+        required=True,
+    )
+    custom_org = fields.Char(string="GitHub Org")
+    custom_repo = fields.Char(string="GitHub Repo")
+    custom_jsonl_file = fields.Binary(string="Dataset JSONL File")
+    custom_jsonl_filename = fields.Char()
     dataset_file = fields.Char(
         string="Dataset File",
         help="Auto-filled from Source Pipeline. Override for custom dataset.",
@@ -317,21 +327,26 @@ class AuroraEvaluation(models.Model):
         compute="_compute_s3_base_uri",
     )
 
-    @api.depends("s3_run_number", "pipeline_id.github_org", "pipeline_id.github_repo")
+    @api.depends("s3_run_number", "pipeline_id.github_org", "pipeline_id.github_repo", "dataset_source", "custom_org", "custom_repo")
     def _compute_s3_base_uri(self):
         from .pipeline import S3_BUCKET, S3_AURORA_PREFIX
         for rec in self:
-            if rec.s3_run_number and rec.pipeline_id:
+            org = ""
+            repo = ""
+            if rec.dataset_source == "custom":
+                org = rec.custom_org or ""
+                repo = rec.custom_repo or ""
+            elif rec.pipeline_id:
                 org = rec.pipeline_id.github_org or ""
                 repo = rec.pipeline_id.github_repo or ""
-                if org and repo:
-                    prefix = S3_AURORA_PREFIX.strip("/")
-                    rec.s3_base_uri = (
-                        f"s3://{S3_BUCKET}/{prefix}/aurora_phase2/"
-                        f"{org}__{repo}/run_{rec.s3_run_number}"
-                    )
-                    continue
-            rec.s3_base_uri = False
+            if rec.s3_run_number and org and repo:
+                prefix = S3_AURORA_PREFIX.strip("/")
+                rec.s3_base_uri = (
+                    f"s3://{S3_BUCKET}/{prefix}/aurora_phase2/"
+                    f"{org}__{repo}/run_{rec.s3_run_number}"
+                )
+            else:
+                rec.s3_base_uri = False
 
     @api.depends("instance_ids")
     def _compute_instance_count(self):
@@ -394,6 +409,36 @@ class AuroraEvaluation(models.Model):
                 pass
         return None
 
+    def _prepare_custom_dataset(self):
+        import base64
+        if not self.custom_jsonl_file:
+            raise UserError("Please upload a JSONL file for the custom dataset.")
+        if not self.custom_org or not self.custom_repo:
+            raise UserError("GitHub Org and Repo are required for a custom dataset.")
+
+        filename = (self.custom_jsonl_filename or "dataset.jsonl").strip()
+        if not filename.lower().endswith(".jsonl"):
+            raise UserError("Only .jsonl files are supported.")
+
+        raw = base64.b64decode(self.custom_jsonl_file)
+        lines = [line.strip() for line in raw.decode("utf-8").splitlines() if line.strip()]
+        if not lines:
+            raise UserError("The uploaded JSONL file is empty.")
+        try:
+            json.loads(lines[0])
+        except json.JSONDecodeError as exc:
+            raise UserError(f"Invalid JSONL: first line is not valid JSON: {exc}") from exc
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        base_dir = ICP.get_param("aurora.output_dir", "/tmp/aurora_output")
+        cache_dir = os.path.join(base_dir, "dataset_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        local_path = os.path.join(cache_dir, f"custom_{self.id}_{filename}")
+        with open(local_path, "wb") as fh:
+            fh.write(raw)
+
+        self.write({"dataset_file": local_path})
+
     def action_run_evaluation(self):
         self.ensure_one()
         if self.stage != "draft":
@@ -406,6 +451,9 @@ class AuroraEvaluation(models.Model):
                 "Clear the field to evaluate all dataset entries, or set it to real "
                 "instance_id values from the dataset (e.g. 'gorilla/mux:pr-337')."
             )
+
+        if self.dataset_source == "custom":
+            self._prepare_custom_dataset()
 
         pl = self.pipeline_id
         if pl and not self.dataset_file and pl.step6_file:
@@ -979,6 +1027,8 @@ class AuroraEvaluation(models.Model):
             "base_dockerfile_content": False,
             "base_dockerfile_s3_uri": False,
             "dataset_file": self.pipeline_id.step6_file if self.pipeline_id else False,
+            "custom_jsonl_file": False,
+            "custom_jsonl_filename": False,
             # Clear tar-decision + ECR state from the previous run, otherwise
             # the worker's poll loop sees a stale 'export'/'skip' decision and
             # short-circuits the new wait window without asking the user.

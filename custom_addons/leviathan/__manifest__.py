@@ -1,6 +1,6 @@
 {
     "name": "Leviathan",
-    "version": "19.0.2.3.0",
+    "version": "19.0.3.0.0",
     "category": "Tools",
     "summary": "Leviathan — Automated PRD Generation Pipeline (async-Lambda, 250-concurrent)",
     "description": (

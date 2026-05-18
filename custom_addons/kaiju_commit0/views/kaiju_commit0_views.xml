@@ -53,12 +53,12 @@
                             invisible="not config_valid or build_status == 'running'"
                             confirm="This will reset configuration and build. Runs are kept. Continue?"/>
 
-                    <button name="action_fetch_all_step_logs" type="object"
-                            string="Fetch Logs from Argo"
-                            class="btn-secondary"
-                            icon="fa-cloud-download"
-                            invisible="not workflow_name"
-                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
+                    <!-- Fetch Logs from Argo button removed — logs are now
+                         pulled automatically by the cron poller (every 60s while
+                         status is 'running' or within 10min of terminal status,
+                         AND by the workflow callback before status flip).
+                         See _cron_poll_build_status in models/kaiju_commit0.py
+                         and callback_build in controllers/main.py. -->
 
                     <button name="action_fetch_pipeline_metadata" type="object"
                             string="Refresh Metadata"
@@ -97,24 +97,16 @@
                             <group>
                                 <field name="repo_name"
                                        placeholder="e.g. Zahgon/gson"
-                                       readonly="config_valid"/>
-                                <field name="language" readonly="config_valid"/>
+                                       readonly="build_status in ('running','done')"/>
+                                <field name="language"
+                                       readonly="build_status in ('running','done')"/>
                             </group>
                         </group>
 
-                        <div class="c0-phase-action" invisible="config_valid">
-                            <button name="action_validate_config" type="object"
-                                    string="Validate Configuration"
-                                    class="btn-primary"/>
-                            <span class="mx-2 text-muted">or</span>
-                            <button name="%(action_import_csv_wizard)d" type="action"
-                                    string="Import Bulk (CSV/Excel)"
-                                    class="btn-secondary"
-                                    icon="fa-upload"/>
-                        </div>
-                        <div class="c0-phase-status" invisible="not config_valid">
-                            <span class="badge text-bg-success">
-                                <i class="fa fa-check me-1"/>Configuration Validated
+                        <div class="c0-phase-hint mt-2">
+                            <span class="text-muted small">
+                                <i class="fa fa-info-circle me-1"/>
+                                Set repository in <b>owner/repo</b> format, then click <b>Next →</b> to proceed to the Build phase.
                             </span>
                         </div>
                     </div>
@@ -145,10 +137,18 @@
                             </group>
                         </div>
 
-                        <div class="c0-phase-action" invisible="build_status in ('done', 'running')">
+                        <!-- Hide Start Build when: already running/done, OR CSV-queued waiting for submit cron -->
+                        <div class="c0-phase-action" invisible="build_status in ('done', 'running') or (build_status == 'pending' and submit_attempts &gt; 0)">
                             <button name="action_run_build" type="object"
                                     string="Start Build"
                                     class="btn-primary"/>
+                        </div>
+                        <!-- Queued indicator (CSV import created this record; submit cron will launch within ~1 min) -->
+                        <div class="alert alert-info" role="alert"
+                             invisible="not (build_status == 'pending' and submit_attempts &gt; 0)">
+                            <i class="fa fa-clock-o me-2"/>
+                            <strong>Queued.</strong> Waiting for submit cron (runs every minute). Attempts: <field name="submit_attempts" readonly="1" class="d-inline"/>/3.
+                            <div invisible="not submit_error" class="mt-1 text-muted small">Last error: <field name="submit_error" readonly="1" nolabel="1" class="d-inline"/></div>
                         </div>
 
                         <field name="build_log" widget="commit0_terminal"
@@ -233,13 +233,13 @@
                             </notebook>
                         </div>
 
-                        <!-- ═══ Pipeline Metadata — cleaner grouped layout ═══ -->
+                        <!-- ═══ Datasets — slim view (binary + HF link) ═══ -->
                         <div class="c0-pipeline-metadata mt-3" invisible="build_status != 'done'">
                             <h5 class="mt-3 mb-2">
-                                <i class="fa fa-link me-2"/>Pipeline Artifacts &amp; Links
+                                <i class="fa fa-database me-2"/>Datasets
                             </h5>
-                            <p class="text-muted small" invisible="metadata_fetched_at">
-                                Click <b>Refresh Metadata</b> in the header to populate identity fields from S3.
+                            <p class="text-muted small" invisible="dataset_file or metadata_error">
+                                Click <b>Refresh Metadata</b> in the header to download the dataset from S3.
                             </p>
                             <p class="text-danger small" invisible="not metadata_error">
                                 <i class="fa fa-exclamation-triangle me-1"/>
@@ -247,51 +247,28 @@
                             </p>
 
                             <notebook>
-                                <page string="Identity" name="identity">
-                                    <group>
-                                        <group string="Repository">
-                                            <field name="instance_id"
-                                                   invisible="not instance_id"/>
-                                            <field name="original_repo_url" widget="url" string="Source"/>
-                                            <field name="forked_repo_url" widget="url" string="Fork"/>
-                                            <field name="test_ids_url" widget="url" string="Test IDs Branch"/>
-                                        </group>
-                                        <group string="Commits">
-                                            <field name="base_commit"
-                                                   invisible="not base_commit"/>
-                                            <field name="reference_commit"
-                                                   invisible="not reference_commit"/>
-                                            <field name="metadata_fetched_at"
-                                                   invisible="not metadata_fetched_at"/>
-                                        </group>
-                                    </group>
-                                </page>
-
                                 <page string="Datasets" name="datasets">
                                     <group>
-                                        <group string="Storage">
-                                            <field name="s3_dataset_uri" string="S3 (raw)"/>
-                                            <field name="hf_dataset_url" widget="url" string="HuggingFace"/>
+                                        <group string="Hugging Face">
+                                            <field name="hf_dataset_url"
+                                                   widget="url"
+                                                   string="Hugging Face"
+                                                   readonly="1"
+                                                   nolabel="1"/>
                                         </group>
                                     </group>
-                                </page>
-
-                                <page string="Image &amp; Build Artifacts" name="artifacts">
-                                    <group>
-                                        <group string="Container">
-                                            <field name="image_uri" string="Image (ECR)"/>
-                                        </group>
-                                        <group string="Build Files (S3)">
-                                            <field name="setup_sh_url" string="setup.sh"/>
-                                            <field name="dockerfile_url" string="Dockerfile"/>
-                                        </group>
-                                    </group>
-                                </page>
-
-                                <page string="Workflow" name="workflow">
-                                    <group>
-                                        <field name="workflow_name" string="Argo Workflow"/>
-                                    </group>
+                                    <separator string="Dataset (dataset_entries.json)"/>
+                                    <p class="text-muted small" invisible="dataset_json_text">
+                                        No dataset cached yet. Click <b>Refresh Metadata</b> in the header to download from S3.
+                                    </p>
+                                    <field name="dataset_filename" invisible="1"/>
+                                    <field name="dataset_file" invisible="1"/>
+                                    <field name="dataset_json_text"
+                                           widget="ace"
+                                           options="{'mode': 'json'}"
+                                           nolabel="1"
+                                           readonly="1"
+                                           invisible="not dataset_json_text"/>
                                 </page>
                             </notebook>
                         </div>
