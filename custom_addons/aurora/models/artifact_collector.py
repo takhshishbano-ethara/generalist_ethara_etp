@@ -7,6 +7,7 @@ to S3 and create/update aurora_evaluation_instance DB records.
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
