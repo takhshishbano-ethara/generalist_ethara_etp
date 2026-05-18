@@ -175,6 +175,19 @@ class AllocationController(http.Controller):
                     hierarchy_errors = self._validate_team_hierarchy(allocation_request.project_id, tasker_ids=assign_emp_ids)
                     if hierarchy_errors:
                         return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
+                    existing_tasker_ids = set(allocation_request.project_id.project_tasker.ids)
+                    newly_added_tasker_ids = [tid for tid in assign_emp_ids if tid not in existing_tasker_ids]
+                    if newly_added_tasker_ids:
+                        assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                            newly_added_tasker_ids, exclude_project_id=allocation_request.project_id.id,
+                        )
+                        if assignment_errors:
+                            return return_Response(
+                                message="Cannot assign tasker(s): active task on a running project.",
+                                status=400,
+                                errors=assignment_errors,
+                            )
+                        request.env['project.project'].sudo()._apply_tasker_removals(removals)
                     total_emp = allocation_request.project_id.project_tasker.ids
                     total_emp.extend(assign_emp_ids)
                     allocation_request.project_id.sudo().project_tasker = [(6, 0, total_emp)]
@@ -275,6 +288,18 @@ class AllocationController(http.Controller):
             )
             if hierarchy_errors:
                 return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
+
+            if new_tasker_ids:
+                assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                    new_tasker_ids, exclude_project_id=project.id,
+                )
+                if assignment_errors:
+                    return return_Response(
+                        message="Cannot assign tasker(s): active task on a running project.",
+                        status=400,
+                        errors=assignment_errors,
+                    )
+                request.env['project.project'].sudo()._apply_tasker_removals(removals)
 
             project.sudo().write({
                 'project_lead': [(6, 0, project_lead)],

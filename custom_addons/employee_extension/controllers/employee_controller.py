@@ -151,6 +151,17 @@ class EmployeeController(http.Controller):
                         request.env.ref('api_auth_gateway.role_tasker_technical').id,
                         request.env.ref('api_auth_gateway.role_tasker_stem').id,
                         request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                        if employee.id not in ProjectRequest.project_tasker.ids:
+                            assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                                [employee.id], exclude_project_id=ProjectRequest.id,
+                            )
+                            if assignment_errors:
+                                return return_Response(
+                                    message="Cannot assign tasker: active task on a running project.",
+                                    status=400,
+                                    errors=assignment_errors,
+                                )
+                            request.env['project.project'].sudo()._apply_tasker_removals(removals)
                         emp_list = ProjectRequest.project_tasker.ids
                         emp_list.append(employee.id)
                         ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
@@ -465,6 +476,13 @@ class EmployeeController(http.Controller):
                                 request.env.ref('api_auth_gateway.role_tasker_technical').id,
                                 request.env.ref('api_auth_gateway.role_tasker_stem').id,
                                 request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                                if employee.id not in ProjectRequest.project_tasker.ids:
+                                    assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                                        [employee.id], exclude_project_id=ProjectRequest.id,
+                                    )
+                                    if assignment_errors:
+                                        raise Exception(assignment_errors[0]['message'])
+                                    request.env['project.project'].sudo()._apply_tasker_removals(removals)
                                 emp_list = ProjectRequest.project_tasker.ids
                                 emp_list.append(employee.id)
                                 ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
@@ -815,6 +833,9 @@ class EmployeeController(http.Controller):
 
             if kwargs.get('department_id'):
                 domain.append(('department_id', '=', int(kwargs['department_id'])))
+
+            if kwargs.get('exclude_me') in [1, '1']:
+                domain.append(('employee_id', 'not in', [employee.id]))
 
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10

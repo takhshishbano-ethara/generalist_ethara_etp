@@ -256,7 +256,19 @@ class ProjectController(http.Controller):
             if kwargs.get('project_qc_reviewer'):
                 vals['project_qc_reviewer'] = [(6, 0, parse_ids("project_qc_reviewer"))]
             if kwargs.get('project_tasker'):
-                vals['project_tasker'] = [(6, 0, parse_ids("project_tasker"))]
+                new_tasker_ids = parse_ids("project_tasker")
+                if new_tasker_ids:
+                    assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                        new_tasker_ids, exclude_project_id=None,
+                    )
+                    if assignment_errors:
+                        return return_Response(
+                            message="Cannot assign tasker(s): active task on a running project.",
+                            status=400,
+                            errors=assignment_errors,
+                        )
+                    request.env['project.project'].sudo()._apply_tasker_removals(removals)
+                vals['project_tasker'] = [(6, 0, new_tasker_ids)]
 
             # Schedule Meeting
             if kwargs.get('meeting_date'):
@@ -458,7 +470,21 @@ class ProjectController(http.Controller):
             if kwargs.get('project_qc_reviewer'):
                 vals['project_qc_reviewer'] = [(6, 0, parse_ids('project_qc_reviewer') or project.project_qc_reviewer.ids)]
             if kwargs.get('project_tasker'):
-                vals['project_tasker'] = [(6, 0, parse_ids('project_tasker') or project.project_tasker.ids)]
+                incoming_tasker_ids = parse_ids('project_tasker') or project.project_tasker.ids
+                existing_tasker_ids = set(project.project_tasker.ids)
+                newly_added_tasker_ids = [tid for tid in incoming_tasker_ids if tid not in existing_tasker_ids]
+                if newly_added_tasker_ids:
+                    assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                        newly_added_tasker_ids, exclude_project_id=project.id,
+                    )
+                    if assignment_errors:
+                        return return_Response(
+                            message="Cannot assign tasker(s): active task on a running project.",
+                            status=400,
+                            errors=assignment_errors,
+                        )
+                    request.env['project.project'].sudo()._apply_tasker_removals(removals)
+                vals['project_tasker'] = [(6, 0, incoming_tasker_ids)]
 
             qr_ids = parse_ids('project_qc_reviewer') if kwargs.get('project_qc_reviewer') else None
             tasker_ids = parse_ids('project_tasker') if kwargs.get('project_tasker') else None
@@ -942,6 +968,21 @@ class ProjectController(http.Controller):
                 hierarchy_errors = self._validate_team_hierarchy(project, qr_ids=qr_ids, tasker_ids=tasker_ids)
                 if hierarchy_errors:
                     return return_Response(message="Team hierarchy validation failed", status=400, errors=hierarchy_errors)
+
+            if tasker_ids:
+                existing_tasker_ids = set(project.project_tasker.ids)
+                newly_added_tasker_ids = [tid for tid in tasker_ids if tid not in existing_tasker_ids]
+                if newly_added_tasker_ids:
+                    assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                        newly_added_tasker_ids, exclude_project_id=project.id,
+                    )
+                    if assignment_errors:
+                        return return_Response(
+                            message="Cannot assign tasker(s): active task on a running project.",
+                            status=400,
+                            errors=assignment_errors,
+                        )
+                    request.env['project.project'].sudo()._apply_tasker_removals(removals)
 
             vals = {
                 'project_qc_reviewer': [(6, 0, qr_ids)],
