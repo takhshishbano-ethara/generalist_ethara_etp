@@ -437,24 +437,7 @@ class AuroraEvaluation(models.Model):
         with open(local_path, "wb") as fh:
             fh.write(raw)
 
-        from . import artifact_collector, s3_storage
-        s3_config = artifact_collector.load_s3_config()
-        vals: dict = {"dataset_file": local_path}
-        if s3_storage.is_configured(s3_config):
-            org = self.custom_org
-            repo = self.custom_repo
-            folder = (s3_config.get("folder") or "").strip("/")
-            phase = "aurora_phase2"
-            run_number = s3_storage.get_next_run_number(
-                s3_config, org, repo, folder=folder, phase=phase
-            )
-            s3_key = s3_storage.build_s3_key(
-                org, repo, run_number, "dataset.jsonl", folder=folder, phase=phase
-            )
-            s3_url = s3_storage.upload_file(s3_config, local_path, s3_key)
-            vals["s3_run_number"] = run_number
-            vals["dataset_jsonl_url"] = s3_url
-        self.write(vals)
+        self.write({"dataset_file": local_path})
 
     def action_run_evaluation(self):
         self.ensure_one()
