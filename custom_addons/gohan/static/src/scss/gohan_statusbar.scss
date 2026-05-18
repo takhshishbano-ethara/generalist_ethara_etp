@@ -39,3 +39,66 @@
         }
     }
 }
+
+/* Pretty-printed JSON / structured-text field widget (json_pretty). */
+.gohan-json-pretty {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #212529;
+    max-height: 480px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 4px;
+
+    code {
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+    }
+}
+
+/* Markdown-rendered prompt block (prd_prompt_html). Inherits .o_field_html
+   styles from core but tightens spacing for the long extraction prompt. */
+.gohan-prd-prompt-markdown {
+    background: #fdfdfd;
+    border: 1px solid #e3e6ea;
+    border-radius: 4px;
+    padding: 14px 18px;
+    max-height: 560px;
+    overflow: auto;
+    font-size: 13.5px;
+    line-height: 1.55;
+
+    h1, h2, h3, h4, h5, h6 {
+        margin-top: 1em;
+        margin-bottom: 0.4em;
+    }
+
+    pre, code {
+        background: #f1f3f5;
+        border-radius: 3px;
+    }
+
+    pre {
+        padding: 10px 12px;
+        overflow: auto;
+    }
+
+    table {
+        border-collapse: collapse;
+        margin: 8px 0;
+
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 4px 8px;
+        }
+    }
+}

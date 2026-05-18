@@ -16,7 +16,11 @@
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_lambda_api_key" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_lambda_api_key" class="oe_inline" password="True"/>
+                                    <field name="gohan_lambda_api_key" class="oe_inline" password="True" placeholder="Enter a new value to rotate (leave blank to keep existing)"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_lambda_api_key_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                             </div>
                         </setting>
@@ -24,7 +28,23 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_hmac_secret" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_hmac_secret" class="oe_inline" password="True"/>
+                                    <field name="gohan_hmac_secret" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_hmac_secret_status" readonly="1" nolabel="1" class="text-muted"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Legacy Webhook Token (X-Gohan-Token)" help="Verifies the X-Gohan-Token header on /api/v1/gohan/webhook/* endpoints. Required for the non-API-Gateway extraction-complete callback.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="gohan_webhook_token" class="col-lg-3 o_light_label"/>
+                                    <field name="gohan_webhook_token" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_webhook_token_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                             </div>
                         </setting>
@@ -34,11 +54,19 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_lambda_function_name" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_lambda_function_name" class="oe_inline"/>
+                                    <field name="gohan_lambda_function_name" class="oe_inline" password="True" placeholder="Enter a new ARN to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_lambda_function_name_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_lambda_region" class="col-lg-3 o_light_label"/>
                                     <field name="gohan_lambda_region" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="gohan_lambda_local_url" class="col-lg-3 o_light_label"/>
+                                    <field name="gohan_lambda_local_url" class="oe_inline" placeholder="http://localhost:9000/2015-03-31/functions/function/invocations"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_batch_concurrency" class="col-lg-3 o_light_label"/>
@@ -50,11 +78,19 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_extraction_access_key_id" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_extraction_access_key_id" class="oe_inline"/>
+                                    <field name="gohan_extraction_access_key_id" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_extraction_access_key_id_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_extraction_secret_access_key" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_extraction_secret_access_key" class="oe_inline" password="True"/>
+                                    <field name="gohan_extraction_secret_access_key" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_extraction_secret_access_key_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                             </div>
                         </setting>
@@ -64,7 +100,11 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_bedrock_inference_arn" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_bedrock_inference_arn" class="oe_inline"/>
+                                    <field name="gohan_bedrock_inference_arn" class="oe_inline" password="True" placeholder="Enter a new ARN to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_bedrock_inference_arn_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_bedrock_region" class="col-lg-3 o_light_label"/>
@@ -80,11 +120,19 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_bedrock_access_key_id" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_bedrock_access_key_id" class="oe_inline"/>
+                                    <field name="gohan_bedrock_access_key_id" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_bedrock_access_key_id_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_bedrock_secret_access_key" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_bedrock_secret_access_key" class="oe_inline" password="True"/>
+                                    <field name="gohan_bedrock_secret_access_key" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_bedrock_secret_access_key_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                             </div>
                         </setting>
@@ -114,11 +162,19 @@
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_s3_access_key_id" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_s3_access_key_id" class="oe_inline"/>
+                                    <field name="gohan_s3_access_key_id" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_s3_access_key_id_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                                 <div class="row mt16">
                                     <label for="gohan_s3_secret_access_key" class="col-lg-3 o_light_label"/>
-                                    <field name="gohan_s3_secret_access_key" class="oe_inline" password="True"/>
+                                    <field name="gohan_s3_secret_access_key" class="oe_inline" password="True" placeholder="Enter a new value to rotate"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="gohan_s3_secret_access_key_status" readonly="1" nolabel="1" class="text-muted"/>
                                 </div>
                             </div>
                         </setting>

@@ -238,6 +238,12 @@
                             invisible="state not in ('extracting','generating','scoring')"
                             confirm="Stop this running task and return it to Draft?"/>
 
+                    <!-- RECONCILE FROM S3: rescue when webhook never landed (or Lambda partially succeeded) -->
+                    <button name="action_reconcile_from_s3" type="object"
+                            string="Reconcile from S3" class="btn-secondary"
+                            invisible="state not in ('extracting','generating','scoring','failed')"
+                            help="Pulls Lambda's raw_data.json from S3 and auto-populates fields. Use when the job is stuck or webhook never landed."/>
+
                     <!-- ASSIGN: bring a discarded task back as a Draft -->
                     <button name="action_reopen" type="object"
                             string="Assign" class="oe_highlight"
@@ -459,18 +465,24 @@
                             <group string="Error" invisible="not error_message">
                                 <field name="error_message" readonly="1" nolabel="1"/>
                             </group>
+                            <!-- Extraction Data (sent to LLM) — rendered as Markdown HTML.
+                                 Raw prd_prompt field is kept hidden so the
+                                 `invisible="not prd_prompt"` conditions still resolve. -->
+                            <field name="prd_prompt" invisible="1"/>
                             <separator string="Extraction Data (sent to LLM)" invisible="not prd_prompt"/>
-                            <field name="prd_prompt" readonly="1" invisible="not prd_prompt"/>
+                            <field name="prd_prompt_html" widget="html" readonly="1" nolabel="1" invisible="not prd_prompt"/>
                             <separator string="Site Discovery" invisible="not site_discovery_json"/>
-                            <field name="site_discovery_json" widget="json" readonly="1" invisible="not site_discovery_json"/>
+                            <field name="site_discovery_json" widget="json_pretty" readonly="1" nolabel="1" invisible="not site_discovery_json"/>
 
                             <!-- Monitoring: what the Lambda + LLM actually did -->
+                            <separator string="Pipeline Log — step-by-step journal of every phase" invisible="not pipeline_log_json"/>
+                            <field name="pipeline_log_json" widget="json_pretty" readonly="1" nolabel="1" invisible="not pipeline_log_json"/>
                             <separator string="Extraction Warnings" invisible="not extraction_warnings"/>
-                            <field name="extraction_warnings" readonly="1" nolabel="1" invisible="not extraction_warnings"/>
+                            <field name="extraction_warnings" widget="json_pretty" readonly="1" nolabel="1" invisible="not extraction_warnings"/>
                             <separator string="Lambda Callback — status, phase log, extraction summary" invisible="not lambda_callback_json"/>
-                            <field name="lambda_callback_json" widget="json" readonly="1" invisible="not lambda_callback_json"/>
+                            <field name="lambda_callback_json" widget="json_pretty" readonly="1" nolabel="1" invisible="not lambda_callback_json"/>
                             <separator string="LLM Trace — every PRD attempt + QC" invisible="not llm_trace_json"/>
-                            <field name="llm_trace_json" widget="json" readonly="1" invisible="not llm_trace_json"/>
+                            <field name="llm_trace_json" widget="json_pretty" readonly="1" nolabel="1" invisible="not llm_trace_json"/>
                         </page>
 
                     </notebook>

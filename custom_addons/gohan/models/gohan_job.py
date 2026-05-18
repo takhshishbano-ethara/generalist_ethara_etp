@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -19,6 +20,17 @@ _POOL = ThreadPoolExecutor(
 )
 
 _BATCH_FANOUT_POOL_SIZE = int(os.environ.get("GOHAN_BATCH_FANOUT_SIZE", "250"))
+
+# Shared advisory-lock namespace used by:
+#   - controllers/main.py (webhook handler)
+#   - models/gohan_job.py::_attempt_s3_rescue (S3 poller + reconcile cron)
+# Both writers acquire pg_try_advisory_xact_lock(_GOHAN_WEBHOOK_LOCK_NS, job_id)
+# before mutating a job row. Without this shared namespace the webhook callback
+# and the S3 poller can both write the same row in overlapping transactions and
+# the loser hits 40001 (SerializationFailure) at commit time — which is exactly
+# what the user reported for job 25 on turo.com (webhook rolled back, poller
+# wrote partial data, UI showed empty extraction).
+_GOHAN_WEBHOOK_LOCK_NS = 0x60134A82
 
 
 def _submit_bg(label, fn, *args, **kwargs):
@@ -262,6 +274,14 @@ class GohanJob(models.Model):
         string="Screenshot Previews", compute="_compute_asset_previews",
         sanitize=False,
     )
+    prd_prompt_html = fields.Html(
+        string="Extraction Data (sent to LLM)",
+        compute="_compute_prd_prompt_html",
+        sanitize=False,
+        help="Markdown-rendered view of the prompt sent to the LLM. "
+             "Falls back to a <pre> block if the `markdown` library is "
+             "unavailable.",
+    )
     asset_urls_html = fields.Html(
         string="Asset Previews", compute="_compute_asset_previews",
         sanitize=False,
@@ -310,6 +330,24 @@ class GohanJob(models.Model):
     s3_artifact_prefix = fields.Char(
         string="S3 Artifact Prefix",
         help="s3://{bucket}/runs/{job_id}/ — root of all pipeline artifacts.",
+    )
+    # Pipeline journal: append-only list of {ts, step, status, message, **ctx}
+    # events emitted by every background runner + the extraction webhook. The
+    # whole point of this field is that an operator looking at a failed (or
+    # weirdly stuck) job sees ONE place that lists *exactly* which step ran,
+    # which one errored, and what the error was — without grepping container
+    # logs. `_append_pipeline_event` is the only writer; it also mirrors any
+    # `status="error"` event into `error_message` if that field is still
+    # empty, so the form's error banner stays in sync automatically.
+    pipeline_log_json = fields.Json(
+        string="Pipeline Log",
+        help=(
+            "Auto-populated step-by-step journal of every pipeline phase "
+            "(extraction invoke, webhook callback, PRD generation attempts, "
+            "scoring, QC, final upload). Each entry is "
+            "{ts, step, status, message, ...context}. Errors at any step "
+            "are appended here AND copied into the Error Message field."
+        ),
     )
     score_max = fields.Float(string="Max Score", default=100.0)
     qc_critical_count = fields.Integer(string="QC Critical Issues")
@@ -554,6 +592,46 @@ class GohanJob(models.Model):
             html += '</div>'
 
             rec.score_report_html = html
+
+    @api.depends("prd_prompt")
+    def _compute_prd_prompt_html(self):
+        try:
+            import markdown as _md
+        except ImportError:
+            _md = None
+        from markupsafe import Markup, escape
+
+        for rec in self:
+            text = rec.prd_prompt or ""
+            if not text.strip():
+                rec.prd_prompt_html = False
+                continue
+            if _md is None:
+                rec.prd_prompt_html = Markup(
+                    '<pre class="gohan-prd-prompt-markdown" '
+                    'style="white-space:pre-wrap;word-break:break-word;">'
+                    f"{escape(text)}</pre>"
+                )
+                continue
+            try:
+                body = _md.markdown(
+                    text,
+                    extensions=["fenced_code", "tables", "sane_lists", "nl2br"],
+                    output_format="html5",
+                )
+                rec.prd_prompt_html = Markup(
+                    f'<div class="gohan-prd-prompt-markdown">{body}</div>'
+                )
+            except Exception:
+                _logger.warning(
+                    "[gohan][job=%s] markdown render failed; falling back to <pre>",
+                    rec.id, exc_info=True,
+                )
+                rec.prd_prompt_html = Markup(
+                    '<pre class="gohan-prd-prompt-markdown" '
+                    'style="white-space:pre-wrap;word-break:break-word;">'
+                    f"{escape(text)}</pre>"
+                )
 
     @api.depends("screenshot_keys", "asset_keys")
     def _compute_asset_previews(self):
@@ -1008,6 +1086,41 @@ class GohanJob(models.Model):
         _logger.info("[gohan][job=%s] cancelled by %s", self.name, self.env.user.name)
         self._notify_state_change("draft")
 
+    def action_reconcile_from_s3(self):
+        """Manually pull Lambda's ``raw_data.json`` from S3 and auto-populate.
+
+        Use when a task is stuck in extracting / generating / scoring (webhook
+        never landed) or has been marked failed but Lambda actually finished.
+        Reads ``s3://{gohan.s3_bucket}/{prefix}/raw_data.json`` synchronously,
+        maps every JSON key to its model field, advances state to
+        ``generating`` if currently extracting/failed, and submits PRD
+        generation to the background pool.
+        """
+        self.ensure_one()
+        if self.state not in ("extracting", "generating", "scoring", "failed"):
+            raise UserError(
+                "Reconcile is only available while a task is running or has failed."
+            )
+
+        rescued, reason = self._attempt_s3_rescue(source="manual-button")
+        if rescued:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Reconcile succeeded",
+                    "message": reason,
+                    "type": "success",
+                    "sticky": False,
+                },
+            }
+        raise UserError(
+            f"S3 reconcile failed: {reason}\n\n"
+            f"This typically means Lambda hasn't uploaded raw_data.json yet, "
+            f"or the prefix is wrong. Check the job's S3 Artifact Prefix "
+            f"field and the lambda CloudWatch logs."
+        )
+
     def action_run_batch_concurrent(self):
         """Server action: fire all selected jobs in parallel via async Lambda invoke.
 
@@ -1036,6 +1149,7 @@ class GohanJob(models.Model):
             "region": ICP.get_param("gohan.lambda_region") or "ap-south-1",
             "access_key_id": ICP.get_param("gohan.extraction_access_key_id") or "",
             "secret_access_key": ICP.get_param("gohan.extraction_secret_access_key") or "",
+            "local_url": (ICP.get_param("gohan.lambda_local_url") or "").strip(),
             "batch_concurrency": int(
                 ICP.get_param("gohan.batch_concurrency") or _BATCH_FANOUT_POOL_SIZE
             ),
@@ -1047,10 +1161,11 @@ class GohanJob(models.Model):
         to_generate = eligible.filtered(lambda r: r.prd_prompt)
         to_extract = eligible - to_generate
 
-        if to_extract and not config["function_name"]:
+        if to_extract and not config["function_name"] and not config["local_url"]:
             raise UserError(
                 "Lambda function name not configured "
-                "(Settings -> Gohan -> Lambda Function)."
+                "(Settings -> Gohan -> Lambda Function), "
+                "and no Lambda Local URL set."
             )
 
         now = fields.Datetime.now()
@@ -1150,6 +1265,7 @@ class GohanJob(models.Model):
                 region=config["region"],
                 access_key_id=config["access_key_id"],
                 secret_access_key=config["secret_access_key"],
+                local_url=config.get("local_url", ""),
             )
             return record_id, result
 
@@ -1681,6 +1797,7 @@ class GohanJob(models.Model):
 
     def _run_qc_only_bg(self, db_name, record_id):
         """Background: re-run only QC on existing PRD text."""
+        from ..services.bedrock_service import get_credentials as _get_bedrock_credentials
         from ..services.qc_service import run_qc
 
         try:
@@ -1691,11 +1808,12 @@ class GohanJob(models.Model):
                     return
 
                 ICP = env["ir.config_parameter"].sudo()
+                bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
                 config = {
                     "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
                     "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
-                    "bedrock_access_key": ICP.get_param("gohan.bedrock_access_key_id"),
-                    "bedrock_secret_key": ICP.get_param("gohan.bedrock_secret_access_key"),
+                    "bedrock_access_key": bedrock_access_key,
+                    "bedrock_secret_key": bedrock_secret_key,
                     "s3_bucket": ICP.get_param("gohan.s3_bucket"),
                     "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
                     "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
@@ -1890,6 +2008,16 @@ class GohanJob(models.Model):
                 self._run_extraction_bg, db_name, record_id,
             )
         )
+        # Concurrent S3 poller fires the bus event the UI listens to even
+        # when the Lambda webhook never arrives. See the long comment
+        # above _run_extraction_poll_bg for the full architectural
+        # rationale — do not remove without understanding it.
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"extract-poll[job={record_id}]",
+                self._run_extraction_poll_bg, db_name, record_id,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1976,6 +2104,7 @@ class GohanJob(models.Model):
                     "region": ICP.get_param("gohan.lambda_region") or "ap-south-1",
                     "access_key_id": ICP.get_param("gohan.extraction_access_key_id") or "",
                     "secret_access_key": ICP.get_param("gohan.extraction_secret_access_key") or "",
+                    "local_url": (ICP.get_param("gohan.lambda_local_url") or "").strip(),
                 }
                 job_data = {
                     "url": record.url,
@@ -1983,15 +2112,16 @@ class GohanJob(models.Model):
                 }
                 cr.commit()
 
-            _logger.info(
-                "[gohan][diag][job=%s] dispatching extraction: "
-                "function=%s region=%s creds=%s url=%s callback=%s",
-                record_id,
-                config["function_name"] or "<UNSET>",
-                config["region"],
-                "explicit" if config["access_key_id"] else "pod-role/instance",
-                job_data["url"],
-                job_data["callback_url"],
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="extraction.invoke",
+                status="started",
+                message=f"Dispatching extraction Lambda for {job_data['url']}",
+                function_name=config["function_name"] or "<UNSET>",
+                region=config["region"],
+                credentials="explicit" if config["access_key_id"] else "pod-role/instance",
+                callback_url=job_data["callback_url"],
+                local_url=config["local_url"] or None,
             )
 
             result = trigger_extraction(
@@ -2002,6 +2132,7 @@ class GohanJob(models.Model):
                 region=config["region"],
                 access_key_id=config["access_key_id"],
                 secret_access_key=config["secret_access_key"],
+                local_url=config["local_url"],
             )
 
             _logger.info(
@@ -2009,17 +2140,62 @@ class GohanJob(models.Model):
                 record_id, result,
             )
 
+            run_meta_vals = {}
+            request_id = result.get("request_id") if isinstance(result, dict) else None
+            if request_id:
+                run_meta_vals["lambda_request_id"] = request_id
+            with Registry(db_name).cursor() as meta_cr:
+                meta_env = api.Environment(meta_cr, SUPERUSER_ID, {})
+                meta_icp = meta_env["ir.config_parameter"].sudo()
+                meta_bucket = (meta_icp.get_param("gohan.s3_bucket") or "").strip()
+                meta_folder = (meta_icp.get_param("gohan.s3_folder") or "gohan").strip("/")
+                if meta_bucket:
+                    run_meta_vals["s3_artifact_prefix"] = (
+                        f"s3://{meta_bucket}/{meta_folder}/{record_id}/"
+                    )
+                if run_meta_vals:
+                    meta_env[self._name].browse(record_id).write(run_meta_vals)
+                    meta_cr.commit()
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="extraction.run_metadata",
+                        status="ok",
+                        message="Run Metadata persisted (AWS Request ID + S3 Artifact Prefix)",
+                        lambda_request_id=run_meta_vals.get("lambda_request_id"),
+                        s3_artifact_prefix=run_meta_vals.get("s3_artifact_prefix"),
+                    )
+
             if not result.get("success"):
                 error_msg = result.get("error", "Extraction Lambda invoke failed")
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="extraction.invoke",
+                    status="error",
+                    message=error_msg,
+                )
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
                     "error_message": error_msg[:500],
                     "completed_at": fields.Datetime.now(),
                 })
+            else:
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="extraction.invoke",
+                    status="ok",
+                    message="Lambda accepted invoke; waiting for callback",
+                    request_id=request_id,
+                )
 
         except Exception as exc:
             _logger.exception(
                 "Extraction background task failed for job %s", record_id
+            )
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="extraction.invoke",
+                status="error",
+                message=f"Background task crashed: {exc}",
             )
             try:
                 self._write_with_cursor(db_name, record_id, {
@@ -2031,12 +2207,226 @@ class GohanJob(models.Model):
                 _logger.error("Failed to mark job %s as failed", record_id)
 
     # ------------------------------------------------------------------
+    # Background: Active S3 poller (Talos-parity auto-update)
+    # ------------------------------------------------------------------
+    #
+    # Why this exists (read before touching):
+    #
+    # The Lambda webhook is fast when it works but fragile by nature: a
+    # network glitch, a stale signature config, a cold-start crash before
+    # the callback, an AWS service blip — any of these silently strand a
+    # job in 'extracting' until the 10-minute reconcile cron rescues it.
+    # The UI banner promises "page will update automatically" — a promise
+    # that's only true within seconds when the webhook fires, otherwise
+    # measured in minutes.
+    #
+    # This poller closes that gap. It runs concurrently with the Lambda
+    # invocation, probing s3://.../raw_data.json every few seconds. As
+    # soon as that file appears (Lambda finished, partially or fully),
+    # it calls _attempt_s3_rescue (same code path the cron and the
+    # manual button use), which populates every field, advances state,
+    # AND broadcasts the bus event the JS form-view listener already
+    # subscribes to (see static/src/js/gohan_bus.js).
+    #
+    # Result: even with ZERO webhook delivery, the user sees the form
+    # auto-reload within ~5 seconds of S3 having data. The webhook
+    # becomes an optimization, not a single point of failure. This is
+    # the Talos / Kinesis active-update pattern adapted for an
+    # out-of-process worker (Lambda instead of in-process API calls).
+    #
+    # Race-safe: if the webhook commits first, the next poller iteration
+    # sees state != 'extracting' and exits cleanly without double-work.
+
+    def _run_extraction_poll_bg(self, db_name, record_id):
+        """Active S3 poll loop that fires bus.bus events for UI auto-update.
+
+        Runs alongside ``_run_extraction_bg``. Reads cadence from:
+            - ``gohan.s3_poll_interval_seconds`` (default 5, min 2)
+            - ``gohan.s3_poll_max_seconds`` (default 900, min 60)
+
+        Each iteration opens its own cursor, browses the record, and
+        either (a) exits because state has already advanced (webhook
+        beat us), or (b) calls ``_attempt_s3_rescue`` which writes
+        fields, advances state, broadcasts the bus event, and submits
+        the next-stage BG worker.
+
+        Talos-pattern serialization retry (3 attempts, 0.5..2.5s
+        backoff) protects against PostgreSQL row-lock conflicts when
+        the webhook handler holds the row.
+        """
+        try:
+            with Registry(db_name).cursor() as cfg_cr:
+                cfg_env = api.Environment(cfg_cr, SUPERUSER_ID, {})
+                ICP = cfg_env["ir.config_parameter"].sudo()
+                try:
+                    interval = max(2, int(
+                        ICP.get_param("gohan.s3_poll_interval_seconds") or "5"
+                    ))
+                except (TypeError, ValueError):
+                    interval = 5
+                try:
+                    max_seconds = max(60, int(
+                        ICP.get_param("gohan.s3_poll_max_seconds") or "900"
+                    ))
+                except (TypeError, ValueError):
+                    max_seconds = 900
+
+            deadline = time.monotonic() + max_seconds
+            # Cold-start grace: Lambda must at least START before there's
+            # anything in S3 to find. ~5s avoids a useless first probe.
+            time.sleep(min(interval, 5))
+
+            while time.monotonic() < deadline:
+                rescued = False
+                stopped = False
+                for attempt in range(3):
+                    try:
+                        with Registry(db_name).cursor() as cr:
+                            env = api.Environment(cr, SUPERUSER_ID, {})
+                            record = env["gohan.job"].browse(record_id)
+                            if not record.exists():
+                                stopped = True
+                                break
+                            if record.state != "extracting":
+                                # Webhook already advanced state, OR job
+                                # was cancelled / marked failed elsewhere.
+                                stopped = True
+                                break
+                            rescued, reason = record._attempt_s3_rescue(
+                                source="poller"
+                            )
+                            cr.commit()
+                            if rescued:
+                                _logger.info(
+                                    "[gohan][poller][job=%s] rescued: %s",
+                                    record_id, reason,
+                                )
+                            else:
+                                _logger.debug(
+                                    "[gohan][poller][job=%s] no data yet: %s",
+                                    record_id, reason,
+                                )
+                        break  # successful pass through ORM block
+                    except Exception as exc:
+                        msg = str(exc).lower()
+                        if ("serialize" in msg or "could not serialize" in msg) and attempt < 2:
+                            time.sleep(0.5 + attempt)
+                            continue
+                        _logger.exception(
+                            "[gohan][poller][job=%s] iteration failed",
+                            record_id,
+                        )
+                        break
+
+                if rescued or stopped:
+                    return
+
+                time.sleep(interval)
+
+            _logger.info(
+                "[gohan][poller][job=%s] gave up after %ss; "
+                "watchdog/reconcile cron will take over",
+                record_id, max_seconds,
+            )
+        except Exception:
+            _logger.exception(
+                "[gohan][poller][job=%s] worker crashed", record_id,
+            )
+
+    # ------------------------------------------------------------------
     # Background: PRD Generation
     # ------------------------------------------------------------------
 
+    def _upload_artifacts_bg(self, db_name, record_id, artifacts, s3_config):
+        """Background: upload extraction artifacts to S3 and write the
+        resulting ``artifacts_url`` back to the record.
+
+        Ported from ``leviathan_job._upload_artifacts_bg``. Decouples the
+        multi-MB S3 upload from the webhook handler so the webhook returns
+        in <50 ms regardless of artifact count. PRD generation does not
+        depend on ``artifacts_url`` -- it reads ``prd_prompt`` /
+        ``screenshot_keys`` / ``asset_keys`` which are already set by the
+        webhook before this bg job is scheduled. So both run concurrently.
+
+        Failure semantics: an S3 upload failure here logs loudly but does
+        NOT mark the job failed. PRD generation continues. The tasker will
+        see ``artifacts_url`` blank in the form view and can re-fetch
+        manually; the deliverable is the PRD, not the raw artifacts dict.
+        """
+        from ..services.s3_service import (
+            upload_artifacts_to_s3, get_artifacts_folder_url,
+        )
+
+        # Read the job name with a short-lived cursor so we don't hold a
+        # DB connection across the multi-second S3 upload.
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if not record.exists():
+                    return
+                job_name = record.name
+        except Exception:
+            _logger.exception(
+                "[gohan][job=%s] artifacts upload: could not read record",
+                record_id,
+            )
+            return
+
+        try:
+            upload_artifacts_to_s3(
+                artifacts=artifacts,
+                job_name=job_name,
+                bucket=s3_config["bucket"],
+                access_key_id=s3_config["key_id"],
+                secret_key=s3_config["secret"],
+                region=s3_config["region"],
+                folder=s3_config["folder"],
+                cdn_url=s3_config["cdn_url"],
+            )
+            artifacts_url = get_artifacts_folder_url(
+                job_name=job_name,
+                bucket=s3_config["bucket"],
+                folder=s3_config["folder"],
+                cdn_url=s3_config["cdn_url"],
+            )
+        except Exception:
+            _logger.exception(
+                "[gohan][job=%s] artifacts S3 upload failed -- tasker can "
+                "supply manually; PRD generation is unaffected",
+                record_id,
+            )
+            return
+
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if record.exists():
+                    record.write({"artifacts_url": artifacts_url})
+                    try:
+                        env["bus.bus"]._sendone(
+                            "gohan_job_updates",
+                            "gohan/job_state",
+                            {
+                                "id": record_id,
+                                "artifacts_url": artifacts_url,
+                                "state": record.state,
+                            },
+                        )
+                    except Exception:
+                        pass
+                    cr.commit()
+        except Exception:
+            _logger.exception(
+                "[gohan][job=%s] artifacts upload: succeeded on S3 but "
+                "writeback failed -- artifacts_url will be blank",
+                record_id,
+            )
+
     def _run_prd_generation_bg(self, db_name, record_id):
         """Background: generate PRD via Bedrock, score, iterate, QC."""
-        from ..services.bedrock_service import generate_prd
+        from ..services.bedrock_service import generate_prd, get_credentials as _get_bedrock_credentials
         from ..services.scoring_service import score_prd
         from ..services.s3_service import upload_prd_to_s3
 
@@ -2049,12 +2439,13 @@ class GohanJob(models.Model):
                     return
 
                 ICP = env["ir.config_parameter"].sudo()
+                bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
                 config = {
                     "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
                     "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
                     "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 3),
-                    "bedrock_access_key": ICP.get_param("gohan.bedrock_access_key_id"),
-                    "bedrock_secret_key": ICP.get_param("gohan.bedrock_secret_access_key"),
+                    "bedrock_access_key": bedrock_access_key,
+                    "bedrock_secret_key": bedrock_secret_key,
                     "s3_bucket": ICP.get_param("gohan.s3_bucket"),
                     "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
                     "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
@@ -2083,6 +2474,13 @@ class GohanJob(models.Model):
                         "error_message": "Bedrock inference ARN not configured",
                         "completed_at": fields.Datetime.now(),
                     })
+                    cr.commit()
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.config",
+                        status="error",
+                        message="Bedrock inference ARN not configured (check Gohan settings)",
+                    )
                     return
                 if not job_data["prd_prompt"]:
                     record.write({
@@ -2090,6 +2488,13 @@ class GohanJob(models.Model):
                         "error_message": "No extraction data available for PRD generation",
                         "completed_at": fields.Datetime.now(),
                     })
+                    cr.commit()
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.config",
+                        status="error",
+                        message="No extraction data available — extraction Lambda never produced a prompt",
+                    )
                     return
 
                 # Worker-pickup mark: this is the moment the bg worker
@@ -2105,6 +2510,18 @@ class GohanJob(models.Model):
                     "last_heartbeat": fields.Datetime.now(),
                 })
                 cr.commit()
+
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="prd.config",
+                status="ok",
+                message="Configuration loaded; entering PRD generation",
+                max_attempts=config["max_attempts"],
+                inference_arn=config["inference_arn"],
+                region=config["region"],
+                category=job_data["category_name"],
+                screenshot_count=len(job_data["screenshot_keys"]),
+            )
 
             # === PHASE 2: LLM generation loop ===
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
@@ -2144,10 +2561,21 @@ class GohanJob(models.Model):
                         })
                     except Exception as img_exc:
                         _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
-                _logger.info(
-                    "Attached %d/%d screenshots for LLM (%.1f MB)",
-                    len(screenshot_blocks), len(job_data["screenshot_keys"]),
-                    total_bytes / 1_000_000,
+                        self._append_pipeline_event(
+                            db_name, record_id,
+                            step="prd.screenshots.download",
+                            status="warn",
+                            message=f"Failed to download screenshot {key}: {img_exc}",
+                            key=key,
+                        )
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.screenshots.download",
+                    status="ok",
+                    message=f"Attached {len(screenshot_blocks)}/{len(job_data['screenshot_keys'])} screenshots ({total_bytes / 1_000_000:.1f} MB)",
+                    attached=len(screenshot_blocks),
+                    available=len(job_data["screenshot_keys"]),
+                    total_bytes=total_bytes,
                 )
 
             # Build multimodal content: screenshots + extraction text
@@ -2175,6 +2603,12 @@ class GohanJob(models.Model):
 
             for attempt in range(1, config["max_attempts"] + 1):
                 if self._is_cancelled(db_name, record_id):
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step=f"prd.attempt.{attempt}.generate",
+                        status="cancelled",
+                        message="Operator cancelled the job mid-generation",
+                    )
                     self._write_with_cursor(db_name, record_id, {
                         "state": "draft", "error_message": "Cancelled during generation",
                         "completed_at": fields.Datetime.now(),
@@ -2184,6 +2618,15 @@ class GohanJob(models.Model):
                 self._write_with_cursor(db_name, record_id, {
                     "last_heartbeat": fields.Datetime.now(),
                 })
+
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step=f"prd.attempt.{attempt}.generate",
+                    status="started",
+                    message=f"Calling Bedrock for PRD attempt {attempt}/{config['max_attempts']}",
+                    attempt=attempt,
+                    max_attempts=config["max_attempts"],
+                )
 
                 try:
                     prd_text = generate_prd(
@@ -2199,16 +2642,42 @@ class GohanJob(models.Model):
                         "LLM attempt %d/%d failed for job %s: %s",
                         attempt, config["max_attempts"], job_data["name"], gen_exc,
                     )
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step=f"prd.attempt.{attempt}.generate",
+                        status="error" if attempt == config["max_attempts"] else "warn",
+                        message=f"Bedrock call failed: {gen_exc}",
+                        attempt=attempt,
+                    )
                     if attempt == config["max_attempts"]:
                         raise
                     time.sleep(2 * attempt)
                     continue
+
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step=f"prd.attempt.{attempt}.generate",
+                    status="ok",
+                    message=f"PRD attempt {attempt} produced {len(prd_text or '')} chars",
+                    attempt=attempt,
+                    chars=len(prd_text or ""),
+                )
 
                 score_report = score_prd(
                     prd_text=prd_text,
                     category=job_data["category_name"],
                 )
                 total_score = score_report["total_score"]
+
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step=f"prd.attempt.{attempt}.score",
+                    status="ok",
+                    message=f"Score = {total_score} / grade = {score_report.get('grade')}",
+                    attempt=attempt,
+                    score=total_score,
+                    grade=score_report.get("grade"),
+                )
 
                 self._write_with_cursor(db_name, record_id, {
                     "llm_attempts": attempt,
@@ -2244,16 +2713,32 @@ class GohanJob(models.Model):
                     })
 
             # Upload to S3
-            prd_url = upload_prd_to_s3(
-                prd_text=best_prd_text,
-                job_name=job_data["name"],
-                bucket=config["s3_bucket"],
-                access_key_id=config["s3_key_id"],
-                secret_key=config["s3_secret"],
-                region=config["s3_region"],
-                folder=config["s3_folder"],
-                cdn_url=config["cdn_url"],
-            )
+            try:
+                prd_url = upload_prd_to_s3(
+                    prd_text=best_prd_text,
+                    job_name=job_data["name"],
+                    bucket=config["s3_bucket"],
+                    access_key_id=config["s3_key_id"],
+                    secret_key=config["s3_secret"],
+                    region=config["s3_region"],
+                    folder=config["s3_folder"],
+                    cdn_url=config["cdn_url"],
+                )
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.s3_upload",
+                    status="ok",
+                    message=f"PRD uploaded to S3",
+                    prd_url=prd_url,
+                )
+            except Exception as up_exc:
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.s3_upload",
+                    status="error",
+                    message=f"S3 upload failed: {up_exc}",
+                )
+                raise
 
             # === PHASE 3: QC ===
             # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
@@ -2264,6 +2749,12 @@ class GohanJob(models.Model):
                 "state": "scoring",
                 "last_heartbeat": fields.Datetime.now(),
             })
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="qc.evaluate",
+                status="started",
+                message="Running Bedrock QC evaluation on best PRD",
+            )
 
             qc_verdict = "not_shippable"
             qc_report = ""
@@ -2289,6 +2780,13 @@ class GohanJob(models.Model):
                 )
                 qc_verdict = qc_result["verdict"]
                 qc_report = qc_result["report"]
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="qc.evaluate",
+                    status="ok",
+                    message=f"QC verdict: {qc_verdict}",
+                    verdict=qc_verdict,
+                )
             except Exception as qc_exc:
                 _logger.warning(
                     "QC failed for job %s: %s (fail-closed: not_shippable)",
@@ -2296,6 +2794,12 @@ class GohanJob(models.Model):
                 )
                 qc_verdict = "not_shippable"
                 qc_report = f"QC evaluation failed: {qc_exc}\n\nVerdict defaulted to NOT SHIPPABLE (fail-closed policy)."
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="qc.evaluate",
+                    status="error",
+                    message=f"QC evaluation crashed (fail-closed): {qc_exc}",
+                )
 
             llm_trace["qc"] = {
                 "qc_system_prompt": qc_system_prompt,
@@ -2351,8 +2855,25 @@ class GohanJob(models.Model):
 
                 cr.commit()
 
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="pipeline.complete",
+                status="ok",
+                message=f"Pipeline finished — score={best_score} grade={best_grade} verdict={qc_verdict}",
+                score=best_score,
+                grade=best_grade,
+                qc_verdict=qc_verdict,
+                duration_seconds=duration,
+            )
+
         except Exception as exc:
             _logger.exception("[gohan][job=%s] PRD generation failed", record_id)
+            self._append_pipeline_event(
+                db_name, record_id,
+                step="pipeline.complete",
+                status="error",
+                message=f"PRD generation crashed: {exc}",
+            )
             try:
                 fail_vals = {
                     "state": "failed",
@@ -2388,6 +2909,74 @@ class GohanJob(models.Model):
                     except Exception:
                         pass
             cr.commit()
+
+    def _append_pipeline_event(
+        self, db_name, record_id, step, status, message=None, **extras
+    ):
+        """Append a single event to ``pipeline_log_json`` and mirror errors.
+
+        This is the ONLY writer of ``pipeline_log_json``. The journal is
+        append-only and is the single visible surface an operator uses to
+        understand which step of a job is running, which one errored, and
+        what the error was. Three behaviours are load-bearing:
+
+        1. Opens its **own short-lived cursor** via ``Registry(db_name)``
+           so it can be called safely from background threads (the PRD pool
+           workers commit on a separate transaction from the caller's).
+        2. **Never raises.** All work is wrapped in an outer try/except;
+           a journaling failure must never crash the pipeline it is
+           journaling.
+        3. **Mirrors any ``status="error"`` event into ``error_message``**
+           when that field is still empty. The form view's failure banner
+           reads from ``error_message``, so without this mirror an early
+           pipeline error would be visible only by clicking through to the
+           journal tab — and most operators never get that far.
+        """
+        try:
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            entry = {
+                "ts": ts,
+                "step": step,
+                "status": status,
+            }
+            if message:
+                entry["message"] = str(message)[:2000]
+            for key, value in extras.items():
+                if value is None:
+                    continue
+                try:
+                    if isinstance(value, (str, int, float, bool, list, dict)):
+                        entry[key] = value
+                    else:
+                        entry[key] = str(value)[:2000]
+                except Exception:
+                    continue
+
+            log_method = _logger.warning if status == "error" else _logger.info
+            log_method(
+                "[gohan][pipeline][job=%s] %s %s%s",
+                record_id, step, status,
+                f" — {message}" if message else "",
+            )
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if not record.exists():
+                    return
+                existing = list(record.pipeline_log_json or [])
+                existing.append(entry)
+                update_vals = {"pipeline_log_json": existing}
+                if status == "error" and not record.error_message and message:
+                    update_vals["error_message"] = str(message)[:500]
+                record.write(update_vals)
+                cr.commit()
+        except Exception:
+            _logger.exception(
+                "[gohan][pipeline][job=%s] journaling failed (non-fatal) for step=%s status=%s",
+                record_id, step, status,
+            )
 
     def _build_feedback(self, score_report):
         from ..services.scoring_service import SECTION_MAX_POINTS
@@ -2444,13 +3033,23 @@ class GohanJob(models.Model):
                 ),
             ])
             for job in stale_extracting:
+                rescued, reason = job._attempt_s3_rescue(source="watchdog")
+                if rescued:
+                    _logger.warning(
+                        "[gohan][job=%s] watchdog: extracting >%dmin BUT S3 "
+                        "raw_data.json found — auto-populated and advanced (%s)",
+                        job.name, extracting_threshold, reason,
+                    )
+                    continue
                 _logger.warning(
-                    "[gohan][job=%s] watchdog: stuck in extracting >%dmin — marking failed",
-                    job.name, extracting_threshold,
+                    "[gohan][job=%s] watchdog: stuck in extracting >%dmin and "
+                    "no S3 rescue (%s) — marking failed",
+                    job.name, extracting_threshold, reason,
                 )
                 job._mark_failed(
                     f"Watchdog: extraction timed out "
-                    f"(no response for {extracting_threshold}+ minutes)"
+                    f"(no response for {extracting_threshold}+ minutes; "
+                    f"S3 rescue: {reason})"
                 )
 
             # `started_processing_at != False` excludes jobs sitting in the
@@ -2570,6 +3169,430 @@ class GohanJob(models.Model):
         self._notify_state_change()
 
     # ------------------------------------------------------------------
+    # S3 Rescue: shared by reconcile cron, watchdog, and manual button
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _synthesize_prd_prompt_from_raw_data(raw_data):
+        """Build a minimal markdown prd_prompt from a ``raw_data.json`` bundle.
+
+        Called when Lambda's webhook never landed and the bundle has no
+        explicit ``prd_prompt`` key. Output feeds the PRD generation stage
+        so a stuck job can recover end-to-end from S3 alone.
+        """
+        if not isinstance(raw_data, dict):
+            return ""
+
+        lines = ["# Auto-recovered extraction context", ""]
+
+        site_discovery = raw_data.get("site_discovery") or {}
+        if isinstance(site_discovery, dict):
+            title = (
+                site_discovery.get("title")
+                or site_discovery.get("site_name")
+                or site_discovery.get("url")
+            )
+            description = (
+                site_discovery.get("description")
+                or site_discovery.get("summary")
+            )
+            if title:
+                lines.append(f"## Product: {title}")
+            if description:
+                lines.append(str(description))
+                lines.append("")
+
+        sitemap = raw_data.get("sitemap_taxonomy") or {}
+        if isinstance(sitemap, dict):
+            total_urls = len(sitemap.get("urls") or [])
+            feature_pages = sitemap.get("feature_pages") or []
+            integration_pages = sitemap.get("integration_pages") or []
+            blog_pages = sitemap.get("blog_pages") or []
+            if total_urls or feature_pages or integration_pages or blog_pages:
+                lines.append("## Sitemap Taxonomy")
+                if total_urls:
+                    lines.append(f"- Total URLs: {total_urls}")
+                if feature_pages:
+                    lines.append(f"- Feature pages: {len(feature_pages)}")
+                if integration_pages:
+                    lines.append(f"- Integration pages: {len(integration_pages)}")
+                if blog_pages:
+                    lines.append(f"- Blog pages: {len(blog_pages)}")
+                lines.append("")
+
+        public_kb = raw_data.get("public_kb") or {}
+        if isinstance(public_kb, dict) and public_kb:
+            json_ld = public_kb.get("json_ld_blocks") or []
+            lines.append("## Public Knowledge Base")
+            if json_ld:
+                lines.append(f"- Structured-data blocks: {len(json_ld)}")
+            contact = public_kb.get("contact") or {}
+            if contact:
+                lines.append(f"- Contact info captured: {sorted(contact.keys())[:6]}")
+            lines.append("")
+
+        network = raw_data.get("network_summary") or {}
+        if isinstance(network, dict) and network:
+            lines.append("## Network Capture")
+            lines.append(f"- Captured fields: {sorted(network.keys())[:10]}")
+            lines.append("")
+
+        api_doc = raw_data.get("api_doc_extracted") or {}
+        if isinstance(api_doc, dict) and api_doc:
+            lines.append("## API Documentation")
+            endpoints = api_doc.get("endpoints") or []
+            if endpoints:
+                lines.append(f"- Endpoints documented: {len(endpoints)}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append(
+            "_Recovered by Gohan reconciler from S3 raw_data.json — "
+            "original Lambda prd_prompt was missing._"
+        )
+        return "\n".join(lines)
+
+    def _populate_from_raw_data(self, raw_data, source="reconciler",
+                                screenshot_keys=None, asset_keys=None,
+                                artifacts_url=None):
+        """Map an S3 ``raw_data.json`` bundle to ``gohan.job`` write vals.
+
+        Single source of truth used by reconcile cron, watchdog rescue,
+        and the manual "Reconcile from S3" button. Mirrors the field
+        mapping in ``controllers/main.py`` webhook handler (lines 209-336)
+        but adapted for S3-only recovery (no live ``data`` payload).
+
+        Refuses to clobber populated fields — operators retain webhook
+        wins when both sources have data.
+
+        Returns: dict ready for ``self.write(...)``.
+        """
+        self.ensure_one()
+        write_vals = {}
+
+        site_discovery = raw_data.get("site_discovery") if isinstance(raw_data, dict) else None
+        if isinstance(site_discovery, dict):
+            if not self.site_discovery_json:
+                write_vals["site_discovery_json"] = site_discovery
+            title = (
+                site_discovery.get("title")
+                or site_discovery.get("site_name")
+            )
+            if title and not self.site_name:
+                write_vals["site_name"] = str(title)[:255]
+            tech_stack = site_discovery.get("tech_stack")
+            if tech_stack and not self.tech_stack:
+                if isinstance(tech_stack, (dict, list)):
+                    write_vals["tech_stack"] = json.dumps(tech_stack)
+                else:
+                    write_vals["tech_stack"] = str(tech_stack)
+            pages = site_discovery.get("pages")
+            if isinstance(pages, list) and not self.page_count:
+                write_vals["page_count"] = len(pages)
+
+        existing_prd_prompt = self.prd_prompt
+        bundled_prd_prompt = raw_data.get("prd_prompt") if isinstance(raw_data, dict) else None
+        if not existing_prd_prompt:
+            if bundled_prd_prompt:
+                write_vals["prd_prompt"] = bundled_prd_prompt
+            else:
+                write_vals["prd_prompt"] = self._synthesize_prd_prompt_from_raw_data(raw_data)
+
+        if screenshot_keys and not self.screenshot_keys:
+            write_vals["screenshot_keys"] = screenshot_keys
+        if asset_keys and not self.asset_keys:
+            write_vals["asset_keys"] = asset_keys
+        if artifacts_url and not self.artifacts_url:
+            write_vals["artifacts_url"] = artifacts_url
+
+        snapshot = {
+            "_reconcile_source": source,
+            "_reconcile_at": fields.Datetime.now().isoformat() + "Z",
+            "raw_data": raw_data if isinstance(raw_data, dict) else {},
+        }
+        if screenshot_keys is not None:
+            snapshot["screenshot_keys"] = list(screenshot_keys)[:200]
+        if asset_keys is not None:
+            snapshot["asset_keys"] = list(asset_keys)[:200]
+        existing_callback = self.lambda_callback_json or {}
+        if isinstance(existing_callback, dict):
+            merged = dict(existing_callback)
+            merged.update(snapshot)
+            write_vals["lambda_callback_json"] = merged
+        else:
+            write_vals["lambda_callback_json"] = snapshot
+
+        warnings = []
+        if isinstance(site_discovery, dict) and not site_discovery.get("pages"):
+            warnings.append(
+                "site_discovery has no crawled pages — Lambda extraction "
+                "appears incomplete"
+            )
+        expected_stages = {"site_discovery", "sitemap_taxonomy", "public_kb"}
+        if isinstance(raw_data, dict):
+            present = set(raw_data.keys())
+            missing = expected_stages - present
+            if missing:
+                warnings.append(
+                    f"Missing extraction stages: {', '.join(sorted(missing))}"
+                )
+        if warnings and not self.extraction_warnings:
+            write_vals["extraction_warnings"] = (
+                "\n".join(f"• {w}" for w in warnings)
+            )[:1000]
+
+        write_vals["last_heartbeat"] = fields.Datetime.now()
+        return write_vals
+
+    def _delayed_s3_rescue(self, db_name, record_id, delay_seconds=8.0):
+        """Background: sleep ``delay_seconds`` then run _attempt_s3_rescue.
+
+        Used by the webhook handler when the advisory lock could not be
+        acquired (peer cron held it for >3s). Sleeping briefly gives the
+        peer time to finish + the Lambda time to finish uploading
+        raw_data.json. Then we attempt the rescue.
+
+        If the peer (whoever held the lock) already advanced state, the
+        rescue short-circuits idempotently. If not, this is the only
+        thing that prevents the job from sitting in 'extracting' until
+        the next reconcile cron tick.
+
+        Failure semantics: any exception is logged and swallowed. The
+        existing reconcile cron is the safety net of last resort.
+        """
+        import time as _t
+        try:
+            _t.sleep(max(0.0, float(delay_seconds)))
+        except Exception:
+            pass
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if not record.exists():
+                    return
+                if record.state != "extracting":
+                    _logger.info(
+                        "[gohan][job=%s] delayed-rescue: state already "
+                        "'%s' -- peer advanced it, nothing to do",
+                        record.name, record.state,
+                    )
+                    return
+                rescued, reason = record._attempt_s3_rescue(
+                    source="webhook-drop-rescue"
+                )
+                _logger.info(
+                    "[gohan][job=%s] delayed-rescue: rescued=%s reason=%s",
+                    record.name, rescued, reason,
+                )
+                cr.commit()
+        except Exception:
+            _logger.exception(
+                "[gohan][job=%s] delayed-rescue failed -- regular "
+                "reconcile cron will retry",
+                record_id,
+            )
+
+    def _attempt_s3_rescue(self, source="reconciler"):
+        """Probe S3 ``raw_data.json`` and auto-populate fields if found.
+
+        Returns:
+            (rescued: bool, reason: str)
+            rescued=True  → fields populated, state advanced to 'generating',
+                            PRD generation submitted to background pool.
+            rescued=False → no S3 data yet, or transient S3 error.
+            The ``reason`` is suitable for pipeline log / button toast.
+
+        The state advance is intentional: when raw_data.json exists, Lambda
+        finished the extraction phase (even partially), so the job should
+        move forward into generating rather than stay stuck.
+        """
+        self.ensure_one()
+
+        # Serialize against the webhook callback in controllers/main.py: both
+        # mutate the same row, so they must share an advisory lock. Without
+        # this lock the webhook can be persisting the full callback payload
+        # while the poller tries to write a partial S3-derived payload — the
+        # loser hits 40001 (SerializationFailure) at commit time, rolls back,
+        # and the UI ends up with no extraction data even though Lambda
+        # finished successfully (job 25 / turo.com regression).
+        # pg_try_advisory_xact_lock is non-blocking: if the webhook is in
+        # flight we back off and let the next poller iteration retry; the
+        # webhook is by far the better path because it has the complete
+        # callback payload (prd_prompt, screenshots, eq_tier...), while the
+        # poller only sees the subset that landed in S3 raw_data.json.
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_xact_lock(%s, %s)",
+            (_GOHAN_WEBHOOK_LOCK_NS, self.id),
+        )
+        if not self.env.cr.fetchone()[0]:
+            return False, (
+                f"peer writer (webhook callback) holds the lock for job "
+                f"{self.id}; will retry on next poll iteration"
+            )
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        bucket = ICP.get_param("gohan.s3_bucket")
+        if not bucket:
+            return False, "gohan.s3_bucket not configured"
+
+        s3_folder = (ICP.get_param("gohan.s3_folder") or "gohan").strip("/")
+
+        if self.s3_artifact_prefix:
+            prefix = self.s3_artifact_prefix.split(f"s3://{bucket}/", 1)[-1].rstrip("/")
+        else:
+            prefix = f"{s3_folder}/{self.id}"
+        raw_data_key = f"{prefix}/raw_data.json"
+
+        try:
+            from ..services import s3_service
+        except ImportError:
+            return False, "s3_service unavailable"
+
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        try:
+            exists = s3_service.object_exists(self.env, bucket, raw_data_key)
+        except (ClientError, BotoCoreError) as exc:
+            return False, f"S3 head_object failed: {exc}"
+
+        raw_data = None
+        rescue_source_key = raw_data_key
+        if exists:
+            try:
+                raw_data = s3_service.download_json_from_s3(
+                    self.env, bucket, raw_data_key
+                )
+            except (ClientError, BotoCoreError) as exc:
+                return False, f"S3 get_object failed: {exc}"
+            except (ValueError, UnicodeDecodeError) as exc:
+                return False, f"raw_data.json is not valid JSON: {exc}"
+        else:
+            # Fallback: Lambda may have failed to upload the consolidated
+            # bundle (silent ClientError in older handler versions) even
+            # though the controller successfully uploaded the INDIVIDUAL
+            # raw_data/*.json files via upload_artifacts_to_s3 to a
+            # job-name-keyed prefix. Rebuild the bundle from those.
+            fallback_prefix = f"{s3_folder}/{self.name}/artifacts/raw_data/"
+            try:
+                fallback_keys = s3_service.list_objects(
+                    self.env, bucket, fallback_prefix
+                )
+            except (ClientError, BotoCoreError) as exc:
+                return False, (
+                    f"raw_data.json not found at s3://{bucket}/{raw_data_key}; "
+                    f"fallback list_objects on {fallback_prefix} failed: {exc}"
+                )
+
+            rebuilt: dict = {}
+            for k in fallback_keys:
+                if not k.lower().endswith(".json"):
+                    continue
+                stem = k.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                if not stem:
+                    continue
+                try:
+                    rebuilt[stem] = s3_service.download_json_from_s3(
+                        self.env, bucket, k
+                    )
+                except (ClientError, BotoCoreError, ValueError, UnicodeDecodeError) as exc:
+                    _logger.info(
+                        "[gohan][job=%s] reconcile fallback: failed to "
+                        "load %s (%s); continuing",
+                        self.name, k, exc,
+                    )
+
+            if not rebuilt:
+                return False, (
+                    f"raw_data.json not found at s3://{bucket}/{raw_data_key} "
+                    f"and no individual raw_data/*.json files found at "
+                    f"s3://{bucket}/{fallback_prefix}"
+                )
+
+            raw_data = rebuilt
+            rescue_source_key = f"{fallback_prefix} (rebuilt from individuals)"
+            _logger.info(
+                "[gohan][job=%s] reconcile: raw_data.json missing -- "
+                "rebuilt bundle from %d individual files under %s",
+                self.name, len(rebuilt), fallback_prefix,
+            )
+
+        screenshot_keys = []
+        asset_keys = []
+        try:
+            keys = s3_service.list_objects(self.env, bucket, f"{prefix}/")
+            for k in keys:
+                if "/screenshots/" in k:
+                    screenshot_keys.append(k)
+                elif "/assets/" in k:
+                    asset_keys.append(k)
+        except Exception as exc:
+            _logger.info(
+                "[gohan][job=%s] reconcile: list_objects failed (%s); "
+                "screenshot/asset counts will be 0",
+                self.name, exc,
+            )
+
+        artifacts_url = None
+        try:
+            from ..services.s3_service import get_artifacts_folder_url
+            artifacts_url = get_artifacts_folder_url(
+                job_name=self.name,
+                bucket=bucket,
+                folder=s3_folder,
+                cdn_url=ICP.get_param("gohan.s3_cdn_url"),
+            )
+        except Exception:
+            pass
+
+        write_vals = self._populate_from_raw_data(
+            raw_data,
+            source=source,
+            screenshot_keys=screenshot_keys or None,
+            asset_keys=asset_keys or None,
+            artifacts_url=artifacts_url,
+        )
+
+        if not self.s3_artifact_prefix:
+            write_vals["s3_artifact_prefix"] = f"s3://{bucket}/{prefix}/"
+
+        if self.state in ("extracting", "failed"):
+            write_vals["state"] = "generating"
+
+        self.write(write_vals)
+        self._notify_state_change(write_vals.get("state") or self.state)
+
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self._append_pipeline_event(
+            db_name, record_id, "extraction.reconcile", "ok",
+            message=(
+                f"Auto-populated from s3://{bucket}/{rescue_source_key} "
+                f"({source}); screenshots={len(screenshot_keys)}, "
+                f"assets={len(asset_keys)}"
+            ),
+            source=source,
+            screenshots=len(screenshot_keys),
+            assets=len(asset_keys),
+            has_site_discovery=bool(raw_data.get("site_discovery") if isinstance(raw_data, dict) else False),
+            next_state=write_vals.get("state") or self.state,
+        )
+
+        if write_vals.get("state") == "generating":
+            def _deferred():
+                _submit_bg(
+                    f"prd-gen[reconcile,job={record_id}]",
+                    self._run_prd_generation_bg, db_name, record_id,
+                )
+            self.env.cr.postcommit.add(_deferred)
+
+        return True, (
+            f"Recovered from {rescue_source_key} (screenshots="
+            f"{len(screenshot_keys)}, assets={len(asset_keys)}); "
+            f"advanced to {write_vals.get('state') or self.state}"
+        )
+
+    # ------------------------------------------------------------------
     # Cron: Reconcile orphaned runs (HANDOFF_ODOO.md §4.6)
     # ------------------------------------------------------------------
 
@@ -2577,11 +3600,12 @@ class GohanJob(models.Model):
         """Rescue jobs whose webhook callback was lost.
 
         Spec contract: for any job in an in-flight state for >30 minutes,
-        check S3 for completion artifacts.  If ``gohan_run.json`` exists
-        under the job's prefix, the pipeline finished but the webhook never
-        landed — promote the job to ``done`` using S3 as the source of
-        truth.  If no artifact and we are well past the timeout, mark the
-        job ``failed``.
+        check S3 for ``raw_data.json`` (the bundle Lambda always writes
+        before invoking the webhook). If present, auto-populate
+        ``gohan.job`` fields from the bundle and advance to ``generating``
+        so PRD generation can run end-to-end from S3 alone — webhook
+        delivery becomes optional.  If no artifact after 90min the job
+        is marked ``failed``.
         """
         self.env.cr.execute("SELECT pg_try_advisory_lock(987654322)")
         locked = self.env.cr.fetchone()
@@ -2606,50 +3630,33 @@ class GohanJob(models.Model):
             if not orphaned:
                 return
 
-            try:
-                from ..services import s3_service
-            except ImportError:
-                _logger.warning(
-                    "[gohan] reconcile: s3_service unavailable; cannot probe S3"
-                )
-                return
-
             for job in orphaned:
-                prefix = job.s3_artifact_prefix or f"runs/{job.id}/"
-                key = prefix.split(f"s3://{bucket}/", 1)[-1].rstrip("/") + "/gohan_run.json"
-                try:
-                    exists = s3_service.object_exists(self.env, bucket, key)
-                except Exception as exc:
+                rescued, reason = job._attempt_s3_rescue(source="cron-reconcile")
+                if rescued:
                     _logger.warning(
-                        "[gohan][job=%s] reconcile S3 probe failed: %s",
-                        job.name, exc,
+                        "[gohan][job=%s] reconcile: S3 raw_data.json present "
+                        "but webhook never landed — auto-populated and "
+                        "advanced (%s)",
+                        job.name, reason,
                     )
                     continue
 
-                if exists:
-                    _logger.warning(
-                        "[gohan][job=%s] reconcile: S3 artifact present but "
-                        "webhook never landed — promoting to done",
-                        job.name,
-                    )
-                    job.write({
-                        "state": "done",
-                        "completed_at": fields.Datetime.now(),
-                        "s3_artifact_prefix": (
-                            job.s3_artifact_prefix or f"s3://{bucket}/{prefix}"
-                        ),
-                    })
-                    job._notify_state_change()
-                elif job.started_at and job.started_at < (
+                if job.started_at and job.started_at < (
                     fields.Datetime.now() - timedelta(minutes=90)
                 ):
                     _logger.warning(
-                        "[gohan][job=%s] reconcile: no S3 artifact after 90min "
-                        "— marking failed", job.name,
+                        "[gohan][job=%s] reconcile: no S3 raw_data.json "
+                        "after 90min — marking failed (%s)",
+                        job.name, reason,
                     )
                     job._mark_failed(
                         "Lambda timeout or webhook delivery failed "
-                        "(reconcile cron found no S3 artifacts after 90min)"
+                        "(reconcile cron found no S3 raw_data.json after 90min)"
+                    )
+                else:
+                    _logger.info(
+                        "[gohan][job=%s] reconcile: skipping this tick (%s)",
+                        job.name, reason,
                     )
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(987654322)")

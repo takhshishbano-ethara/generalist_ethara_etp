@@ -1,5 +1,4 @@
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 from odoo.tests import tagged
@@ -19,23 +18,24 @@ def _make_request_mock(env, body=b"", token=None):
 @tagged("post_install", "-at_install", "gohan")
 class TestWebhookAuth(GohanTestCase):
 
-    def test_missing_env_token_returns_401(self):
+    def test_missing_icp_token_returns_401(self):
+        self.ICP.set_param("gohan.webhook_token", "")
         ctrl = GohanController()
         mock_req = MagicMock()
+        mock_req.env = self.env
         mock_req.httprequest.headers.get.return_value = "any"
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("GOHAN_WEBHOOK_TOKEN", None)
-            with patch("odoo.addons.gohan.controllers.main.request", mock_req):
-                result = ctrl.webhook_extraction_complete()
+        with patch("odoo.addons.gohan.controllers.main.request", mock_req):
+            result = ctrl.webhook_extraction_complete()
         self.assertEqual(result.status_code, 401)
 
     def test_wrong_token_returns_401(self):
+        self.ICP.set_param("gohan.webhook_token", "secret")
         ctrl = GohanController()
         mock_req = MagicMock()
+        mock_req.env = self.env
         mock_req.httprequest.headers.get.return_value = "wrong"
-        with patch.dict(os.environ, {"GOHAN_WEBHOOK_TOKEN": "secret"}):
-            with patch("odoo.addons.gohan.controllers.main.request", mock_req):
-                result = ctrl.webhook_extraction_complete()
+        with patch("odoo.addons.gohan.controllers.main.request", mock_req):
+            result = ctrl.webhook_extraction_complete()
         self.assertEqual(result.status_code, 401)
 
 
@@ -43,14 +43,14 @@ class TestWebhookAuth(GohanTestCase):
 class TestWebhookPayloadValidation(GohanTestCase):
 
     def _call(self, body):
+        self.ICP.set_param("gohan.webhook_token", "secret")
         ctrl = GohanController()
         mock_req = MagicMock()
         mock_req.env = self.env
         mock_req.httprequest.data = body
         mock_req.httprequest.headers.get.return_value = "secret"
-        with patch.dict(os.environ, {"GOHAN_WEBHOOK_TOKEN": "secret"}):
-            with patch("odoo.addons.gohan.controllers.main.request", mock_req):
-                return ctrl.webhook_extraction_complete()
+        with patch("odoo.addons.gohan.controllers.main.request", mock_req):
+            return ctrl.webhook_extraction_complete()
 
     def test_invalid_json_returns_400(self):
         result = self._call(b"not json")
@@ -69,14 +69,14 @@ class TestWebhookPayloadValidation(GohanTestCase):
 class TestWebhookIdempotency(GohanTestCase):
 
     def _call(self, body):
+        self.ICP.set_param("gohan.webhook_token", "secret")
         ctrl = GohanController()
         mock_req = MagicMock()
         mock_req.env = self.env
         mock_req.httprequest.data = body
         mock_req.httprequest.headers.get.return_value = "secret"
-        with patch.dict(os.environ, {"GOHAN_WEBHOOK_TOKEN": "secret"}):
-            with patch("odoo.addons.gohan.controllers.main.request", mock_req):
-                return ctrl.webhook_extraction_complete()
+        with patch("odoo.addons.gohan.controllers.main.request", mock_req):
+            return ctrl.webhook_extraction_complete()
 
     def test_started_ping_updates_heartbeat(self):
         job = self._create_job(user_id=self.tasker.id, state="extracting")
@@ -109,15 +109,15 @@ class TestWebhookIdempotency(GohanTestCase):
 class TestWebhookSuccessPath(GohanTestCase):
 
     def _call(self, body):
+        self.ICP.set_param("gohan.webhook_token", "secret")
         ctrl = GohanController()
         mock_req = MagicMock()
         mock_req.env = self.env
         mock_req.httprequest.data = body
         mock_req.httprequest.headers.get.return_value = "secret"
-        with patch.dict(os.environ, {"GOHAN_WEBHOOK_TOKEN": "secret"}):
-            with patch("odoo.addons.gohan.controllers.main.request", mock_req):
-                with self._patch_submit_bg():
-                    return ctrl.webhook_extraction_complete()
+        with patch("odoo.addons.gohan.controllers.main.request", mock_req):
+            with self._patch_submit_bg():
+                return ctrl.webhook_extraction_complete()
 
     def test_success_writes_fields_and_advances_state(self):
         job = self._create_job(user_id=self.tasker.id, state="extracting")

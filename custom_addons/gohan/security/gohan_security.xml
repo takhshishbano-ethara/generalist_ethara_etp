@@ -8,8 +8,13 @@
             <field name="sequence">100</field>
         </record>
 
+        <!-- Privilege name must differ from the parent module category name
+             ("Gohan"), otherwise Odoo renders both under the same header on
+             the Users form / Settings > Users and the module appears
+             duplicated in the access-rights tree. Using "Access Level" makes
+             the sub-grouping read as: Gohan > Access Level > {User, Admin}. -->
         <record id="res_groups_privilege_gohan" model="res.groups.privilege">
-            <field name="name">Gohan</field>
+            <field name="name">Access Level</field>
             <field name="sequence">100</field>
             <field name="category_id" ref="module_category_gohan"/>
         </record>

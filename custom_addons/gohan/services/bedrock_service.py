@@ -26,6 +26,39 @@ def _is_bearer_token(access_key_id: str) -> bool:
     return bool(access_key_id and access_key_id.startswith("ABSK"))
 
 
+def get_credentials(env) -> tuple[Optional[str], Optional[str]]:
+    """Resolve Bedrock credentials from Odoo configuration only.
+
+    Single source of truth: ``ir.config_parameter`` (Settings → Gohan).
+
+      * Access key / bearer token: ``gohan.bedrock_access_key_id``
+      * Secret key (SigV4 / AKIA only): ``gohan.bedrock_secret_access_key``
+
+    Returning ``(None, None)`` is the expected "no credentials configured"
+    signal — ``_get_bedrock_client`` then falls back to the pod IAM role
+    (IRSA on EKS, instance profile on EC2). This keeps the rotate-via-DB
+    workflow first-class: an operator updates the Settings UI, the next
+    Bedrock call picks up the new value without restarting Odoo.
+    """
+    ICP = env["ir.config_parameter"].sudo()
+
+    access_key = ICP.get_param("gohan.bedrock_access_key_id") or None
+    secret_key = ICP.get_param("gohan.bedrock_secret_access_key") or None
+
+    # Redacted preview: enough to recognize the value, never enough to leak it.
+    # Operators chasing 403s use this log to confirm Odoo really loaded the
+    # key they pasted into Settings (vs. a stale cached copy).
+    if access_key:
+        preview = f"{access_key[:6]}...{access_key[-4:]} (len={len(access_key)})"
+        source = "ir.config_parameter:gohan.bedrock_access_key_id"
+    else:
+        preview = "<empty>"
+        source = "none (will fall through to IRSA pod role)"
+    _logger.info("Bedrock credential source: %s -> %s", source, preview)
+
+    return access_key, secret_key
+
+
 def _call_bedrock_bearer(
     inference_arn: str,
     region: str,

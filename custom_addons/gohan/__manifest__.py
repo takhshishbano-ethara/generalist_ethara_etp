@@ -29,7 +29,7 @@
     "author": "Ethara",
     "license": "LGPL-3",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
-    "external_dependencies": {"python": ["requests"]},
+    "external_dependencies": {"python": ["requests", "markdown"]},
     "data": [
         "security/gohan_security.xml",
         "security/ir.model.access.csv",
@@ -44,7 +44,9 @@
         "web.assets_backend": [
             "gohan/static/src/js/gohan_bus.js",
             "gohan/static/src/js/gohan_list.js",
+            "gohan/static/src/js/gohan_json_pretty.js",
             "gohan/static/src/xml/gohan_list.xml",
+            "gohan/static/src/xml/gohan_json_pretty.xml",
             "gohan/static/src/scss/gohan_statusbar.scss",
         ],
     },
