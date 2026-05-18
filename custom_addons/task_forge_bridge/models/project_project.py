@@ -31,5 +31,5 @@ class ProjectProject(models.Model):
         """
         return [
             ('task_forge_status', '=', 'live'),
-            ('non_stemp_project_status', 'in', ['not_started', 'production']),
+            ('non_stemp_project_status', 'in', ['production']),
         ]
