@@ -196,10 +196,12 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         },
         "browser": {
-            "enabled": True,
-            "headless": True,
-            "noSandbox": True,
-            "defaultProfile": "openclaw",
+            "enabled": False,
+        },
+        "tools": {
+            "browser": {"enabled": False},
+            "web_search": {"enabled": False},
+            "web_fetch": {"enabled": False},
         },
         "models": {"providers": {}},
     }
