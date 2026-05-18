@@ -25,6 +25,7 @@
         "views/evaluation_instance_views.xml",
         "views/harness_staging_views.xml",
         "views/registry_wizard_views.xml",
+        "views/import_dataset_wizard_views.xml",
         "views/token_views.xml",
         "views/discovery_views.xml",
         "views/discovery_wizard_views.xml",

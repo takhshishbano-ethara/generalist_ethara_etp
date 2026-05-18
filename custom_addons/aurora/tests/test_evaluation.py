@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import os
 import tempfile
@@ -794,3 +795,131 @@ class TestAuroraEvaluation(TransactionCase):
         rec = self._create_eval()
         rec.write({"dataset_jsonl_url": "http://minio:9000/bkt/dataset.jsonl"})
         self.assertEqual(rec.dataset_jsonl_url, "http://minio:9000/bkt/dataset.jsonl")
+
+
+_S3_CFG = {
+    "bucket": "test-bucket",
+    "region": "us-east-1",
+    "access_key": "k",
+    "secret_key": "s",
+    "folder": "aurora",
+}
+_S3_DATASET_URL = "https://test-bucket.s3.us-east-1.amazonaws.com/aurora/aurora_phase2/myorg__myrepo/run_2/dataset.jsonl"
+
+
+@tagged("post_install", "-at_install")
+class TestAuroraEvaluationCustomImport(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["ir.config_parameter"].sudo().set_param("aurora.output_dir", "/tmp/aurora_test")
+
+    def _make_jsonl_b64(self, entries=None):
+        if entries is None:
+            entries = [{"org": "myorg", "repo": "myrepo", "number": 1}]
+        content = "\n".join(json.dumps(e) for e in entries)
+        return base64.b64encode(content.encode()).decode()
+
+    def _create_custom_eval(self, **kwargs):
+        vals = {
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_repo": "myrepo",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        }
+        vals.update(kwargs)
+        return self.env["aurora.evaluation"].create(vals)
+
+    def test_custom_no_file_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_repo": "myrepo",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    def test_custom_no_org_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_repo": "myrepo",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    def test_custom_no_repo_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=False)
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_sets_stage_to_building_images(self, _submit, _s3):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertEqual(rec.stage, "building_images")
+
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=False)
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_sets_dataset_file(self, _submit, _s3):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertTrue(rec.dataset_file)
+        self.assertIn(f"custom_{rec.id}_", rec.dataset_file)
+
+    @patch("odoo.addons.aurora.models.artifact_collector.load_s3_config", return_value=_S3_CFG)
+    @patch("odoo.addons.aurora.models.s3_storage.upload_file", return_value=_S3_DATASET_URL)
+    @patch("odoo.addons.aurora.models.s3_storage.get_next_run_number", return_value=2)
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=True)
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_sets_s3_run_number(self, _submit, _ic, _rn, _upload, _lsc):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertEqual(rec.s3_run_number, 2)
+        self.assertEqual(rec.dataset_jsonl_url, _S3_DATASET_URL)
+
+    @patch("odoo.addons.aurora.models.artifact_collector.load_s3_config", return_value=_S3_CFG)
+    @patch("odoo.addons.aurora.models.s3_storage.upload_file", return_value=_S3_DATASET_URL)
+    @patch("odoo.addons.aurora.models.s3_storage.get_next_run_number", return_value=1)
+    @patch("odoo.addons.aurora.models.s3_storage.is_configured", return_value=True)
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_s3_key_uses_phase2_pattern(self, _submit, _ic, _rn, mock_upload, _lsc):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        s3_key = mock_upload.call_args[0][2]
+        self.assertIn("aurora_phase2", s3_key)
+        self.assertIn("myorg__myrepo", s3_key)
+        self.assertIn("run_1", s3_key)
+        self.assertIn("dataset.jsonl", s3_key)
+
+    def test_reset_clears_custom_fields(self):
+        rec = self._create_custom_eval()
+        rec.write({"stage": "failed"})
+        rec.action_reset_to_draft()
+        self.assertFalse(rec.custom_jsonl_file)
+        self.assertFalse(rec.custom_jsonl_filename)
+        self.assertEqual(rec.stage, "draft")
+
+    def test_s3_base_uri_uses_custom_org_repo(self):
+        rec = self._create_custom_eval()
+        rec.write({"s3_run_number": 7})
+        self.assertIn("myorg__myrepo", rec.s3_base_uri)
+        self.assertIn("run_7", rec.s3_base_uri)
+        self.assertIn("aurora_phase2", rec.s3_base_uri)
+
+    def test_s3_base_uri_empty_without_run_number(self):
+        rec = self._create_custom_eval()
+        self.assertFalse(rec.s3_base_uri)
