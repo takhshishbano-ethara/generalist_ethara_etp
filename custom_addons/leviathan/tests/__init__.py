@@ -8,3 +8,4 @@ from . import test_leviathan_job_compute
 from . import test_controller_webhook
 from . import test_wizards
 from . import test_markdown_helpers
+from . import test_watchdog

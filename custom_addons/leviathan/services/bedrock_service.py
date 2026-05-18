@@ -7,7 +7,9 @@ Supports two authentication modes:
 
 import json
 import logging
-from typing import Optional
+import os
+import threading
+from typing import Any, Optional
 
 import boto3
 import httpx
@@ -19,6 +21,20 @@ _logger = logging.getLogger(__name__)
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT = 300
 DEFAULT_TEMPERATURE = 0.7
+
+# Cap internal retries to reduce Bedrock load per job. With the outer-loop
+# max_attempts=1 (admin setting), worst-case calls/job is now:
+#   bearer:  1 outer × 2 inner = 2 API calls
+#   SigV4:   1 outer × 2 adaptive retries = 2 API calls
+# vs the previous 1 × 3 = 3. Adaptive mode keeps the smart backoff; we
+# just cap the number of attempts. Override via env if you need more.
+_BEDROCK_INNER_RETRIES = int(os.environ.get("LEVIATHAN_BEDROCK_INNER_RETRIES", "2"))
+
+# Per-(region, key_id, secret) bedrock-runtime client cache. Boto client
+# construction loads service models from disk and is non-trivially expensive
+# under high concurrency. Mirrors the proven pattern in extraction_service.
+_CLIENT_LOCK = threading.Lock()
+_CLIENT_CACHE: dict[tuple, Any] = {}
 
 
 def _is_bearer_token(access_key_id: str) -> bool:
@@ -75,7 +91,7 @@ def _call_bedrock_bearer(
     )
 
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(_BEDROCK_INNER_RETRIES):
         try:
             with httpx.Client(timeout=httpx.Timeout(connect=30, read=DEFAULT_TIMEOUT, write=30, pool=30)) as client:
                 resp = client.post(endpoint, json=payload, headers=headers)
@@ -99,19 +115,22 @@ def _call_bedrock_bearer(
             # Retryable server errors
             if resp.status_code in (429, 500, 502, 503, 529):
                 _logger.warning(
-                    "Bedrock bearer API [%d] (attempt %d/3): %s",
-                    resp.status_code, attempt + 1, resp.text[:200],
+                    "Bedrock bearer API [%d] (attempt %d/%d): %s",
+                    resp.status_code, attempt + 1, _BEDROCK_INNER_RETRIES, resp.text[:200],
                 )
                 last_exc = RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:200]}")
                 import time as _time
-                _time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                _time.sleep(2 ** attempt)  # 1s, 2s, ...
                 continue
 
             # Non-retryable client errors
             raise RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:500]}")
 
         except httpx.TimeoutException as exc:
-            _logger.warning("Bedrock bearer timeout (attempt %d/3): %s", attempt + 1, exc)
+            _logger.warning(
+                "Bedrock bearer timeout (attempt %d/%d): %s",
+                attempt + 1, _BEDROCK_INNER_RETRIES, exc,
+            )
             last_exc = RuntimeError(f"Bedrock timeout: {exc}")
             import time as _time
             _time.sleep(2 ** attempt)
@@ -121,24 +140,45 @@ def _call_bedrock_bearer(
 
 
 def _get_bedrock_client(region: str, access_key_id: str = "", secret_access_key: str = ""):
-    """Create boto3 bedrock-runtime client (SigV4 auth).
-    If access_key_id/secret_access_key are provided, uses explicit credentials.
-    Otherwise falls back to instance profile / IRSA (EKS pod role).
-    """
-    kwargs = {
-        "service_name": "bedrock-runtime",
-        "region_name": region,
-        "config": BotoConfig(
-            read_timeout=DEFAULT_TIMEOUT,
-            connect_timeout=30,
-            retries={"max_attempts": 3, "mode": "adaptive"},
-        ),
-    }
-    if access_key_id and secret_access_key:
-        kwargs["aws_access_key_id"] = access_key_id
-        kwargs["aws_secret_access_key"] = secret_access_key
+    """Return a cached boto3 bedrock-runtime client (SigV4 auth).
 
-    return boto3.client(**kwargs)
+    Cached per ``(region, access_key_id, secret_access_key)`` so that 50+
+    concurrent PRD-gen workers don't each pay the boto-client construction
+    cost. If credentials are not provided, falls back to instance profile
+    / IRSA (EKS pod role).
+    """
+    cache_key = (region, access_key_id, secret_access_key)
+    with _CLIENT_LOCK:
+        client = _CLIENT_CACHE.get(cache_key)
+        if client is not None:
+            return client
+
+        kwargs = {
+            "service_name": "bedrock-runtime",
+            "region_name": region,
+            "config": BotoConfig(
+                read_timeout=DEFAULT_TIMEOUT,
+                connect_timeout=30,
+                # 300 pool connections matches the extraction service —
+                # gives us headroom for 250-concurrent without blocking on
+                # the urllib3 pool.
+                max_pool_connections=300,
+                # Capped via env (default 2). With outer max_attempts=1
+                # this means at most 2 API calls per job. Adaptive mode
+                # keeps smart backoff between attempts.
+                retries={
+                    "max_attempts": _BEDROCK_INNER_RETRIES,
+                    "mode": "adaptive",
+                },
+            ),
+        }
+        if access_key_id and secret_access_key:
+            kwargs["aws_access_key_id"] = access_key_id
+            kwargs["aws_secret_access_key"] = secret_access_key
+
+        client = boto3.client(**kwargs)
+        _CLIENT_CACHE[cache_key] = client
+        return client
 
 
 def generate_prd(
