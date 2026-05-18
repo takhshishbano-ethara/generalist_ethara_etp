@@ -382,7 +382,10 @@ class KaijuCommit0(models.Model):
             # Second attempt: assume the value is already the raw payload.
             return blob if isinstance(blob, bytes) else bytes(blob)
 
-        for rec in self:
+        # Force content read — the form view sets bin_size=True context which
+        # would make Binary fields return the human-readable size string (e.g.
+        # '639.00 bytes') instead of the actual bytes. We need real content.
+        for rec in self.with_context(bin_size=False):
             blob = rec.dataset_file
             if not blob:
                 rec.dataset_json_text = False
