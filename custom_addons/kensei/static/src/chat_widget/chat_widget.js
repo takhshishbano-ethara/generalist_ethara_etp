@@ -53,6 +53,8 @@ const ALLOWED_AUDIO_TYPES = [
 ];
 const MAX_MEDIA_SIZE_MB = 1650;
 const MAX_MEDIA_SIZE_BYTES = MAX_MEDIA_SIZE_MB * 1024 * 1024;
+const MAX_WS_PAYLOAD_RAW_MB = 75;
+const MAX_WS_PAYLOAD_RAW_BYTES = MAX_WS_PAYLOAD_RAW_MB * 1024 * 1024;
 const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES, ...ALLOWED_VIDEO_TYPES, ...ALLOWED_AUDIO_TYPES];
 
 const LOGIN_URL_PATTERNS = [
@@ -1989,7 +1991,8 @@ export class KenseiChatWidget extends Component {
                     gif: "image/gif", webp: "image/webp",
                     mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
                     mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
-                    txt: "text/plain", html: "text/html", csv: "text/csv", json: "application/json",
+                    txt: "text/plain", html: "text/html", csv: "text/csv",
+                    json: "application/json", jsonl: "application/json",
                 };
                 mimeType = extMimeMap[ext] || mimeType;
             }
@@ -2070,6 +2073,11 @@ export class KenseiChatWidget extends Component {
         let attachmentsPayload = [];
         let attachmentsMeta = [];
         if (hasAttachments) {
+            const totalRawBytes = this.state.pendingAttachments.reduce((s, a) => s + a.size, 0);
+            if (totalRawBytes > MAX_WS_PAYLOAD_RAW_BYTES) {
+                this.state.attachmentError = `Total attachment size (${(totalRawBytes / 1024 / 1024).toFixed(1)} MB) exceeds the ${MAX_WS_PAYLOAD_RAW_MB} MB limit. Please send fewer files at once.`;
+                return;
+            }
             this.state.sending = true;
             try {
                 attachmentsPayload = await this._buildAttachmentsPayload();
@@ -2201,6 +2209,7 @@ export class KenseiChatWidget extends Component {
                 this.state.qcResult = qcResult;
                 this.state.qcPending = true;
                 this.state.qcPromptText = text;
+                this._session.qcAttachments = attachmentsPayload;
                 return;
             }
             if (qcResult.severity === "high") {
@@ -2208,12 +2217,14 @@ export class KenseiChatWidget extends Component {
                 this.state.qcPending = true;
                 this.state.qcPromptText = text;
                 this.state.qcDismissReason = "";
+                this._session.qcAttachments = attachmentsPayload;
                 return;
             }
             if (qcResult.severity === "medium" || qcResult.severity === "low") {
                 this.state.qcResult = qcResult;
                 this.state.qcPending = true;
                 this.state.qcPromptText = text;
+                this._session.qcAttachments = attachmentsPayload;
                 return;
             }
         }
@@ -2238,8 +2249,9 @@ export class KenseiChatWidget extends Component {
         }
 
         const promptText = this.state.qcPromptText;
+        const stashedAttachments = this._session.qcAttachments || [];
         this._clearQcState();
-        this._sendToOpenClaw(promptText);
+        this._sendToOpenClaw(promptText, stashedAttachments);
     }
 
     onQcRewrite() {
@@ -2264,14 +2276,10 @@ export class KenseiChatWidget extends Component {
         this._session.qcPending = false;
         this._session.qcDismissReason = "";
         this._session.qcPromptText = "";
+        this._session.qcAttachments = [];
     }
 
     async _sendToOpenClaw(text, attachments = []) {
-        const hasWorkspaceAttachment = attachments.some(a => HTTP_ONLY_TYPES.has(a.mimeType));
-        if (hasWorkspaceAttachment) {
-            return this._sendMediaViaWorkspace(text, attachments);
-        }
-
         if (!this._session.ws || !this._session.wsConnected) {
             for (let i = 0; i < 5; i++) {
                 await new Promise(r => setTimeout(r, 2000));

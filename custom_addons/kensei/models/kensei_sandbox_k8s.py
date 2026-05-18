@@ -189,6 +189,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                 ],
                 "dangerouslyDisableDeviceAuth": True,
             },
+            "maxPayload": 104857600,
+            "maxBufferedBytes": 209715200,
             "http": {
                 "endpoints": {
                     "responses": {"enabled": True},
@@ -272,7 +274,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
     config_dict["agents"] = {
         "defaults": {
             "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
-            "imageModel": {"primary": "litellm/" + MODEL_DEFAULTS.get(model_type, "claude-opus-4.7")},
+            "imageModel": {"primary": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")},
             "thinkingDefault": "xhigh",
         }
     }
