@@ -554,7 +554,7 @@ class ArgusVideoPreviewController(http.Controller):
         )
 
     @http.route(
-        "/argus/instagram/url",
+        "/api/argus/instagram/url",
         type="http",
         auth="public",
         methods=["GET", "POST"],
