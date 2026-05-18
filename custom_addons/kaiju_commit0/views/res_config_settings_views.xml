@@ -37,6 +37,20 @@
                                 <field name="kaiju_argo_verify_tls"/>
                             </div>
                         </setting>
+                        <setting string="Test Connection" help="Probe the configured Argo Server and report what is reachable. Useful for diagnosing RBAC, networking, and token issues without server log access.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <button name="action_test_argo_connection" type="object"
+                                            string="Test Argo Connection"
+                                            class="btn-primary"
+                                            icon="fa-plug"/>
+                                </div>
+                                <div class="row mt8" invisible="not kaiju_connection_diagnostic">
+                                    <field name="kaiju_connection_diagnostic" nolabel="1" readonly="1"
+                                           widget="text" style="font-family: monospace; white-space: pre; font-size: 12px;"/>
+                                </div>
+                            </div>
+                        </setting>
                     </block>
                     <block title="Callbacks">
                         <setting string="Odoo Internal URL" help="In-cluster URL that Argo exit handlers use to call back into Odoo">

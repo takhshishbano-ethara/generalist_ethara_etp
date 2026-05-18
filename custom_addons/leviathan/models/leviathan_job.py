@@ -252,6 +252,22 @@ class LeviathanJob(models.Model):
             or self.asset_keys
         )
 
+    def _smart_state_on_assign(self):
+        """State a task should land in when (re)assigned to a user.
+
+        Released tasks keep their data; on pick-up the state restores so the
+        new owner sees the right buttons:
+          - prd_text exists           -> done   (Submit / Rerun / Regenerate)
+          - extraction data, no PRD   -> failed (Retry opens rerun wizard)
+          - nothing                   -> draft  (Run Pipeline)
+        """
+        self.ensure_one()
+        if self.prd_text:
+            return "done"
+        if self._has_extraction_data:
+            return "failed"
+        return "draft"
+
     # ------------------------------------------------------------------
     # Prompt helpers (read from Settings, fallback to file)
     # ------------------------------------------------------------------
@@ -668,16 +684,32 @@ class LeviathanJob(models.Model):
 
     def write(self, vals):
         res = super().write(vals)
-        # Auto-promote to draft when admin assigns a user to not_assigned task
+        # Auto-promote when admin assigns a user to a not_assigned task.
+        # The target state preserves whatever progress the task already has
+        # (see _smart_state_on_assign): released done tasks come back as done,
+        # released failed-with-data tasks come back as failed (Retry visible),
+        # everything else lands in draft. Plain rec.write() is used (not
+        # super(LeviathanJob, ...).write) so mail.thread chatter records the
+        # state restoration. Recursion is bounded: the recursive vals carries
+        # only `state`, so this promote/demote block does not re-enter.
         if "user_id" in vals and vals["user_id"]:
             to_promote = self.filtered(lambda r: r.state == "not_assigned")
-            if to_promote:
-                super(LeviathanJob, to_promote).write({"state": "draft"})
+            for rec in to_promote:
+                new_state = rec._smart_state_on_assign()
+                if rec.state == new_state:
+                    continue
+                promote_vals = {"state": new_state}
+                if new_state == "failed" and not rec.error_message:
+                    promote_vals["error_message"] = (
+                        "Reassigned with prior extraction data — "
+                        "click Retry to resume."
+                    )
+                rec.write(promote_vals)
         # Auto-demote to not_assigned when user is removed from draft task
         if "user_id" in vals and not vals["user_id"]:
             to_demote = self.filtered(lambda r: r.state == "draft")
             if to_demote:
-                super(LeviathanJob, to_demote).write({"state": "not_assigned"})
+                to_demote.write({"state": "not_assigned"})
         return res
 
     # ------------------------------------------------------------------
@@ -687,16 +719,23 @@ class LeviathanJob(models.Model):
     _ACTIVE_STATES = ("draft", "extracting", "generating", "scoring", "done")
 
     def action_start_task(self):
-        """Tasker grabs the next available unassigned task.
+        """Tasker grabs the next available unassigned task — race-safe.
 
-        Picks the oldest not_assigned task. If it already has PRD data
-        (released from done), state goes to done. Otherwise draft.
+        Two taskers clicking simultaneously do NOT get the same task: the
+        pick uses `SELECT ... FOR UPDATE SKIP LOCKED`, so concurrent
+        transactions each lock different rows. The row stays locked until
+        this request commits, so the subsequent ORM write that sets user_id
+        cannot be lost to a competing writer. Without this, both clickers
+        end up redirected to the same task and one of them sees the row
+        vanish on refresh (record-rule denies access once user_id is the
+        other tasker).
+
+        Smart state restores prior progress (see _smart_state_on_assign).
         """
         user = self.env.user
         ICP = self.env["ir.config_parameter"].sudo()
         max_active = int(ICP.get_param("leviathan.max_jobs_per_user", "5"))
 
-        # Check bandwidth
         if max_active > 0:
             active_count = self.sudo().search_count([
                 ("user_id", "=", user.id),
@@ -708,25 +747,35 @@ class LeviathanJob(models.Model):
                     f"Submit or complete existing tasks first (max: {max_active})."
                 )
 
-        # Pick oldest available task (not_assigned or failed+unassigned)
-        domain = [("state", "in", ("not_assigned", "failed")), ("user_id", "=", False)]
         cat_id = self.env.context.get("start_task_category_id")
-        if cat_id:
-            domain.append(("category_id", "=", cat_id))
-        task = self.sudo().search(
-            domain,
-            order="create_date asc",
-            limit=1,
+        cat_clause = " AND category_id = %s" if cat_id else ""
+        params = [int(cat_id)] if cat_id else []
+
+        self.env.cr.execute(
+            f"""
+            SELECT id FROM leviathan_job
+             WHERE state IN ('not_assigned', 'failed')
+               AND user_id IS NULL
+               {cat_clause}
+             ORDER BY create_date ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+            """,
+            params,
         )
-        if not task:
+        row = self.env.cr.fetchone()
+        if not row:
             raise UserError("No tasks available. Check back later.")
 
-        # Smart state: if PRD exists (released done task), go to done
-        new_state = "done" if task.prd_text else "draft"
+        task = self.sudo().browse(row[0])
+        new_state = task._smart_state_on_assign()
         task.write({"user_id": user.id, "state": new_state})
         task._notify_state_change(new_state)
+        _logger.info(
+            "[leviathan] Start Task: user=%s claimed job=%s (state=%s)",
+            user.login, task.name, new_state,
+        )
 
-        # Navigate to the picked task
         return {
             "type": "ir.actions.act_window",
             "res_model": "leviathan.job",

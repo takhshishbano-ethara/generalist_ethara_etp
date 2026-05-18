@@ -14,6 +14,7 @@ class KaijuWorkflowStep(models.Model):
     _name = "kaiju.commit0.workflow.step"
     _description = "Kaiju Argo Workflow Step"
     _order = "started_at asc, id asc"
+    _rec_name = "display_name"
 
     name = fields.Char(
         string="Step",
@@ -50,6 +51,12 @@ class KaijuWorkflowStep(models.Model):
 
     log_text = fields.Text(string="Log Text")
     log_fetched_at = fields.Datetime(string="Log Fetched At")
+    last_fetch_diagnostic = fields.Text(
+        string="Last Fetch Diagnostic",
+        help="Detailed result of the most recent log fetch attempt \u2014 "
+             "surfaces Argo API response details (status, bytes, frames, errors) "
+             "so the UI can show what happened without needing server log access.",
+    )
 
     # ── Timing ───────────────────────────────────────────────────────────────
 
@@ -78,7 +85,7 @@ class KaijuWorkflowStep(models.Model):
     has_log = fields.Boolean(
         string="Has Log",
         compute="_compute_log_size",
-        store=False,
+        store=True,
         help="True when log_text is non-empty — distinguishes 'fetched but empty' from 'never fetched'",
     )
 
@@ -121,6 +128,32 @@ class KaijuWorkflowStep(models.Model):
             "Node ID must be unique within a run.",
         ),
     ]
+
+    # ── Partial indexes for cron back-fill queries (Phase 1) ─────────────
+    # Plain index on a Boolean is near-useless (planner prefers seqscan on 50/50
+    # split). Partial indexes only on rows where has_log IS FALSE — the rows the
+    # cron actually cares about — give cheap lookups even at 100k+ step records.
+
+    def _auto_init(self):
+        res = super()._auto_init()
+        cr = self.env.cr
+        # Partial index on (build_id) WHERE has_log IS FALSE — supports the cron's
+        # terminal_incomplete domain ('step_ids.has_log','=',False) without scanning all rows.
+        cr.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {self._table}_build_no_log_idx
+            ON {self._table} (build_id)
+            WHERE has_log IS FALSE AND build_id IS NOT NULL
+            """
+        )
+        cr.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {self._table}_run_no_log_idx
+            ON {self._table} (run_id)
+            WHERE has_log IS FALSE AND run_id IS NOT NULL
+            """
+        )
+        return res
 
     # ── Computed ─────────────────────────────────────────────────────────────
 
@@ -172,18 +205,30 @@ class KaijuWorkflowStep(models.Model):
     def action_fetch_logs(self):
         """Re-fetch logs from Argo for the selected steps.
 
-        On failure (pod GC'd, network error, empty result), preserves
-        the existing cached log_text and logs a warning. Returns a UI reload.
+        Captures detailed diagnostic info per attempt into `last_fetch_diagnostic`
+        so the user can see exactly what happened without needing server log
+        access. On success, preserves the existing cached log_text if Argo
+        returned empty (avoids overwriting good data with nothing).
         """
+        from datetime import datetime, timezone
         argo = self.env["kaiju.argo.client"]
         fetched = 0
         skipped = 0
         failed = 0
         for step in self:
             workflow_name = step.workflow_name
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             if not workflow_name or not step.pod_name:
+                diag = (
+                    f"[{now_iso}] SKIPPED \u2014 missing inputs\n"
+                    f"  workflow_name: {workflow_name!r}\n"
+                    f"  pod_name:      {step.pod_name!r}\n"
+                    f"  display_name:  {step.display_name!r}\n"
+                    f"  node_id:       {step.node_id!r}"
+                )
+                step.write({"last_fetch_diagnostic": diag})
                 _logger.info(
-                    "Skipping log fetch for step %s — missing workflow or pod name",
+                    "Skipping log fetch for step %s \u2014 missing workflow or pod name",
                     step.display_name or step.node_id,
                 )
                 skipped += 1
@@ -191,6 +236,19 @@ class KaijuWorkflowStep(models.Model):
             try:
                 logs = argo.get_pod_logs(workflow_name, step.pod_name)
             except RuntimeError as e:
+                diag = (
+                    f"[{now_iso}] FAILED \u2014 Argo API error\n"
+                    f"  workflow:      {workflow_name}\n"
+                    f"  pod:           {step.pod_name}\n"
+                    f"  template:      {step.template_name}\n"
+                    f"  error:         {e}\n"
+                    f"\nLikely causes:\n"
+                    f"  - RBAC: Odoo's ServiceAccount lacks 'pods/log' on namespace "
+                    f"(check: HTTP 403 in error above)\n"
+                    f"  - Argo Server unreachable (check: connection error in message)\n"
+                    f"  - Wrong namespace / workflow GC'd by Argo controller"
+                )
+                step.write({"last_fetch_diagnostic": diag})
                 _logger.warning(
                     "Failed to fetch logs for step %s (workflow=%s pod=%s): %s",
                     step.display_name or step.node_id,
@@ -202,10 +260,20 @@ class KaijuWorkflowStep(models.Model):
                 continue
 
             if logs:
+                size = len(logs.encode("utf-8", errors="replace"))
+                diag = (
+                    f"[{now_iso}] SUCCESS \u2014 fetched {size:,} bytes\n"
+                    f"  workflow:      {workflow_name}\n"
+                    f"  pod:           {step.pod_name}\n"
+                    f"  template:      {step.template_name}\n"
+                    f"  lines:         {logs.count(chr(10)) + 1:,}\n"
+                    f"  preview:       {logs[:200]!r}"
+                )
                 step.write(
                     {
                         "log_text": logs,
                         "log_fetched_at": fields.Datetime.now(),
+                        "last_fetch_diagnostic": diag,
                     }
                 )
                 _logger.info(
@@ -216,11 +284,31 @@ class KaijuWorkflowStep(models.Model):
                 )
                 fetched += 1
             else:
-                # Pod returned no log content. Still record the attempt so we
-                # can distinguish 'never fetched' from 'fetched but empty'.
-                step.write({"log_fetched_at": fields.Datetime.now()})
+                # Pod returned NO log content. Still record the attempt so the
+                # user can see that we tried and Argo returned empty.
+                diag = (
+                    f"[{now_iso}] EMPTY \u2014 Argo returned 0 bytes\n"
+                    f"  workflow:      {workflow_name}\n"
+                    f"  pod:           {step.pod_name}\n"
+                    f"  template:      {step.template_name}\n"
+                    f"  phase:         {step.phase}\n"
+                    f"\nLikely causes:\n"
+                    f"  - Pod has been garbage-collected by Argo (default 300s/5min after completion)\n"
+                    f"  - Pod's main container hasn't produced output yet (still starting)\n"
+                    f"  - Wrong container name (we request 'main' \u2014 verify in Argo UI)\n"
+                    f"  - RBAC: Odoo's ServiceAccount lacks 'pods/log' \u2014 silent 403/empty response\n"
+                    f"\nVerify from a pod with the Odoo SA token:\n"
+                    f"  curl -v -N -H 'Accept: text/event-stream' \\\n"
+                    f"    -H \"Authorization: Bearer $TOKEN\" \\\n"
+                    f"    '<argo>/api/v1/workflows/<ns>/{workflow_name}/log"
+                    f"?podName={step.pod_name}&logOptions.container=main&logOptions.follow=true'"
+                )
+                step.write({
+                    "log_fetched_at": fields.Datetime.now(),
+                    "last_fetch_diagnostic": diag,
+                })
                 _logger.info(
-                    "Empty logs returned for step %s (pod=%s) — marking fetched_at",
+                    "Empty logs returned for step %s (pod=%s) \u2014 marking fetched_at",
                     step.display_name or step.node_id,
                     step.pod_name,
                 )

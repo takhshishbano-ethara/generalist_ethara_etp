@@ -72,6 +72,55 @@ class TestJobWrite(LeviathanTestCase):
         self.assertEqual(job.state, "extracting")
         self.assertEqual(job.user_id.id, self.other_user.id)
 
+    def test_assigning_user_to_not_assigned_with_prd_promotes_to_done(self):
+        job = self._create_job(
+            user_id=False, prd_text="some PRD content", prd_prompt="extraction",
+        )
+        self.assertEqual(job.state, "not_assigned")
+        job.write({"user_id": self.tasker.id})
+        self.assertEqual(job.state, "done")
+        self.assertEqual(job.user_id, self.tasker)
+
+    def test_assigning_user_to_not_assigned_with_extraction_only_promotes_to_failed(self):
+        job = self._create_job(
+            user_id=False, prd_prompt="extracted data", screenshot_keys=["a.png"],
+        )
+        self.assertEqual(job.state, "not_assigned")
+        self.assertFalse(job.prd_text)
+        job.write({"user_id": self.tasker.id})
+        self.assertEqual(job.state, "failed")
+        self.assertEqual(job.user_id, self.tasker)
+        self.assertIn("Retry", job.error_message or "")
+
+    def test_assigning_user_to_not_assigned_with_no_data_promotes_to_draft(self):
+        job = self._create_job(user_id=False)
+        self.assertEqual(job.state, "not_assigned")
+        self.assertFalse(job._has_extraction_data)
+        job.write({"user_id": self.tasker.id})
+        self.assertEqual(job.state, "draft")
+
+    def test_release_then_reassign_done_task_restores_done(self):
+        job = self._create_job(
+            user_id=self.tasker.id, prd_text="PRD", qc_verdict="shippable",
+        )
+        job.write({"state": "done"})
+        job.action_release_task()
+        self.assertEqual(job.state, "not_assigned")
+        self.assertFalse(job.user_id)
+        self.assertEqual(job.prd_text, "PRD")
+        job.write({"user_id": self.other_user.id})
+        self.assertEqual(job.state, "done")
+        self.assertEqual(job.qc_verdict, "shippable")
+
+    def test_smart_promote_does_not_overwrite_existing_error_message(self):
+        job = self._create_job(
+            user_id=False, prd_prompt="extracted",
+            error_message="original error message",
+        )
+        job.write({"user_id": self.tasker.id})
+        self.assertEqual(job.state, "failed")
+        self.assertEqual(job.error_message, "original error message")
+
 
 @tagged("post_install", "-at_install", "leviathan")
 class TestHasExtractionData(LeviathanTestCase):
