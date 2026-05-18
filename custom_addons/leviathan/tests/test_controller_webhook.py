@@ -201,3 +201,79 @@ class TestGetJobStatus(LeviathanTestCase):
         self.assertEqual(body["result"]["state"], "done")
         self.assertEqual(body["result"]["grade"], "B")
         self.assertEqual(body["result"]["qc_verdict"], "shippable")
+
+
+@tagged("post_install", "-at_install", "leviathan")
+class TestWebhookHardening(LeviathanTestCase):
+    """Webhook hardening added in 19.0.3.0.0:
+    - Content-Length cap returns 413 before parsing/processing
+    - LEVIATHAN_WEBHOOK_TOKEN accepts comma-separated list for zero-downtime rotation
+    """
+
+    def test_oversized_content_length_returns_413(self):
+        ctrl = LeviathanController()
+        mock_req = MagicMock()
+        mock_req.env = self.env
+        # Declared length > cap, body irrelevant — must reject before parsing
+        mock_req.httprequest.content_length = 50 * 1024 * 1024  # 50 MB declared
+        mock_req.httprequest.data = b'{"job_id": 1}'
+        mock_req.httprequest.headers.get.return_value = "secret"
+        with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "secret"}):
+            with patch(
+                "odoo.addons.leviathan.controllers.main._WEBHOOK_MAX_BYTES",
+                10 * 1024 * 1024,
+            ):
+                with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
+                    result = ctrl.webhook_extraction_complete()
+        self.assertEqual(result.status_code, 413)
+
+    def test_oversized_body_returns_413_even_if_content_length_lies(self):
+        ctrl = LeviathanController()
+        mock_req = MagicMock()
+        mock_req.env = self.env
+        # Liar: tiny content_length but actual body is large
+        mock_req.httprequest.content_length = 100
+        mock_req.httprequest.data = b"x" * (20 * 1024 * 1024)  # 20 MB
+        mock_req.httprequest.headers.get.return_value = "secret"
+        with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "secret"}):
+            with patch(
+                "odoo.addons.leviathan.controllers.main._WEBHOOK_MAX_BYTES",
+                10 * 1024 * 1024,
+            ):
+                with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
+                    result = ctrl.webhook_extraction_complete()
+        self.assertEqual(result.status_code, 413)
+
+    def test_token_rotation_accepts_any_in_comma_list(self):
+        from odoo.addons.leviathan.controllers.main import _verify_webhook_token
+
+        mock_req = MagicMock()
+        # All three tokens in the env list must pass during rotation window
+        with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "old,current,new"}):
+            for tok in ("old", "current", "new"):
+                mock_req.httprequest.headers.get = MagicMock(return_value=tok)
+                with patch(
+                    "odoo.addons.leviathan.controllers.main.request", mock_req,
+                ):
+                    self.assertTrue(
+                        _verify_webhook_token(), f"token '{tok}' must be accepted",
+                    )
+
+    def test_token_rotation_rejects_unknown(self):
+        from odoo.addons.leviathan.controllers.main import _verify_webhook_token
+
+        mock_req = MagicMock()
+        mock_req.httprequest.headers.get = MagicMock(return_value="stranger")
+        with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "old,current,new"}):
+            with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
+                self.assertFalse(_verify_webhook_token())
+
+    def test_single_token_still_works(self):
+        # Backwards compat: comma-list of 1 (i.e. no comma) is the old behaviour
+        from odoo.addons.leviathan.controllers.main import _verify_webhook_token
+
+        mock_req = MagicMock()
+        mock_req.httprequest.headers.get = MagicMock(return_value="only")
+        with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "only"}):
+            with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
+                self.assertTrue(_verify_webhook_token())

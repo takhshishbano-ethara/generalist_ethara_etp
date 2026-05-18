@@ -242,6 +242,82 @@ class TestActionMarkSubmitted(LeviathanTestCase):
 
 
 @tagged("post_install", "-at_install", "leviathan")
+class TestActionRetryFailedBatch(LeviathanTestCase):
+    """Admin bulk-retry: runs the pipeline end-to-end on selected failed tasks.
+
+    Routing rules verified here:
+      - prd_prompt present → state=generating (skip extraction)
+      - prd_prompt absent  → state=extracting (full pipeline via Lambda)
+      - user_id present    → via_batch=False (result stays at done)
+      - user_id absent     → via_batch=True  (auto-release back to pool)
+      - non-failed tasks   → ignored (with notification message)
+    """
+
+    def test_with_prd_prompt_and_user_goes_generating_no_via_batch(self):
+        job = self._create_job(
+            user_id=self.tasker.id,
+            state="failed",
+            prd_prompt="extracted data",
+            error_message="old error",
+        )
+        with self._patch_submit_bg():
+            job.action_retry_failed_batch()
+        self.assertEqual(job.state, "generating")
+        self.assertFalse(job.via_batch, "tasker present → must NOT release at end")
+        self.assertFalse(job.error_message)
+        self.assertEqual(job.user_id, self.tasker, "tasker preserved")
+
+    def test_with_prd_prompt_no_user_goes_generating_via_batch_true(self):
+        job = self._create_job(
+            user_id=False, state="failed", prd_prompt="extracted",
+        )
+        with self._patch_submit_bg():
+            job.action_retry_failed_batch()
+        self.assertEqual(job.state, "generating")
+        self.assertTrue(job.via_batch, "no tasker → must auto-release at end")
+
+    def test_without_prd_prompt_with_user_re_extracts(self):
+        self._set_param("leviathan.lambda_function_name", "test-function")
+        job = self._create_job(
+            user_id=self.tasker.id, state="failed",
+            prd_text="stale prd", screenshot_keys=["a.png"],
+        )
+        with self._patch_submit_bg():
+            job.action_retry_failed_batch()
+        self.assertEqual(job.state, "extracting")
+        self.assertFalse(job.prd_text, "stale results wiped for fresh extract")
+        self.assertFalse(job.screenshot_keys, "stale assets wiped")
+        self.assertEqual(job.user_id, self.tasker, "tasker preserved")
+        self.assertFalse(job.via_batch)
+
+    def test_re_extract_without_lambda_config_raises(self):
+        # No leviathan.lambda_function_name set
+        job = self._create_job(user_id=self.tasker.id, state="failed")
+        with self.assertRaises(UserError):
+            job.action_retry_failed_batch()
+        # Job unchanged on the validation error
+        self.assertEqual(job.state, "failed")
+
+    def test_non_failed_ignored(self):
+        # Mix: 1 failed + 1 draft. Failed should retry; draft should be reported skipped.
+        failed = self._create_job(
+            user_id=self.tasker.id, state="failed", prd_prompt="extracted",
+        )
+        draft = self._create_job(user_id=self.tasker.id)  # state=draft via auto-promote
+        with self._patch_submit_bg():
+            result = (failed | draft).action_retry_failed_batch()
+        self.assertEqual(failed.state, "generating")
+        self.assertEqual(draft.state, "draft", "non-failed task untouched")
+        # Notification message should mention skipped
+        self.assertIn("ignored", result["params"]["message"])
+
+    def test_empty_selection_raises(self):
+        draft = self._create_job(user_id=self.tasker.id)
+        with self.assertRaises(UserError):
+            draft.action_retry_failed_batch()
+
+
+@tagged("post_install", "-at_install", "leviathan")
 class TestActionRunBatchConcurrent(LeviathanTestCase):
 
     def test_raises_when_no_eligible(self):
