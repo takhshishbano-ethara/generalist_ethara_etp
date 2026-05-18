@@ -758,6 +758,55 @@ class GohanJob(models.Model):
                     "<p class='text-muted'>Configure S3 bucket in settings to preview</p>"
                 )
 
+    def _load_network_data_from_s3(self):
+        """Lazy-fetch ``raw_data.json`` from S3 and return its ``network_data``
+        block, or ``None`` when unavailable.
+
+        The Lambda webhook only sends a count (``extraction_summary.network_endpoints``);
+        the actual endpoint list lives on S3 in ``{prefix}/raw_data.json``.
+        This pulls that bundle and surfaces the endpoint list in the UI.
+
+        Fires for terminal states (``done``/``reviewed``/``shipped``) and also
+        ``failed``, so operators can inspect what got scraped on jobs that
+        crashed in a later phase (PRD generation, scoring).
+
+        Returns ``None`` on any failure (bucket not configured, S3 error,
+        missing file) so the caller falls through to the count-only stub.
+        """
+        self.ensure_one()
+        if self.state not in ("done", "reviewed", "shipped", "failed"):
+            return None
+        ICP = self.env["ir.config_parameter"].sudo()
+        bucket = ICP.get_param("gohan.s3_bucket")
+        if not bucket:
+            return None
+        s3_folder = (ICP.get_param("gohan.s3_folder") or "gohan").strip("/")
+        # Parse the path part out of `s3://<any-bucket>/<path>` rather than
+        # bucket-aware split — the stored prefix may reference an older
+        # bucket name (e.g. after a rename) but the path-suffix is stable.
+        import re
+        prefix = ""
+        if self.s3_artifact_prefix:
+            m = re.match(r"^s3://[^/]+/(.+)$", self.s3_artifact_prefix)
+            if m:
+                prefix = m.group(1).rstrip("/")
+        if not prefix:
+            prefix = f"{s3_folder}/{self.id}"
+        key = f"{prefix}/raw_data.json"
+        try:
+            from ..services import s3_service
+            raw_data = s3_service.download_json_from_s3(self.env, bucket, key)
+        except Exception as exc:
+            _logger.debug(
+                "[gohan][job=%s] backend_signals: S3 network_data fetch skipped "
+                "(bucket=%s key=%s err=%s)",
+                self.id, bucket, key, exc,
+            )
+            return None
+        if not isinstance(raw_data, dict):
+            return None
+        return raw_data.get("network_data") or raw_data.get("network") or None
+
     @api.depends("lambda_callback_json", "site_discovery_json")
     def _compute_backend_signals_html(self):
         """Render the backend-data sections of the extraction as colored
@@ -871,15 +920,11 @@ class GohanJob(models.Model):
 
         for rec in self:
             callback = rec.lambda_callback_json or {}
-            # network data may live inside `lambda_callback_json` under
-            # multiple keys depending on the Lambda version: pull from
-            # whichever is present. summarize_network output landed in
-            # `extraction_summary.network_endpoints` (count) and
-            # detailed data is in raw_data.json on S3 — but for the UI
-            # we surface the in-callback fields we have.
             network_block = (
                 callback.get("network")
                 or callback.get("network_data")
+                or (callback.get("raw_data") or {}).get("network_data")
+                or rec._load_network_data_from_s3()
                 or {
                     "api_endpoints_count": (
                         callback.get("extraction_summary") or {}
