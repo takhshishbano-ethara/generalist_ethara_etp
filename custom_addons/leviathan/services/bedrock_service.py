@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import boto3
@@ -22,12 +23,11 @@ DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT = 300
 DEFAULT_TEMPERATURE = 0.7
 
-# Cap internal retries to reduce Bedrock load per job. With the outer-loop
-# max_attempts=1 (admin setting), worst-case calls/job is now:
-#   bearer:  1 outer × 2 inner = 2 API calls
-#   SigV4:   1 outer × 2 adaptive retries = 2 API calls
-# vs the previous 1 × 3 = 3. Adaptive mode keeps the smart backoff; we
-# just cap the number of attempts. Override via env if you need more.
+# Cap internal retries to reduce Bedrock load per job. Default 2; admins
+# can override via Settings UI (leviathan.bedrock_inner_retries) or env
+# (LEVIATHAN_BEDROCK_INNER_RETRIES). The Settings UI value takes effect for
+# NEW boto clients only — pod restart required to apply to all in-flight
+# clients (boto client cache holds the BotoConfig built at first call).
 _BEDROCK_INNER_RETRIES = int(os.environ.get("LEVIATHAN_BEDROCK_INNER_RETRIES", "2"))
 
 # Per-(region, key_id, secret) bedrock-runtime client cache. Boto client
@@ -35,6 +35,71 @@ _BEDROCK_INNER_RETRIES = int(os.environ.get("LEVIATHAN_BEDROCK_INNER_RETRIES", "
 # under high concurrency. Mirrors the proven pattern in extraction_service.
 _CLIENT_LOCK = threading.Lock()
 _CLIENT_CACHE: dict[tuple, Any] = {}
+
+# In-process Bedrock concurrency cap. Pattern borrowed from
+# preference_ranking/services/rate_limiter.py — a global semaphore that
+# self-throttles BELOW the AWS Bedrock TPS quota so we never trigger
+# adaptive-retry. Without this, N concurrent workers can all fire
+# simultaneously, blow past the quota, and Bedrock's adaptive retry then
+# queues each call for 5-30 minutes — that's the "Bedrock 200 but the call
+# took 30 min" pattern we saw in prod.
+#
+# Sizing math:
+#   max_concurrent ≈ TPS_quota_RPS × avg_call_duration_seconds
+# Examples (avg PRD call ≈ 2-3s):
+#   Bedrock default quota (5-10 RPS)  → 15-30 concurrent
+#   Quota bumped to 50 RPS            → 100-150 concurrent (effectively uncapped)
+#
+# Default 5 is a SAFE floor — works even at default Bedrock quota. Raise via
+# env once devops confirms the actual TPS quota. Per-process (not per-pid,
+# not per-cluster) — each Odoo worker process has its own semaphore.
+_BEDROCK_MAX_CONCURRENT = int(
+    os.environ.get("LEVIATHAN_BEDROCK_MAX_CONCURRENT", "5")
+)
+_BEDROCK_SEMAPHORE = threading.Semaphore(_BEDROCK_MAX_CONCURRENT)
+
+_logger.info(
+    "[leviathan] Bedrock concurrency cap initialised: max_concurrent=%d "
+    "(env LEVIATHAN_BEDROCK_MAX_CONCURRENT)",
+    _BEDROCK_MAX_CONCURRENT,
+)
+
+
+@contextmanager
+def _bedrock_slot(call_label="bedrock"):
+    """Block until a concurrent-call slot is free. Self-throttles to stay
+    under the Bedrock TPS quota so adaptive retry never fires.
+
+    Timeout = 30 min — gives plenty of room for transient bursts; raises
+    TimeoutError after that so a stuck queue surfaces instead of waiting
+    forever. The bg worker's outer except catches the TimeoutError and
+    surfaces it as a normal Bedrock failure.
+
+    Logs at INFO when a worker waits more than 10s — gives operators a
+    signal that the cap is bound and they may want to raise it (or get
+    the AWS quota bumped).
+    """
+    import time as _time
+    wait_start = _time.monotonic()
+    acquired = _BEDROCK_SEMAPHORE.acquire(timeout=1800)
+    wait_seconds = _time.monotonic() - wait_start
+    if not acquired:
+        raise TimeoutError(
+            f"No Bedrock slot in 30min (cap={_BEDROCK_MAX_CONCURRENT}). "
+            f"Either raise LEVIATHAN_BEDROCK_MAX_CONCURRENT or reduce "
+            f"concurrent PRD-gen workers (LEVIATHAN_PRD_POOL_SIZE)."
+        )
+    if wait_seconds > 10:
+        _logger.info(
+            "[leviathan] %s waited %.1fs for Bedrock slot (cap=%d) — "
+            "concurrency cap is bound; raise LEVIATHAN_BEDROCK_MAX_CONCURRENT "
+            "if your AWS quota allows",
+            call_label, wait_seconds, _BEDROCK_MAX_CONCURRENT,
+        )
+    try:
+        yield
+    finally:
+        _BEDROCK_SEMAPHORE.release()
 
 
 def _is_bearer_token(access_key_id: str) -> bool:
@@ -93,8 +158,13 @@ def _call_bedrock_bearer(
     last_exc = None
     for attempt in range(_BEDROCK_INNER_RETRIES):
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=30, read=DEFAULT_TIMEOUT, write=30, pool=30)) as client:
-                resp = client.post(endpoint, json=payload, headers=headers)
+            # Hold a concurrency slot for THIS attempt only — released
+            # between retries so other workers can interleave. Prevents
+            # us from blowing past Bedrock's TPS quota and triggering
+            # the 5-30min adaptive-retry queue.
+            with _bedrock_slot("bedrock-bearer-prd"):
+                with httpx.Client(timeout=httpx.Timeout(connect=30, read=DEFAULT_TIMEOUT, write=30, pool=30)) as client:
+                    resp = client.post(endpoint, json=payload, headers=headers)
 
             if resp.status_code == 200:
                 data = resp.json()
@@ -237,15 +307,18 @@ def generate_prd(
     )
 
     try:
-        response = client.converse(
-            modelId=inference_arn,
-            system=[{"text": system_prompt}],
-            messages=bedrock_messages,
-            inferenceConfig={
-                "maxTokens": max_tokens,
-                "temperature": temperature,
-            },
-        )
+        # Hold a concurrency slot during the call so we stay under the
+        # Bedrock TPS quota and adaptive-retry never fires.
+        with _bedrock_slot("bedrock-sigv4-prd"):
+            response = client.converse(
+                modelId=inference_arn,
+                system=[{"text": system_prompt}],
+                messages=bedrock_messages,
+                inferenceConfig={
+                    "maxTokens": max_tokens,
+                    "temperature": temperature,
+                },
+            )
 
         _logger.info(
             "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",

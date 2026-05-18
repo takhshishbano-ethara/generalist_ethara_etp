@@ -114,6 +114,77 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
+    # -- Watchdog & Recovery (LIVE — read each cron tick) --
+    leviathan_watchdog_extracting_minutes = fields.Integer(
+        string="Extracting Timeout (min)",
+        config_parameter="leviathan.watchdog_extracting_minutes",
+        default=30,
+        help="How long a task can sit in 'extracting' state with a stale "
+             "heartbeat before the watchdog auto-retries it. Lambda's hard "
+             "cap is 15 min, so anything past 30 min means the callback "
+             "didn't land. Live setting — takes effect on next cron tick.",
+    )
+    leviathan_watchdog_generating_minutes = fields.Integer(
+        string="Generating Timeout (min)",
+        config_parameter="leviathan.watchdog_generating_minutes",
+        default=120,
+        help="How long a task can sit in 'generating'/'scoring' state with "
+             "a stale heartbeat before the watchdog auto-retries it. With "
+             "the heartbeat ticker pulsing every 60s, you can safely set "
+             "this to 15. Live setting — takes effect on next cron tick.",
+    )
+    leviathan_watchdog_auto_retry_max = fields.Integer(
+        string="Watchdog Auto-Retry Max",
+        config_parameter="leviathan.watchdog_auto_retry_max",
+        default=1,
+        help="How many times the watchdog silently auto-retries a stuck "
+             "job before marking it failed for real. 1 = one free retry "
+             "(recommended). 0 = disable auto-retry (mark failed on first "
+             "stuck hit). Live — takes effect on next cron tick.",
+    )
+
+    # -- Concurrency (RESTART required for changes to take full effect) --
+    leviathan_prd_pool_size = fields.Integer(
+        string="PRD Pool Size (per process)",
+        config_parameter="leviathan.prd_pool_size",
+        default=50,
+        help="Max concurrent PRD-generation threads PER Odoo worker process. "
+             "Real total = this × Odoo workers × pods. Sized against db_maxconn: "
+             "(pool × workers × pods × 2 cursors) + 50 reserved < db_maxconn. "
+             "REQUIRES POD RESTART (env LEVIATHAN_PRD_POOL_SIZE also needs to "
+             "be updated by devops) — ThreadPoolExecutor can't be resized live.",
+    )
+    leviathan_bedrock_max_concurrent = fields.Integer(
+        string="Bedrock Max Concurrent Calls",
+        config_parameter="leviathan.bedrock_max_concurrent",
+        default=5,
+        help="In-process semaphore that caps simultaneous Bedrock API calls. "
+             "Prevents AWS adaptive throttle from queuing calls for 30+ min. "
+             "Size ≈ TPS_quota × avg_call_seconds. Default 5 is safe for "
+             "Bedrock's default 5-10 RPS quota. Raise once devops confirms "
+             "higher quota. REQUIRES POD RESTART (env "
+             "LEVIATHAN_BEDROCK_MAX_CONCURRENT) — semaphore can't be resized.",
+    )
+    leviathan_bedrock_inner_retries = fields.Integer(
+        string="Bedrock Internal Retries",
+        config_parameter="leviathan.bedrock_inner_retries",
+        default=2,
+        help="Max retry attempts inside a single Bedrock call (adaptive "
+             "backoff). With max_llm_attempts=1, worst case is this × 1 = "
+             "this calls per phase. Lower = less load. REQUIRES POD RESTART "
+             "for cached clients (env LEVIATHAN_BEDROCK_INNER_RETRIES).",
+    )
+
+    # -- Webhook (LIVE — read per request) --
+    leviathan_webhook_max_bytes = fields.Integer(
+        string="Webhook Max Body Bytes",
+        config_parameter="leviathan.webhook_max_bytes",
+        default=10485760,  # 10 MB
+        help="Maximum size of the webhook callback body from Lambda. "
+             "Defense against OOM from oversized payloads. Default 10 MB. "
+             "Live — takes effect on next request.",
+    )
+
     def _compute_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = ICP.get_param("leviathan.prd_system_prompt", "")
