@@ -30,8 +30,15 @@
         }
     }
 
+    .skoll-streaming-dot {
+        color: #a6e3a1 !important;
+        font-size: 0.6em;
+        animation: skoll-dot-pulse 1s ease-in-out infinite;
+    }
+
     .skoll-prompt-actions {
         display: flex;
+        align-items: center;
         gap: 8px;
     }
 
@@ -86,6 +93,37 @@
         }
     }
 
+    .skoll-copy-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border: 1px solid #45475a;
+        border-radius: 4px;
+        background: #313244;
+        color: #cdd6f4;
+        font-size: 0.75em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            background: #45475a;
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .fa-check {
+            color: #a6e3a1;
+        }
+
+        i {
+            font-size: 1.1em;
+        }
+    }
+
     .skoll-prompt-source-info {
         padding: 8px 12px;
         font-size: 0.82em;
@@ -106,9 +144,83 @@
             margin-right: 6px;
         }
     }
+
+    .skoll-prompt-viewer-body {
+        .skoll-json-block {
+            border-radius: 0;
+            border: none;
+            border-top: 1px solid #313244;
+            margin: 0;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+    }
+
+    .skoll-prompt-viewer-streaming {
+        .skoll-json-block {
+            min-height: 60px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    }
+
+    .skoll-stream-cursor {
+        color: #89b4fa;
+        animation: skoll-cursor-blink 0.8s step-end infinite;
+        font-weight: bold;
+    }
+
+    .skoll-truncation-banner {
+        padding: 8px 14px;
+        background: rgba(243, 139, 168, 0.12);
+        border-top: 1px solid rgba(243, 139, 168, 0.3);
+        color: #f38ba8;
+        font-size: 0.82em;
+        font-weight: 500;
+
+        i {
+            margin-right: 6px;
+            color: #fab387;
+        }
+    }
+
+    .skoll-json-block {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        padding: 16px 18px;
+        margin: 0;
+        overflow-x: auto;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.85em;
+        line-height: 1.55;
+
+        code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: inherit;
+            font-family: inherit;
+        }
+
+        .json-key { color: #89b4fa; }
+        .json-string { color: #a6e3a1; }
+        .json-number { color: #fab387; }
+        .json-boolean { color: #cba6f7; }
+        .json-null { color: #f38ba8; font-style: italic; }
+    }
 }
 
 @keyframes skoll-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
+}
+
+@keyframes skoll-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes skoll-cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
 }

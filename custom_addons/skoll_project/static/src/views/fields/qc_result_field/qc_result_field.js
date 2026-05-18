@@ -111,19 +111,23 @@ export class SkollQcResultField extends Component {
     static props = { ...standardFieldProps };
 
     setup() {
+        this.notification = useService("notification");
         this.state = useState({
             html: null,
             rawFallback: "",
             improving: false,
+            qcRunning: false,
+            qcStreaming: "",
         });
         this._improveAbort = null;
-
+        this._qcAbort = null;
 
         useRecordObserver((record) => this._parse(record.data[this.props.name]));
         this._parse(this.props.record.data[this.props.name]);
 
         onWillUnmount(() => {
             if (this._improveAbort) this._improveAbort.abort();
+            if (this._qcAbort) this._qcAbort.abort();
         });
     }
 
@@ -168,14 +172,110 @@ export class SkollQcResultField extends Component {
         }
     }
 
+    get hasGoldenTrajectory() {
+        const mode = this.props.record.data.golden_input_mode;
+        if (mode === "manual") {
+            return !!this.props.record.data.golden_trajectory_manual;
+        }
+        return !!this.props.record.data.golden_trajectory;
+    }
+
+    get canRunQc() {
+        return (
+            !this.state.qcRunning &&
+            !this.state.improving &&
+            this.hasGoldenTrajectory
+        );
+    }
+
     get canImprove() {
         const qcStatus = this.props.record.data.golden_qc_status;
         return (
             !this.state.improving &&
+            !this.state.qcRunning &&
             (qcStatus === "fail" || qcStatus === "needs_revision") &&
             !!this.props.record.data.golden_trajectory &&
             !!this.props.record.data.golden_qc_result
         );
+    }
+
+    async onRunQc() {
+        if (!this.canRunQc) return;
+
+        if (this.props.record.isDirty) {
+            await this.props.record.save();
+        }
+
+        const recordId = this.props.record.resId;
+        if (!recordId) return;
+
+        this._qcAbort = new AbortController();
+        this.state.qcRunning = true;
+        this.state.qcStreaming = "";
+
+        let accumulated = "";
+        try {
+            const resp = await fetch("/skoll/golden/qc_stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ record_id: recordId }),
+                credentials: "same-origin",
+                signal: this._qcAbort.signal,
+            });
+
+            if (!resp.ok) {
+                this.notification.add(
+                    _t("QC request failed: HTTP ") + resp.status,
+                    { type: "danger" },
+                );
+                return;
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let sseBuffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split("\n");
+                sseBuffer = lines.pop() || "";
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    try {
+                        const payload = JSON.parse(line.slice(6));
+                        if (payload.type === "delta" && payload.text) {
+                            accumulated += payload.text;
+                            this.state.qcStreaming = accumulated;
+                        } else if (payload.type === "error") {
+                            this.notification.add(
+                                _t("QC error: ") + payload.message,
+                                { type: "danger" },
+                            );
+                        }
+                    } catch (_e) {}
+                }
+            }
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                this.notification.add(
+                    _t("QC stream failed: ") + (err.message || err),
+                    { type: "danger" },
+                );
+            }
+        } finally {
+            this.state.qcRunning = false;
+            this.state.qcStreaming = "";
+            this._qcAbort = null;
+            await this.props.record.load();
+        }
+    }
+
+    onStopQc() {
+        if (this._qcAbort) {
+            this._qcAbort.abort();
+        }
     }
 
     async onImprove() {

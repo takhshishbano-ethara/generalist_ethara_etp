@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import threading
 import time
-import uuid
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -43,7 +43,7 @@ def _get_golden_prompt():
     global _golden_prompt_cache
     if _golden_prompt_cache is not None:
         return _golden_prompt_cache
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return ""
     path = os.path.join(mod_path, "golden_prompt.md")
@@ -59,7 +59,7 @@ def _get_taskdesc_prompt():
     global _taskdesc_prompt_cache
     if _taskdesc_prompt_cache is not None:
         return _taskdesc_prompt_cache
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return ""
     path = os.path.join(mod_path, "task_description_prompt.md")
@@ -89,24 +89,24 @@ def _run_golden_generation_background(db_name, task_id, notify_partner_id):
             agents_md = persona.agents_md or "" if persona else ""
 
             ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
+            inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+            region = _region_from_arn(inference_arn)
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = dotenv.get("SKOLL_BEDROCK_API_KEY", "").strip()
 
         if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+            raise RuntimeError("SKOLL_BEDROCK_API_KEY not set in .env")
         if not inference_arn:
             raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Skoll"
+                "Sonnet ARN not configured in Settings > Skoll"
             )
 
         system_prompt = _get_golden_prompt()
 
         delivery_schema = ""
         schema_path = os.path.join(
-            get_module_path("skoll") or "", "Delivery_Schema.json"
+            get_module_path("skoll_project") or "", "Delivery_Schema.json"
         )
         if os.path.isfile(schema_path):
             with open(schema_path, "r") as f:
@@ -257,17 +257,17 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
             soul_md = persona.soul_md or "" if persona else ""
 
             ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
+            inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+            region = _region_from_arn(inference_arn)
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = dotenv.get("SKOLL_BEDROCK_API_KEY", "").strip()
 
         if not api_key:
-            raise RuntimeError("AWS_BEARER_TOKEN_BEDROCK not set in .env")
+            raise RuntimeError("SKOLL_BEDROCK_API_KEY not set in .env")
         if not inference_arn:
             raise RuntimeError(
-                "Bedrock Inference ARN not configured in Settings > Skoll"
+                "Sonnet ARN not configured in Settings > Skoll"
             )
 
         system_prompt = _get_taskdesc_prompt()
@@ -399,11 +399,11 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
     """
     try:
         ICP = env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
+        inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+        region = _region_from_arn(inference_arn)
 
         dotenv = _load_dotenv()
-        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        api_key = dotenv.get("SKOLL_BEDROCK_API_KEY", "").strip()
 
         if not api_key or not inference_arn:
             _logger.warning("generate_task_description_sync: missing credentials")
@@ -626,6 +626,13 @@ def _load_dotenv():
     return env
 
 
+def _region_from_arn(arn):
+    parts = (arn or "").split(":")
+    if len(parts) >= 4 and parts[3]:
+        return parts[3]
+    return "ap-south-1"
+
+
 _DEFAULT_LITELLM_CONFIG = """\
 model_list:
   - model_name: claude-opus-4.7
@@ -702,7 +709,7 @@ def _compose_cmd():
 
 
 def _module_sandbox_dir():
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return None
     return os.path.join(mod_path, "sandbox_docker")
@@ -1315,17 +1322,16 @@ class Skoll(models.Model):
                 break
 
         meta_info = {
+            "cluster": ", ".join(self.cluster_ids.mapped("name")) if self.cluster_ids else "",
             "task_type": ", ".join(self.task_type_ids.mapped("name")) if self.task_type_ids else "",
             "task_description": self.task_id or "",
             "task_completion_status": "success",
             "system_prompt": self.system_prompt or "",
             "platform": "macOS",
-            "persona": self.persona_id.name if self.persona_id else "",
-            "model": model_name,
-            "life_domain": ", ".join(self.life_domain_ids.mapped("name")) if self.life_domain_ids else "",
-            "cluster": ", ".join(self.cluster_ids.mapped("name")) if self.cluster_ids else "",
-            "pattern_taxonomy": ", ".join(self.pattern_taxonomy_ids.mapped("name")) if self.pattern_taxonomy_ids else "",
-            "conv_id": str(uuid.uuid4()),
+            "agents": {
+                "root": "",
+                "spawned": [],
+            },
         }
 
         messages = self._trajectory_from_ws()

@@ -14,7 +14,7 @@ from odoo.http import request
 from odoo.modules.module import get_module_path
 from odoo.modules.registry import Registry
 
-from ..models.skoll import _load_dotenv
+from ..models.skoll import _load_dotenv, _region_from_arn
 
 _logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ _golden_trajectory_qc_prompt_cache = {"text": None, "mtime": 0}
 
 
 def _get_system_prompt():
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return ""
 
@@ -50,7 +50,7 @@ def _get_system_prompt():
 
 
 def _get_trajectory_qc_prompt():
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return ""
 
@@ -77,7 +77,7 @@ def _get_golden_trajectory_qc_prompt():
     if not base:
         return ""
 
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return base
 
@@ -404,16 +404,16 @@ class LlmAssistQc(http.Controller):
             return {"error": "prompt is required"}
 
         env = _load_dotenv()
-        api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        api_key = env.get("SKOLL_BEDROCK_API_KEY", "").strip()
         if not api_key:
-            return {"error": "AWS_BEARER_TOKEN_BEDROCK not set in .env"}
+            return {"error": "SKOLL_BEDROCK_API_KEY not set in .env"}
 
         ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-        region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
+        inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+        region = _region_from_arn(inference_arn)
 
         if not inference_arn:
-            return {"error": "Bedrock Inference ARN not configured in Settings > Skoll"}
+            return {"error": "Sonnet ARN not configured in Settings > Skoll"}
 
         if not system_prompt:
             system_prompt = _get_system_prompt()
@@ -680,19 +680,19 @@ class LlmAssistQc(http.Controller):
             temperature = float(jdata.get("temperature", 0.7))
 
             env = _load_dotenv()
-            api_key = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = env.get("SKOLL_BEDROCK_API_KEY", "").strip()
             if not api_key:
                 return request.make_json_response(
                     {
-                        "error": "AWS_BEARER_TOKEN_BEDROCK not set in .env",
+                        "error": "SKOLL_BEDROCK_API_KEY not set in .env",
                         "status": 500,
                     },
                     status=500,
                 )
 
             ICP = request.env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-            region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
+            inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+            region = _region_from_arn(inference_arn)
 
             if not inference_arn:
                 return request.make_json_response(

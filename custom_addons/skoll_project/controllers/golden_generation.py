@@ -27,6 +27,13 @@ SONNET_MAX_TOKENS = 64000
 KIMI_MAX_TOKENS = 16384
 
 
+def _region_from_arn(arn):
+    parts = (arn or "").split(":")
+    if len(parts) >= 4 and parts[3]:
+        return parts[3]
+    return "ap-south-1"
+
+
 def _load_system_prompt():
     path = os.path.join(PROMPTS_DIR, "traj_gen.md")
     try:
@@ -82,10 +89,11 @@ def _build_user_message(task, claude_trajectory=""):
     parts = []
 
     if task:
-        parts.append("## TASK INFORMATION")
+        # Section 1: Task metadata (mirrors CSV fields from traj_gen.md INPUTS)
+        parts.append("## TASK METADATA (from Task Allocation CSV)\n")
         parts.append("- Task ID: %s" % (task.task_id or ""))
         if task.persona_id:
-            parts.append("- Persona: %s" % task.persona_id.name)
+            parts.append("- Persona Name: %s" % task.persona_id.name)
         if task.life_domain_ids:
             parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
         if task.cluster_ids:
@@ -94,23 +102,23 @@ def _build_user_message(task, claude_trajectory=""):
             parts.append("- Task Type: %s" % ", ".join(task.task_type_ids.mapped("name")))
         if task.pattern_taxonomy_ids:
             parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
-        parts.append("")
 
         seed = (task.seed_prompt or "").strip()
         if seed:
-            parts.append("## THE USER'S SINGLE COMPLEX PROMPT")
-            parts.append("(This is the ONLY user message. The orchestrator must decompose it into parallel sub-agent tasks.)\n")
-            parts.append(seed)
-            parts.append("")
+            parts.append("- Seed Prompt: %s" % seed)
+        parts.append("")
 
+        # Section 2: Spawned agents
         spawned_agents = _parse_spawned_agents(task.spawned_agents)
         if spawned_agents:
-            parts.append("## SPAWNED AGENTS (the orchestrator MUST spawn exactly these)")
+            parts.append("## SPAWNED AGENTS (the orchestrator MUST spawn exactly these)\n")
             for i, agent in enumerate(spawned_agents, 1):
                 parts.append("  %d. %s: %s" % (i, agent.get("name", "agent_%d" % i), agent.get("role", "")))
             parts.append("")
 
-        parts.append("## PERSONA DATA\n")
+        # Section 3: Persona files (SOUL.md, MEMORY.md, AGENTS.md — canonical reference)
+        parts.append("## PERSONA FILES\n")
+        parts.append("These are the canonical persona files. MEMORY.md is the SINGLE SOURCE OF TRUTH for all facts.\n")
         if task.agent_md and task.agent_md.strip():
             parts.append("### AGENTS.md\n%s\n" % task.agent_md.strip())
         if task.soul_md and task.soul_md.strip():
@@ -118,35 +126,21 @@ def _build_user_message(task, claude_trajectory=""):
         if task.memory_md and task.memory_md.strip():
             parts.append("### MEMORY.md\n%s\n" % task.memory_md.strip())
 
+        # Section 4: Claude trajectory (UNTRUSTED reference input)
         traj_text = (claude_trajectory or "").strip()
         if traj_text:
-            parts.append("## REFERENCE TRAJECTORY (Claude 4.7)\n")
-            parts.append("Use this previously generated Claude 4.7 trajectory as the primary reference. ")
-            parts.append("Analyze its structure, tool calls, agent spawns, and conversation flow. ")
-            parts.append("Generate the golden trajectory based on this reference, improving quality ")
-            parts.append("and fixing any issues while preserving the overall task execution approach.\n")
+            parts.append("## CLAUDE TRAJECTORY (Reference Input — UNTRUSTED)\n")
+            parts.append("This is the Claude 4.7 trajectory for analysis and refinement. ")
+            parts.append("It is NOT ground truth. Verify every fact against MEMORY.md. ")
+            parts.append("Analyze tool calls, agent spawns, orchestration, and fix all errors.\n")
             parts.append("```json")
             parts.append(traj_text)
             parts.append("```")
             parts.append("")
     else:
-        parts.append("## THE USER'S SINGLE COMPLEX PROMPT\n")
-        parts.append("Generate a diverse, high-quality golden trajectory.")
+        parts.append("## TASK METADATA\n")
+        parts.append("No task data available. Generate a diverse, high-quality golden trajectory.")
         parts.append("")
-
-    num_agents = len(_parse_spawned_agents(task.spawned_agents)) if task and task.spawned_agents else 2
-    parts.append("## GENERATION INSTRUCTIONS\n")
-    parts.append("Generate a complete multi-agent golden trajectory following ALL the schema rules from the system prompt.")
-    parts.append("")
-    parts.append("IMPORTANT CONSTRAINTS:")
-    parts.append("- Each sub-agent should make at least 3-5 tool calls to demonstrate real work")
-    parts.append("- Tool results must be plausible and realistic")
-    if task and task.spawned_agents:
-        parts.append("- The orchestrator MUST spawn exactly %d agents matching the metadata above" % num_agents)
-    parts.append("- The sessions_spawn task descriptions must be detailed (3+ paragraphs)")
-    parts.append("- Set system_prompt to empty string \"\"")
-    parts.append("- Set platform to \"macOS\"")
-    parts.append("- Output ONLY the raw JSON object. No markdown fences, no explanation, no commentary.")
 
     return "\n".join(parts)
 
@@ -154,9 +148,10 @@ def _build_user_message(task, claude_trajectory=""):
 def _build_qc_message(task, content):
     parts = ["## Trajectory Under Review\n```json", content.strip(), "```\n"]
 
-    parts.append("## Task Input Data\n")
+    parts.append("## Task Metadata (from Task Allocation CSV)\n")
+    parts.append("- Task ID: %s" % (task.task_id or ""))
     if task.persona_id:
-        parts.append("- Persona: %s" % task.persona_id.name)
+        parts.append("- Persona Name: %s" % task.persona_id.name)
     if task.life_domain_ids:
         parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
     if task.cluster_ids:
@@ -166,16 +161,25 @@ def _build_qc_message(task, content):
     if task.pattern_taxonomy_ids:
         parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
+    seed = (task.seed_prompt or "").strip()
+    if seed:
+        parts.append("- Seed Prompt: %s" % seed)
+    parts.append("")
+
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
-        parts.append("\n### Expected Spawned Agents")
+        parts.append("### Expected Spawned Agents\n")
         for i, agent in enumerate(spawned_agents, 1):
             parts.append("  %d. %s: %s" % (i, agent.get("name", ""), agent.get("role", "")))
+        parts.append("")
 
-    if task.seed_prompt:
-        parts.append("\n### Seed Prompt\n%s" % task.seed_prompt.strip())
-    if task.soul_md:
-        parts.append("\n### Soul MD\n%s" % task.soul_md.strip())
+    parts.append("## Persona Files (Canonical Reference for §9, §12, §15 checks)\n")
+    if task.agent_md and task.agent_md.strip():
+        parts.append("### AGENTS.md\n%s\n" % task.agent_md.strip())
+    if task.soul_md and task.soul_md.strip():
+        parts.append("### SOUL.md\n%s\n" % task.soul_md.strip())
+    if task.memory_md and task.memory_md.strip():
+        parts.append("### MEMORY.md\n%s\n" % task.memory_md.strip())
 
     return "\n".join(parts)
 
@@ -192,9 +196,10 @@ def _build_improve_message(task, trajectory, qc_result, structural_result):
         parts.append(structural_result.strip())
         parts.append("```\n")
 
-    parts.append("## Task Input Data\n")
+    parts.append("## Task Metadata (from Task Allocation CSV)\n")
+    parts.append("- Task ID: %s" % (task.task_id or ""))
     if task.persona_id:
-        parts.append("- Persona: %s" % task.persona_id.name)
+        parts.append("- Persona Name: %s" % task.persona_id.name)
     if task.life_domain_ids:
         parts.append("- Life Domain: %s" % ", ".join(task.life_domain_ids.mapped("name")))
     if task.cluster_ids:
@@ -204,18 +209,34 @@ def _build_improve_message(task, trajectory, qc_result, structural_result):
     if task.pattern_taxonomy_ids:
         parts.append("- Pattern Taxonomy: %s" % ", ".join(task.pattern_taxonomy_ids.mapped("name")))
 
+    seed = (task.seed_prompt or "").strip()
+    if seed:
+        parts.append("- Seed Prompt: %s" % seed)
+    parts.append("")
+
     spawned_agents = _parse_spawned_agents(task.spawned_agents)
     if spawned_agents:
-        parts.append("\n### Expected Spawned Agents")
+        parts.append("### Expected Spawned Agents\n")
         for i, agent in enumerate(spawned_agents, 1):
             parts.append("  %d. %s: %s" % (i, agent.get("name", ""), agent.get("role", "")))
+        parts.append("")
 
-    if task.seed_prompt:
-        parts.append("\n### Seed Prompt\n%s" % task.seed_prompt.strip())
-    if task.soul_md:
-        parts.append("\n### Soul MD\n%s" % task.soul_md.strip())
+    parts.append("## Persona Files (for fact verification during repair)\n")
+    if task.agent_md and task.agent_md.strip():
+        parts.append("### AGENTS.md\n%s\n" % task.agent_md.strip())
+    if task.soul_md and task.soul_md.strip():
+        parts.append("### SOUL.md\n%s\n" % task.soul_md.strip())
+    if task.memory_md and task.memory_md.strip():
+        parts.append("### MEMORY.md\n%s\n" % task.memory_md.strip())
 
-    parts.append("\n## Instructions\nFix the issues identified in the QC feedback. Return the complete improved trajectory JSON.")
+    claude_traj = (task.claude_trajectory or "").strip()
+    if claude_traj:
+        parts.append("## Claude Reference Trajectory\n")
+        parts.append("Use this as reference for verifying tool calls and persona facts.\n")
+        parts.append("```json")
+        parts.append(claude_traj)
+        parts.append("```")
+        parts.append("")
 
     return "\n".join(parts)
 
@@ -365,6 +386,7 @@ def _stream_bedrock_sse(
     max_tokens=SONNET_MAX_TOKENS,
     temperature=0.7,
     timeout=600.0,
+    thinking_budget=0,
 ):
     url = BEDROCK_CONVERSE_STREAM_URL.format(
         region=region,
@@ -374,15 +396,22 @@ def _stream_bedrock_sse(
         "Content-Type": "application/json",
         "Authorization": "Bearer %s" % api_key,
     }
+    inference_config = {"maxTokens": max_tokens}
+    if thinking_budget > 0:
+        inference_config["temperature"] = 1
+    else:
+        inference_config["temperature"] = temperature
+
     payload = {
         "messages": [
             {"role": "user", "content": [{"text": user_message}]},
         ],
-        "inferenceConfig": {
-            "maxTokens": max_tokens,
-            "temperature": temperature,
-        },
+        "inferenceConfig": inference_config,
     }
+    if thinking_budget > 0:
+        payload["additionalModelRequestFields"] = {
+            "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
+        }
     if system_prompt:
         payload["system"] = [{"text": system_prompt}]
 
@@ -471,6 +500,14 @@ def _update_qc_result(db_name, task_db_id, accumulated, status):
                         cleaned = cleaned[first_nl + 1:]
                     if cleaned.endswith("```"):
                         cleaned = cleaned[:-3].rstrip()
+                verdict_map = {
+                    "accept": "pass",
+                    "conditional": "needs_revision",
+                    "reject": "fail",
+                    "pass": "pass",
+                    "fail": "fail",
+                    "needs_revision": "needs_revision",
+                }
                 for attempt in (cleaned, None):
                     if attempt is None:
                         first_b = cleaned.find("{")
@@ -481,8 +518,8 @@ def _update_qc_result(db_name, task_db_id, accumulated, status):
                     try:
                         parsed = json.loads(attempt)
                         v = (parsed.get("verdict") or "").lower()
-                        if v in ("pass", "fail", "needs_revision"):
-                            verdict = v
+                        if v in verdict_map:
+                            verdict = verdict_map[v]
                             break
                     except (json.JSONDecodeError, AttributeError):
                         continue
@@ -523,8 +560,8 @@ class SkollGoldenGenerationController(http.Controller):
     )
     def golden_generate_stream(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = ICP.get_param("skoll.bedrock_inference_arn", "")
-        region = ICP.get_param("skoll.bedrock_region", "ap-south-1")
+        inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+        region = _region_from_arn(inference_arn)
         api_key = os.environ.get("SKOLL_BEDROCK_API_KEY", "")
 
         try:
@@ -540,7 +577,7 @@ class SkollGoldenGenerationController(http.Controller):
 
         if not inference_arn or not api_key:
             return WerkzeugResponse(
-                _sse_line({"type": "error", "message": "Bedrock not configured. Set Inference ARN in settings and SKOLL_BEDROCK_API_KEY env var."}),
+                _sse_line({"type": "error", "message": "Sonnet ARN not configured in Settings or SKOLL_BEDROCK_API_KEY not in .env."}),
                 mimetype="text/event-stream",
                 headers=sse_headers,
             )
@@ -577,7 +614,7 @@ class SkollGoldenGenerationController(http.Controller):
                     system_prompt=system_prompt,
                     user_message=user_message,
                     max_tokens=max_tokens,
-                    temperature=temperature,
+                    thinking_budget=16000,
                 ):
                     yield chunk
                     try:
@@ -613,8 +650,8 @@ class SkollGoldenGenerationController(http.Controller):
     )
     def golden_qc_stream(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
-        qc_arn = ICP.get_param("skoll.qc_inference_arn", "")
-        region = ICP.get_param("skoll.bedrock_region", "ap-south-1")
+        qc_arn = (ICP.get_param("skoll.kimi_arn") or "").strip()
+        region = _region_from_arn(qc_arn)
         api_key = os.environ.get("SKOLL_BEDROCK_API_KEY", "")
 
         try:
@@ -628,7 +665,7 @@ class SkollGoldenGenerationController(http.Controller):
 
         if not qc_arn or not api_key:
             return WerkzeugResponse(
-                _sse_line({"type": "error", "message": "QC not configured. Set QC ARN in settings and SKOLL_BEDROCK_API_KEY env var."}),
+                _sse_line({"type": "error", "message": "Kimi ARN not configured in Settings or SKOLL_BEDROCK_API_KEY not in .env."}),
                 mimetype="text/event-stream", headers=sse_headers,
             )
 
@@ -654,7 +691,7 @@ class SkollGoldenGenerationController(http.Controller):
 
         task.write({"golden_qc_status": "running"})
 
-        from odoo.addons.skoll.models.golden_trajectory_validator import validate_trajectory, format_result
+        from odoo.addons.skoll_project.models.golden_trajectory_validator import validate_trajectory, format_result
         structural = validate_trajectory(content, task_data={
             "spawned_agents": task.spawned_agents or "",
         })
@@ -726,8 +763,8 @@ class SkollGoldenGenerationController(http.Controller):
     )
     def golden_improve_stream(self, **kw):
         ICP = request.env["ir.config_parameter"].sudo()
-        inference_arn = ICP.get_param("skoll.bedrock_inference_arn", "")
-        region = ICP.get_param("skoll.bedrock_region", "ap-south-1")
+        inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+        region = _region_from_arn(inference_arn)
         api_key = os.environ.get("SKOLL_BEDROCK_API_KEY", "")
 
         try:
@@ -790,7 +827,7 @@ class SkollGoldenGenerationController(http.Controller):
                     system_prompt=improve_prompt,
                     user_message=user_msg,
                     max_tokens=SONNET_MAX_TOKENS,
-                    temperature=0.2,
+                    thinking_budget=16000,
                 ):
                     yield chunk
                     try:
@@ -824,9 +861,41 @@ class SkollGoldenGenerationController(http.Controller):
             direct_passthrough=True,
         )
 
+    @http.route("/skoll/golden/validate", type="json", auth="user", methods=["POST"])
+    def golden_validate(self, record_id=None, **kw):
+        """Run deterministic schema validation on the golden trajectory."""
+        from odoo.addons.skoll_project.models.golden_trajectory_validator import (
+            validate_trajectory,
+            format_result,
+        )
+
+        if not record_id:
+            return {"status": "error", "message": "record_id is required."}
+
+        task = request.env["skoll.skoll"].sudo().browse(int(record_id))
+        if not task.exists():
+            return {"status": "error", "message": "Task not found."}
+
+        content = _get_golden_content(task)
+        if not content:
+            return {"status": "error", "message": "No trajectory content to validate."}
+
+        result = validate_trajectory(content, task_data={
+            "spawned_agents": task.spawned_agents or "",
+        })
+        result_text = format_result(result)
+        task.write({"golden_structural_result": result_text})
+
+        return {
+            "status": "success",
+            "valid": result["valid"],
+            "error_count": len(result.get("errors", [])),
+            "warning_count": len(result.get("warnings", [])),
+        }
+
     @http.route("/skoll/golden/spawn_tree", type="json", auth="user", methods=["POST"])
     def golden_spawn_tree(self, record_id=None, **kw):
-        from odoo.addons.skoll.models.spawn_tree_util import build_spawn_tree
+        from odoo.addons.skoll_project.models.spawn_tree_util import build_spawn_tree
 
         if not record_id:
             return {"status": "error", "message": "record_id is required."}

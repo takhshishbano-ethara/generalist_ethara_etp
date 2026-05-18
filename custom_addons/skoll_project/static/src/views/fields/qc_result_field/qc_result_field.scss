@@ -239,6 +239,90 @@
         }
     }
 
+    .skoll-qc-action-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .skoll-qc-run-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 16px;
+        border: none;
+        border-radius: 5px;
+        background: linear-gradient(135deg, #89b4fa 0%, #74c7ec 100%);
+        color: #1e1e2e;
+        font-size: 0.8em;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            box-shadow: 0 0 14px rgba(137, 180, 250, 0.4);
+            transform: translateY(-1px);
+        }
+
+        &:active {
+            transform: translateY(0);
+        }
+
+        i {
+            font-size: 1.15em;
+        }
+    }
+
+    .skoll-qc-stop-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border: none;
+        border-radius: 5px;
+        background: #f38ba8;
+        color: #1e1e2e;
+        font-size: 0.8em;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            box-shadow: 0 0 10px rgba(243, 139, 168, 0.4);
+        }
+    }
+
+    .skoll-qc-running {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8em;
+        font-weight: 700;
+        color: #89b4fa;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .skoll-qc-streaming {
+        background: #1e1e2e;
+        color: #a6adc8;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        padding: 16px 18px;
+        font-family: "SFMono-Regular", "Consolas", monospace;
+        font-size: 0.82em;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 40vh;
+        overflow-y: auto;
+        margin-bottom: 12px;
+    }
+
     .skoll-qc-empty {
         padding: 24px;
         text-align: center;

@@ -645,12 +645,16 @@ class SkollSandbox(models.Model):
             model_name = default.replace("litellm/", "")
 
         meta_info = {
+            "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
             "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
-            "conv_id": str(uuid.uuid4()),
+            "agents": {
+                "root": "",
+                "spawned": [],
+            },
         }
 
         messages = []
@@ -896,17 +900,16 @@ class SkollSandbox(models.Model):
                 model_name = default.replace("litellm/", "")
 
         meta_info = {
+            "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
             "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
             "task_description": task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
-            "persona": task.persona_id.name if task.persona_id else "",
-            "model": model_name,
-            "life_domain": ", ".join(task.life_domain_ids.mapped("name")) if task.life_domain_ids else "",
-            "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
-            "pattern_taxonomy": ", ".join(task.pattern_taxonomy_ids.mapped("name")) if task.pattern_taxonomy_ids else "",
-            "conv_id": str(uuid.uuid4()),
+            "agents": {
+                "root": "",
+                "spawned": [],
+            },
         }
 
         messages = self._trajectory_from_ws()
@@ -965,6 +968,12 @@ class SkollSandbox(models.Model):
         if spawn_tree:
             self._build_session_key_map(spawn_tree, session_key_map)
         meta_info["session_key_map"] = session_key_map
+
+        spawned_keys = [k for k, v in session_key_map.items() if v != "primary"]
+        meta_info["agents"] = {
+            "root": main_key,
+            "spawned": spawned_keys,
+        }
 
         return {"meta_info": meta_info, "messages": messages}
 
@@ -2233,7 +2242,7 @@ class SkollSandbox(models.Model):
         source_dir = _module_sandbox_dir()
         if not source_dir or not os.path.isdir(source_dir):
             raise UserError(
-                "Bundled sandbox_docker directory not found in skoll module."
+                "Bundled sandbox_docker directory not found in skoll_project module."
             )
 
         workdir = os.path.join(

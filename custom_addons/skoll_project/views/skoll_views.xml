@@ -143,9 +143,7 @@
               <!-- AI mode: generate golden from Claude 4.7 trajectory -->
               <div colspan="2" invisible="golden_input_mode != 'ai'">
                 <field name="golden_prompt" widget="skoll_prompt" nolabel="1"/>
-                <separator string="Generated Golden Trajectory"/>
-                <field name="golden_trajectory" widget="skoll_json" nolabel="1"
-                       placeholder="Golden Trajectory (AI)" readonly="1" force_save="1"/>
+                <field name="golden_trajectory" invisible="1" force_save="1"/>
               </div>
 
               <!-- Manual mode: text input for pasting -->
@@ -176,7 +174,8 @@
                 <page string="Structural Validation" invisible="not golden_structural_result">
                   <field name="golden_structural_result" widget="text" nolabel="1" readonly="1"/>
                 </page>
-                <page string="LLM QC Review" invisible="not golden_qc_result">
+                <page string="LLM QC Review"
+                      invisible="not golden_trajectory and golden_input_mode == 'ai' or not golden_trajectory_manual and golden_input_mode == 'manual'">
                   <field name="golden_qc_result" widget="skoll_qc_result" nolabel="1"
                          force_save="1"/>
                 </page>

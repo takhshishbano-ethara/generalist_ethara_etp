@@ -12,7 +12,7 @@ from odoo.http import request
 from odoo.modules.module import get_module_path
 from odoo.modules.registry import Registry
 
-from ..models.skoll import _load_dotenv, _is_degenerate_output
+from ..models.skoll import _load_dotenv, _is_degenerate_output, _region_from_arn
 from .llm_assisst_qc import _call_bedrock_converse, _parse_json_response
 
 _logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ _hint_gen_prompt_cache = {"text": None, "mtime": 0}
 
 
 def _get_prompt_file(filename, cache):
-    mod_path = get_module_path("skoll")
+    mod_path = get_module_path("skoll_project")
     if not mod_path:
         return ""
 
@@ -308,13 +308,11 @@ def _auto_hint_eval_bg(
                     conversation_str = conversation_str[-30000:]
 
                 ICP = env["ir.config_parameter"].sudo()
-                inference_arn = (ICP.get_param("skoll.bedrock_inference_arn") or "").strip()
-                region = (ICP.get_param("skoll.bedrock_region") or "ap-south-1").strip()
-
-            # cursor closed here — all DB reads are done
+                inference_arn = (ICP.get_param("skoll.sonnet_arn") or "").strip()
+                region = _region_from_arn(inference_arn)
 
             dotenv = _load_dotenv()
-            api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+            api_key = dotenv.get("SKOLL_BEDROCK_API_KEY", "").strip()
 
             if not api_key or not inference_arn:
                 _logger.warning("auto_hint bg: missing Bedrock credentials")
