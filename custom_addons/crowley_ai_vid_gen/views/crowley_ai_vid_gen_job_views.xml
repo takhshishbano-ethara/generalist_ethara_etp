@@ -131,6 +131,10 @@
                     <button name="action_retry" type="object" string="Retry (full re-generation)"
                             invisible="state not in ('failed','cancelled')"
                             confirm="This will re-submit the job to OpenRouter from scratch, incurring a new generation cost (~$3 for a 5s 1080p clip). Use 'Resume Download' instead if the original OpenRouter job already completed but only the S3 upload failed."/>
+                    <button name="action_refine" type="object" string="Refine (next attempt)"
+                            class="btn-primary"
+                            invisible="state != 'ready' or attempt_count &gt;= 3"
+                            help="Submit a new attempt (#2 or #3) with the current prompt. Edit the prompt above first to fix what you didn't like in the previous result."/>
                     <button name="action_refresh_url" type="object" string="Refresh Play URL"
                             invisible="state != 'ready'"/>
                     <button name="action_download" type="object" string="Download MP4"
@@ -171,6 +175,26 @@
                     </group>
 
                     <notebook>
+                        <page string="Attempts" name="attempts">
+                            <field name="attempt_count" invisible="1"/>
+                            <field name="attempt_ids" readonly="1">
+                                <list string="Attempts" decoration-success="state == 'ready'"
+                                      decoration-danger="state == 'failed'"
+                                      decoration-info="state in ('queued','submitting','polling','downloading')"
+                                      decoration-muted="state == 'cancelled'">
+                                    <field name="attempt_number"/>
+                                    <field name="state" widget="badge"
+                                           decoration-success="state == 'ready'"
+                                           decoration-danger="state == 'failed'"
+                                           decoration-info="state in ('queued','submitting','polling','downloading')"
+                                           decoration-muted="state == 'cancelled'"/>
+                                    <field name="prompt"/>
+                                    <field name="cost_usd" widget="monetary" sum="Total"/>
+                                    <field name="file_size" widget="float_file_size"/>
+                                    <field name="completed_at"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Job Metadata" name="metadata">
                             <group>
                                 <group string="OpenRouter">

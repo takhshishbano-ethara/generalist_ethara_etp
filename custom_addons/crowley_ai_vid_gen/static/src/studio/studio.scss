@@ -718,6 +718,126 @@ $crowley-tx:   120ms ease;
         text-overflow: ellipsis;
     }
 
+    // ---------- refine button (secondary action — replaces GENERATE
+    //            once a job exists, neon-green text on a dark border
+    //            instead of the inverse fill).
+    .o_crowley_studio__refine_btn {
+        height: 3.25rem;
+        background: $crowley-bg-panel;
+        color: $crowley-accent;
+        border: 1px solid $crowley-accent;
+        font-family: $crowley-mono;
+        font-weight: 700;
+        font-size: 0.9375rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.625rem;
+        transition: background $crowley-tx, color $crowley-tx, filter $crowley-tx;
+        box-shadow: inset 0 0 0 0 rgba($crowley-accent, 0.2);
+
+        &:hover {
+            background: rgba($crowley-accent, 0.08);
+            box-shadow: 0 0 0.75rem rgba($crowley-accent, 0.25);
+        }
+        &:active { filter: brightness(0.95); }
+        &--disabled {
+            color: $crowley-text-dim;
+            border-color: $crowley-border-mid;
+            cursor: not-allowed;
+            background: transparent;
+            &:hover { background: transparent; box-shadow: none; }
+        }
+    }
+
+    // ---------- attempt switcher (3-slot strip below canvas, above reel)
+    .o_crowley_studio__attempt_switcher {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.875rem;
+        border: 1px solid $crowley-border-low;
+        background: $crowley-bg-panel;
+    }
+    .o_crowley_studio__attempt_switcher_label {
+        font-size: 0.625rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: $crowley-text-muted;
+    }
+    .o_crowley_studio__attempt_switcher_chips {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+    }
+    .o_crowley_studio__attempt_switcher_caption {
+        font-size: 0.6875rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+    }
+    .o_crowley_studio__attempt_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        height: 2.375rem;
+        background: transparent;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-muted;
+        font-family: $crowley-mono;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: border-color $crowley-tx, color $crowley-tx, background $crowley-tx;
+
+        &:hover:not([disabled]) {
+            border-color: $crowley-border-hi;
+            color: $crowley-text-primary;
+        }
+        &--active {
+            border: 2px solid $crowley-accent;
+            color: $crowley-accent;
+            font-weight: 700;
+            box-shadow: 0 0 0.5rem rgba($crowley-accent, 0.25);
+        }
+        &--empty {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-style: dashed;
+        }
+        &[disabled] { cursor: not-allowed; }
+    }
+    .o_crowley_studio__attempt_chip_dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: $crowley-text-dim;
+        flex-shrink: 0;
+
+        .o_crowley_studio__attempt_chip--ready    & { background: $crowley-success; box-shadow: 0 0 0.375rem rgba($crowley-success, 0.7); }
+        .o_crowley_studio__attempt_chip--polling  & { background: #f5b942; box-shadow: 0 0 0.375rem rgba(245, 185, 66, 0.7); }
+        .o_crowley_studio__attempt_chip--failed   & { background: $crowley-danger; box-shadow: 0 0 0.375rem rgba($crowley-danger, 0.7); }
+        .o_crowley_studio__attempt_chip--cancelled & { background: $crowley-text-dim; }
+        .o_crowley_studio__attempt_chip--empty    & { background: $crowley-border-mid; }
+    }
+    .o_crowley_studio__attempt_chip_label {
+        flex: 1;
+        text-align: left;
+    }
+    .o_crowley_studio__attempt_chip_state {
+        font-size: 0.5625rem;
+        letter-spacing: 0.08em;
+        color: $crowley-text-dim;
+        .o_crowley_studio__attempt_chip--active & { color: $crowley-accent; }
+    }
+
     // ============================================================ responsive
     @media (max-width: 900px) {
         .o_crow_body { flex-direction: column-reverse; }

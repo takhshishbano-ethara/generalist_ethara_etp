@@ -239,6 +239,56 @@ export class CrowleyStudio extends Component {
             : "o_crow_reel_item";
     }
 
+    attemptChipClass(slot) {
+        const att = this._attemptForSlot(slot);
+        const classes = ["o_crowley_studio__attempt_chip"];
+        if (!att) {
+            classes.push("o_crowley_studio__attempt_chip--empty");
+            return classes.join(" ");
+        }
+        const isActive =
+            this.state.currentAttemptId === att.id ||
+            (this.state.currentAttemptId == null && this._latestAttempt()?.id === att.id);
+        if (isActive) classes.push("o_crowley_studio__attempt_chip--active");
+        const stateMod = {
+            ready: "ready",
+            failed: "failed",
+            cancelled: "cancelled",
+        }[att.state] || (WORKING_STATES.has(att.state) ? "polling" : "polling");
+        classes.push(`o_crowley_studio__attempt_chip--${stateMod}`);
+        return classes.join(" ");
+    }
+    attemptChipTooltip(slot) {
+        const att = this._attemptForSlot(slot);
+        if (!att) return `Attempt ${slot} — not yet generated`;
+        const head = `Attempt ${att.attempt_number} · ${att.state.toUpperCase()}`;
+        const p = (att.prompt || "").trim();
+        const trunc = p.length > 120 ? p.slice(0, 117) + "\u2026" : p;
+        const cost = att.cost_usd ? ` · $${Number(att.cost_usd).toFixed(2)}` : "";
+        return `${head}${cost}\n${trunc}`;
+    }
+    _attemptForSlot(slot) {
+        return (this.state.currentAttempts || []).find(
+            (a) => a.attempt_number === slot
+        );
+    }
+    _latestAttempt() {
+        const arr = this.state.currentAttempts || [];
+        if (!arr.length) return null;
+        return arr.reduce(
+            (acc, a) => (acc == null || a.attempt_number > acc.attempt_number ? a : acc),
+            null,
+        );
+    }
+    _latestReadyAttempt() {
+        const arr = (this.state.currentAttempts || []).filter((a) => a.state === "ready");
+        if (!arr.length) return null;
+        return arr.reduce(
+            (acc, a) => (acc == null || a.attempt_number > acc.attempt_number ? a : acc),
+            null,
+        );
+    }
+
     _inflight() {
         return WORKING_STATES.has(this.state.status);
     }
@@ -318,6 +368,8 @@ export class CrowleyStudio extends Component {
         this.state.currentVideoUrl = "";
         this.state.currentJobId = null;
         this.state.currentJobState = null;
+        this.state.currentAttemptId = null;
+        this.state.currentAttempts = [];
         this.state.elapsedSeconds = 0;
         this._startElapsed();
 
@@ -383,10 +435,20 @@ export class CrowleyStudio extends Component {
                 this.state.currentDuration = row.duration || 0;
                 this.state.currentFileSize = row.file_size || 0;
 
+                // Refresh attempts every tick so a fresh refinement appears
+                // in the switcher strip mid-flight.
+                await this._refreshAttempts(jobId);
+
                 if (row.state === "ready") {
                     this.state.status = "ready";
-                    this.state.currentVideoUrl = row.video_play_url || "";
                     this.state.currentError = "";
+                    const latestReady = this._latestReadyAttempt();
+                    if (latestReady) {
+                        this.state.currentAttemptId = latestReady.id;
+                        this.state.currentVideoUrl = latestReady.video_play_url || row.video_play_url || "";
+                    } else {
+                        this.state.currentVideoUrl = row.video_play_url || "";
+                    }
                     this._stopPolling();
                     this._stopElapsed();
                     await this._refreshDashboard();
@@ -414,6 +476,99 @@ export class CrowleyStudio extends Component {
         };
         tick();
         this._pollTimer = setInterval(tick, POLL_INTERVAL_MS);
+    }
+
+    async _refreshAttempts(jobId) {
+        const targetId = jobId || this.state.currentJobId;
+        if (!targetId) {
+            this.state.currentAttempts = [];
+            return;
+        }
+        try {
+            const rows = await this.orm.searchRead(
+                "crowley.ai.vid.gen.attempt",
+                [["job_id", "=", targetId]],
+                [
+                    "id",
+                    "attempt_number",
+                    "state",
+                    "video_play_url",
+                    "prompt",
+                    "cost_usd",
+                ],
+                { order: "attempt_number asc" },
+            );
+            this.state.currentAttempts = rows || [];
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[crowley_ai_vid_gen.studio] attempts refresh failed", err);
+        }
+    }
+
+    async onRefineClick() {
+        if (!this.canRefine) return;
+        const trimmed = (this.state.prompt || "").trim();
+        if (!trimmed) {
+            this.notification.add(
+                _t("Enter a revised prompt before refining."),
+                { type: "danger", title: _t("Crowley Studio") },
+            );
+            return;
+        }
+        const latest = this._latestAttempt();
+        if (latest && (latest.prompt || "").trim() === trimmed) {
+            this.notification.add(
+                _t("Refining with the same prompt — output may vary due to model nondeterminism."),
+                { type: "info", title: _t("Crowley Studio") },
+            );
+        }
+        const jobId = this.state.currentJobId;
+        this.state.status = "submitting";
+        this.state.currentError = "";
+        this.state.elapsedSeconds = 0;
+        this._startElapsed();
+        try {
+            await this.orm.call(
+                "crowley.ai.vid.gen.job",
+                "action_refine",
+                [[jobId]],
+                { new_prompt: trimmed },
+            );
+            this.state.status = "polling";
+            await this._refreshAttempts(jobId);
+            this._startPolling(jobId);
+        } catch (err) {
+            this._stopElapsed();
+            this.state.status = "ready";
+            this._notifyError(err);
+        } finally {
+            await this._refreshDashboard();
+        }
+    }
+
+    async onAttemptThumbClick(slot) {
+        const att = this._attemptForSlot(slot);
+        if (!att) return;
+        if (this.hasAttemptInFlight) return;
+        this.state.currentAttemptId = att.id;
+        if (att.state === "ready" && att.video_play_url) {
+            this.state.currentVideoUrl = att.video_play_url;
+            this.state.status = "ready";
+            this.state.currentError = "";
+        } else if (att.state === "failed") {
+            this.state.status = "failed";
+            this.state.currentVideoUrl = "";
+            try {
+                const rows = await this.orm.read(
+                    "crowley.ai.vid.gen.attempt",
+                    [att.id],
+                    ["error_message"],
+                );
+                this.state.currentError = rows?.[0]?.error_message || _t("Attempt failed.");
+            } catch (err) {
+                this.state.currentError = this._formatError(err);
+            }
+        }
     }
 
     _stopPolling() {
@@ -521,10 +676,18 @@ export class CrowleyStudio extends Component {
             this.state.currentResolution = row.resolution || "";
             this.state.currentDuration = row.duration || 0;
             this.state.currentFileSize = row.file_size || 0;
+            this.state.currentAttemptId = null;
+            await this._refreshAttempts(itemId);
 
             if (row.state === "ready") {
                 this.state.status = "ready";
-                this.state.currentVideoUrl = row.video_play_url || "";
+                const latestReady = this._latestReadyAttempt();
+                if (latestReady) {
+                    this.state.currentAttemptId = latestReady.id;
+                    this.state.currentVideoUrl = latestReady.video_play_url || row.video_play_url || "";
+                } else {
+                    this.state.currentVideoUrl = row.video_play_url || "";
+                }
                 this.state.currentError = "";
             } else if (row.state === "failed") {
                 this.state.status = "failed";

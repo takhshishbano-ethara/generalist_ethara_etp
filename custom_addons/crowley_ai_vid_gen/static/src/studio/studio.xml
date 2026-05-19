@@ -60,6 +60,7 @@
                                   t-on-input="onPromptInput"
                                   rows="5"
                                   t-att-maxlength="promptMax"
+                                  t-att-disabled="promptDisabled ? 'disabled' : null"
                                   placeholder="A lone astronaut walks across a dune at sunset, slow tracking shot, anamorphic lens, golden hour…"/>
                         <div t-att-class="promptCounterClass">
                             <t t-esc="promptLength"/> / <t t-esc="promptMax"/>
@@ -173,14 +174,26 @@
                 </section>
 
                 <div class="o_crow_generate">
-                    <button type="button"
-                            t-att-class="canGenerate ? 'o_crow_btn_generate' : 'o_crow_btn_generate o_crow_btn_generate--disabled'"
-                            t-att-disabled="!canGenerate ? 'disabled' : null"
-                            t-on-click="onGenerateClick">
-                        <i class="fa fa-magic"/>
-                        <span>GENERATE VIDEO</span>
-                    </button>
-                    <div class="o_crow_generate_sub"><t t-esc="generateSubtext"/></div>
+                    <t t-if="!showRefineSlot">
+                        <button type="button"
+                                t-att-class="canGenerate ? 'o_crow_btn_generate' : 'o_crow_btn_generate o_crow_btn_generate--disabled'"
+                                t-att-disabled="!canGenerate ? 'disabled' : null"
+                                t-on-click="onGenerateClick">
+                            <i class="fa fa-magic"/>
+                            <span>GENERATE VIDEO</span>
+                        </button>
+                        <div class="o_crow_generate_sub"><t t-esc="generateSubtext"/></div>
+                    </t>
+                    <t t-if="showRefineSlot">
+                        <button type="button"
+                                t-att-class="canRefine ? 'o_crowley_studio__refine_btn' : 'o_crowley_studio__refine_btn o_crowley_studio__refine_btn--disabled'"
+                                t-att-disabled="!canRefine ? 'disabled' : null"
+                                t-att-title="attemptsUsed >= 3 ? 'All 3 attempts used. Start a new job.' : (hasAttemptInFlight ? 'Waiting for current attempt to finish' : 'Refine the prompt and submit a new attempt')"
+                                t-on-click="onRefineClick">
+                            <span><t t-esc="refineLabel"/></span>
+                        </button>
+                        <div class="o_crow_generate_sub"><t t-esc="refineSubtext"/></div>
+                    </t>
                 </div>
 
             </aside>
@@ -245,6 +258,32 @@
                 <div class="o_crow_canvas_meta" t-if="canvasMode === 'ready'">
                     <t t-esc="formatCanvasMeta()"/>
                 </div>
+
+                <section class="o_crowley_studio__attempt_switcher" t-if="state.currentJobId">
+                    <div class="o_crowley_studio__attempt_switcher_label">
+                        ATTEMPTS · <t t-esc="attemptsUsed"/> / 3
+                    </div>
+                    <div class="o_crowley_studio__attempt_switcher_chips">
+                        <t t-foreach="[1, 2, 3]" t-as="slot" t-key="slot">
+                            <button type="button"
+                                    t-att-class="attemptChipClass(slot)"
+                                    t-att-title="attemptChipTooltip(slot)"
+                                    t-att-disabled="!_attemptForSlot(slot) ? 'disabled' : null"
+                                    t-on-click="() => this.onAttemptThumbClick(slot)">
+                                <span class="o_crowley_studio__attempt_chip_dot"/>
+                                <span class="o_crowley_studio__attempt_chip_label">ATTEMPT <t t-esc="slot"/></span>
+                                <span class="o_crowley_studio__attempt_chip_state" t-if="_attemptForSlot(slot)">
+                                    <t t-esc="_attemptForSlot(slot).state.toUpperCase()"/>
+                                </span>
+                                <span class="o_crowley_studio__attempt_chip_state" t-if="!_attemptForSlot(slot)">EMPTY</span>
+                            </button>
+                        </t>
+                    </div>
+                    <div class="o_crowley_studio__attempt_switcher_caption"
+                         t-if="attemptsUsed >= 3">
+                        All 3 attempts used — start a new job to keep iterating.
+                    </div>
+                </section>
 
                 <section class="o_crow_reel">
                     <header class="o_crow_reel_head">
