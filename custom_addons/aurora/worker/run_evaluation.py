@@ -175,7 +175,7 @@ def _setup_buildx_builder():
 _ALLOWED_EVAL_COLUMNS = frozenset({
     "stage", "build_status", "run_status", "report_status",
     "total_instances", "resolved_instances", "unresolved_instances", "error_instances",
-    "final_report_file", "dataset_jsonl_url", "missing_registries", "patch_file", "repo_dir", "workdir",
+    "final_report_file", "dataset_jsonl_url", "missing_registries", "base_fallback_prs", "patch_file", "repo_dir", "workdir",
     "output_dir", "last_heartbeat", "progress_text", "log", "s3_run_number",
     "base_dockerfile_content", "base_dockerfile_s3_uri",
     # Tar-decision + ECR phase
@@ -334,47 +334,6 @@ def _resolve_entry_number(entry: dict) -> int | None:
         except (TypeError, ValueError):
             pass
     return None
-
-
-def _generate_patch_file(dataset_path: str, output_path: str) -> str:
-    """Regenerate patches.jsonl from dataset file.
-
-    The Odoo server generates this file locally but it's not available
-    inside the K8s pod. We regenerate it from the already-resolved dataset.
-    Returns the output path.
-    """
-    import json as _json
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    total_lines = 0
-    error_lines = 0
-    with open(dataset_path, "r", encoding="utf-8") as f_in, \
-         open(output_path, "w", encoding="utf-8") as f_out:
-        for line in f_in:
-            line = line.strip()
-            if not line:
-                continue
-            total_lines += 1
-            try:
-                entry = _json.loads(line)
-            except (ValueError, _json.JSONDecodeError) as e:
-                error_lines += 1
-                _logger.warning("Skipping corrupt dataset line %d: %s", total_lines, e)
-                continue
-            number = _resolve_entry_number(entry)
-            if number is None:
-                continue
-            patch_entry = {
-                "org": entry.get("org", ""),
-                "repo": entry.get("repo", ""),
-                "number": number,
-                "fix_patch": entry.get("fix_patch", ""),
-            }
-            f_out.write(_json.dumps(patch_entry, ensure_ascii=False) + "\n")
-    if total_lines > 0 and error_lines / total_lines > 0.5:
-        raise RuntimeError(
-            f"Dataset appears corrupted: {error_lines}/{total_lines} lines failed to parse"
-        )
-    return output_path
 
 
 def _safe_collect(conn, rec_id: int, phase_label: str, fn):
@@ -588,10 +547,13 @@ def run_evaluation(db_name: str, rec_id: int):
 
         # Regenerate patch file locally (server-generated file isn't in the pod)
         patch_file = cfg["patch_file"]
-        if patch_file and not os.path.isfile(patch_file):
-            _append_log(conn, rec_id, f"Patch file not found locally, regenerating from dataset...")
-            _generate_patch_file(dataset_file, patch_file)
-            _append_log(conn, rec_id, f"Patch file regenerated: {patch_file}")
+        if not patch_file or not os.path.isfile(patch_file):
+            patch_file = dataset_file
+            _append_log(
+                conn, rec_id,
+                "Using dataset file directly as patch source "
+                "(LHT records carry fix_patch — no separate patches.jsonl needed).",
+            )
 
         log_dir = Path(cfg["output_dir"]) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -788,6 +750,29 @@ def run_evaluation(db_name: str, rec_id: int):
         except Exception as exc:
             _fail_eval(conn, rec_id, f"Image build failed: {exc}")
             raise
+
+        try:
+            if patch_file and os.path.isfile(patch_file + ".fallback_summary.json"):
+                with open(patch_file + ".fallback_summary.json") as _fs:
+                    _fallback = json.load(_fs)
+                _prs = _fallback.get("base_fallback_prs") or []
+                if _prs:
+                    _pr_list = ", ".join(f"#{n}" for n in _prs[:20])
+                    if len(_prs) > 20:
+                        _pr_list += f", … (+{len(_prs) - 20} more)"
+                    _org = _fallback.get("org") or ""
+                    _repo = _fallback.get("repo") or ""
+                    _append_log(
+                        conn, rec_id,
+                        f"[notice] {_org}/{_repo}: "
+                        f"{len(_prs)} PR(s) had no matching interval and used base "
+                        f"harness {_repo}.py — verify deps match: {_pr_list}",
+                    )
+                    _update_eval(conn, rec_id, {
+                        "base_fallback_prs": f"{_org}/{_repo}: " + ", ".join(str(n) for n in _prs),
+                    })
+        except Exception as _fs_exc:
+            _logger.warning("Failed to surface fallback summary: %s", _fs_exc)
 
         try:
             base_info = artifact_collector.populate_build_artifacts(
@@ -1012,6 +997,46 @@ def run_evaluation(db_name: str, rec_id: int):
             "dataset_jsonl_url": dataset_jsonl_url,
         })
         _append_log(conn, rec_id, f"Evaluation complete: {resolved}/{total} resolved.")
+
+        try:
+            from odoo import api, SUPERUSER_ID
+            from odoo.modules.registry import Registry as _Registry
+            from odoo.addons.aurora.models import done_repo_sync
+            _registry = _Registry(db_name)
+            with _registry.cursor() as _cr:
+                _env = api.Environment(_cr, SUPERUSER_ID, {})
+                repo_full, branch, token = done_repo_sync.get_config(_env)
+            seen = set()
+            appended = []
+            for inst in eval_config.instances:
+                key = (inst.pr.org.lower(), inst.pr.repo.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    if done_repo_sync.append_done_repo(
+                        token, repo_full, branch,
+                        inst.pr.org, inst.pr.repo,
+                        commit_suffix=f"eval={rec_id}",
+                    ):
+                        appended.append(f"{inst.pr.org}/{inst.pr.repo}")
+                except Exception as inst_exc:
+                    _logger.warning(
+                        "done_repo append failed for %s/%s: %s",
+                        inst.pr.org, inst.pr.repo, inst_exc,
+                    )
+            if appended:
+                _append_log(
+                    conn, rec_id,
+                    f"auroraScraping done_repo.txt updated: {', '.join(appended)}",
+                )
+        except Exception as exc:
+            _logger.warning("done_repo sync hook failed (non-fatal): %s", exc)
+            try:
+                _append_log(conn, rec_id, f"[warn] done_repo sync failed: {exc}")
+            except Exception:
+                pass
+
         _logger.info("Evaluation %s complete: %d/%d resolved", rec_id, resolved, total)
 
     except EvalCancelled:

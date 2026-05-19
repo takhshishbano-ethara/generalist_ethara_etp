@@ -51,6 +51,9 @@
                             class="btn-secondary" invisible="stage not in ('done','failed')"/>
                     <button name="action_regenerate_report" string="Regenerate Report" type="object"
                             class="btn-secondary" invisible="stage not in ('done','failed')" confirm="Re-run report generation from existing logs?"/>
+                    <button name="action_sync_to_done_repo" string="Sync to done_repo.txt" type="object"
+                            class="btn-secondary" invisible="stage != 'done'"
+                            confirm="Append all (org, repo) pairs from this evaluation to auroraScraping/done_repo.txt?"/>
                     <field name="stage" widget="aurora_statusbar" statusbar_visible="draft,building_images,running_instances,generating_reports,awaiting_tar_decision,done"/>
                 </header>
 
@@ -104,6 +107,13 @@
                                 type="object"
                                 class="btn btn-primary btn-sm"
                                 icon="fa-upload"/>
+                    </div>
+
+                    <!-- Base harness fallback (PR outside all intervals) -->
+                    <div class="alert alert-warning mb-3" role="alert" invisible="not base_fallback_prs">
+                        <strong><i class="fa fa-exclamation-circle me-1" title="Verify"/> Base harness fallback:</strong>
+                        <field name="base_fallback_prs" readonly="1" nolabel="1" class="d-block mt-1"/>
+                        <p class="mt-2 mb-0 text-muted">These PRs did not match any <code>{repo}_{hi}_to_{lo}.py</code> interval and were built using the base <code>{repo}.py</code> harness. Verify the dependency setup is still compatible before trusting the results.</p>
                     </div>
 
                     <!-- ═══ STEP TIMELINE ═══ -->

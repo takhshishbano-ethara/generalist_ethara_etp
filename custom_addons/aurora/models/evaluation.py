@@ -307,6 +307,13 @@ class AuroraEvaluation(models.Model):
         readonly=True,
         help="Repos in the dataset that have no harness implementation.",
     )
+    base_fallback_prs = fields.Text(
+        string="PRs using base harness (no interval match)",
+        readonly=True,
+        help="PR numbers whose `number` didn't fall in any registered interval "
+             "file. The base `{repo}.py` harness handled them — verify the "
+             "dependency setup matches before trusting results.",
+    )
 
     instance_ids = fields.One2many(
         "aurora.evaluation.instance",
@@ -369,25 +376,6 @@ class AuroraEvaluation(models.Model):
                     "aurora.evaluation"
                 ) or "New"
         return super().create(vals_list)
-
-    def _generate_patch_file(self, dataset_path, output_path):
-        with open(dataset_path, "r", encoding="utf-8") as f_in, \
-             open(output_path, "w", encoding="utf-8") as f_out:
-            for line in f_in:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = json.loads(line)
-                number = self._resolve_entry_number(entry)
-                if number is None:
-                    continue
-                patch_entry = {
-                    "org": entry["org"],
-                    "repo": entry["repo"],
-                    "number": number,
-                    "fix_patch": entry.get("fix_patch", ""),
-                }
-                f_out.write(json.dumps(patch_entry, ensure_ascii=False) + "\n")
 
     @staticmethod
     def _resolve_entry_number(entry):
@@ -493,9 +481,7 @@ class AuroraEvaluation(models.Model):
         os.makedirs(self.repo_dir, exist_ok=True)
 
         if not self.patch_file:
-            patch_path = os.path.join(self.output_dir, "patches.jsonl")
-            self._generate_patch_file(self.dataset_file, patch_path)
-            self.patch_file = patch_path
+            self.patch_file = self.dataset_file
 
         self.write({
             "stage": "building_images",
@@ -1154,6 +1140,54 @@ class AuroraEvaluation(models.Model):
             "res_id": self.id,
             "view_mode": "form",
             "target": "current",
+        }
+
+    def action_sync_to_done_repo(self):
+        self.ensure_one()
+        from .done_repo_sync import get_config, append_done_repo
+        try:
+            repo_full, branch, token = get_config(self.env)
+        except ValueError as exc:
+            raise UserError(f"auroraScraping not configured: {exc}")
+
+        seen, appended, skipped, failed = set(), [], [], []
+        for inst in self.instance_ids:
+            if not inst.org or not inst.repo:
+                continue
+            key = (inst.org.lower(), inst.repo.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                if append_done_repo(
+                    token, repo_full, branch, inst.org, inst.repo,
+                    commit_suffix=f"eval={self.id}",
+                ):
+                    appended.append(f"{inst.org}/{inst.repo}")
+                else:
+                    skipped.append(f"{inst.org}/{inst.repo}")
+            except Exception as exc:
+                failed.append(f"{inst.org}/{inst.repo}: {exc}")
+
+        msg_parts = []
+        if appended:
+            msg_parts.append(f"Appended: {', '.join(appended)}")
+        if skipped:
+            msg_parts.append(f"Already present: {', '.join(skipped)}")
+        if failed:
+            msg_parts.append(f"Failed: {'; '.join(failed)}")
+        message = " · ".join(msg_parts) or "No (org, repo) pairs to sync."
+        if appended or skipped or failed:
+            self.message_post(body=f"auroraScraping sync: {message}")
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "auroraScraping sync",
+                "message": message,
+                "type": "danger" if failed else "success",
+                "sticky": bool(failed),
+            },
         }
 
     def action_upload_harness_for_missing(self):

@@ -30,8 +30,20 @@ ENRICHMENT_STATUS = [
     ("failed", "Failed"),
 ]
 
+SKIP_REASON = [
+    ("none", "—"),
+    ("done_exact", "Done (exact)"),
+    ("done_bare", "Done (bare-name)"),
+    ("done_fuzzy", "Done (fuzzy — verify)"),
+    ("no_pr_exact", "No PRs"),
+    ("no_pr_bare", "No PRs (bare-name)"),
+    ("no_pr_fuzzy", "No PRs (fuzzy — verify)"),
+    ("manual", "Manual reject"),
+]
+
 _ADVISORY_LOCK_ENRICH = 74927463
 _ADVISORY_LOCK_PROMOTE = 74927464
+_ADVISORY_LOCK_DONE_SYNC = 74927466
 
 
 class AuroraDiscovery(models.Model):
@@ -85,6 +97,14 @@ class AuroraDiscovery(models.Model):
     enrichment_status = fields.Selection(ENRICHMENT_STATUS, default="idle")
     enrichment_log = fields.Text()
     last_enrichment = fields.Datetime()
+
+    skip_reason = fields.Selection(
+        SKIP_REASON, default="none", tracking=True,
+        help="Why this discovery is skipped (synced from auroraScraping "
+             "done_repo.txt / no_pr.txt). Bare and fuzzy matches need "
+             "manual verification.",
+    )
+    skip_reason_synced_at = fields.Datetime(string="Skip reason last synced")
 
     _sql_constraints = [
         ("org_repo_unique", "UNIQUE(github_org, github_repo)",
@@ -250,92 +270,6 @@ class AuroraDiscovery(models.Model):
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(%s)", [_ADVISORY_LOCK_ENRICH])
 
-    def _sync_harness_registry(self, token):
-        import requests
-        ICP = self.env["ir.config_parameter"].sudo()
-        harness_repo = ICP.get_param("aurora.harness_git_repo", "EtharaAI/multi-swe-bench")
-        harness_branch = ICP.get_param("aurora.harness_git_branch", "main")
-        base_path = "multi_swe_bench/harness/repos"
-
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
-
-        try:
-            url = f"https://api.github.com/repos/{harness_repo}/contents/{base_path}?ref={harness_branch}"
-            resp = requests.get(url, headers=headers, timeout=30)
-            resp.raise_for_status()
-            lang_dirs = [item["name"] for item in resp.json() if item["type"] == "dir"]
-        except Exception as exc:
-            _logger.warning("Harness registry sync: failed to list language dirs: %s", exc)
-            return
-
-        global _EXCLUDED_REPOS_CACHE
-        registry_repos = set()
-
-        for lang_dir in lang_dirs:
-            try:
-                url = f"https://api.github.com/repos/{harness_repo}/contents/{base_path}/{lang_dir}?ref={harness_branch}"
-                resp = requests.get(url, headers=headers, timeout=30)
-                resp.raise_for_status()
-                org_dirs = [item["name"] for item in resp.json() if item["type"] == "dir"]
-            except Exception:
-                continue
-
-            for org_dir in org_dirs:
-                try:
-                    url = f"https://api.github.com/repos/{harness_repo}/contents/{base_path}/{lang_dir}/{org_dir}?ref={harness_branch}"
-                    resp = requests.get(url, headers=headers, timeout=30)
-                    resp.raise_for_status()
-                    files = [item["name"] for item in resp.json() if item["type"] == "file" and item["name"].endswith(".py")]
-                except Exception:
-                    continue
-
-                for filename in files:
-                    if filename.startswith("_"):
-                        continue
-                    repo_name = filename.replace(".py", "")
-                    import re
-                    repo_name = re.sub(r'_\d+(_to_\d+)?$', '', repo_name)
-                    repo_name = re.sub(r'_v\d+[\d_.]*$', '', repo_name)
-                    repo_name = re.sub(r'_(era_?[a-z]|go\d+[\d_]*|gopath|premod|gopath_\w+)$', '', repo_name)
-                    full_name = f"{org_dir}/{repo_name}"
-                    if full_name in registry_repos:
-                        continue
-                    registry_repos.add(full_name)
-
-                    try:
-                        existing = self.search([
-                            ("github_org", "=", org_dir), ("github_repo", "=", repo_name),
-                        ], limit=1)
-                        if existing and existing.state not in ("promoted", "skipped"):
-                            existing.write({"state": "promoted", "source_tags": "harness-registry"})
-                        elif not existing:
-                            pipeline_exists = self.env["aurora.pipeline"].search_count([
-                                ("github_org", "=", org_dir), ("github_repo", "=", repo_name),
-                            ])
-                            if not pipeline_exists:
-                                self.create({
-                                    "github_org": org_dir,
-                                    "github_repo": repo_name,
-                                    "state": "promoted",
-                                    "source_tags": "harness-registry",
-                                    "primary_language": lang_dir,
-                                })
-                    except Exception as exc:
-                        _logger.debug("Harness sync: skip %s/%s: %s", org_dir, repo_name, exc)
-                        self.env.cr.rollback()
-                        continue
-
-            try:
-                self.env.cr.commit()
-            except Exception:
-                self.env.cr.rollback()
-
-        if registry_repos:
-            if _EXCLUDED_REPOS_CACHE is not None:
-                _EXCLUDED_REPOS_CACHE = _EXCLUDED_REPOS_CACHE | registry_repos
-            _logger.info("Harness registry sync: found %d repos across %d languages",
-                         len(registry_repos), len(lang_dirs))
-
     def _cron_run_discovery(self):
         _ADVISORY_LOCK_DISCOVERY = 74927465
         cr = self.env.cr
@@ -361,8 +295,6 @@ class AuroraDiscovery(models.Model):
                     continue
             if not tokens:
                 return
-
-            self._sync_harness_registry(tokens[0])
 
             excluded = self._load_excluded_repos()
             existing_discoveries = set(
@@ -392,6 +324,12 @@ class AuroraDiscovery(models.Model):
                     for repo in repos:
                         repo = _enrich_repo(rotator, repo)
                         if repo.get("language_pct", 0) < min_lang_pct:
+                            _logger.info(
+                                "Discovery filter: dropping %s — language_pct=%.1f < %.1f",
+                                repo.get("full_name", "?"),
+                                repo.get("language_pct", 0),
+                                min_lang_pct,
+                            )
                             continue
                         org = repo["github_org"]
                         repo_name = repo["github_repo"]
@@ -440,6 +378,74 @@ class AuroraDiscovery(models.Model):
                     self.env.cr.rollback()
         finally:
             cr.execute("SELECT pg_advisory_unlock(%s)", [_ADVISORY_LOCK_DISCOVERY])
+
+    def _cron_sync_done_repo(self):
+        cr = self.env.cr
+        cr.execute("SELECT pg_try_advisory_lock(%s)", [_ADVISORY_LOCK_DONE_SYNC])
+        if not cr.fetchone()[0]:
+            return
+        try:
+            from . import done_repo_sync
+            try:
+                repo_full, branch, token = done_repo_sync.get_config(self.env)
+            except ValueError as exc:
+                _logger.info("auroraScraping sync skipped: %s", exc)
+                return
+            try:
+                done_idx, no_pr_idx = done_repo_sync.sync_done_repos(
+                    token, repo_full, branch, force_refresh=True,
+                )
+            except Exception as exc:
+                _logger.warning("auroraScraping sync failed: %s", exc)
+                return
+            new_rows = self.search([
+                ("state", "=", "new"),
+                "|", ("skip_reason", "=", False), ("skip_reason", "=", "none"),
+            ], limit=500)
+            now = fields.Datetime.now()
+            updated = 0
+            for rec in new_rows:
+                done_match, done_tier = done_repo_sync.is_repo_done(
+                    rec.github_org, rec.github_repo, done_idx,
+                )
+                if done_match:
+                    rec.write({
+                        "skip_reason": f"done_{done_tier}",
+                        "skip_reason_synced_at": now,
+                    })
+                    updated += 1
+                    continue
+                no_pr_match, no_pr_tier = done_repo_sync.is_repo_no_pr(
+                    rec.github_org, rec.github_repo, no_pr_idx,
+                )
+                if no_pr_match:
+                    rec.write({
+                        "skip_reason": f"no_pr_{no_pr_tier}",
+                        "skip_reason_synced_at": now,
+                    })
+                    updated += 1
+            self.env.cr.commit()
+            if updated:
+                _logger.info(
+                    "auroraScraping skip_reason updated on %d discovery rows", updated,
+                )
+        finally:
+            cr.execute("SELECT pg_advisory_unlock(%s)", [_ADVISORY_LOCK_DONE_SYNC])
+
+    def action_refresh_done_list(self):
+        from . import done_repo_sync
+        repo_full, branch, _token = done_repo_sync.get_config(self.env)
+        done_repo_sync.invalidate_cache(repo_full, branch)
+        self._cron_sync_done_repo()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Done list synced",
+                "message": "auroraScraping done_repo.txt + no_pr.txt refreshed.",
+                "type": "success",
+            },
+        }
 
     def action_open_discovery_wizard(self):
         return {

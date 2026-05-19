@@ -138,6 +138,21 @@ class AuroraSettings(models.TransientModel):
         config_parameter="aurora.github_registry_write_token",
     )
 
+    aurora_auroraScraping_repo = fields.Char(
+        string="auroraScraping Repo",
+        config_parameter="aurora.auroraScraping_repo",
+        default="ElhaanEth/auroraScraping",
+    )
+    aurora_auroraScraping_branch = fields.Char(
+        string="auroraScraping Branch",
+        config_parameter="aurora.auroraScraping_branch",
+        default="main",
+    )
+    aurora_auroraScraping_token = fields.Char(
+        string="auroraScraping PAT",
+        config_parameter="aurora.auroraScraping_token",
+    )
+
     aurora_discovery_min_stars = fields.Integer(
         string="Discovery: Min Stars",
         config_parameter="aurora.discovery_min_stars",

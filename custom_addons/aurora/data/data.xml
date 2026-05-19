@@ -145,5 +145,15 @@
             <field name="nextcall">2026-05-12 00:00:00</field>
             <field name="active">True</field>
         </record>
+
+        <record id="ir_cron_discovery_sync_done" model="ir.cron">
+            <field name="name">Aurora: Sync auroraScraping done/no_pr</field>
+            <field name="model_id" ref="model_aurora_discovery"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_sync_done_repo()</field>
+            <field name="interval_number">10</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>
