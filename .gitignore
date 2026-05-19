@@ -52,3 +52,7 @@ custom_addons/gohan/data/gohan
 custom_addons/gohan/data/gohan-extraction-lambda
 custom_addons/gohan.zip
 custom_addons/gohan/data/vegeta.env.gohan
+
+# ── Vegeta Lambda (deployed separately) ──────────────────────────────────────
+custom_addons/vegeta/lambda_extraction/
+custom_addons/vegeta/local/artifacts/

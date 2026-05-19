@@ -18,7 +18,7 @@ from botocore.exceptions import ClientError, ReadTimeoutError
 
 _logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_TOKENS = 7000
+DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT = 600
 DEFAULT_TEMPERATURE = 0.7
 
