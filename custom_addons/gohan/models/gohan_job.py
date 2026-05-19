@@ -426,13 +426,26 @@ class GohanJob(models.Model):
 
     @api.model
     def _get_prd_system_prompt(self):
-        """Read PRD system prompt from Settings; fall back to bundled file."""
+        """Read PRD system prompt from the bundled file (file is source of truth);
+        fall back to the legacy file and Settings sysparam for backward compat.
+
+        Priority order:
+          1. ``prompts/prd_v8_chat.md`` — current active prompt template (v8).
+             Edit this file + restart Odoo to update the prompt.
+          2. ``prompts/prd_agent_spec.md`` — legacy fallback if v8 file is missing.
+          3. ``gohan.prd_system_prompt`` sysparam — last-resort override for
+             operators who edit through Settings UI without touching files.
+        """
+        prompts_dir = Path(__file__).parent.parent / "prompts"
+        for fname in ("prd_v8_chat.md", "prd_agent_spec.md"):
+            p = prompts_dir / fname
+            if p.exists():
+                content = p.read_text(encoding="utf-8")
+                if content.strip():
+                    return content.strip()
         ICP = self.env["ir.config_parameter"].sudo()
         prompt = ICP.get_param("gohan.prd_system_prompt", "")
-        if prompt and prompt.strip():
-            return prompt.strip()
-        path = Path(__file__).parent.parent / "prompts" / "prd_agent_spec.md"
-        return path.read_text(encoding="utf-8") if path.exists() else ""
+        return prompt.strip() if prompt else ""
 
     @api.model
     def _get_qc_system_prompt(self):
