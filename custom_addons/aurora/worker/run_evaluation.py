@@ -9,6 +9,7 @@ report generation).  Every DB operation uses a short-lived cursor.
 SIGTERM triggers graceful stop between stages.
 """
 
+import base64
 import logging
 import os
 import signal
@@ -288,7 +289,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "tar_decision_window_minutes": int(row[12] or 0),
         "staging_test_id": row[13],
         "dataset_source": row[14] or "pipeline",
-        "custom_jsonl_file": bytes(row[15]) if row[15] else None,
+        "custom_jsonl_file": base64.b64decode(bytes(row[15])) if row[15] else None,
     }
 
 
