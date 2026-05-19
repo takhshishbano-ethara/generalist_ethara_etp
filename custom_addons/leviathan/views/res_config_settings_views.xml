@@ -147,6 +147,54 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Watchdog &amp; Recovery (Live)">
+                        <setting string="Watchdog Thresholds" help="How long a stuck task waits before the watchdog auto-retries or fails it. Live settings — changes take effect on the next 5-min cron tick.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_extracting_minutes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_extracting_minutes" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_generating_minutes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_generating_minutes" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_auto_retry_max" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_auto_retry_max" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook" help="Maximum webhook body size (bytes). Live — takes effect on next request.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_webhook_max_bytes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_webhook_max_bytes" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Concurrency (Requires Pod Restart)">
+                        <setting string="PRD Worker Pool" help="Max concurrent PRD-generation threads per process. Sized against db_maxconn. Real total = this × Odoo workers × pods. After changing, devops must restart pods and ideally mirror to LEVIATHAN_PRD_POOL_SIZE env var.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_prd_pool_size" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_prd_pool_size" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Bedrock Concurrency" help="Self-throttle: max simultaneous Bedrock calls per process. Set lower than the AWS TPS quota so adaptive retry never fires. After changing, devops must restart pods and ideally mirror to LEVIATHAN_BEDROCK_MAX_CONCURRENT env var.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_max_concurrent" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_max_concurrent" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_inner_retries" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_inner_retries" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

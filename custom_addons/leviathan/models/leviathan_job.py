@@ -2237,6 +2237,30 @@ class LeviathanJob(models.Model):
             else:
                 prd_prompt_text = job_data["prd_prompt"]
 
+            # AUTHORITATIVE CATEGORY DIRECTIVE — only emitted when the user
+            # has explicitly chosen the category. The metadata-block
+            # substitution above changes ONE line; Bedrock can still look at
+            # the extraction body (tech stack, WebGL signals, GSAP counts)
+            # and write a PRD whose narrative reflects the auto-classified
+            # category instead. This directive forces Bedrock to honour the
+            # user's choice in the Category Addendum and category-dependent
+            # guidance, not just the metadata block. When category_id is
+            # unset, we don't emit this — Bedrock should infer freely from
+            # the body since the user hasn't expressed a preference.
+            if job_data["category_is_explicit"]:
+                category_contract = (
+                    f"AUTHORITATIVE CATEGORY (HARD): the user has explicitly "
+                    f"chosen '{current_category}' as this site's category. "
+                    f"Use THIS category throughout the PRD — in the metadata "
+                    f"block, in the Category Addendum after Section 5, and "
+                    f"in all category-dependent guidance. DO NOT infer a "
+                    f"different category from the extracted tech stack, "
+                    f"WebGL signals, GSAP/scroll signals, or visual data. "
+                    f"The user's choice supersedes automated detection.\n\n"
+                )
+            else:
+                category_contract = ""
+
             # Reinforce word-count contract at the user-message level. The
             # Odoo system prompt already says 4,000-5,000 words, but Bedrock
             # under-delivers (often ~3,000) without an emphatic user-side
@@ -2251,9 +2275,13 @@ class LeviathanJob(models.Model):
                 "color needs hex + brand-name, every page follows A-F.\n\n"
             )
 
-            # Build multimodal content: screenshots + extraction text
+            # Build multimodal content: screenshots + extraction text.
+            # Order matters for Bedrock attention — category contract first
+            # (highest priority directive when set), then word count, then
+            # data. The data also contains the substituted metadata block.
             content_blocks = list(screenshot_blocks)
             content_blocks.append({"text": (
+                f"{category_contract}"
                 f"{word_count_contract}"
                 f"Below is the extracted website data. "
                 f"Write the complete PRD following all rules.\n\n"
@@ -2443,6 +2471,14 @@ class LeviathanJob(models.Model):
                     "llm_trace_json": llm_trace,
                     "completed_at": fields.Datetime.now(),
                     "duration_seconds": duration,
+                    # Persist the EFFECTIVE prd_prompt (post-category-substitution
+                    # + word-count-contract) back to the record so the
+                    # "Extraction Data (sent to LLM)" UI panel matches what
+                    # Bedrock actually saw. Lambda's pristine original is still
+                    # preserved in lambda_callback_json for audit.
+                    # No-op write when category_is_explicit was False (text is
+                    # identical to the existing field value).
+                    "prd_prompt": prd_prompt_text,
                 }
                 was_via_batch = record.via_batch
                 if was_via_batch:

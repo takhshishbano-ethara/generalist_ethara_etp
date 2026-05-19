@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_gohan_category_form" model="ir.ui.view">
+        <field name="name">gohan.category.form</field>
+        <field name="model">gohan.category</field>
+        <field name="arch" type="xml">
+            <form string="Website Category">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Marketing Automation"/></h1>
+                    </div>
+                    <group>
+                        <field name="code" placeholder="e.g. marketing_automation"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_gohan_category_new" model="ir.actions.act_window">
+        <field name="name">Add Category</field>
+        <field name="res_model">gohan.category</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+</odoo>

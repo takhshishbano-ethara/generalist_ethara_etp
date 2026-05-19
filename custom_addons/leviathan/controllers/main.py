@@ -12,10 +12,29 @@ _logger = logging.getLogger(__name__)
 
 # Defense in depth — cap webhook body size so a misbehaving Lambda or a
 # token-stolen attacker can't OOM the HTTP worker by streaming a multi-GB
-# JSON payload. Default 10 MB, override via LEVIATHAN_WEBHOOK_MAX_BYTES.
-_WEBHOOK_MAX_BYTES = int(
-    os.environ.get("LEVIATHAN_WEBHOOK_MAX_BYTES", str(10 * 1024 * 1024))
-)
+# JSON payload. Resolution order:
+#   1. Odoo System Parameter `leviathan.webhook_max_bytes` (admin UI, live)
+#   2. Env var LEVIATHAN_WEBHOOK_MAX_BYTES (devops, restart-required)
+#   3. Hard default 10 MB
+# Read fresh per request so admin can adjust without pod restart.
+_WEBHOOK_MAX_BYTES_DEFAULT = 10 * 1024 * 1024
+
+
+def _get_webhook_max_bytes():
+    """ICP > env > default. Called once per webhook request."""
+    try:
+        if request and request.env:
+            v = request.env["ir.config_parameter"].sudo().get_param(
+                "leviathan.webhook_max_bytes"
+            )
+            if v:
+                return int(v)
+    except Exception:
+        pass
+    return int(os.environ.get(
+        "LEVIATHAN_WEBHOOK_MAX_BYTES",
+        str(_WEBHOOK_MAX_BYTES_DEFAULT),
+    ))
 
 
 def _verify_webhook_token():
@@ -66,11 +85,12 @@ class LeviathanController(http.Controller):
         # upstream streaming a multi-GB body. Werkzeug enforces this at
         # the request level too; we re-check at app level so the cap is
         # visible in code and tunable per environment.
+        max_bytes = _get_webhook_max_bytes()
         declared_len = request.httprequest.content_length
-        if isinstance(declared_len, int) and declared_len > _WEBHOOK_MAX_BYTES:
+        if isinstance(declared_len, int) and declared_len > max_bytes:
             _logger.warning(
                 "Webhook rejected: Content-Length %d > cap %d",
-                declared_len, _WEBHOOK_MAX_BYTES,
+                declared_len, max_bytes,
             )
             return Response(
                 json.dumps({"error": "Payload too large"}),
@@ -78,10 +98,10 @@ class LeviathanController(http.Controller):
                 content_type="application/json",
             )
         body = request.httprequest.data
-        if isinstance(body, (bytes, bytearray)) and len(body) > _WEBHOOK_MAX_BYTES:
+        if isinstance(body, (bytes, bytearray)) and len(body) > max_bytes:
             _logger.warning(
                 "Webhook rejected: body length %d > cap %d",
-                len(body), _WEBHOOK_MAX_BYTES,
+                len(body), max_bytes,
             )
             return Response(
                 json.dumps({"error": "Payload too large"}),

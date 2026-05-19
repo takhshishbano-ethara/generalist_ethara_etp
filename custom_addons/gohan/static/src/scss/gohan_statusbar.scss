@@ -1,0 +1,104 @@
+/* Gohan: pulsing spinner on in-progress statusbar states */
+
+@keyframes gohan-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@keyframes gohan-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/*
+ * Target the active statusbar pill when it shows an in-progress state.
+ * Odoo renders the selected button with .o_arrow_button_current:disabled.
+ * We add a subtle pulse + spinner icon via ::after.
+ *
+ * The state values "Extracting", "Generating PRD", "Scoring" are the
+ * label texts — we use the data-value attribute which holds the raw state key.
+ */
+.o_field_statusbar .o_statusbar_status {
+    .o_arrow_button_current[data-value="extracting"],
+    .o_arrow_button_current[data-value="generating"],
+    .o_arrow_button_current[data-value="scoring"] {
+        animation: gohan-pulse 1.8s ease-in-out infinite;
+        position: relative;
+
+        &::after {
+            content: "";
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-left: 6px;
+            border: 2px solid currentColor;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: gohan-spin 0.8s linear infinite;
+            vertical-align: middle;
+        }
+    }
+}
+
+/* Pretty-printed JSON / structured-text field widget (json_pretty). */
+.gohan-json-pretty {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #212529;
+    max-height: 480px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 4px;
+
+    code {
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+    }
+}
+
+/* Markdown-rendered prompt block (prd_prompt_html). Inherits .o_field_html
+   styles from core but tightens spacing for the long extraction prompt. */
+.gohan-prd-prompt-markdown {
+    background: #fdfdfd;
+    border: 1px solid #e3e6ea;
+    border-radius: 4px;
+    padding: 14px 18px;
+    max-height: 560px;
+    overflow: auto;
+    font-size: 13.5px;
+    line-height: 1.55;
+
+    h1, h2, h3, h4, h5, h6 {
+        margin-top: 1em;
+        margin-bottom: 0.4em;
+    }
+
+    pre, code {
+        background: #f1f3f5;
+        border-radius: 3px;
+    }
+
+    pre {
+        padding: 10px 12px;
+        overflow: auto;
+    }
+
+    table {
+        border-collapse: collapse;
+        margin: 8px 0;
+
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 4px 8px;
+        }
+    }
+}

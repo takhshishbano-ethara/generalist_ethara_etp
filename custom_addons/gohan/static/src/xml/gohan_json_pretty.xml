@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="gohan.JsonPrettyField">
+        <t t-if="isEmpty">
+            <span class="text-muted fst-italic">empty</span>
+        </t>
+        <t t-else="">
+            <pre class="gohan-json-pretty mb-0"><code t-esc="formatted"/></pre>
+        </t>
+    </t>
+
+</templates>

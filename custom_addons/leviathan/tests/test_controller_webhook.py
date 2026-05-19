@@ -220,8 +220,8 @@ class TestWebhookHardening(LeviathanTestCase):
         mock_req.httprequest.headers.get.return_value = "secret"
         with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "secret"}):
             with patch(
-                "odoo.addons.leviathan.controllers.main._WEBHOOK_MAX_BYTES",
-                10 * 1024 * 1024,
+                "odoo.addons.leviathan.controllers.main._get_webhook_max_bytes",
+                return_value=10 * 1024 * 1024,
             ):
                 with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
                     result = ctrl.webhook_extraction_complete()
@@ -237,8 +237,8 @@ class TestWebhookHardening(LeviathanTestCase):
         mock_req.httprequest.headers.get.return_value = "secret"
         with patch.dict(os.environ, {"LEVIATHAN_WEBHOOK_TOKEN": "secret"}):
             with patch(
-                "odoo.addons.leviathan.controllers.main._WEBHOOK_MAX_BYTES",
-                10 * 1024 * 1024,
+                "odoo.addons.leviathan.controllers.main._get_webhook_max_bytes",
+                return_value=10 * 1024 * 1024,
             ):
                 with patch("odoo.addons.leviathan.controllers.main.request", mock_req):
                     result = ctrl.webhook_extraction_complete()
