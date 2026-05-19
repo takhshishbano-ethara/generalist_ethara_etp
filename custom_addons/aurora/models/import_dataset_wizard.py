@@ -35,10 +35,28 @@ class AuroraImportDatasetWizard(models.TransientModel):
         lines = [line.strip() for line in raw.decode("utf-8").splitlines() if line.strip()]
         if not lines:
             raise UserError("The uploaded file is empty.")
-        try:
-            json.loads(lines[0])
-        except json.JSONDecodeError as exc:
-            raise UserError(f"Invalid JSONL: first line is not valid JSON: {exc}") from exc
+
+        normalized: list = []
+        synth_count = 0
+        for idx, line in enumerate(lines, start=1):
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise UserError(
+                    f"Invalid JSONL: line {idx} is not valid JSON: {exc}"
+                ) from exc
+            had_instance_id = bool(rec.get("instance_id"))
+            from .import_dataset_normalize import normalize_record
+            normalize_record(rec)
+            if not had_instance_id and rec.get("instance_id"):
+                synth_count += 1
+            if not rec.get("instance_id"):
+                raise UserError(
+                    f"Line {idx}: cannot derive instance_id — record needs "
+                    "either `instance_id`, `tag_start`+`tag_end`, "
+                    "`base.label` (with '..' separator), OR `number`."
+                )
+            normalized.append(rec)
 
         ICP = self.env["ir.config_parameter"].sudo()
         base_dir = ICP.get_param("aurora.output_dir", "/tmp/aurora_output")
@@ -47,8 +65,15 @@ class AuroraImportDatasetWizard(models.TransientModel):
 
         safe_name = f"imported_{self.evaluation_id.id}_{filename}"
         local_path = os.path.join(cache_dir, safe_name)
-        with open(local_path, "wb") as fh:
-            fh.write(raw)
+        with open(local_path, "w", encoding="utf-8") as fh:
+            for rec in normalized:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        if synth_count:
+            _logger.info(
+                "Custom JSONL import: synthesized instance_id for %d of %d record(s)",
+                synth_count, len(normalized),
+            )
 
         from . import artifact_collector, s3_storage
 
