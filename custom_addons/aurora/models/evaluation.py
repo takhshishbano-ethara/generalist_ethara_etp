@@ -459,6 +459,13 @@ class AuroraEvaluation(models.Model):
 
     def _prepare_custom_dataset(self):
         import base64
+        from . import dataset_resolver
+
+        if self.dataset_file and dataset_resolver.is_remote(self.dataset_file):
+            if not self.custom_org or not self.custom_repo:
+                raise UserError("GitHub Org and Repo are required for a custom dataset.")
+            return
+
         if not self.custom_jsonl_file:
             raise UserError("Please upload a JSONL file for the custom dataset.")
         if not self.custom_org or not self.custom_repo:
