@@ -77,8 +77,8 @@ def _search_repos(
     for star_min, star_max in star_ranges:
         if len(repos) >= max_results:
             break
+        gh_lang = _GITHUB_LINGUIST_NAME.get(language.lower(), language)
         if star_max:
-            gh_lang = _GITHUB_LINGUIST_NAME.get(language.lower(), language)
             query = f'language:"{gh_lang}" stars:{star_min}..{star_max} archived:false fork:false'
         else:
             query = f'language:"{gh_lang}" stars:>={star_min} archived:false fork:false'
@@ -255,12 +255,7 @@ def main(
     repos = _search_repos(rotator, language, min_stars, max_results, excluded, progress_callback)
     _logger.info("Search found %d candidate repos", len(repos))
 
-    if not repos:
-        if not dry_run:
-            output_file.write_text("")
-        return repos
-
-    if enrich:
+    if enrich and repos:
         enriched: list[dict] = []
         for i, repo in enumerate(repos):
             if progress_callback:
