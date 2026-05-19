@@ -1,6 +1,16 @@
+import importlib.util
+import os
 import unittest
 
-from odoo.addons.aurora.models.import_dataset_normalize import normalize_record as _normalize
+_MODULE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "models",
+    "import_dataset_normalize.py",
+)
+_spec = importlib.util.spec_from_file_location("aurora_import_dataset_normalize", _MODULE_PATH)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+_normalize = _mod.normalize_record
 
 
 class TestNormalizeRecord(unittest.TestCase):
@@ -52,6 +62,24 @@ class TestNormalizeRecord(unittest.TestCase):
                     "pr_url", "head", "release_line", "version_scheme"):
             self.assertEqual(rec[key], snapshot[key],
                              f"existing {key} should not be overwritten")
+
+    def test_swe_bench_id_overwritten_when_tags_available(self):
+        rec = {
+            "instance_id": "astropy__astropy-17739",
+            "org": "astropy",
+            "repo": "astropy",
+            "number": 17739,
+            "base": {
+                "label": "v7.0.1..v7.0.2",
+                "ref": "v7.0.x",
+                "sha": "c1bf7267",
+            },
+        }
+        _normalize(rec)
+        self.assertEqual(rec["instance_id"], "astropy__astropy-v7.0.1..v7.0.2",
+                         "tag-derived id should override SWE-bench style")
+        self.assertEqual(rec["tag_start"], "v7.0.1")
+        self.assertEqual(rec["tag_end"], "v7.0.2")
 
     def test_swe_bench_single_pr_falls_back_to_number(self):
         rec = {
@@ -106,6 +134,36 @@ class TestNormalizeRecord(unittest.TestCase):
         self.assertEqual(rec["pr_attribution_method"], "")
         self.assertEqual(rec["number_interval"], "")
         self.assertEqual(rec["head"], {"sha": "", "ref": "", "label": ""})
+
+    def test_prs_in_bundle_takes_precedence_over_number(self):
+        rec = {"org": "o", "repo": "r", "number": 1,
+               "prs_in_bundle": [10, 11, 12]}
+        _normalize(rec)
+        self.assertEqual(rec["pr_numbers"], [10, 11, 12])
+
+    def test_empty_prs_in_bundle_falls_back_to_number(self):
+        rec = {"org": "o", "repo": "r", "number": 5, "prs_in_bundle": []}
+        _normalize(rec)
+        self.assertEqual(rec["pr_numbers"], [5])
+
+    def test_hints_text_used_when_hints_missing(self):
+        rec = {"org": "o", "repo": "r", "number": 1,
+               "hints_text": "be careful"}
+        _normalize(rec)
+        self.assertEqual(rec["hints"], "be careful")
+
+    def test_existing_hints_preserved_over_hints_text(self):
+        rec = {"org": "o", "repo": "r", "number": 1,
+               "hints": "primary", "hints_text": "ignored"}
+        _normalize(rec)
+        self.assertEqual(rec["hints"], "primary")
+
+    def test_existing_pr_numbers_preserved_over_bundle(self):
+        rec = {"org": "o", "repo": "r", "number": 1,
+               "pr_numbers": [99],
+               "prs_in_bundle": [10, 11, 12]}
+        _normalize(rec)
+        self.assertEqual(rec["pr_numbers"], [99])
 
     def test_existing_pr_numbers_preserved(self):
         rec = {"org": "o", "repo": "r", "number": 1, "pr_numbers": [10, 20, 30]}

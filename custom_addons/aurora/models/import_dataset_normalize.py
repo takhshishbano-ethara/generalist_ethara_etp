@@ -24,21 +24,30 @@ def normalize_record(rec: dict) -> None:
             if not rec.get("tag_end"):
                 rec["tag_end"] = te.strip()
 
-    if not rec.get("instance_id"):
-        ts = rec.get("tag_start") or ""
-        te = rec.get("tag_end") or ""
-        if ts and te:
-            rec["instance_id"] = f"{org}__{repo}-{ts}..{te}"
-        elif number:
-            rec["instance_id"] = f"{org}__{repo}-{number}"
+    ts = rec.get("tag_start") or ""
+    te = rec.get("tag_end") or ""
+    if ts and te:
+        rec["instance_id"] = f"{org}__{repo}-{ts}..{te}"
+    elif not rec.get("instance_id") and number:
+        rec["instance_id"] = f"{org}__{repo}-{number}"
 
-    rec.setdefault("pr_numbers", [number] if number else [])
+    if not rec.get("pr_numbers"):
+        bundle = rec.get("prs_in_bundle")
+        if isinstance(bundle, list) and bundle:
+            rec["pr_numbers"] = list(bundle)
+        elif number:
+            rec["pr_numbers"] = [number]
+        else:
+            rec["pr_numbers"] = []
+
     rec.setdefault(
         "pr_url",
         f"https://github.com/{org}/{repo}/pull/{number}"
         if org and repo and number else "",
     )
-    rec.setdefault("hints", "")
+
+    if not rec.get("hints"):
+        rec["hints"] = rec.get("hints_text") or ""
     rec.setdefault("release_line", "")
     rec.setdefault("version_scheme", "")
     rec.setdefault("pr_attribution_method", "")
