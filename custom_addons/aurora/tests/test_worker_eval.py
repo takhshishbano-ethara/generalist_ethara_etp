@@ -1315,7 +1315,7 @@ class TestReadEvalConfigDefaults(TestCase):
         cursor = MagicMock()
         cursor.fetchone.return_value = (
             "/data.jsonl", "/p.jsonl", "/r", "/w", "/o",
-            False, None, None, None, None, "", 1,
+            False, None, None, None, None, "", 1, None, None,
         )
         conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -1329,7 +1329,7 @@ class TestReadEvalConfigDefaults(TestCase):
         cursor = MagicMock()
         cursor.fetchone.return_value = (
             "/d.jsonl", "/p.jsonl", "/r", "/w", "/o",
-            True, 8, 8, "linux/arm64", None, "1,2,3", 5,
+            True, 8, 8, "linux/arm64", None, "1,2,3", 5, None, None,
         )
         conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -1342,7 +1342,7 @@ class TestReadEvalConfigDefaults(TestCase):
         cursor = MagicMock()
         cursor.fetchone.return_value = (
             "/d.jsonl", "/p.jsonl", "/r", "/w", "/o",
-            False, 4, 4, None, 0, "", 1,
+            False, 4, 4, None, 0, "", 1, None, None,
         )
         conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)

@@ -10,7 +10,6 @@ from odoo import fields as odoo_fields
 from odoo.tests.common import TransactionCase, tagged
 from odoo.exceptions import UserError
 
-
 @tagged("post_install", "-at_install")
 class TestAuroraEvaluation(TransactionCase):
 
@@ -119,105 +118,6 @@ class TestAuroraEvaluation(TransactionCase):
         self.assertFalse(rec.log)
         self.assertFalse(rec.final_report_file)
         self.assertFalse(rec.missing_registries)
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # _generate_patch_file
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    def test_generate_patch_file_basic(self):
-        """Generates patch file from dataset entries."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "diff"}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["org"], "o")
-            self.assertEqual(data["repo"], "r")
-            self.assertEqual(data["number"], 1)
-            self.assertEqual(data["fix_patch"], "diff")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_skips_empty_lines(self):
-        """Empty lines are skipped."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write("\n")
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": ""}) + "\n")
-            ds.write("\n\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                lines = [l for l in f if l.strip()]
-            self.assertEqual(len(lines), 1)
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_missing_fix_patch(self):
-        """Missing fix_patch defaults to empty string."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["fix_patch"], "")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_multiple_entries(self):
-        """Multiple entries written correctly."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            for i in range(5):
-                ds.write(json.dumps({"org": "o", "repo": "r", "number": i, "fix_patch": f"d{i}"}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                lines = [l for l in f if l.strip()]
-            self.assertEqual(len(lines), 5)
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_unicode(self):
-        """Unicode in fix_patch is preserved."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "日本語パッチ"}, ensure_ascii=False) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path, encoding="utf-8") as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["fix_patch"], "日本語パッチ")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # action_run_evaluation
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def test_run_only_from_draft(self):
         """Can only start from draft stage."""

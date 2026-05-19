@@ -87,6 +87,28 @@ def _create_boto3_stub():
 _create_boto3_stub()
 
 
+def _create_docker_stub():
+    """Stub docker so tests don't try to reach /var/run/docker.sock."""
+    docker_mod = types.ModuleType("docker")
+    docker_mod.__path__ = []
+    docker_mod.__package__ = "docker"
+    docker_mod.from_env = MagicMock()
+    docker_mod.DockerClient = MagicMock()
+    errors_mod = types.ModuleType("docker.errors")
+    errors_mod.DockerException = type("DockerException", (Exception,), {})
+    errors_mod.NotFound = type("NotFound", (Exception,), {})
+    errors_mod.APIError = type("APIError", (Exception,), {})
+    errors_mod.ImageNotFound = type("ImageNotFound", (Exception,), {})
+    errors_mod.BuildError = type("BuildError", (Exception,), {})
+    errors_mod.ContainerError = type("ContainerError", (Exception,), {})
+    docker_mod.errors = errors_mod
+    sys.modules["docker"] = docker_mod
+    sys.modules["docker.errors"] = errors_mod
+
+
+_create_docker_stub()
+
+
 def _create_odoo_stubs():
     stubs = {}
 

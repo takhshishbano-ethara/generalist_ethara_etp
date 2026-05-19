@@ -439,14 +439,22 @@ class TestEnsureEcrRepository(TestCase):
 
     @patch("odoo.addons.aurora.models.artifact_collector.subprocess.run")
     def test_describe_succeeds_no_create(self, mock_run):
-        """If describe-repositories returns 0, no create is attempted."""
         from odoo.addons.aurora.models.artifact_collector import ensure_ecr_repository
-        mock_run.return_value = MagicMock(stdout="{}", stderr="")
+        mock_run.return_value = MagicMock(
+            stdout='{"repositories": [{"repositoryArn": "arn:aws:ecr:us-east-1:123:repository/aurora/x"}]}',
+            stderr="",
+        )
         ensure_ecr_repository("acct.dkr.ecr.us-east-1.amazonaws.com", "us-east-1", "aurora/x")
-        # Only describe ran (one call), create was never invoked
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args_list[0].args[0]
-        self.assertIn("describe-repositories", cmd)
+        self.assertEqual(mock_run.call_count, 2)
+        first_cmd = mock_run.call_args_list[0].args[0]
+        self.assertIn("describe-repositories", first_cmd)
+        second_cmd = mock_run.call_args_list[1].args[0]
+        self.assertIn("tag-resource", second_cmd)
+        all_cmds = [c.args[0] for c in mock_run.call_args_list]
+        self.assertFalse(
+            any("create-repository" in cmd for cmd in all_cmds),
+            "create-repository must NOT be called when describe succeeds",
+        )
 
     @patch("odoo.addons.aurora.models.artifact_collector.subprocess.run")
     def test_describe_fails_then_create_called(self, mock_run):

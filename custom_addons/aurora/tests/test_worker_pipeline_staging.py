@@ -326,6 +326,7 @@ class TestHarnessStagingStates(unittest.TestCase):
     def test_is_zip_upload_true_for_zip(self):
         obj = MagicMock()
         obj.harness_filename = "registry.zip"
+        obj.harness_original_zip_filename = "registry.zip"
         from odoo.addons.aurora.models.harness_staging import AuroraHarnessStaging
         result = AuroraHarnessStaging._is_zip_upload(obj)
         self.assertTrue(result)
@@ -333,6 +334,7 @@ class TestHarnessStagingStates(unittest.TestCase):
     def test_is_zip_upload_false_for_py(self):
         obj = MagicMock()
         obj.harness_filename = "registry.py"
+        obj.harness_original_zip_filename = "registry.py"
         from odoo.addons.aurora.models.harness_staging import AuroraHarnessStaging
         result = AuroraHarnessStaging._is_zip_upload(obj)
         self.assertFalse(result)
@@ -340,6 +342,7 @@ class TestHarnessStagingStates(unittest.TestCase):
     def test_is_zip_upload_false_for_none(self):
         obj = MagicMock()
         obj.harness_filename = None
+        obj.harness_original_zip_filename = None
         from odoo.addons.aurora.models.harness_staging import AuroraHarnessStaging
         result = AuroraHarnessStaging._is_zip_upload(obj)
         self.assertFalse(result)
@@ -347,6 +350,7 @@ class TestHarnessStagingStates(unittest.TestCase):
     def test_is_zip_upload_false_for_empty(self):
         obj = MagicMock()
         obj.harness_filename = ""
+        obj.harness_original_zip_filename = ""
         from odoo.addons.aurora.models.harness_staging import AuroraHarnessStaging
         result = AuroraHarnessStaging._is_zip_upload(obj)
         self.assertFalse(result)
