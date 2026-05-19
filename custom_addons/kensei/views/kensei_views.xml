@@ -206,7 +206,7 @@ tasker_group = env.ref('kensei.group_kensei_tasker')
 ql_group = env.ref('kensei.group_kensei_ql')
 pl_group = env.ref('kensei.group_kensei_pl')
 for user in records:
-    user.write({'groups_id': [(3, ql_group.id), (3, pl_group.id), (4, tasker_group.id)]})
+    user.write({'group_ids': [(3, ql_group.id), (3, pl_group.id), (4, tasker_group.id)]})
       </field>
     </record>
 
@@ -220,7 +220,7 @@ for user in records:
 ql_group = env.ref('kensei.group_kensei_ql')
 pl_group = env.ref('kensei.group_kensei_pl')
 for user in records:
-    user.write({'groups_id': [(3, pl_group.id), (4, ql_group.id)]})
+    user.write({'group_ids': [(3, pl_group.id), (4, ql_group.id)]})
       </field>
     </record>
 

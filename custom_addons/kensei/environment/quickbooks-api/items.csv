@@ -9,20 +9,20 @@ Id,Name,Description,Type,UnitPrice,IncomeAccountRef_value,IncomeAccountRef_name,
 8,Seasonal Cleanup,End-of-season cleanup including leaf removal and winterization,Service,200.00,1,Landscaping Services Revenue,true,false
 9,Shrub & Hedge Trimming,Shrub and hedge trimming service (per visit),Service,65.00,1,Landscaping Services Revenue,true,false
 10,Landscape Design Plan,Full landscape design plan with 3D rendering,Service,450.00,1,Landscaping Services Revenue,true,false
-201,Beat License - Exclusive,Exclusive rights beat license,Service,180000.00,201,true
-202,Beat License - Non-Exclusive,Non-exclusive beat license,Service,35000.00,201,true
-203,Beat License - Sync,Sync licensing for media placement,Service,128000.00,201,true
-204,Penetration Testing,Security penetration testing per engagement,Service,600000.00,203,true
-205,Security Audit,Infrastructure security audit,Service,480000.00,203,true
-206,Vulnerability Assessment,API vulnerability assessment,Service,360000.00,203,true
-207,Security Documentation,Security policy documentation,Service,240000.00,203,true
-401,Atlantic Salmon,Fresh skin-on fillet (per lb),Inventory,14.5,401,True
-402,Blue Point Oysters,Standard dozen,Inventory,18.0,401,True
-403,Yellowfin Tuna,Saku block AAA grade (per lb),Inventory,22.0,401,True
-404,Sea Bass,Chilean fillet (per lb),Inventory,28.5,401,True
-405,Branzino,Whole Mediterranean (per lb),Inventory,16.0,401,True
-406,Oyster Shucking,Service fee per event,Service,75.0,401,True
-407,Lobster Tails,Cold water 6oz (each),Inventory,19.0,401,True
-408,Mussels,PEI 2lb bag,Inventory,9.5,401,True
-409,Calamari,Cleaned tubes & tentacles (per lb),Inventory,11.0,401,True
-410,Sea Salt,Maldon finishing salt (lb),Inventory,8.0,401,True
+201,Beat License - Exclusive,Exclusive rights beat license,Service,180000.00,201,Beat Sales Revenue,true,false
+202,Beat License - Non-Exclusive,Non-exclusive beat license,Service,35000.00,201,Beat Sales Revenue,true,false
+203,Beat License - Sync,Sync licensing for media placement,Service,128000.00,201,Beat Sales Revenue,true,false
+204,Penetration Testing,Security penetration testing per engagement,Service,600000.00,203,Consulting Revenue,true,false
+205,Security Audit,Infrastructure security audit,Service,480000.00,203,Consulting Revenue,true,false
+206,Vulnerability Assessment,API vulnerability assessment,Service,360000.00,203,Consulting Revenue,true,false
+207,Security Documentation,Security policy documentation,Service,240000.00,203,Consulting Revenue,true,false
+401,Atlantic Salmon,Fresh skin-on fillet (per lb),Inventory,14.5,401,Food Cost - Seafood,true,false
+402,Blue Point Oysters,Standard dozen,Inventory,18.0,401,Food Cost - Seafood,true,false
+403,Yellowfin Tuna,Saku block AAA grade (per lb),Inventory,22.0,401,Food Cost - Seafood,true,false
+404,Sea Bass,Chilean fillet (per lb),Inventory,28.5,401,Food Cost - Seafood,true,false
+405,Branzino,Whole Mediterranean (per lb),Inventory,16.0,401,Food Cost - Seafood,true,false
+406,Oyster Shucking,Service fee per event,Service,75.0,401,Food Cost - Seafood,true,false
+407,Lobster Tails,Cold water 6oz (each),Inventory,19.0,401,Food Cost - Seafood,true,false
+408,Mussels,PEI 2lb bag,Inventory,9.5,401,Food Cost - Seafood,true,false
+409,Calamari,Cleaned tubes & tentacles (per lb),Inventory,11.0,401,Food Cost - Seafood,true,false
+410,Sea Salt,Maldon finishing salt (lb),Inventory,8.0,401,Food Cost - Seafood,true,false
