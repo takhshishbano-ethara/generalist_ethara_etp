@@ -200,9 +200,10 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             "enabled": False,
         },
         "tools": {
-            "browser": {"enabled": False},
-            "web_search": {"enabled": False},
-            "web_fetch": {"enabled": False},
+            "web": {
+                "search": {"enabled": False},
+                "fetch": {"enabled": False},
+            },
         },
         "models": {"providers": {}},
     }
