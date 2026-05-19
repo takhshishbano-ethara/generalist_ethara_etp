@@ -7,6 +7,24 @@ from odoo.exceptions import UserError
 class ResConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
+    # -- Webhook (callback from Lambda back to Odoo) --
+    vegeta_webhook_token = fields.Char(
+        string="Webhook Token",
+        config_parameter="vegeta.webhook_token",
+        help="Shared secret the Lambda sends as X-Vegeta-Token / X-Leviathan-Token "
+             "in the extraction-complete callback. If empty, falls back to "
+             "VEGETA_WEBHOOK_TOKEN / LEVIATHAN_WEBHOOK_TOKEN env vars on the Odoo "
+             "server. Rotate by updating here; no restart needed.",
+    )
+    vegeta_webhook_url_override = fields.Char(
+        string="Webhook URL Override",
+        config_parameter="vegeta.webhook_url_override",
+        help="Full callback URL the Lambda will POST to. If empty, derived from "
+             "web.base.url + /api/v1/vegeta/webhook/extraction-complete. Set this "
+             "in local dev when web.base.url is localhost (use "
+             "http://host.docker.internal:8069/api/v1/vegeta/webhook/extraction-complete).",
+    )
+
     # -- Extraction Lambda (async invoke) --
     vegeta_lambda_function_name = fields.Char(
         string="Lambda Function Name",

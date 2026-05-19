@@ -7,6 +7,24 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Vegeta" string="Vegeta" name="vegeta">
+                    <block title="Webhook">
+                        <setting string="Webhook Token" help="Shared secret the Lambda sends as X-Vegeta-Token. Falls back to VEGETA_WEBHOOK_TOKEN env var if empty.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="vegeta_webhook_token" class="col-lg-3 o_light_label"/>
+                                    <field name="vegeta_webhook_token" class="oe_inline" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook URL Override" help="Full callback URL. Leave empty in production to derive from web.base.url.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="vegeta_webhook_url_override" class="col-lg-3 o_light_label"/>
+                                    <field name="vegeta_webhook_url_override" class="oe_inline" placeholder="http://host.docker.internal:8069/api/v1/vegeta/webhook/extraction-complete"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Extraction Lambda">
                         <setting string="Lambda Function" help="AWS Lambda function name or ARN. Used with boto3 lambda:Invoke (async).">
                             <div class="content-group">

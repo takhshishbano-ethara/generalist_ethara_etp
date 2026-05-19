@@ -2057,13 +2057,14 @@ class VegetaJob(models.Model):
         except Exception:
             return False
 
+
     def _get_webhook_url(self):
-        base_url = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("web.base.url", "http://localhost:8069")
-        )
-        return f"{base_url}/api/v1/vegeta/webhook/extraction-complete"
+        ICP = self.env["ir.config_parameter"].sudo()
+        override = (ICP.get_param("vegeta.webhook_url_override") or "").strip()
+        if override:
+            return override
+        base = ICP.get_param("web.base.url", "http://localhost:8069")
+        return f"{base}/api/v1/vegeta/webhook/extraction-complete"
 
     # ------------------------------------------------------------------
     # Background: Extraction

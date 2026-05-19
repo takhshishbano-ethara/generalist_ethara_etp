@@ -12,11 +12,23 @@ _logger = logging.getLogger(__name__)
 
 
 def _verify_webhook_token():
-    secret = os.environ.get("VEGETA_WEBHOOK_TOKEN") or os.environ.get("LEVIATHAN_WEBHOOK_TOKEN")
+    """Resolve shared secret with ICP > env-var precedence.
+
+    Settings > Vegeta > Webhook Token is the source of truth so secrets can
+    rotate without a process restart. Env vars VEGETA_WEBHOOK_TOKEN /
+    LEVIATHAN_WEBHOOK_TOKEN remain as fallback for legacy / EKS deployments
+    that pre-date the Settings field.
+    """
+    icp = request.env["ir.config_parameter"].sudo().get_param("vegeta.webhook_token", "")
+    secret = (
+        icp
+        or os.environ.get("VEGETA_WEBHOOK_TOKEN")
+        or os.environ.get("LEVIATHAN_WEBHOOK_TOKEN")
+    )
     if not secret:
         _logger.error(
-            "Neither VEGETA_WEBHOOK_TOKEN nor LEVIATHAN_WEBHOOK_TOKEN set -- rejecting webhook. "
-            "Set one of these env vars in production."
+            "No webhook token configured -- rejecting. Set Settings > Vegeta > "
+            "Webhook Token, or VEGETA_WEBHOOK_TOKEN env var."
         )
         return False
     headers = request.httprequest.headers
