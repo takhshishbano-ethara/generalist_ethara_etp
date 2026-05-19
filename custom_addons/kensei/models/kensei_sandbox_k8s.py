@@ -168,6 +168,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
 
     config_dict = {
         "gateway": {
+            "mode": "local",
             "bind": "lan",
             "auth": {
                 "mode": "token",
