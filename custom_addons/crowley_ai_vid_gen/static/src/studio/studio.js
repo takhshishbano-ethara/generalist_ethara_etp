@@ -34,6 +34,7 @@ const VARIANTS = [
 const POLL_INTERVAL_MS = 4000;
 const PROMPT_MAX = 4000;
 const REEL_LIMIT = 12;
+const MAX_ATTEMPTS = 3;
 const WORKING_STATES = new Set(["queued", "submitting", "polling", "downloading"]);
 
 export class CrowleyStudio extends Component {
@@ -70,6 +71,8 @@ export class CrowleyStudio extends Component {
             status: "idle",
             currentJobId: null,
             currentJobState: null,
+            currentAttemptId: null,
+            currentAttempts: [],
             currentVideoUrl: "",
             currentVideoName: "",
             currentCost: 0,
@@ -114,7 +117,55 @@ export class CrowleyStudio extends Component {
         return !this.state.prompt || !this.state.prompt.trim();
     }
     get canGenerate() {
-        return !this.promptEmpty && !this._inflight();
+        // Generate kicks off attempt #1 only — once a job exists, REFINE
+        // takes over the action slot.
+        return !this.promptEmpty && !this._inflight() && !this.state.currentJobId;
+    }
+    get hasAttemptInFlight() {
+        return (this.state.currentAttempts || []).some((a) =>
+            WORKING_STATES.has(a.state)
+        );
+    }
+    get attemptsUsed() {
+        return (this.state.currentAttempts || []).length;
+    }
+    get attemptsRemaining() {
+        return Math.max(0, MAX_ATTEMPTS - this.attemptsUsed);
+    }
+    get canRefine() {
+        return (
+            this.state.currentJobId != null &&
+            this.attemptsUsed >= 1 &&
+            this.attemptsUsed < MAX_ATTEMPTS &&
+            !this._inflight() &&
+            !this.hasAttemptInFlight
+        );
+    }
+    get showRefineSlot() {
+        // The REFINE control replaces GENERATE once a job exists.
+        return this.state.currentJobId != null && this.attemptsUsed >= 1;
+    }
+    get refineLabel() {
+        if (this.attemptsUsed >= MAX_ATTEMPTS) return "\u2726 ALL ATTEMPTS USED";
+        if (this.attemptsUsed === 2) return "\u2726 REFINE PROMPT (FINAL ATTEMPT)";
+        return "\u2726 REFINE PROMPT";
+    }
+    get refineSubtext() {
+        if (this.attemptsUsed >= MAX_ATTEMPTS) {
+            return "All 3 attempts used \u2014 start a new job to keep iterating.";
+        }
+        if (this.hasAttemptInFlight) return "Waiting for current attempt to finish\u2026";
+        if (this.attemptsUsed === 2) return "Last shot \u00B7 ATTEMPT 3 of 3";
+        return "Revise the prompt above and re-render";
+    }
+    get promptDisabled() {
+        // Lock the textarea while an attempt is in flight, or once all
+        // three attempts have been spent. The user can revise again
+        // whenever the canvas shows a ready state with attempts left.
+        if (!this.state.currentJobId) return false;
+        if (this._inflight() || this.hasAttemptInFlight) return true;
+        if (this.attemptsUsed >= MAX_ATTEMPTS) return true;
+        return false;
     }
     get promptCounterClass() {
         const n = this.promptLength;
