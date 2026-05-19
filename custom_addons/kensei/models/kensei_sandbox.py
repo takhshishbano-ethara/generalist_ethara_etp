@@ -3213,11 +3213,12 @@ class KenseiSandbox(models.Model):
             )
 
         cud_operations = self._extract_cud_operations()
-        if not cud_operations:
-            _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
+        read_operations = self._extract_read_operations()
+        if not cud_operations and not read_operations:
+            _logger.info("No API operations found, skipping test generation (sandbox=%s)", self.id)
             raise UserError(
                 "No testable operations found. The agent hasn't performed any "
-                "Create/Update/Delete actions on the mock APIs yet."
+                "API calls on the mock APIs yet."
             )
 
         TestResult = self.env["kensei.test.result"].sudo()
@@ -3245,7 +3246,7 @@ class KenseiSandbox(models.Model):
 
         try:
             system_prompt = self._load_test_gen_system_prompt()
-            user_message = self._build_test_gen_user_message(cud_operations)
+            user_message = self._build_test_gen_user_message(cud_operations, read_operations)
             result_record.write({"generation_prompt": user_message})
 
             inference_arn = ICP.get_param("kensei.test_gen_inference_arn", "")
@@ -3343,6 +3344,35 @@ class KenseiSandbox(models.Model):
 
         return operations
 
+    def _extract_read_operations(self):
+        """Extract and summarize READ (GET) operations from collected API audit logs.
+
+        Returns a list of dicts grouped by service+endpoint with call counts,
+        used for generating negative tests against unnecessary API calls.
+        """
+        self.ensure_one()
+        _INFRA_PREFIXES = ("/audit", "/health", "/docs", "/openapi")
+        _INFRA_EXACT = {"/health", "/healthz", "/docs", "/openapi.json", "/favicon.ico"}
+        endpoint_counts = {}
+
+        for req in self.api_request_ids:
+            if not req.method or req.method.upper() != "GET":
+                continue
+            path = req.path or ""
+            if path in _INFRA_EXACT or any(path.startswith(p) for p in _INFRA_PREFIXES):
+                continue
+            key = (req.service_name or "unknown", path)
+            endpoint_counts[key] = endpoint_counts.get(key, 0) + 1
+
+        reads = []
+        for (service, path), count in sorted(endpoint_counts.items()):
+            reads.append({
+                "service_name": service,
+                "path": path,
+                "count": count,
+            })
+        return reads
+
     def _load_test_gen_system_prompt(self):
         """Load the test generation system prompt from test_generation_prompt.md."""
         from odoo.modules.module import get_module_path
@@ -3367,8 +3397,7 @@ class KenseiSandbox(models.Model):
             "- Import only: os, json, urllib.request, urllib.parse, pytest\n"
         )
 
-    def _build_test_gen_user_message(self, cud_operations):
-        """Build the user message for the LLM with CUD operations and API docs."""
+    def _build_test_gen_user_message(self, cud_operations, read_operations):
         from odoo.modules.module import get_module_path
 
         module_path = get_module_path("kensei")
@@ -3393,6 +3422,13 @@ class KenseiSandbox(models.Model):
                         "port": svc_meta["port"],
                     }
 
+        task_toml = ""
+        if self.kensei_id:
+            try:
+                task_toml = self.kensei_id._build_harbor_task_toml() or ""
+            except Exception:
+                pass
+
         user_prompts = []
         for turn in self.turn_ids.sorted("turn_number"):
             if turn.prompt:
@@ -3404,27 +3440,53 @@ class KenseiSandbox(models.Model):
             p = prompt[:2000] if len(prompt) > 2000 else prompt
             message_parts.append("### Turn %d\n%s\n" % (i, p))
 
-        message_parts.append("\n## CUD Operations Performed (from audit log)\n")
-        message_parts.append("These are the actual HTTP mutations the agent made:\n\n")
-        for i, op in enumerate(cud_operations[:50], 1):
-            message_parts.append(
-                "### Operation %d\n"
-                "- Service: %s\n"
-                "- Method: %s\n"
-                "- Path: %s\n"
-                "- Request Body: %s\n"
-                "- Response Status: %d\n"
-                "- Response Body: %s\n\n"
-                % (
-                    i,
-                    op["service_name"],
-                    op["method"],
-                    op["path"],
-                    op["request_body"][:1000] if op["request_body"] else "N/A",
-                    op["status_code"],
-                    op["response_body"][:1000] if op["response_body"] else "N/A",
+        if task_toml:
+            message_parts.append("\n## task.toml (distractor_skills and metadata)\n")
+            message_parts.append("```toml\n%s\n```\n" % task_toml)
+
+        if cud_operations:
+            message_parts.append("\n## CUD Operations Performed (from audit log)\n")
+            message_parts.append("These are the actual HTTP mutations the agent made:\n\n")
+            for i, op in enumerate(cud_operations[:50], 1):
+                message_parts.append(
+                    "### Operation %d\n"
+                    "- Service: %s\n"
+                    "- Method: %s\n"
+                    "- Path: %s\n"
+                    "- Request Body: %s\n"
+                    "- Response Status: %d\n"
+                    "- Response Body: %s\n\n"
+                    % (
+                        i,
+                        op["service_name"],
+                        op["method"],
+                        op["path"],
+                        op["request_body"][:1000] if op["request_body"] else "N/A",
+                        op["status_code"],
+                        op["response_body"][:1000] if op["response_body"] else "N/A",
+                    )
                 )
+
+        if read_operations:
+            message_parts.append("\n## READ Operations Summary (GET requests by the agent)\n")
+            message_parts.append(
+                "These are all GET requests the agent made, grouped by service and endpoint.\n"
+                "Analyze which reads were necessary to fulfill the task vs. unnecessary.\n\n"
             )
+            by_service = {}
+            for op in read_operations:
+                svc = op["service_name"]
+                if svc not in by_service:
+                    by_service[svc] = []
+                by_service[svc].append(op)
+            for svc_name in sorted(by_service):
+                message_parts.append("### Service: %s\n" % svc_name)
+                for op in by_service[svc_name]:
+                    message_parts.append(
+                        "- `GET %s` — %d call%s\n"
+                        % (op["path"], op["count"], "s" if op["count"] != 1 else "")
+                    )
+                message_parts.append("")
 
         message_parts.append("\n## Environment Variables for API Base URLs\n")
         message_parts.append("Use `os.environ['<ENV_VAR>']` to get the full base URL (e.g. `http://localhost:<port>`).\n\n")
