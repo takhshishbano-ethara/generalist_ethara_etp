@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_crowley_ai_vid_gen" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.crowley_ai_vid_gen</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="40"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Crowley AI Vid Gen"
+                     string="Crowley AI Vid Gen"
+                     name="crowley_ai_vid_gen"
+                     groups="crowley_ai_vid_gen.group_crowley_manager">
+
+                    <block title="OpenRouter" name="crowley_openrouter">
+                        <setting string="OpenRouter API Key"
+                                 help="Bearer token for OpenRouter (sk-or-v1-...). Required.">
+                            <field name="crowley_openrouter_api_key" password="True"/>
+                        </setting>
+                        <setting string="HTTP-Referer (App Attribution)"
+                                 help="Optional. Identifies your app on OpenRouter's dashboards.">
+                            <field name="crowley_openrouter_http_referer"
+                                   placeholder="https://your-odoo.example.com"/>
+                        </setting>
+                        <setting string="App Title"
+                                 help="Optional. Shown on OpenRouter's leaderboards.">
+                            <field name="crowley_openrouter_app_title"/>
+                        </setting>
+                        <setting string="Webhook Callback URL"
+                                 help="OpenRouter will POST job-completion events here. Leave blank to use cron polling only.">
+                            <field name="crowley_openrouter_callback_url"
+                                   placeholder="https://your-odoo.example.com/crowley/seedance/webhook"/>
+                        </setting>
+                        <setting string="Webhook Shared Secret"
+                                 help="HMAC-SHA256 secret shared with OpenRouter. Required if Webhook Callback URL is set.">
+                            <field name="crowley_webhook_secret" password="True"
+                                   placeholder="shared HMAC secret"/>
+                        </setting>
+                        <setting string="Webhook Signature Tolerance (s)"
+                                 help="Reject webhook deliveries with timestamps older than this. Default 300.">
+                            <field name="crowley_webhook_signature_tolerance"/>
+                        </setting>
+                    </block>
+
+                    <block title="Cinematic Continuity"
+                           name="crowley_system_prompt">
+                        <setting string="System Prompt (continuity directive)"
+                                 help="Hidden prefix prepended to every generation. Tells Seedance to render a single continuous shot for the full requested duration without scene cuts.">
+                            <field name="crowley_system_prompt" widget="text" nolabel="1"/>
+                        </setting>
+                    </block>
+
+                    <block title="AWS S3 Storage" name="crowley_s3">
+                        <setting string="S3 Bucket"
+                                 help="Target bucket for generated MP4s. Required.">
+                            <field name="crowley_s3_bucket"
+                                   placeholder="crowley-seedance-prod"/>
+                        </setting>
+                        <setting string="S3 Region"
+                                 help="AWS region for the bucket (e.g. ap-south-1, us-east-1).">
+                            <field name="crowley_s3_region"/>
+                        </setting>
+                        <setting string="S3 Access Key"
+                                 help="AWS access key ID. Leave blank to use IAM role / env vars / ~/.aws/credentials.">
+                            <field name="crowley_s3_access_key" password="True"
+                                   placeholder="AKIA..."/>
+                        </setting>
+                        <setting string="S3 Secret Key"
+                                 help="AWS secret access key. Appears blank on every reload (standard Odoo behaviour for password fields). The previously saved value is preserved automatically — only retype it to rotate the secret.">
+                            <field name="crowley_s3_secret_key" password="True"
+                                   placeholder="secret access key"/>
+                        </setting>
+                        <setting string="S3 Endpoint Override"
+                                 help="Leave empty for AWS. Set for MinIO / R2 / Wasabi (e.g. http://localhost:9000).">
+                            <field name="crowley_s3_endpoint_url"
+                                   placeholder="http://localhost:9000"/>
+                        </setting>
+                        <setting string="S3 Key Prefix"
+                                 help="Object key prefix under which generated videos are stored. Default 'crowley-seedance/'.">
+                            <field name="crowley_s3_key_prefix"/>
+                        </setting>
+                        <setting string="Presigned URL TTL (seconds)"
+                                 help="How long a presigned playback URL is valid. Default 300 (5 minutes).">
+                            <field name="crowley_presigned_ttl_seconds"/>
+                        </setting>
+                        <setting string="Verify SHA-256 after upload"
+                                 help="Re-fetch from S3 and recompute SHA-256 to prove byte-identity. Doubles S3 egress; off by default.">
+                            <field name="crowley_verify_after_upload"/>
+                        </setting>
+                    </block>
+
+                    <block title="Polling Fallback" name="crowley_polling">
+                        <setting string="Poll Interval (seconds)"
+                                 help="The cron runs every minute and polls jobs whose last_poll_at is older than this interval. Default 60.">
+                            <field name="crowley_poll_interval_seconds"/>
+                        </setting>
+                        <setting string="Max Poll Attempts"
+                                 help="Give up after this many polls per job. Default 60 (= 60 minutes at 60s interval).">
+                            <field name="crowley_max_poll_attempts"/>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

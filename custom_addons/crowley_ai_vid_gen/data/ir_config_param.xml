@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="config_presigned_ttl" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.presigned_ttl_seconds</field>
+            <field name="value">300</field>
+        </record>
+        <record id="config_poll_interval" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.poll_interval_seconds</field>
+            <field name="value">60</field>
+        </record>
+        <record id="config_max_poll_attempts" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.max_poll_attempts</field>
+            <field name="value">60</field>
+        </record>
+        <record id="config_s3_prefix" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.s3_key_prefix</field>
+            <field name="value">crowley-seedance/</field>
+        </record>
+        <record id="config_s3_region" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.s3_region</field>
+            <field name="value">us-east-1</field>
+        </record>
+        <record id="config_webhook_tolerance" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.webhook_signature_tolerance</field>
+            <field name="value">300</field>
+        </record>
+        <record id="config_verify_after_upload" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.verify_after_upload</field>
+            <field name="value">False</field>
+        </record>
+        <record id="config_openrouter_app_title" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.openrouter_app_title</field>
+            <field name="value">Crowley AI Vid Gen</field>
+        </record>
+        <record id="config_system_prompt" model="ir.config_parameter">
+            <field name="key">crowley_ai_vid_gen.system_prompt</field>
+            <field name="value">Render the entire requested duration as one single continuous take from a single fixed or smoothly-moving camera. No scene cuts, no jump cuts, no shot changes, no fade-to-black, no crossfade. The camera moves naturally (pan, push, dolly, orbit) but never cuts. Maintain consistent characters, costumes, lighting, color grading, and environment from the first to the last frame. Preserve the cinematic mood, framing, and pacing described below.</field>
+        </record>
+    </data>
+</odoo>

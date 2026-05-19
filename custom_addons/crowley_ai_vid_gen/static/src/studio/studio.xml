@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="crowley_ai_vid_gen.Studio">
+    <div class="o_crow_studio">
+
+        <header class="o_crow_topbar">
+            <div class="o_crow_brand">
+                <div class="o_crow_logo"/>
+                <div class="o_crow_brand_text">
+                    <div class="o_crow_brand_title">SEEDANCE STUDIO</div>
+                    <div class="o_crow_brand_sub">BYTEDANCE SEEDANCE 2.0 · VIA OPENROUTER</div>
+                </div>
+            </div>
+            <div class="o_crow_status">
+                <div class="o_crow_pill">
+                    <span class="o_crow_dot o_crow_dot--ok"/>
+                    <span>OPENROUTER READY</span>
+                </div>
+                <div class="o_crow_meta">JOBS / <t t-esc="jobsCountFormatted"/></div>
+                <div class="o_crow_meta o_crow_clock"><t t-esc="state.now"/></div>
+                <button type="button" class="o_crow_apikey" t-on-click="onApiKeyClick">
+                    <i class="fa fa-key"/>
+                    <span>API KEY</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="o_crow_body">
+
+            <aside class="o_crow_left">
+
+                <div class="o_crow_tabs">
+                    <button type="button"
+                            t-att-class="state.tab === 'text' ? 'o_crow_tab o_crow_tab--active' : 'o_crow_tab'"
+                            t-on-click="() => this.onTabClick('text')">
+                        <span class="o_crow_tab_icon">T</span>
+                        <span>TEXT</span>
+                    </button>
+                    <button type="button" class="o_crow_tab o_crow_tab--disabled"
+                            title="Coming in v1.1" disabled="disabled">
+                        <i class="fa fa-image o_crow_tab_icon"/>
+                        <span>IMAGE</span>
+                    </button>
+                    <button type="button" class="o_crow_tab o_crow_tab--disabled"
+                            title="Coming in v1.2" disabled="disabled">
+                        <i class="fa fa-clone o_crow_tab_icon"/>
+                        <span>BATCH</span>
+                    </button>
+                </div>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">PROMPT</label>
+                    </div>
+                    <div class="o_crow_textarea_wrap">
+                        <textarea class="o_crow_textarea"
+                                  t-ref="promptInput"
+                                  t-att-value="state.prompt"
+                                  t-on-input="onPromptInput"
+                                  rows="5"
+                                  t-att-maxlength="promptMax"
+                                  placeholder="A lone astronaut walks across a dune at sunset, slow tracking shot, anamorphic lens, golden hour…"/>
+                        <div t-att-class="promptCounterClass">
+                            <t t-esc="promptLength"/> / <t t-esc="promptMax"/>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">DURATION</label>
+                    </div>
+                    <div class="o_crow_chips">
+                        <t t-foreach="durations" t-as="d" t-key="d">
+                            <button type="button"
+                                    t-att-class="chipClass(state.duration === d)"
+                                    t-on-click="() => this.onDurationClick(d)">
+                                <t t-esc="d"/>S
+                            </button>
+                        </t>
+                    </div>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">ASPECT RATIO</label>
+                    </div>
+                    <div class="o_crow_chips">
+                        <t t-foreach="aspectRatios" t-as="a" t-key="a">
+                            <button type="button"
+                                    t-att-class="chipClass(state.aspectRatio === a)"
+                                    t-on-click="() => this.onAspectClick(a)">
+                                <t t-esc="a"/>
+                            </button>
+                        </t>
+                    </div>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">RESOLUTION</label>
+                    </div>
+                    <div class="o_crow_chips o_crow_chips--big">
+                        <t t-foreach="resolutions" t-as="r" t-key="r">
+                            <button type="button"
+                                    t-att-class="chipBigClass(state.resolution === r)"
+                                    t-on-click="() => this.onResolutionClick(r)">
+                                <t t-esc="r.toUpperCase()"/>
+                            </button>
+                        </t>
+                    </div>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">AUDIO</label>
+                        <span class="o_crow_sub">SEEDANCE NATIVE</span>
+                    </div>
+                    <button type="button"
+                            t-att-class="state.generateAudio ? 'o_crow_audio o_crow_audio--on' : 'o_crow_audio'"
+                            t-on-click="onAudioToggle">
+                        <i t-att-class="state.generateAudio ? 'fa fa-volume-up' : 'fa fa-volume-off'"/>
+                        <span>NATIVE AUDIO · <t t-esc="state.generateAudio ? 'ON' : 'OFF'"/></span>
+                    </button>
+                    <p class="o_crow_help">Seedance will generate synced ambient sound / effects in one pass.</p>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">SEED</label>
+                        <span class="o_crow_sub"><t t-esc="seedSubtitle"/></span>
+                    </div>
+                    <div class="o_crow_seed_row">
+                        <input type="text"
+                               class="o_crow_seed_input"
+                               t-att-value="state.seedInput"
+                               t-on-input="onSeedInput"
+                               t-att-disabled="!state.seedLocked and state.seed === null ? null : null"
+                               placeholder="auto (random)"/>
+                        <button type="button"
+                                t-if="state.seedLocked"
+                                class="o_crow_seed_btn"
+                                title="Re-roll seed"
+                                t-on-click="onSeedDice">
+                            <i class="fa fa-random"/>
+                        </button>
+                        <button type="button"
+                                t-att-class="state.seedLocked ? 'o_crow_seed_btn o_crow_seed_btn--active' : 'o_crow_seed_btn'"
+                                t-att-title="state.seedLocked ? 'Unlock seed' : 'Lock seed'"
+                                t-on-click="onSeedLockToggle">
+                            <i t-att-class="state.seedLocked ? 'fa fa-lock' : 'fa fa-unlock'"/>
+                        </button>
+                    </div>
+                    <p class="o_crow_help"><t t-esc="seedHelp"/></p>
+                </section>
+
+                <section class="o_crow_section">
+                    <div class="o_crow_section_head">
+                        <label class="o_crow_label">MODEL VARIANT</label>
+                    </div>
+                    <div class="o_crow_chips o_crow_chips--variants">
+                        <t t-foreach="variants" t-as="v" t-key="v.value">
+                            <button type="button"
+                                    t-att-class="variantChipClass(v.value)"
+                                    t-on-click="() => this.onVariantClick(v.value)">
+                                <span class="o_crow_variant_name"><t t-esc="v.label"/></span>
+                                <span class="o_crow_variant_ver"><t t-esc="v.version"/></span>
+                            </button>
+                        </t>
+                    </div>
+                    <p class="o_crow_help"><t t-esc="variantBlurb"/></p>
+                </section>
+
+                <div class="o_crow_generate">
+                    <button type="button"
+                            t-att-class="canGenerate ? 'o_crow_btn_generate' : 'o_crow_btn_generate o_crow_btn_generate--disabled'"
+                            t-att-disabled="!canGenerate ? 'disabled' : null"
+                            t-on-click="onGenerateClick">
+                        <i class="fa fa-magic"/>
+                        <span>GENERATE VIDEO</span>
+                    </button>
+                    <div class="o_crow_generate_sub"><t t-esc="generateSubtext"/></div>
+                </div>
+
+            </aside>
+
+            <main class="o_crow_right">
+
+                <div class="o_crow_canvas">
+                    <div class="o_crow_corner o_crow_corner--tl"/>
+                    <div class="o_crow_corner o_crow_corner--tr"/>
+                    <div class="o_crow_corner o_crow_corner--bl"/>
+                    <div class="o_crow_corner o_crow_corner--br"/>
+                    <div class="o_crow_canvas_tag">CANVAS · MAIN OUTPUT</div>
+
+                    <t t-if="canvasMode === 'idle'">
+                        <div class="o_crow_canvas_inner o_crow_canvas_inner--idle">
+                            <div class="o_crow_canvas_idle_top">[ CANVAS IDLE ]</div>
+                            <div class="o_crow_canvas_glyph">✦</div>
+                            <h2 class="o_crow_canvas_h">Cinematic video, on demand.</h2>
+                            <p class="o_crow_canvas_p">
+                                Compose a prompt, pick your parameters, and let Seedance 2.0 render
+                                the shot. Up to 15 seconds, 1080p, 24 fps, with optional native audio.
+                            </p>
+                        </div>
+                    </t>
+
+                    <t t-if="canvasMode === 'working'">
+                        <div class="o_crow_canvas_inner o_crow_canvas_inner--working">
+                            <div class="o_crow_spinner"/>
+                            <div class="o_crow_canvas_state"><t t-esc="workingLabel"/></div>
+                            <div class="o_crow_canvas_elapsed"><t t-esc="elapsedFormatted"/> elapsed</div>
+                            <div class="o_crow_canvas_eta">~60-120s typical for 5s 1080p</div>
+                        </div>
+                    </t>
+
+                    <t t-if="canvasMode === 'ready'">
+                        <video class="o_crow_canvas_video"
+                               t-ref="canvasVideo"
+                               t-att-src="state.currentVideoUrl"
+                               controls="controls"
+                               preload="metadata"
+                               playsinline="playsinline"/>
+                    </t>
+
+                    <t t-if="canvasMode === 'failed'">
+                        <div class="o_crow_canvas_inner o_crow_canvas_inner--failed">
+                            <div class="o_crow_canvas_state o_crow_canvas_state--err">FAILED</div>
+                            <pre class="o_crow_canvas_err"><t t-esc="state.currentError"/></pre>
+                            <div class="o_crow_canvas_actions">
+                                <button type="button" class="o_crow_btn o_crow_btn--ghost"
+                                        t-on-click="onResumeDownload">
+                                    Resume Download (free)
+                                </button>
+                                <button type="button" class="o_crow_btn o_crow_btn--primary"
+                                        t-on-click="onRetry">
+                                    Retry (full re-generation)
+                                </button>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="o_crow_canvas_meta" t-if="canvasMode === 'ready'">
+                    <t t-esc="formatCanvasMeta()"/>
+                </div>
+
+                <section class="o_crow_reel">
+                    <header class="o_crow_reel_head">
+                        <div class="o_crow_reel_title">
+                            <i class="fa fa-play"/>
+                            <span>REEL · HISTORY</span>
+                            <span class="o_crow_reel_count"><t t-esc="reelCount"/> ITEMS</span>
+                        </div>
+                        <div class="o_crow_reel_actions" t-if="reelCount >= 1">
+                            <button type="button" class="o_crow_btn o_crow_btn--ghost"
+                                    t-on-click="onDownloadAll"
+                                    t-att-disabled="state.zipping ? 'disabled' : null">
+                                <i class="fa fa-download"/>
+                                <span>DOWNLOAD ALL · <t t-esc="reelCount"/>.ZIP</span>
+                            </button>
+                            <span class="o_crow_reel_hint">OPENROUTER CDN · DOWNLOAD TO KEEP</span>
+                        </div>
+                    </header>
+
+                    <div class="o_crow_reel_strip">
+                        <t t-if="!reelCount">
+                            <div class="o_crow_reel_empty">No completed renders yet. Generate your first shot.</div>
+                        </t>
+                        <t t-foreach="state.reel" t-as="item" t-key="item.id">
+                            <div t-att-class="reelItemClass(item.id)"
+                                 t-on-click="() => this.onReelClick(item.id)">
+                                <video class="o_crow_reel_video"
+                                       t-att-src="item.video_play_url"
+                                       preload="metadata"
+                                       muted="muted"
+                                       playsinline="playsinline"/>
+                                <div class="o_crow_reel_overlay o_crow_reel_overlay--tl">
+                                    <span class="o_crow_dot o_crow_dot--ok"/>
+                                    <span>SUCCEEDED</span>
+                                </div>
+                                <div class="o_crow_reel_overlay o_crow_reel_overlay--tr">
+                                    <t t-esc="(item.resolution || '').toUpperCase()"/>
+                                </div>
+                                <div class="o_crow_reel_caption">
+                                    <t t-esc="item.name"/>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </section>
+
+            </main>
+
+        </div>
+    </div>
+</t>
+
+</templates>

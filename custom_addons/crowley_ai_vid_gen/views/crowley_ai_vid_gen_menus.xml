@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="action_crowley_ai_vid_gen_studio" model="ir.actions.client">
+        <field name="name">Seedance Studio</field>
+        <field name="tag">crowley_ai_vid_gen.studio</field>
+    </record>
+
+    <menuitem
+        id="menu_crowley_ai_vid_gen_root"
+        name="Crowley AI Vid Gen"
+        web_icon="crowley_ai_vid_gen,static/description/icon.png"
+        sequence="180"
+        groups="crowley_ai_vid_gen.group_crowley_user"/>
+
+    <menuitem
+        id="menu_crowley_ai_vid_gen_studio"
+        name="Studio"
+        parent="menu_crowley_ai_vid_gen_root"
+        action="action_crowley_ai_vid_gen_studio"
+        sequence="1"
+        groups="crowley_ai_vid_gen.group_crowley_user"/>
+
+    <menuitem
+        id="menu_crowley_ai_vid_gen_jobs"
+        name="Jobs"
+        parent="menu_crowley_ai_vid_gen_root"
+        action="action_crowley_ai_vid_gen_job"
+        sequence="10"
+        groups="crowley_ai_vid_gen.group_crowley_user"/>
+
+    <menuitem
+        id="menu_crowley_ai_vid_gen_config"
+        name="Configuration"
+        parent="menu_crowley_ai_vid_gen_root"
+        sequence="90"
+        groups="crowley_ai_vid_gen.group_crowley_manager"/>
+
+    <menuitem
+        id="menu_crowley_ai_vid_gen_config_settings"
+        name="Settings"
+        parent="menu_crowley_ai_vid_gen_config"
+        action="base_setup.action_general_configuration"
+        sequence="10"
+        groups="crowley_ai_vid_gen.group_crowley_manager"/>
+
+</odoo>

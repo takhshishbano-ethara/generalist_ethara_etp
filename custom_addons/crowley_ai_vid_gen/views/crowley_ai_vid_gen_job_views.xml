@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ==================== Search ==================== -->
+    <record id="view_crowley_ai_vid_gen_job_search" model="ir.ui.view">
+        <field name="name">crowley.ai.vid.gen.job.search</field>
+        <field name="model">crowley.ai.vid.gen.job</field>
+        <field name="arch" type="xml">
+            <search string="Crowley Jobs">
+                <field name="name"/>
+                <field name="prompt"/>
+                <field name="user_id"/>
+                <field name="openrouter_job_id"/>
+                <separator/>
+                <filter string="My Jobs" name="my_jobs"
+                        domain="[('user_id','=', uid)]"/>
+                <filter string="Ready" name="state_ready"
+                        domain="[('state','=','ready')]"/>
+                <filter string="In Progress" name="state_in_progress"
+                        domain="[('state','in',('queued','submitting','polling','downloading'))]"/>
+                <filter string="Failed" name="state_failed"
+                        domain="[('state','=','failed')]"/>
+                <separator/>
+                <filter string="Last 7 Days" name="last_7d"
+                        domain="[('create_date','&gt;=', (context_today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <separator/>
+                <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
+                <filter string="Owner" name="group_user" context="{'group_by': 'user_id'}"/>
+                <filter string="Resolution" name="group_resolution" context="{'group_by': 'resolution'}"/>
+                <filter string="Model" name="group_model" context="{'group_by': 'model'}"/>
+                <filter string="Created Date" name="group_create_date" context="{'group_by': 'create_date:day'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ==================== List ==================== -->
+    <record id="view_crowley_ai_vid_gen_job_list" model="ir.ui.view">
+        <field name="name">crowley.ai.vid.gen.job.list</field>
+        <field name="model">crowley.ai.vid.gen.job</field>
+        <field name="arch" type="xml">
+            <list string="Crowley Jobs"
+                  decoration-success="state == 'ready'"
+                  decoration-danger="state == 'failed'"
+                  decoration-info="state in ('queued','submitting','polling','downloading')"
+                  decoration-muted="state == 'cancelled'">
+                <field name="name"/>
+                <field name="prompt" string="Prompt" optional="show"/>
+                <field name="model" optional="hide"/>
+                <field name="resolution" optional="show"/>
+                <field name="aspect_ratio" optional="hide"/>
+                <field name="duration" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'ready'"
+                       decoration-danger="state == 'failed'"
+                       decoration-info="state in ('queued','submitting','polling','downloading')"
+                       decoration-muted="state == 'cancelled'"/>
+                <field name="cost_usd" optional="show" widget="monetary" sum="Total"/>
+                <field name="file_size" optional="hide" widget="float_file_size"/>
+                <field name="user_id" optional="show"/>
+                <field name="create_date" optional="show"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ==================== Kanban ==================== -->
+    <record id="view_crowley_ai_vid_gen_job_kanban" model="ir.ui.view">
+        <field name="name">crowley.ai.vid.gen.job.kanban</field>
+        <field name="model">crowley.ai.vid.gen.job</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="state" class="o_kanban_small_column">
+                <field name="state"/>
+                <field name="name"/>
+                <field name="prompt"/>
+                <field name="resolution"/>
+                <field name="duration"/>
+                <field name="cost_usd"/>
+                <field name="user_id"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_card oe_kanban_global_click">
+                            <div class="o_kanban_record_top">
+                                <div class="o_kanban_record_headings">
+                                    <strong class="o_kanban_record_title"><field name="name"/></strong>
+                                </div>
+                                <field name="state" widget="label_selection"
+                                       options="{'classes': {'ready': 'success', 'failed': 'danger', 'cancelled': 'default', 'queued': 'info', 'submitting': 'info', 'polling': 'info', 'downloading': 'info'}}"/>
+                            </div>
+                            <div class="o_kanban_record_body">
+                                <div class="text-muted text-truncate">
+                                    <field name="prompt"/>
+                                </div>
+                                <div class="mt-1">
+                                    <span class="badge text-bg-secondary"><field name="resolution"/></span>
+                                    <span class="badge text-bg-secondary"><field name="duration"/>s</span>
+                                </div>
+                            </div>
+                            <div class="o_kanban_record_bottom">
+                                <div class="oe_kanban_bottom_left">
+                                    <field name="user_id" widget="many2one_avatar_user"/>
+                                </div>
+                                <div class="oe_kanban_bottom_right">
+                                    <field name="cost_usd" widget="monetary"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- ==================== Form ==================== -->
+    <record id="view_crowley_ai_vid_gen_job_form" model="ir.ui.view">
+        <field name="name">crowley.ai.vid.gen.job.form</field>
+        <field name="model">crowley.ai.vid.gen.job</field>
+        <field name="arch" type="xml">
+            <form string="Crowley AI Vid Gen Job">
+                <header>
+                    <button name="action_generate" type="object" string="Generate Video"
+                            class="btn-primary"
+                            invisible="state not in ('draft','failed','cancelled')"/>
+                    <button name="action_cancel" type="object" string="Cancel"
+                            invisible="state not in ('queued','submitting','polling')"
+                            confirm="Cancel this job? OpenRouter generation will still complete on their side; you simply stop tracking it."/>
+                    <button name="action_resume_download" type="object"
+                            string="Resume Download (free)"
+                            class="btn-primary"
+                            invisible="state != 'failed' or not openrouter_polling_url"
+                            help="Skip re-submission and just re-download. Use this when S3 credentials were missing — avoids the cost of a duplicate generation."/>
+                    <button name="action_retry" type="object" string="Retry (full re-generation)"
+                            invisible="state not in ('failed','cancelled')"
+                            confirm="This will re-submit the job to OpenRouter from scratch, incurring a new generation cost (~$3 for a 5s 1080p clip). Use 'Resume Download' instead if the original OpenRouter job already completed but only the S3 upload failed."/>
+                    <button name="action_refresh_url" type="object" string="Refresh Play URL"
+                            invisible="state != 'ready'"/>
+                    <button name="action_download" type="object" string="Download MP4"
+                            invisible="state != 'ready'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,queued,polling,downloading,ready"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_attachments" type="object"
+                                class="oe_stat_button" icon="fa-paperclip"
+                                invisible="attachment_count == 0">
+                            <field name="attachment_count" widget="statinfo" string="Attachments"/>
+                        </button>
+                    </div>
+
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group string="Prompt &amp; Model" name="prompt_group">
+                            <field name="prompt" placeholder="A serene mountain landscape at sunset with clouds drifting by..."
+                                   readonly="state != 'draft'" required="1"/>
+                            <field name="model" readonly="state != 'draft'"/>
+                            <field name="seed" readonly="state != 'draft'"/>
+                        </group>
+                        <group string="Output Parameters" name="output_group">
+                            <field name="duration" readonly="state != 'draft'"/>
+                            <field name="resolution" readonly="state != 'draft'"/>
+                            <field name="aspect_ratio" readonly="state != 'draft'"/>
+                            <field name="generate_audio" readonly="state != 'draft'" widget="boolean_toggle"/>
+                        </group>
+                    </group>
+
+                    <group invisible="state != 'ready'" name="video_group">
+                        <field name="video_play_url" widget="crowley_video_preview" nolabel="1" colspan="2" readonly="1"/>
+                    </group>
+
+                    <notebook>
+                        <page string="Job Metadata" name="metadata">
+                            <group>
+                                <group string="OpenRouter">
+                                    <field name="openrouter_job_id" readonly="1"/>
+                                    <field name="openrouter_polling_url" readonly="1" widget="url"/>
+                                    <field name="cost_usd" readonly="1" widget="monetary"/>
+                                    <field name="poll_attempts" readonly="1"/>
+                                    <field name="last_poll_at" readonly="1"/>
+                                </group>
+                                <group string="Storage &amp; Provenance">
+                                    <field name="s3_bucket" readonly="1"/>
+                                    <field name="s3_key" readonly="1"/>
+                                    <field name="s3_etag" readonly="1"/>
+                                    <field name="source_sha256" readonly="1"/>
+                                    <field name="file_size" readonly="1" widget="float_file_size"/>
+                                    <field name="mimetype" readonly="1"/>
+                                </group>
+                            </group>
+                            <group string="Timing">
+                                <field name="submitted_at" readonly="1"/>
+                                <field name="completed_at" readonly="1"/>
+                                <field name="user_id" readonly="1"/>
+                                <field name="company_id" readonly="1" groups="base.group_multi_company"/>
+                            </group>
+                            <group string="Error" invisible="not error_message">
+                                <field name="error_message" readonly="1" nolabel="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ==================== Window action ==================== -->
+    <record id="action_crowley_ai_vid_gen_job" model="ir.actions.act_window">
+        <field name="name">AI Video Jobs</field>
+        <field name="res_model">crowley.ai.vid.gen.job</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_crowley_ai_vid_gen_job_search"/>
+        <field name="context">{"search_default_my_jobs": 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first AI-generated video</p>
+            <p>Type a prompt, pick a resolution and duration, then click <b>Generate Video</b>.
+            We submit the job to OpenRouter Seedance 2.0, stream the result to S3 bit-perfect,
+            and let you play it back here.</p>
+        </field>
+    </record>
+
+</odoo>
