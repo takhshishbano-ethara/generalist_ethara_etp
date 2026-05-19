@@ -71,7 +71,24 @@ def _boot_odoo(db_name: str, conf_path: Optional[str] = None):
     from odoo.modules.registry import Registry
     registry = Registry(db_name)
     _logger.info("Odoo registry booted for db=%s", db_name)
+    _ensure_schema_compatible(registry, db_name)
     return registry
+
+
+def _ensure_schema_compatible(registry, db_name: str) -> None:
+    statements = (
+        "ALTER TABLE aurora_github_token "
+        "DROP CONSTRAINT IF EXISTS aurora_github_token_leased_by_run_id_fkey",
+        "ALTER TABLE aurora_evaluation "
+        "ADD COLUMN IF NOT EXISTS custom_jsonl_file BYTEA",
+    )
+    try:
+        with registry.cursor() as cr:
+            for sql in statements:
+                cr.execute(sql)
+        _logger.info("Self-heal: schema-compat DDL applied (idempotent)")
+    except Exception:
+        _logger.exception("Self-heal: schema-compat DDL failed; continuing")
 
 
 def _open_cursor(db_name: str):
