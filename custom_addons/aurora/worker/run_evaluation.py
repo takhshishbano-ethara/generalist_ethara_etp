@@ -176,7 +176,7 @@ def _setup_buildx_builder():
         ],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=300,
     )
     if result.returncode != 0:
         _logger.warning(
