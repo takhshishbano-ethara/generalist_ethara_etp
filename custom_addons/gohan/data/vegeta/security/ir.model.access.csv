@@ -1,9 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_vegeta_job_user,vegeta.job.user,model_vegeta_job,group_vegeta_user,1,1,0,0
-access_vegeta_job_admin,vegeta.job.admin,model_vegeta_job,group_vegeta_admin,1,1,1,1
-access_vegeta_category_user,vegeta.category.user,model_vegeta_category,group_vegeta_user,1,0,0,0
-access_vegeta_category_admin,vegeta.category.admin,model_vegeta_category,group_vegeta_admin,1,1,1,1
-access_vegeta_rerun_wizard_user,vegeta.rerun.wizard.user,model_vegeta_rerun_wizard,group_vegeta_user,1,1,1,0
-access_vegeta_import_wizard_admin,vegeta.import.wizard.admin,model_vegeta_import_wizard,group_vegeta_admin,1,1,1,0
-access_vegeta_start_task_wizard_user,vegeta.start.task.wizard.user,model_vegeta_start_task_wizard,group_vegeta_user,1,1,1,0
-access_vegeta_bulk_assign_wizard_admin,vegeta.bulk.assign.wizard.admin,model_vegeta_bulk_assign_wizard,group_vegeta_admin,1,1,1,0

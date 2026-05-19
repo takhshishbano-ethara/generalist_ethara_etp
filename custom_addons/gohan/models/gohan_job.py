@@ -19,6 +19,12 @@ _POOL = ThreadPoolExecutor(
     max_workers=_PRD_POOL_SIZE, thread_name_prefix="gohan-prd"
 )
 
+# How many extra attempts `_write_with_cursor` makes on transient psycopg2
+# InterfaceError / OperationalError before propagating. 2 retries = 3 total
+# attempts, with backoff 0.5s, 1.0s — covers idle-backend reap blips without
+# noticeably delaying real failures.
+_WRITE_CURSOR_RETRIES = 2
+
 _BATCH_FANOUT_POOL_SIZE = int(os.environ.get("GOHAN_BATCH_FANOUT_SIZE", "250"))
 
 # Shared advisory-lock namespace used by:
@@ -758,54 +764,106 @@ class GohanJob(models.Model):
                     "<p class='text-muted'>Configure S3 bucket in settings to preview</p>"
                 )
 
-    def _load_network_data_from_s3(self):
-        """Lazy-fetch ``raw_data.json`` from S3 and return its ``network_data``
-        block, or ``None`` when unavailable.
+    def _load_extraction_artifacts_from_s3(self):
+        """Lazy-fetch the full set of extraction artifacts from S3.
 
-        The Lambda webhook only sends a count (``extraction_summary.network_endpoints``);
-        the actual endpoint list lives on S3 in ``{prefix}/raw_data.json``.
-        This pulls that bundle and surfaces the endpoint list in the UI.
+        Returns a dict keyed by phase name (``network_data``, ``api_doc_extracted``,
+        ``auth_data``, ``extraction_quality``, ``inferred_*``, ``sitemap_taxonomy``,
+        ``site_discovery``, ``public_kb``, ``interaction_data``, ``screen_captures``,
+        ``functional_inference``, ``feature_inventory``, etc.) with each value
+        being the parsed JSON. Returns ``{}`` when nothing can be loaded.
 
-        Fires for terminal states (``done``/``reviewed``/``shipped``) and also
-        ``failed``, so operators can inspect what got scraped on jobs that
-        crashed in a later phase (PRD generation, scoring).
+        Tries four S3 layouts in priority order — the Lambda has produced all
+        four shapes across deploys:
+          A. ``{folder}/{id}/raw_data.json``           (merged, id-based)
+          B. ``{folder}/{name}/raw_data.json``         (merged, name-based)
+          C. ``{folder}/{name}/artifacts/raw_data/*``  (individual, name-based)
+          D. ``{folder}/{id}/artifacts/raw_data/*``    (individual, id-based)
 
-        Returns ``None`` on any failure (bucket not configured, S3 error,
-        missing file) so the caller falls through to the count-only stub.
+        Fires for ``done``/``reviewed``/``shipped``/``failed`` so partial
+        extractions stay inspectable.
         """
         self.ensure_one()
         if self.state not in ("done", "reviewed", "shipped", "failed"):
-            return None
+            return {}
         ICP = self.env["ir.config_parameter"].sudo()
         bucket = ICP.get_param("gohan.s3_bucket")
         if not bucket:
-            return None
+            return {}
         s3_folder = (ICP.get_param("gohan.s3_folder") or "gohan").strip("/")
-        # Parse the path part out of `s3://<any-bucket>/<path>` rather than
-        # bucket-aware split — the stored prefix may reference an older
-        # bucket name (e.g. after a rename) but the path-suffix is stable.
+
+        # Path-suffix derived from s3_artifact_prefix is bucket-agnostic.
         import re
-        prefix = ""
+        stored_path = ""
         if self.s3_artifact_prefix:
             m = re.match(r"^s3://[^/]+/(.+)$", self.s3_artifact_prefix)
             if m:
-                prefix = m.group(1).rstrip("/")
-        if not prefix:
-            prefix = f"{s3_folder}/{self.id}"
-        key = f"{prefix}/raw_data.json"
+                stored_path = m.group(1).rstrip("/")
+
         try:
             from ..services import s3_service
-            raw_data = s3_service.download_json_from_s3(self.env, bucket, key)
-        except Exception as exc:
-            _logger.debug(
-                "[gohan][job=%s] backend_signals: S3 network_data fetch skipped "
-                "(bucket=%s key=%s err=%s)",
-                self.id, bucket, key, exc,
-            )
-            return None
-        if not isinstance(raw_data, dict):
-            return None
-        return raw_data.get("network_data") or raw_data.get("network") or None
+        except ImportError:
+            return {}
+
+        # Candidate locations for the merged bundle.
+        merged_candidates = []
+        if stored_path:
+            merged_candidates.append(f"{stored_path}/raw_data.json")
+        merged_candidates.append(f"{s3_folder}/{self.id}/raw_data.json")
+        if self.name:
+            merged_candidates.append(f"{s3_folder}/{self.name}/raw_data.json")
+
+        for key in merged_candidates:
+            try:
+                data = s3_service.download_json_from_s3(self.env, bucket, key)
+                if isinstance(data, dict) and data:
+                    _logger.info(
+                        "[gohan][job=%s] backend_signals: loaded merged bundle s3://%s/%s",
+                        self.id, bucket, key,
+                    )
+                    return data
+            except Exception:
+                continue
+
+        # No merged file — rebuild from individual phase files.
+        individual_prefixes = []
+        if self.name:
+            individual_prefixes.append(f"{s3_folder}/{self.name}/artifacts/raw_data/")
+        individual_prefixes.append(f"{s3_folder}/{self.id}/artifacts/raw_data/")
+        if stored_path:
+            individual_prefixes.append(f"{stored_path}/artifacts/raw_data/")
+
+        rebuilt = {}
+        for prefix in individual_prefixes:
+            try:
+                keys = s3_service.list_objects(self.env, bucket, prefix)
+            except Exception:
+                keys = []
+            if not keys:
+                continue
+            for k in keys:
+                if not k.lower().endswith(".json"):
+                    continue
+                phase = k.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                if not phase or phase in rebuilt:
+                    continue
+                try:
+                    rebuilt[phase] = s3_service.download_json_from_s3(
+                        self.env, bucket, k
+                    )
+                except Exception as exc:
+                    _logger.debug(
+                        "[gohan][job=%s] backend_signals: skip %s (%s)",
+                        self.id, k, exc,
+                    )
+            if rebuilt:
+                _logger.info(
+                    "[gohan][job=%s] backend_signals: rebuilt %d artifacts "
+                    "from s3://%s/%s",
+                    self.id, len(rebuilt), bucket, prefix,
+                )
+                return rebuilt
+        return {}
 
     @api.depends("lambda_callback_json", "site_discovery_json")
     def _compute_backend_signals_html(self):
@@ -920,11 +978,22 @@ class GohanJob(models.Model):
 
         for rec in self:
             callback = rec.lambda_callback_json or {}
+            # Webhook payload is the primary source. When phases are missing
+            # (Lambda only sends a network count, not the endpoint list), fall
+            # back to S3 artifacts. Callback wins on conflict.
+            nested_raw = callback.get("raw_data") if isinstance(callback.get("raw_data"), dict) else {}
+            s3_artifacts = rec._load_extraction_artifacts_from_s3()
+
+            def _pick(key):
+                return (
+                    callback.get(key)
+                    or nested_raw.get(key)
+                    or s3_artifacts.get(key)
+                )
+
             network_block = (
-                callback.get("network")
-                or callback.get("network_data")
-                or (callback.get("raw_data") or {}).get("network_data")
-                or rec._load_network_data_from_s3()
+                _pick("network")
+                or _pick("network_data")
                 or {
                     "api_endpoints_count": (
                         callback.get("extraction_summary") or {}
@@ -933,16 +1002,16 @@ class GohanJob(models.Model):
             )
             data_source = {
                 "extraction_quality": (
-                    callback.get("extraction_quality")
+                    _pick("extraction_quality")
                     or {"tier": callback.get("eq_tier")}
                 ),
-                "api_doc_extracted": callback.get("api_doc_extracted"),
-                "network":           network_block,
-                "auth_data":         callback.get("auth_data"),
-                "inferred_data_model": callback.get("inferred_data_model"),
-                "inferred_flows":      callback.get("inferred_flows"),
-                "inferred_roles":      callback.get("inferred_roles"),
-                "sitemap_taxonomy":    callback.get("sitemap_taxonomy"),
+                "api_doc_extracted":   _pick("api_doc_extracted"),
+                "network":             network_block,
+                "auth_data":           _pick("auth_data"),
+                "inferred_data_model": _pick("inferred_data_model"),
+                "inferred_flows":      _pick("inferred_flows"),
+                "inferred_roles":      _pick("inferred_roles"),
+                "sitemap_taxonomy":    _pick("sitemap_taxonomy"),
             }
             if not any(data_source.values()):
                 rec.backend_signals_html = ""
@@ -1076,6 +1145,10 @@ class GohanJob(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
+        # Snapshot prior state per record so we can detect actual transitions
+        # (writing the same value shouldn't fire a notification — avoids spam
+        # when other fields are updated).
+        prior_states = {rec.id: rec.state for rec in self} if "state" in vals else {}
         res = super().write(vals)
         # Auto-promote to draft when admin assigns a user to not_assigned task
         if "user_id" in vals and vals["user_id"]:
@@ -1087,6 +1160,24 @@ class GohanJob(models.Model):
             to_demote = self.filtered(lambda r: r.state == "draft")
             if to_demote:
                 super(GohanJob, to_demote).write({"state": "not_assigned"})
+        # Fire bus notification on every real state transition so the frontend
+        # `gohan_bus.js` subscriber can auto-reload the form view without the
+        # operator having to refresh. Sending after super().write() means the
+        # DB row already reflects the new state when the client reloads.
+        if "state" in vals:
+            for rec in self:
+                if prior_states.get(rec.id) != rec.state:
+                    try:
+                        self.env["bus.bus"]._sendone(
+                            "gohan_job_updates",
+                            "gohan/job_state" if rec.state != "done" else "gohan/job_done",
+                            {"id": rec.id, "state": rec.state},
+                        )
+                    except Exception:
+                        _logger.debug(
+                            "bus.bus notification failed for job %s (non-fatal)",
+                            rec.id,
+                        )
         return res
 
     # ------------------------------------------------------------------
@@ -2258,7 +2349,7 @@ class GohanJob(models.Model):
         """Mark task as failed."""
         self.write({
             "state": "failed",
-            "error_message": str(error_msg)[:500],
+            "error_message": self._friendly_pipeline_error(error_msg)[:500],
             "completed_at": fields.Datetime.now(),
         })
         self._notify_state_change("failed")
@@ -2411,16 +2502,17 @@ class GohanJob(models.Model):
             _logger.exception(
                 "Extraction background task failed for job %s", record_id
             )
+            friendly = self._friendly_pipeline_error(exc)
             self._append_pipeline_event(
                 db_name, record_id,
                 step="extraction.invoke",
                 status="error",
-                message=f"Background task crashed: {exc}",
+                message=f"Background task crashed: {friendly}",
             )
             try:
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
-                    "error_message": str(exc)[:500],
+                    "error_message": friendly[:500],
                     "completed_at": fields.Datetime.now(),
                 })
             except Exception:
@@ -2660,6 +2752,8 @@ class GohanJob(models.Model):
 
                 ICP = env["ir.config_parameter"].sudo()
                 bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
+                _include_ss_raw = ICP.get_param("gohan.prd_include_screenshots", "True")
+                _include_ss = str(_include_ss_raw).strip().lower() not in ("false", "0", "no", "off", "")
                 config = {
                     "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
                     "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
@@ -2672,6 +2766,7 @@ class GohanJob(models.Model):
                     "s3_region": ICP.get_param("gohan.s3_region"),
                     "s3_folder": ICP.get_param("gohan.s3_folder") or "gohan",
                     "cdn_url": ICP.get_param("gohan.s3_cdn_url"),
+                    "include_screenshots": _include_ss,
                 }
                 job_data = {
                     "name": record.name,
@@ -2746,8 +2841,12 @@ class GohanJob(models.Model):
             # === PHASE 2: LLM generation loop ===
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
+            # Operators can disable visual input entirely via
+            # `gohan.prd_include_screenshots` sysparam (default True). Set to
+            # False to send text-only — useful when iterating on the textual
+            # extraction quality without burning vision tokens.
             screenshot_blocks = []
-            if job_data["screenshot_keys"] and config["s3_bucket"]:
+            if config["include_screenshots"] and job_data["screenshot_keys"] and config["s3_bucket"]:
                 from ..services.s3_service import download_file_from_s3
                 import base64 as b64
                 MAX_SCREENSHOTS = 5
@@ -3088,16 +3187,21 @@ class GohanJob(models.Model):
 
         except Exception as exc:
             _logger.exception("[gohan][job=%s] PRD generation failed", record_id)
+            # Translate psycopg2 / connection-layer faults to a friendlier
+            # operator-facing message — the raw "Cursor already closed" or
+            # "connection already closed" texts are infrastructure noise that
+            # tell the user nothing actionable.
+            friendly_msg = self._friendly_pipeline_error(exc)
             self._append_pipeline_event(
                 db_name, record_id,
                 step="pipeline.complete",
                 status="error",
-                message=f"PRD generation crashed: {exc}",
+                message=f"PRD generation crashed: {friendly_msg}",
             )
             try:
                 fail_vals = {
                     "state": "failed",
-                    "error_message": str(exc)[:500],
+                    "error_message": friendly_msg[:500],
                     "completed_at": fields.Datetime.now(),
                 }
                 # Persist whatever LLM trace we accumulated before the failure.
@@ -3108,27 +3212,86 @@ class GohanJob(models.Model):
             except Exception:
                 _logger.error("[gohan][job=%s] failed to mark as failed", record_id)
 
+    @staticmethod
+    def _friendly_pipeline_error(exc):
+        """Translate raw pipeline exceptions to operator-facing messages.
+
+        Background threads occasionally surface psycopg2 connection-state
+        errors ("cursor already closed", "connection already closed",
+        "SSL connection has been closed unexpectedly") when Odoo or the DB
+        side recycles a long-idle backend. These are transient and don't
+        require a developer to triage — the operator just needs to click
+        Retry. Mapping them to a clear message removes the support load.
+
+        Falls back to ``str(exc)`` for anything we don't recognize so real
+        bugs remain visible.
+        """
+        msg = str(exc) or exc.__class__.__name__
+        low = msg.lower()
+        connection_signals = (
+            "cursor already closed",
+            "connection already closed",
+            "ssl connection has been closed",
+            "server closed the connection unexpectedly",
+            "interfaceerror",
+        )
+        if any(s in low for s in connection_signals):
+            return (
+                "Database session was lost during the pipeline run "
+                "(transient DB connection drop). Click Retry to resume."
+            )
+        return msg
+
     # ------------------------------------------------------------------
     # Shared helpers
     # ------------------------------------------------------------------
 
     def _write_with_cursor(self, db_name, record_id, vals):
-        """Write values to a record using a short-lived cursor."""
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            record = env[self._name].browse(record_id)
-            if record.exists():
-                record.write(vals)
-                if "state" in vals:
-                    try:
-                        env["bus.bus"]._sendone(
-                            "gohan_job_updates",
-                            "gohan/job_state",
-                            {"id": record_id, "state": vals["state"]},
-                        )
-                    except Exception:
-                        pass
-            cr.commit()
+        """Write values to a record using a short-lived cursor.
+
+        Resilient to transient connection drops: psycopg2 InterfaceError
+        ("cursor already closed") and OperationalError ("connection
+        reset", "SSL handshake failed", etc.) get one fast retry with a
+        fresh cursor + connection. These come from the threadpool reaping
+        a long-idle backend between pipeline steps — they are not bugs in
+        the write itself and should not surface to the operator.
+        """
+        import psycopg2
+        last_exc = None
+        for attempt in range(_WRITE_CURSOR_RETRIES + 1):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if record.exists():
+                        record.write(vals)
+                        if "state" in vals:
+                            try:
+                                env["bus.bus"]._sendone(
+                                    "gohan_job_updates",
+                                    "gohan/job_state",
+                                    {"id": record_id, "state": vals["state"]},
+                                )
+                            except Exception:
+                                pass
+                    cr.commit()
+                    return
+            except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+                last_exc = exc
+                if attempt < _WRITE_CURSOR_RETRIES:
+                    _logger.warning(
+                        "[gohan][job=%s] _write_with_cursor transient error "
+                        "(attempt %d/%d): %s — retrying with fresh cursor",
+                        record_id, attempt + 1,
+                        _WRITE_CURSOR_RETRIES + 1, exc,
+                    )
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                break
+        # Out of retries — re-raise the last connection error so the caller's
+        # outer except handler stores the (now-friendly) message.
+        if last_exc is not None:
+            raise last_exc
 
     def _append_pipeline_event(
         self, db_name, record_id, step, status, message=None, **extras

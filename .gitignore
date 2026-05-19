@@ -48,7 +48,6 @@ custom_addons/jaeger/plan.md
 # ── Aurora Deploy Secrets ────────────────────────────────────────────────────
 custom_addons/aurora/deploy/k8s/secret.yaml
 
-custom_addons/gohan/data/gohan
 custom_addons/gohan/data/gohan-extraction-lambda
 custom_addons/gohan.zip
 custom_addons/gohan/data/vegeta.env.gohan

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<templates xml:space="preserve">
-    <t t-name="vegeta.ListButtons">
-        <button type="button" class="btn btn-primary" t-on-click="() => this.onStartTask()">
-            Start Task
-        </button>
-    </t>
-</templates>

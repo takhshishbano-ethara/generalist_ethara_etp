@@ -238,12 +238,6 @@
                             invisible="state not in ('extracting','generating','scoring')"
                             confirm="Stop this running task and return it to Draft?"/>
 
-                    <!-- RECONCILE FROM S3: rescue when webhook never landed (or Lambda partially succeeded) -->
-                    <button name="action_reconcile_from_s3" type="object"
-                            string="Reconcile from S3" class="btn-secondary"
-                            invisible="state not in ('extracting','generating','scoring','failed')"
-                            help="Pulls Lambda's raw_data.json from S3 and auto-populates fields. Use when the job is stuck or webhook never landed."/>
-
                     <!-- ASSIGN: bring a discarded task back as a Draft -->
                     <button name="action_reopen" type="object"
                             string="Assign" class="oe_highlight"
