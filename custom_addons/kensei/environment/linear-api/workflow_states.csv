@@ -20,3 +20,8 @@ state-plt-inprogress,In Progress,started,#f2c94c,3,team-platform,Issues actively
 state-plt-inreview,In Review,started,#f2994a,4,team-platform,Issues in code review
 state-plt-done,Done,completed,#5e6ad2,5,team-platform,Completed issues
 state-plt-cancelled,Cancelled,cancelled,#95a2b3,6,team-platform,Cancelled issues
+state-con-backlog,Backlog,backlog,#bec2c8,0,team-consulting,
+state-con-todo,Todo,unstarted,#e2e2e2,1,team-consulting,
+state-con-inprogress,In Progress,started,#f2c94c,2,team-consulting,
+state-con-done,Done,completed,#5e6ad2,3,team-consulting,
+state-con-cancelled,Cancelled,cancelled,#95a2b3,4,team-consulting,

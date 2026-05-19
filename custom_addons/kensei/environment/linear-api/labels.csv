@@ -16,3 +16,8 @@ label-infra,infra,#f2994a,Infrastructure work,team-platform,2024-01-10T09:00:00,
 label-ci-cd,ci/cd,#f2994a,CI/CD pipeline work,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
 label-security,security,#f2994a,Security-related work,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
 label-monitoring,monitoring,#f2994a,Monitoring and observability,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
+label-pentest,Penetration Testing,#EB5757,Penetration testing tasks,team-consulting,2024-04-01T09:00:00,2024-04-01T09:00:00
+label-audit,Security Audit,#F2994A,Security audit tasks,team-consulting,2024-04-01T09:00:00,2024-04-01T09:00:00
+label-vuln,Vulnerability Assessment,#6FCF97,Vulnerability assessment tasks,team-consulting,2024-04-01T09:00:00,2024-04-01T09:00:00
+label-docs,Documentation,#2F80ED,Documentation tasks,team-consulting,2024-04-01T09:00:00,2024-04-01T09:00:00
+label-handoff,Client Handoff,#9B51E0,Client handoff and remediation,team-consulting,2024-04-01T09:00:00,2024-04-01T09:00:00

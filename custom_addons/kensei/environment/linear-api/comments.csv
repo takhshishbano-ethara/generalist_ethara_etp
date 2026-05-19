@@ -24,3 +24,7 @@ comment-22,PR is up for review. Added signature verification helper library that
 comment-23,Using UTC offset from the browser's Intl API now. All dates are stored as ISO 8601 with timezone offset and converted to UTC before saving.,issue-10,user-08,2025-04-24T09:00:00,2025-04-24T09:00:00
 comment-24,APM agent is deployed to all services. Service map is now visible in Datadog. Setting up latency SLOs next.,issue-23,user-11,2025-04-27T10:00:00,2025-04-27T10:00:00
 comment-25,Refresh token rotation is working. Each refresh invalidates the old token and issues a new pair. Added 7-day absolute expiry for refresh tokens.,issue-05,user-01,2025-04-27T14:00:00,2025-04-27T14:00:00
+comment-001,Completed all OWASP Top 10 checks. Found 3 critical and 5 high severity issues.,task-001,user-amanda,2024-04-12T16:00:00,2024-04-12T16:00:00
+comment-002,Infrastructure review complete. Network segmentation needs improvement.,task-002,user-amanda,2024-04-16T15:00:00,2024-04-16T15:00:00
+comment-003,API assessment done. Found 2 auth bypass issues and missing rate limiting.,task-003,user-amanda,2024-04-20T14:00:00,2024-04-20T14:00:00
+comment-004,Policy docs 90% complete. Waiting on TechVault to confirm incident response SLA.,task-004,user-amanda,2024-04-28T13:00:00,2024-04-28T13:00:00

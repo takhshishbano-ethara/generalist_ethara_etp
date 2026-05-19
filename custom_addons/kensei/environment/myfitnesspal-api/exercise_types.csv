@@ -17,3 +17,8 @@ exercise_type_id,exercise_name,category,calories_per_minute_low,calories_per_min
 16,Stretching (general),flexibility,2.0,3.0,2.3
 17,Stair Climbing,cardio,8.0,11.0,9.0
 18,Push-ups (moderate effort),strength,5.5,7.5,5.0
+101,Walking (easy pace),cardio,3,4,3
+102,Walking (brisk pace),cardio,4,5.5,4.3
+103,Stationary Bike (light),cardio,4,6,4
+104,Resistance Training (light),strength,3,5,3.5
+105,Stretching / Mobility,flexibility,2,3,2.3

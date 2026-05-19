@@ -44,12 +44,12 @@ POST /v3/company/{realmId}/customer              (update: Id + SyncToken in body
 
 ```json
 {
-  "DisplayName": "New Customer Name",
-  "GivenName": "John",
-  "FamilyName": "Doe",
-  "PrimaryEmailAddr": {"Address": "john@example.com"},
-  "PrimaryPhone": {"FreeFormNumber": "(555) 123-4567"},
-  "BillAddr": {"Line1": "123 Main St", "City": "Charlotte", "CountrySubDivisionCode": "NC", "PostalCode": "28205"}
+  "DisplayName": "New Student Name",
+  "GivenName": "Jane",
+  "FamilyName": "Kim",
+  "PrimaryEmailAddr": {"Address": "jane.kim@email.com"},
+  "PrimaryPhone": {"FreeFormNumber": "(503) 555-0199"},
+  "BillAddr": {"Line1": "742 Cedar Rd", "City": "Beaverton", "CountrySubDivisionCode": "OR", "PostalCode": "97005"}
 }
 ```
 
@@ -81,11 +81,11 @@ POST /v3/company/{realmId}/item                (create/update)
 
 ```json
 {
-  "Name": "New Service",
-  "Description": "Description of the service",
+  "Name": "Private Lesson",
+  "Description": "One-on-one martial arts instruction",
   "Type": "Service",
-  "UnitPrice": 100.00,
-  "IncomeAccountRef": {"value": "1", "name": "Landscaping Services Revenue"}
+  "UnitPrice": 60.00,
+  "IncomeAccountRef": {"value": "3", "name": "Membership Income"}
 }
 ```
 
@@ -109,16 +109,16 @@ POST /v3/company/{realmId}/invoice/{invoiceId}?include=send
 
 ```json
 {
-  "CustomerRef": {"value": "1", "name": "Mark Thompson"},
+  "CustomerRef": {"value": "1", "name": "Abrams, Derek"},
   "Line": [
     {
-      "Amount": 150.00,
+      "Amount": 95.00,
       "DetailType": "SalesItemLineDetail",
-      "Description": "Weekly lawn mowing (2 visits)",
+      "Description": "Monthly membership — Kendo M/W/F",
       "SalesItemLineDetail": {
-        "ItemRef": {"value": "1", "name": "Weekly Lawn Mowing"},
-        "UnitPrice": 75.00,
-        "Qty": 2
+        "ItemRef": {"value": "1", "name": "Monthly Membership"},
+        "UnitPrice": 95.00,
+        "Qty": 1
       }
     }
   ],
@@ -139,14 +139,14 @@ POST /v3/company/{realmId}/bill/{billId}?operation=pay
 
 ```json
 {
-  "VendorRef": {"value": "1", "name": "Charlotte Fuel Depot"},
+  "VendorRef": {"value": "5", "name": "Bushido Supply Co."},
   "Line": [
     {
-      "Amount": 350.00,
+      "Amount": 245.00,
       "DetailType": "AccountBasedExpenseLineDetail",
-      "Description": "Diesel fuel",
+      "Description": "Training equipment and uniforms",
       "AccountBasedExpenseLineDetail": {
-        "AccountRef": {"value": "7", "name": "Fuel Expense"}
+        "AccountRef": {"value": "11", "name": "Supplies & Equipment"}
       }
     }
   ],
@@ -166,12 +166,12 @@ POST /v3/company/{realmId}/payment              (create)
 
 ```json
 {
-  "CustomerRef": {"value": "4", "name": "Patricia Nguyen"},
-  "TotalAmt": 150.00,
+  "CustomerRef": {"value": "4", "name": "Bakshi, Priya"},
+  "TotalAmt": 95.00,
   "Line": [
     {
-      "Amount": 150.00,
-      "LinkedTxn": [{"TxnId": "1009", "TxnType": "Invoice"}]
+      "Amount": 95.00,
+      "LinkedTxn": [{"TxnId": "5001", "TxnType": "Invoice"}]
     }
   ],
   "TxnDate": "2025-05-01"
@@ -197,15 +197,15 @@ POST /v3/company/{realmId}/purchase             (create)
 
 ```json
 {
-  "AccountRef": {"value": "7", "name": "Fuel Expense"},
+  "AccountRef": {"value": "11", "name": "Supplies & Equipment"},
   "PaymentType": "Cash",
   "Line": [
     {
-      "Amount": 60.00,
+      "Amount": 42.50,
       "DetailType": "AccountBasedExpenseLineDetail",
-      "Description": "Gas for equipment",
+      "Description": "Replacement belt testing boards",
       "AccountBasedExpenseLineDetail": {
-        "AccountRef": {"value": "7", "name": "Fuel Expense"}
+        "AccountRef": {"value": "11", "name": "Supplies & Equipment"}
       }
     }
   ],

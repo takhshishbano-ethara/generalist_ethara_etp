@@ -233,6 +233,20 @@ POST /v1/courses/{courseId}/courseWorkMaterials
 }
 ```
 
+## Data Scenarios
+
+Multiple course environments are available:
+
+| Course ID | Name | Domain | State |
+|-----------|------|--------|-------|
+| `course_001` | AP Computer Science A | westlake.edu (CS) | ACTIVE |
+| `course_002` | Web Development | westlake.edu (CS) | ACTIVE |
+| `course_003` | AP CS Principles | westlake.edu (CS) | ACTIVE |
+| `course_004` | Intro to Python | westlake.edu (CS) | ARCHIVED |
+| `course_005` | Intertidal Ecology | cascobay-marine.edu | ACTIVE |
+| `uscg-charter-inspection-2026` | USCG Charter Inspection 2026 - Lucky Strike | luckystrike-charters.com | ACTIVE |
+| `uscg-charter-inspection-2025` | USCG Charter Inspection 2025 - Lucky Strike | luckystrike-charters.com | ARCHIVED |
+
 ## Typical Workflow
 
 1. `GET /health` to confirm the API is reachable.

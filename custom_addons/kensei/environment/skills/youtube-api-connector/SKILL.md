@@ -34,7 +34,7 @@ GET /youtube/v3/channels
 
 | Parameter | Description |
 |-----------|-------------|
-| `id` | Channel ID (default: `UC_TechCraftAcademy`) |
+| `id` | Channel ID (default: `UC_EquineHealthChannel`) |
 | `part` | Resource parts to include (default: all) |
 
 ### Videos
@@ -220,7 +220,7 @@ POST /youtube/v3/comments/setModerationStatus
 {
   "snippet": {
     "parentId": "cmt_005",
-    "textOriginal": "Thanks for the question! I used Next.js."
+      "textOriginal": "Great question! I covered that in the nutrition series."
   }
 }
 ```
@@ -304,7 +304,7 @@ GET /youtube/analytics/v2/reports
 
 | Parameter | Description |
 |-----------|-------------|
-| `ids` | Channel identifier (e.g. `channel==UC_TechCraftAcademy`) |
+| `ids` | Channel identifier (e.g. `channel==UC_EquineHealthChannel`) |
 | `filters` | Video filter (e.g. `video==vid_001`) |
 | `metrics` | Metrics to return (e.g. `views,estimatedMinutesWatched,likes`) |
 | `startDate` | Start date (ISO format) |
@@ -313,15 +313,15 @@ GET /youtube/analytics/v2/reports
 ## Typical Workflow
 
 1. `GET /health` to confirm the API is reachable.
-2. `GET /youtube/v3/channels?id=UC_TechCraftAcademy` to load channel profile, stats, and branding.
-3. `GET /youtube/v3/videos?channelId=UC_TechCraftAcademy&maxResults=10` to browse recent uploads.
+2. `GET /youtube/v3/channels?id=UC_EquineHealthChannel` to load channel profile, stats, and branding.
+3. `GET /youtube/v3/videos?channelId=UC_EquineHealthChannel&maxResults=10` to browse recent uploads.
 4. `GET /youtube/v3/videos?id=vid_001` for full details on a specific video (snippet, stats, status).
-5. `GET /youtube/v3/search?q=python&channelId=UC_TechCraftAcademy` to find videos matching a keyword.
+5. `GET /youtube/v3/search?q=colic&channelId=UC_EquineHealthChannel` to find videos matching a keyword.
 6. `GET /youtube/v3/commentThreads?videoId=vid_001&moderationStatus=heldForReview` to check comments needing moderation.
 7. `POST /youtube/v3/comments` to reply to viewer questions on popular videos.
 8. `PUT /youtube/v3/videos` to update a video's title, description, or tags for SEO improvement.
 9. `GET /youtube/analytics/v2/reports?filters=video==vid_001` to check performance metrics for a video.
-10. `GET /youtube/v3/playlists?channelId=UC_TechCraftAcademy` to review playlist organization and add videos.
+10. `GET /youtube/v3/playlists?channelId=UC_EquineHealthChannel` to review playlist organization and add videos.
 
 ## Bundled Resources
 

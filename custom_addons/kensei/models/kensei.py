@@ -1938,6 +1938,9 @@ class Kensei(models.Model):
         )
         thread.start()
 
+        exported_recs = self.filtered(lambda r: r.initial_prompt)
+        exported_recs.write({"task_status": "Submitted"})
+
         msg = "Exporting %d task(s) to S3." % len(all_uploads)
         if skipped:
             msg += " Skipped %d (no instruction): %s" % (len(skipped), ", ".join(skipped[:5]))
@@ -2143,6 +2146,8 @@ class Kensei(models.Model):
             daemon=True,
         )
         thread.start()
+
+        self.write({"task_status": "Submitted"})
 
         return {
             "type": "ir.actions.client",

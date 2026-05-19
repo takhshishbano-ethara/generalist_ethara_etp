@@ -14,3 +14,9 @@ weight_id,date,weight_lbs,notes
 13,2025-04-23,192.0,New low!
 14,2025-04-25,191.8,
 15,2025-04-28,192.0,Slight fluctuation but trend is good
+101,2026-03-01,204.2,James baseline
+102,2026-03-05,203.8,
+103,2026-03-10,203.5,
+104,2026-03-15,203.2,
+105,2026-03-21,203,Matches profile current weight
+16,2026-05-19,209.2,Synced from MFP integration mfp_001 (Chris Johnson)

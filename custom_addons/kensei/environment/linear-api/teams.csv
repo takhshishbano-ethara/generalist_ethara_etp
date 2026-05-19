@@ -2,3 +2,4 @@ id,name,key,description,color,createdAt,updatedAt
 team-backend,Backend,BKD,Backend services and API development,#5E6AD2,2024-01-10T09:00:00,2025-04-01T10:00:00
 team-frontend,Frontend,FRN,Frontend web application and UI components,#26B5CE,2024-01-10T09:00:00,2025-04-01T10:00:00
 team-platform,Platform/Infra,PLT,Infrastructure and developer tooling,#F2994A,2024-01-10T09:00:00,2025-04-01T10:00:00
+team-consulting,Consulting,CON,Security consulting engagements,#5E6AD2,2023-01-15T09:00:00,2024-04-20T10:00:00

@@ -31,6 +31,16 @@ GET /health
 GET /{user_id}
 ```
 
+Multiple business accounts are accessible. Use the user ID for the account you need:
+
+| User ID | Username | Business |
+|---------|----------|----------|
+| `17841400123456789` | `brewedawakening_` | Portland coffee roastery (33 posts) |
+| `17841400123451234` | `russells_pastries` | Brooklyn bakery (0 posts) |
+| `17841400567890123` | `eleanors_tavern` | Queens cocktail bar (5 posts) |
+| `17841400234567890` | `sunlight.gallery` | Albuquerque art gallery (18 posts) |
+| `17841400888999111` | `ben.hernandez.pm` | Senior PM @ Oakmount Connect — beta bug tracker (10 posts) |
+
 **Query params:**
 
 | Parameter | Description |
@@ -190,8 +200,8 @@ GET /container/{container_id}
 ## Typical Workflow
 
 1. `GET /health` to confirm the API is reachable.
-2. `GET /{user_id}` to load account profile (followers, bio, media count).
-3. `GET /{user_id}/media` to browse recent posts; add `?media_type=VIDEO` to filter reels.
+2. `GET /17841400123456789` to load a specific account profile (followers, bio, media count). Replace with any valid user ID from the table above.
+3. `GET /17841400123456789/media` to browse recent posts for that account; add `?media_type=VIDEO` to filter reels.
 4. `GET /media/{media_id}` for full details on a specific post (caption, likes, comments count).
 5. `GET /media/{media_id}/comments` to read audience engagement on a post.
 6. `GET /{user_id}/insights` to check overall account performance metrics.

@@ -21,3 +21,10 @@ exercise_id,date,exercise_type_id,exercise_name,duration_minutes,calories_burned
 20,2025-04-25,6,Weight Training (moderate),45,270,Push pull combo
 21,2025-04-27,1,Running (6 mph / 10 min mile),40,440,Sunday morning run - new PR on 5K segment
 22,2025-04-28,6,Weight Training (moderate),45,270,Upper body and core
+101,2026-03-01,101,Walking (easy pace),20,70,Short neighborhood walk
+102,2026-03-05,105,Stretching / Mobility,15,35,Light mobility work
+103,2026-03-10,101,Walking (easy pace),25,88,Post-dinner walk
+104,2026-03-15,102,Walking (brisk pace),20,95,Brisk walk
+105,2026-03-21,103,Stationary Bike (light),20,100,Light cycling
+23,2026-05-17,16,Stretching (general),30,75,PT rotator cuff rehab - session 1/2 this week (mfp_001)
+24,2026-05-19,16,Stretching (general),30,75,PT rotator cuff rehab - session 2/2 this week (mfp_001)
