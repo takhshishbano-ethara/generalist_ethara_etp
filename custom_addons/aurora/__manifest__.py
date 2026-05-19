@@ -1,6 +1,6 @@
 {
     "name": "Aurora Pipeline",
-    "version": "19.0.5.0.0",
+    "version": "19.0.6.0.0",
     "category": "Productivity",
     "summary": "Aurora data-collection pipeline",
     "description": """
