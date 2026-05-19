@@ -1,205 +1,391 @@
 ---
 name: pinterest-api-connector
 description: >
-  Use when managing a Pinterest business account — creating/updating pins,
-  organizing boards and sections, viewing analytics, searching content, or
-  managing ad campaigns via the Pinterest API v5 HTTP endpoints.
+  Pinterest API v5 HTTP endpoints for business account management, boards,
+  board sections, pins, search, media uploads, ad accounts, and analytics.
 ---
 
-# Pinterest API v5 Connector
+# Pinterest API v5
 
-## Connection
+## Base URL
 
 | Variable | Purpose |
 |----------|---------|
-| `PINTEREST_API_URL` | Base URL for all API requests |
+| `PINTEREST_API_URL` | Base URL for all requests |
 
-All paths below are relative to this URL.
+All paths below are relative to `PINTEREST_API_URL`.
 
-## Endpoints
+---
 
-### Health
+## Health
 
 ```
 GET /health
 ```
 
-### User Account
+Returns `{"status": "ok"}`.
+
+---
+
+## User Account
+
+### Get account profile
+
+Returns the authenticated user's profile information, including account username, display name, bio, profile image URL, website URL, account type, and board and pin counts.
 
 ```
 GET /v5/user_account
+```
+
+### Get account analytics
+
+Returns aggregate analytics for the authenticated user's account over a date range. Metrics include impressions, engagements, pin clicks, outbound clicks, and saves. When date parameters are omitted, returns the most recent available data.
+
+```
 GET /v5/user_account/analytics
 ```
 
-**Query params for GET analytics:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `start_date` | string | query | no | Start date (YYYY-MM-DD) |
+| `end_date` | string | query | no | End date (YYYY-MM-DD) |
 
-| Parameter | Description |
-|-----------|-------------|
-| `start_date` | Start date (YYYY-MM-DD) |
-| `end_date` | End date (YYYY-MM-DD) |
+---
 
-### Boards
+## Boards
+
+### List boards
+
+Returns a paginated list of all boards belonging to the authenticated user. Each board object includes its ID, name, description, privacy setting, pin count, follower count, and creation timestamp. Supports filtering by privacy level.
 
 ```
 GET /v5/boards
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `privacy` | string | query | no | Filter by privacy: `PUBLIC`, `SECRET` |
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get board
+
+Returns the full details of a single board, including its ID, name, description, privacy setting, pin count, follower count, collaborator count, and creation timestamp. Returns a 404 error if the board ID does not exist.
+
+```
 GET /v5/boards/{board_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+
+### Create board
+
+Creates a new board for the authenticated user. Returns the newly created board object with its assigned ID and default settings. The board name is required; description and privacy level are optional.
+
+```
 POST /v5/boards
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Board name |
+| `description` | string | no | Board description |
+| `privacy` | string | no | `PUBLIC` or `SECRET` |
+
+### Update board
+
+Modifies the properties of an existing board. Accepts any combination of name, description, and privacy setting. Returns the updated board object. Returns a 404 error if the board ID does not exist.
+
+```
 PATCH /v5/boards/{board_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | no | Board name |
+| `description` | string | no | Board description |
+| `privacy` | string | no | `PUBLIC` or `SECRET` |
+
+### Delete board
+
+Permanently removes a board and disassociates all of its pins. Returns a success confirmation on deletion. Returns a 404 error if the board ID does not exist.
+
+```
 DELETE /v5/boards/{board_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+
+### List board pins
+
+Returns a paginated list of all pins saved to a specific board. Each pin object includes its ID, title, description, link, media type, dominant color, alt text, board section ID (if assigned), and creation timestamp. Results include pins from all sections of the board. Returns a 404 error if the board ID does not exist.
+
+```
 GET /v5/boards/{board_id}/pins
 ```
 
-**Query params for GET boards:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-| Parameter | Description |
-|-----------|-------------|
-| `privacy` | Filter by privacy: `PUBLIC`, `SECRET` |
-| `limit` | Max results (1–100, default 25) |
-| `offset` | Skip N results (default 0) |
+---
 
-**POST body (create board):**
+## Board Sections
 
-```json
-{
-  "name": "Outdoor Living Spaces",
-  "description": "Patio and garden design ideas",
-  "privacy": "PUBLIC"
-}
-```
+### List board sections
 
-**PATCH body (update board):**
-
-```json
-{
-  "description": "Updated description for this board"
-}
-```
-
-### Board Sections
+Returns the list of all sections within a specific board. Each section object includes its ID, name, and pin count. Returns a 404 error if the board ID does not exist.
 
 ```
 GET /v5/boards/{board_id}/sections
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+
+### Create board section
+
+Creates a new section within an existing board. Returns the newly created section object with its assigned ID. Returns a 400 error if the board does not exist or the section name is missing.
+
+```
 POST /v5/boards/{board_id}/sections
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Section name |
+
+### List section pins
+
+Returns a paginated list of pins within a specific section of a board. Validates that the section belongs to the specified board before returning results. Returns a 404 error if the board, section, or the section-board association does not exist.
+
+```
 GET /v5/boards/{board_id}/sections/{section_id}/pins
 ```
 
-**POST body (create section):**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `board_id` | string | path | yes | Board ID |
+| `section_id` | string | path | yes | Section ID |
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-```json
-{
-  "name": "Electrical Projects"
-}
-```
+---
 
-### Pins
+## Pins
+
+### List all pins
+
+Returns a paginated list of all pins owned by the authenticated user across all boards. Each pin object includes its ID, title, description, link, board ID, board section ID, media type, dominant color, alt text, and creation timestamp.
 
 ```
 GET /v5/pins
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get pin
+
+Returns the full details of a single pin, including its ID, title, description, link, board ID, board section ID, media type, media source, dominant color, alt text, and creation timestamp. Returns a 404 error if the pin ID does not exist.
+
+```
 GET /v5/pins/{pin_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `pin_id` | string | path | yes | Pin ID |
+
+### Create pin
+
+Creates a new pin on a specified board. Returns the newly created pin object with its assigned ID. The board ID and title are required; all other fields are optional. If `board_section_id` is provided, the pin is placed within that section of the board.
+
+```
 POST /v5/pins
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `board_id` | string | yes | Board ID to pin to |
+| `title` | string | yes | Pin title |
+| `description` | string | no | Pin description |
+| `link` | string | no | Source URL |
+| `media_type` | string | no | Media type (e.g. `image`) |
+| `board_section_id` | string | no | Board section ID |
+| `dominant_color` | string | no | Dominant color hex code |
+| `alt_text` | string | no | Image alt text |
+
+### Update pin
+
+Modifies the properties of an existing pin. Accepts any combination of title, description, link, board reassignment, section reassignment, and alt text. Returns the updated pin object. Returns a 404 error if the pin ID does not exist.
+
+```
 PATCH /v5/pins/{pin_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `pin_id` | string | path | yes | Pin ID |
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | no | Pin title |
+| `description` | string | no | Pin description |
+| `link` | string | no | Source URL |
+| `board_id` | string | no | Move pin to a different board |
+| `board_section_id` | string | no | Move pin to a different section |
+| `alt_text` | string | no | Image alt text |
+
+### Delete pin
+
+Permanently removes a pin. Returns a success confirmation on deletion. Returns a 404 error if the pin ID does not exist.
+
+```
 DELETE /v5/pins/{pin_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `pin_id` | string | path | yes | Pin ID |
+
+### Get pin analytics
+
+Returns performance analytics for a single pin over an optional date range. Metrics include impressions, saves, pin clicks, outbound clicks, and video views (for video pins). When date parameters are omitted, returns the most recent available data. Returns a 404 error if the pin ID does not exist.
+
+```
 GET /v5/pins/{pin_id}/analytics
 ```
 
-**Query params for GET pins:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `pin_id` | string | path | yes | Pin ID |
+| `start_date` | string | query | no | Start date (YYYY-MM-DD) |
+| `end_date` | string | query | no | End date (YYYY-MM-DD) |
 
-| Parameter | Description |
-|-----------|-------------|
-| `limit` | Max results (1–100, default 25) |
-| `offset` | Skip N results (default 0) |
+---
 
-**Query params for GET pin analytics:**
+## Search
 
-| Parameter | Description |
-|-----------|-------------|
-| `start_date` | Start date (YYYY-MM-DD) |
-| `end_date` | End date (YYYY-MM-DD) |
+### Search pins
 
-**POST body (create pin):**
-
-```json
-{
-  "board_id": "board_1001",
-  "title": "Boho Living Room Makeover",
-  "description": "Transform your space with boho-chic design tips #boho #livingroom",
-  "link": "https://www.cozynestinteriors.com/blog/boho-makeover",
-  "media_type": "image",
-  "alt_text": "A boho-styled living room with macrame and plants"
-}
-```
-
-**PATCH body (update pin):**
-
-```json
-{
-  "title": "Updated Pin Title",
-  "description": "New description text"
-}
-```
-
-### Search
+Performs a full-text search across all pin titles and descriptions. Returns a paginated list of matching pin objects ordered by relevance. The search is case-insensitive and matches partial terms.
 
 ```
 GET /v5/search/pins
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `query` | string | query | yes | Search term |
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-| Parameter | Description |
-|-----------|-------------|
-| `query` | Search term (required) |
-| `limit` | Max results (1–100, default 25) |
-| `offset` | Skip N results (default 0) |
+---
 
-### Media
+## Media
+
+### Get media upload status
+
+Returns the processing status of a media upload. The status field indicates the upload's current state. Returns a 404 error if the media ID does not exist.
 
 ```
 GET /v5/media/{media_id}
 ```
 
-### Ad Accounts
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `media_id` | string | path | yes | Media ID |
+
+---
+
+## Ad Accounts
+
+### List ad accounts
+
+Returns a paginated list of all ad accounts accessible to the authenticated user. Each ad account object includes its ID, name, and status.
 
 ```
 GET /v5/ad_accounts
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get ad account
+
+Returns the full details of a single ad account, including its ID, name, status, currency, and owner information. Returns a 404 error if the ad account ID does not exist.
+
+```
 GET /v5/ad_accounts/{ad_account_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `ad_account_id` | string | path | yes | Ad account ID |
+
+### List campaigns
+
+Returns a paginated list of advertising campaigns within a specific ad account. Each campaign includes its ID, name, status, objective type, daily spend limit, and lifetime spend limit. Supports filtering by campaign status. Returns a 404 error if the ad account ID does not exist.
+
+```
 GET /v5/ad_accounts/{ad_account_id}/campaigns
 ```
 
-**Query params for GET ad accounts:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `ad_account_id` | string | path | yes | Ad account ID |
+| `status` | string | query | no | Filter by status: `ACTIVE`, `PAUSED` |
+| `limit` | integer | query | no | Max results, 1-100. Default: 25 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-| Parameter | Description |
-|-----------|-------------|
-| `limit` | Max results (1–100, default 25) |
-| `offset` | Skip N results (default 0) |
+---
 
-**Query params for GET campaigns:**
+## Errors
 
-| Parameter | Description |
-|-----------|-------------|
-| `status` | Filter by status: `ACTIVE`, `PAUSED` |
-| `limit` | Max results (1–100, default 25) |
-| `offset` | Skip N results (default 0) |
+Error responses follow this format:
 
-## Typical Workflow
+```json
+{
+  "error": {
+    "message": "Description of the error",
+    "code": 404
+  }
+}
+```
 
-1. `GET /health` to confirm the API is reachable.
-2. `GET /v5/user_account` to load the business account profile and context.
-3. `GET /v5/boards` to see all boards and their organization.
-4. `GET /v5/boards/{board_id}/pins` to browse pins on a specific board.
-5. `GET /v5/pins/{pin_id}/analytics` to check performance of specific pins.
-6. `GET /v5/user_account/analytics` to review overall account metrics.
-7. `GET /v5/search/pins?query=keyword` to find pins matching a topic.
-8. `POST /v5/pins` to create new content on a board.
-9. `PATCH /v5/pins/{pin_id}` to update pin titles or descriptions for better SEO.
-10. `GET /v5/ad_accounts/{ad_account_id}/campaigns` to review ad campaign performance.
+Common HTTP status codes:
 
-## Bundled Resources
-
-### Scripts
-
-- **`scripts/fetch_pinterest_data.py`** — Helper script to list pins, boards, analytics, and ad campaigns. Run `python3 scripts/fetch_pinterest_data.py --help` for usage.
-
-### References
-
-- **`references/pinterest-api-guide.md`** — Detailed endpoint reference with curl examples and common patterns.
+| Code | Meaning |
+|------|---------|
+| 400 | Bad request (invalid parameters) |
+| 404 | Resource not found |

@@ -14,6 +14,10 @@ curl "$INSTAGRAM_API_URL/17841400123456789"
 
 # Get specific fields only
 curl "$INSTAGRAM_API_URL/17841400123456789?fields=id,username,name,followers_count,media_count"
+
+# Search users by username or name (partial match, case-insensitive)
+curl "$INSTAGRAM_API_URL/ig_user_search?q=brewed"
+curl "$INSTAGRAM_API_URL/ig_user_search?q=gallery"
 ```
 
 ## Media

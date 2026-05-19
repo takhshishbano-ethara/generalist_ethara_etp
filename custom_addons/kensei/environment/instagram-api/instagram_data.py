@@ -183,6 +183,17 @@ def update_user(user_id: str, data: dict):
     return user
 
 
+def search_users(q: str):
+    if not q or not q.strip():
+        return {"error": {"message": "Query parameter 'q' is required", "type": "IGApiException", "code": 100}}
+    q_lower = q.strip().lower()
+    results = []
+    for u in _users_store.values():
+        if q_lower in u.get("username", "").lower() or q_lower in u.get("name", "").lower():
+            results.append(deepcopy(u))
+    return {"data": results}
+
+
 # ---------------------------------------------------------------------------
 # Media
 # ---------------------------------------------------------------------------

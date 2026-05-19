@@ -1,276 +1,595 @@
 ---
 name: linear-api-connector
 description: >
-  Use when managing engineering work in Linear — triaging issues, updating
-  priorities/states/assignees, tracking sprints/cycles, querying projects, or
-  searching across a team's backlog via the Linear REST API endpoints.
+  Linear REST API HTTP endpoints for issue tracking, project management,
+  sprint cycles, team workflows, and workspace organization.
 ---
 
-# Linear API Connector
+# Linear API
 
-## Connection
+## Base URL
 
 | Variable | Purpose |
 |----------|---------|
-| `LINEAR_API_URL` | Base URL for all API requests |
+| `LINEAR_API_URL` | Base URL for all requests |
 
-All paths below are relative to this URL.
+All paths below are relative to `LINEAR_API_URL`.
 
-## Endpoints
+---
 
-### Health
+## Health
 
 ```
 GET /health
 ```
 
-### Teams
+Returns `{"status": "ok"}`.
+
+---
+
+## Teams
+
+### List teams
+
+Returns a paginated list of all teams in the workspace. Each team includes its ID, name, key prefix, description, and timezone.
 
 ```
 GET /v1/teams
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get team
+
+Returns the full details of a single team, including its name, key, description, timezone, member count, and associated workflow states.
+
+```
 GET /v1/teams/{team_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+
+### List team members
+
+Returns the list of users who are members of a specific team. Each member includes their ID, name, display name, email, and role.
+
+```
 GET /v1/teams/{team_id}/members
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+
+### List team issues
+
+Returns a paginated list of all issues belonging to a team, regardless of state.
+
+```
 GET /v1/teams/{team_id}/issues
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### List team projects
+
+Returns all projects associated with a specific team.
+
+```
 GET /v1/teams/{team_id}/projects
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+
+### List team cycles
+
+Returns all sprint cycles belonging to a specific team.
+
+```
 GET /v1/teams/{team_id}/cycles
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+
+### List team workflow states
+
+Returns the workflow states defined for a specific team. States represent the lifecycle stages of an issue (e.g., Triage, Todo, In Progress, Done, Canceled). Each state includes its ID, name, type, color, and position.
+
+```
 GET /v1/teams/{team_id}/workflow-states
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
+
+### List team labels
+
+Returns the labels available to a specific team, including both team-specific and shared workspace labels.
+
+```
 GET /v1/teams/{team_id}/labels
 ```
 
-**Query params for GET /v1/teams/{team_id}/issues:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `team_id` | string | path | yes | Team identifier |
 
-| Parameter | Description |
-|-----------|-------------|
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+---
 
-### Users
+## Users
+
+### List users
+
+Returns a paginated list of all users in the workspace. Each user includes their ID, name, display name, email, active status, and admin flag.
 
 ```
 GET /v1/users
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get user
+
+Returns the full profile of a single user, including their name, email, display name, avatar URL, active status, admin flag, and creation date.
+
+```
 GET /v1/users/{user_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `user_id` | string | path | yes | User identifier |
+
+### List user issues
+
+Returns a paginated list of issues assigned to a specific user across all teams.
+
+```
 GET /v1/users/{user_id}/issues
 ```
 
-**Query params for GET /v1/users/{user_id}/issues:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `user_id` | string | path | yes | User identifier |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-| Parameter | Description |
-|-----------|-------------|
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+---
 
-### Workflow States
+## Workflow States
+
+### List workflow states
+
+Returns a paginated list of all workflow states across the workspace. States can be filtered by team. Each state includes its ID, name, type (triage, backlog, unstarted, started, completed, canceled), color, position, and team ID.
 
 ```
 GET /v1/workflow-states
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `teamId` | string | query | no | Filter states by team ID |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get workflow state
+
+Returns the details of a single workflow state, including its name, type, color, position, and associated team.
+
+```
 GET /v1/workflow-states/{state_id}
 ```
 
-**Query params for GET /v1/workflow-states:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `state_id` | string | path | yes | Workflow state identifier |
 
-| Parameter | Description |
-|-----------|-------------|
-| `teamId` | Filter states by team ID |
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+---
 
-### Labels
+## Labels
+
+### List labels
+
+Returns a paginated list of all labels in the workspace. Labels can be filtered by team. Each label includes its ID, name, color, description, and whether it is scoped to a team or shared globally.
 
 ```
 GET /v1/labels
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `teamId` | string | query | no | Filter by team ID (includes shared labels) |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get label
+
+Returns the details of a single label, including its name, color, description, team scope, and creation date.
+
+```
 GET /v1/labels/{label_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `label_id` | string | path | yes | Label identifier |
+
+### Create label
+
+Creates a new label in the workspace. Labels can be scoped to a specific team or shared globally. Returns the created label with a server-generated ID.
+
+```
 POST /v1/labels
 ```
 
-**Query params for GET /v1/labels:**
+**Request body**
 
-| Parameter | Description |
-|-----------|-------------|
-| `teamId` | Filter by team (includes shared labels) |
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Label name |
+| `color` | string | no | Hex color code (e.g. `#F2C94C`) |
+| `description` | string | no | Label description |
+| `teamId` | string | no | Team ID to scope the label to. Omit for a workspace-wide label. |
 
-**POST body (create label):**
+---
 
-```json
-{
-  "name": "needs-review",
-  "color": "#F2C94C",
-  "description": "Issues requiring additional review",
-  "teamId": "team-backend"
-}
-```
+## Projects
 
-### Projects
+### List projects
+
+Returns a paginated list of all projects in the workspace. Each project includes its ID, name, description, state (planned, started, paused, completed, canceled), lead, target date, and progress metrics.
 
 ```
 GET /v1/projects
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get project
+
+Returns the full details of a single project, including its name, description, state, lead user, associated teams, start and target dates, issue counts, and progress percentage.
+
+```
 GET /v1/projects/{project_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `project_id` | string | path | yes | Project identifier |
+
+### Create project
+
+Creates a new project in the workspace. Projects group related issues across one or more teams. Returns the created project with a server-generated ID.
+
+```
 POST /v1/projects
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Project name |
+| `description` | string | no | Project description |
+| `state` | string | no | Initial state: `planned`, `started`, `paused`, `completed`, `canceled`. Default: `planned` |
+| `leadId` | string | no | User ID of the project lead |
+| `teamIds` | array of strings | no | Team IDs associated with this project |
+| `startDate` | string | no | Project start date (YYYY-MM-DD) |
+| `targetDate` | string | no | Target completion date (YYYY-MM-DD) |
+
+### Update project
+
+Updates an existing project's properties. Only the provided fields are modified. Returns the updated project.
+
+```
 PUT /v1/projects/{project_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `project_id` | string | path | yes | Project identifier |
+
+**Request body**
+
+Same fields as Create project. All fields are optional.
+
+### List project issues
+
+Returns a paginated list of issues belonging to a specific project.
+
+```
 GET /v1/projects/{project_id}/issues
 ```
 
-**POST body (create project):**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `project_id` | string | path | yes | Project identifier |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-```json
-{
-  "name": "Mobile App MVP",
-  "description": "Build first version of the mobile companion app",
-  "state": "planned",
-  "leadId": "user-06",
-  "teamIds": ["team-frontend", "team-backend"],
-  "startDate": "2025-06-01",
-  "targetDate": "2025-09-30"
-}
-```
+---
 
-**PUT body (update project):**
+## Cycles
 
-```json
-{
-  "state": "completed",
-  "targetDate": "2025-07-01"
-}
-```
+### List cycles
 
-### Cycles
+Returns a paginated list of sprint cycles across the workspace. Cycles can be filtered by team and lifecycle status. Each cycle includes its ID, name, team, start/end dates, status, and issue count.
 
 ```
 GET /v1/cycles
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `teamId` | string | query | no | Filter by team ID |
+| `status` | string | query | no | Filter by status: `current`, `past`, `upcoming` |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get cycle
+
+Returns the full details of a single cycle, including its name, team, start and end dates, status, completed issue count, total scope, and progress metrics.
+
+```
 GET /v1/cycles/{cycle_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `cycle_id` | string | path | yes | Cycle identifier |
+
+### Create cycle
+
+Creates a new sprint cycle for a team. Returns the created cycle with a server-generated ID.
+
+```
 POST /v1/cycles
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Cycle name |
+| `teamId` | string | yes | Team ID the cycle belongs to |
+| `startsAt` | string | yes | Cycle start date (YYYY-MM-DD) |
+| `endsAt` | string | yes | Cycle end date (YYYY-MM-DD) |
+
+### List cycle issues
+
+Returns a paginated list of issues assigned to a specific cycle.
+
+```
 GET /v1/cycles/{cycle_id}/issues
 ```
 
-**Query params for GET /v1/cycles:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `cycle_id` | string | path | yes | Cycle identifier |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
 
-| Parameter | Description |
-|-----------|-------------|
-| `teamId` | Filter by team |
-| `status` | Filter by: `current`, `past`, `upcoming` |
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+---
 
-**POST body (create cycle):**
+## Issues
 
-```json
-{
-  "name": "Sprint 25",
-  "teamId": "team-backend",
-  "startsAt": "2025-05-19",
-  "endsAt": "2025-06-01"
-}
-```
+### List issues
 
-### Issues
+Returns a paginated list of issues across the workspace. Supports extensive filtering by workflow state, assignee, project, cycle, team, priority, and label. Each issue includes its ID, identifier, title, description, priority, estimate, state, assignee, project, cycle, labels, due date, and timestamps.
 
 ```
 GET /v1/issues
-GET /v1/issues/{issue_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `stateId` | string | query | no | Filter by workflow state ID |
+| `assigneeId` | string | query | no | Filter by assignee user ID |
+| `projectId` | string | query | no | Filter by project ID |
+| `cycleId` | string | query | no | Filter by cycle ID |
+| `teamId` | string | query | no | Filter by team ID |
+| `priority` | integer | query | no | Filter by priority: 0 (None), 1 (Urgent), 2 (High), 3 (Medium), 4 (Low) |
+| `labelId` | string | query | no | Filter by label ID |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Search issues
+
+Performs a full-text search across issue titles, descriptions, and identifiers. Returns matching issues ranked by relevance.
+
+```
 GET /v1/issues/search
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `q` | string | query | yes | Search query string |
+| `limit` | integer | query | no | Maximum results |
+| `offset` | integer | query | no | Number of results to skip |
+
+### Get issue
+
+Returns the full details of a single issue, including its identifier, title, description, priority, estimate, workflow state, assignee, project, cycle, labels, due date, sort order, and all timestamps.
+
+```
+GET /v1/issues/{issue_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `issue_id` | string | path | yes | Issue identifier |
+
+### Create issue
+
+Creates a new issue in the specified team. Returns the created issue with a server-generated ID and team-prefixed identifier.
+
+```
 POST /v1/issues
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | yes | Issue title |
+| `teamId` | string | yes | Team ID the issue belongs to |
+| `description` | string | no | Issue description (Markdown supported) |
+| `priority` | integer | no | Priority: 0 (None), 1 (Urgent), 2 (High), 3 (Medium), 4 (Low) |
+| `estimate` | number | no | Effort estimate in story points |
+| `stateId` | string | no | Initial workflow state ID |
+| `assigneeId` | string | no | Assigned user ID |
+| `projectId` | string | no | Project ID |
+| `cycleId` | string | no | Cycle ID |
+| `labelIds` | array of strings | no | Label IDs to apply |
+| `dueDate` | string | no | Due date (YYYY-MM-DD) |
+
+### Update issue
+
+Updates an existing issue's properties. Only the provided fields are modified. Returns the updated issue.
+
+```
 PUT /v1/issues/{issue_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `issue_id` | string | path | yes | Issue identifier |
+
+**Request body**
+
+Same fields as Create issue (except `teamId` cannot be changed). Additional field:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sortOrder` | number | no | Custom sort position within lists |
+
+### Delete issue
+
+Permanently deletes an issue and all associated comments. This action cannot be undone.
+
+```
 DELETE /v1/issues/{issue_id}
 ```
 
-**Query params for GET /v1/issues:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `issue_id` | string | path | yes | Issue identifier |
 
-| Parameter | Description |
-|-----------|-------------|
-| `stateId` | Filter by workflow state ID |
-| `assigneeId` | Filter by assignee user ID |
-| `projectId` | Filter by project ID |
-| `cycleId` | Filter by cycle ID |
-| `teamId` | Filter by team ID |
-| `priority` | Filter by priority (0=None, 1=Urgent, 2=High, 3=Medium, 4=Low) |
-| `labelId` | Filter by label ID |
-| `limit` | Max results (1–100, default 50) |
-| `offset` | Skip N results (default 0) |
+---
 
-**Query params for GET /v1/issues/search:**
+## Comments
 
-| Parameter | Description |
-|-----------|-------------|
-| `q` | Search query (matches title, description, identifier) |
-| `limit` | Max results |
-| `offset` | Skip N results |
+### List issue comments
 
-**POST body (create issue):**
-
-```json
-{
-  "title": "Add rate limit headers to API responses",
-  "teamId": "team-backend",
-  "description": "Include X-RateLimit headers in all API responses",
-  "priority": 3,
-  "estimate": 2,
-  "stateId": "state-bkd-todo",
-  "assigneeId": "user-02",
-  "projectId": "proj-api-v2",
-  "cycleId": "cycle-bkd-2",
-  "labelIds": ["label-feature", "label-api"],
-  "dueDate": "2025-05-10"
-}
-```
-
-**PUT body (update issue):**
-
-```json
-{
-  "stateId": "state-bkd-inprogress",
-  "assigneeId": "user-05",
-  "priority": 2
-}
-```
-
-### Comments
+Returns a paginated list of comments on a specific issue. Each comment includes its ID, body text, author, creation time, and update time.
 
 ```
 GET /v1/issues/{issue_id}/comments
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `issue_id` | string | path | yes | Issue identifier |
+| `limit` | integer | query | no | Maximum results, 1-100. Default: 50 |
+| `offset` | integer | query | no | Number of results to skip. Default: 0 |
+
+### Get comment
+
+Returns the full details of a single comment, including its body, author user ID, associated issue ID, and timestamps.
+
+```
 GET /v1/comments/{comment_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `comment_id` | string | path | yes | Comment identifier |
+
+### Create comment
+
+Adds a new comment to an issue. Returns the created comment with a server-generated ID.
+
+```
 POST /v1/comments
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `body` | string | yes | Comment text (Markdown supported) |
+| `issueId` | string | yes | Issue ID to comment on |
+| `userId` | string | no | Author user ID. Defaults to the authenticated user. |
+
+### Update comment
+
+Edits the text of an existing comment. Returns the updated comment.
+
+```
 PUT /v1/comments/{comment_id}
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `comment_id` | string | path | yes | Comment identifier |
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `body` | string | yes | Updated comment text |
+
+### Delete comment
+
+Permanently deletes a comment. This action cannot be undone.
+
+```
 DELETE /v1/comments/{comment_id}
 ```
 
-**POST body (create comment):**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `comment_id` | string | path | yes | Comment identifier |
+
+---
+
+## Errors
+
+Error responses follow this format:
 
 ```json
 {
-  "body": "Started working on this. PR coming by end of day.",
-  "issueId": "issue-01",
-  "userId": "user-02"
+  "error": {
+    "message": "Description of the error",
+    "code": "NOT_FOUND"
+  }
 }
 ```
 
-**PUT body (update comment):**
+Common HTTP status codes:
 
-```json
-{
-  "body": "Updated: PR is ready for review."
-}
-```
-
-## Typical Workflow
-
-1. `GET /health` to confirm the API is reachable.
-2. `GET /v1/teams` to list available teams and their IDs.
-3. `GET /v1/teams/{team_id}/workflow-states` to understand the state machine for a team.
-4. `GET /v1/issues?teamId={team_id}&stateId={state_id}` to find issues in a specific state (e.g., Todo, In Progress).
-5. `GET /v1/issues/{issue_id}` to get full details on a specific issue.
-6. `PUT /v1/issues/{issue_id}` to update state, assignee, priority, or labels.
-7. `GET /v1/cycles?teamId={team_id}&status=current` to find the active sprint.
-8. `GET /v1/cycles/{cycle_id}/issues` to see all work in the current sprint.
-9. `GET /v1/issues/search?q={keyword}` to find issues by keyword across the workspace.
-10. `POST /v1/comments` to leave a status update or question on an issue.
-
-## Bundled Resources
-
-### Scripts
-
-- **`scripts/fetch_linear_data.py`** — Helper script to list issues, teams, users, projects, cycles, and search. Run `python3 scripts/fetch_linear_data.py --help` for usage.
-
-### References
-
-- **`references/linear-api-guide.md`** — Detailed endpoint reference with curl examples and common patterns.
+| Code | Meaning |
+|------|---------|
+| 400 | Bad request (invalid parameters or malformed body) |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate resource) |

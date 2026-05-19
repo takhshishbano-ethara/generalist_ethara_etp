@@ -1,334 +1,440 @@
 ---
 name: youtube-api-connector
 description: >
-  Use when managing a YouTube channel — listing/updating videos, managing playlists,
-  moderating comments, searching content, viewing analytics, or managing channel
-  settings via the YouTube Data API v3 HTTP endpoints.
+  YouTube Data API v3 HTTP endpoints for channel management, video operations,
+  playlists, comment moderation, search, and analytics reporting.
 ---
 
-# YouTube Data API v3 Connector
+# YouTube Data API v3
 
-## Connection
+## Base URL
 
 | Variable | Purpose |
 |----------|---------|
-| `YOUTUBE_API_URL` | Base URL for all API requests |
+| `YOUTUBE_API_URL` | Base URL for all requests |
 
-All paths below are relative to this URL.
+All paths below are relative to `YOUTUBE_API_URL`.
 
-## Endpoints
+---
 
-### Health
+## Health
 
 ```
 GET /health
 ```
 
-### Channels
+Returns `{"status": "ok"}`.
+
+---
+
+## Channels
+
+### Get channel
+
+Returns channel metadata including snippet (title, description, thumbnails), content details (related playlists), statistics (subscriber count, video count, view count), and branding settings. When no `id` is specified, returns the authenticated channel.
 
 ```
 GET /youtube/v3/channels
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | no | Channel ID. Defaults to the authenticated channel. |
+| `part` | string | query | no | Comma-separated resource parts to include: `snippet`, `contentDetails`, `statistics`, `brandingSettings`. Default: all parts. |
 
-| Parameter | Description |
-|-----------|-------------|
-| `id` | Channel ID (default: `UC_EquineHealthChannel`) |
-| `part` | Resource parts to include (default: all) |
+---
 
-### Videos
+## Videos
+
+### List videos
+
+Returns a list of videos matching the specified filters. Each video resource includes snippet (title, description, tags, thumbnails, publish date), content details (duration, definition, caption availability), statistics (views, likes, comments), and status (privacy, embeddable, license). Supports filtering by specific video IDs or by channel.
 
 ```
 GET /youtube/v3/videos
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | no | Comma-separated video IDs to retrieve |
+| `channelId` | string | query | no | Filter videos by channel ID |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`, `contentDetails`, `statistics`, `status`. Default: all parts. |
+| `maxResults` | integer | query | no | Maximum results, 1-50. Default: 25 |
+| `pageToken` | string | query | no | Pagination token from a previous response |
+
+### Update video
+
+Updates the metadata and/or status of an existing video. The video `id` is required in the request body. Only the provided resource parts are modified. Returns the updated video resource.
+
+```
 PUT /youtube/v3/videos
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Video ID to update |
+| `snippet` | object | no | `{"title": "string", "description": "string", "tags": ["string"], "categoryId": "string"}` |
+| `status` | object | no | `{"privacyStatus": "public\|unlisted\|private", "embeddable": boolean}` |
+
+### Delete video
+
+Permanently deletes a video from the channel. This action cannot be undone.
+
+```
 DELETE /youtube/v3/videos
 ```
 
-**Query params for GET videos:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | yes | Video ID to delete |
 
-| Parameter | Description |
-|-----------|-------------|
-| `id` | Comma-separated video IDs |
-| `channelId` | Filter by channel |
-| `part` | Resource parts: `snippet,contentDetails,statistics,status` |
-| `maxResults` | Max results (1–50, default 25) |
+---
 
-**PUT body (update video):**
+## Playlists
 
-```json
-{
-  "id": "vid_005",
-  "snippet": {
-    "title": "Updated Video Title",
-    "description": "New description",
-    "tags": ["tag1", "tag2"],
-    "categoryId": "27"
-  },
-  "status": {
-    "privacyStatus": "public",
-    "embeddable": true
-  }
-}
-```
+### List playlists
 
-**DELETE query param:** `?id=vid_030`
-
-### Playlists
+Returns a list of playlists matching the specified filters. Each playlist includes snippet (title, description, thumbnails), content details (item count), and status (privacy setting). Supports filtering by specific playlist IDs or by channel.
 
 ```
 GET /youtube/v3/playlists
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | no | Comma-separated playlist IDs |
+| `channelId` | string | query | no | Filter playlists by channel ID |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`, `contentDetails`, `status`. Default: all parts. |
+| `maxResults` | integer | query | no | Maximum results, 1-50. Default: 25 |
+| `pageToken` | string | query | no | Pagination token |
+
+### Create playlist
+
+Creates a new playlist on the authenticated channel. Returns the created playlist resource with a server-generated ID.
+
+```
 POST /youtube/v3/playlists
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `snippet` | object | yes | `{"title": "string", "description": "string"}` |
+| `status` | object | no | `{"privacyStatus": "public\|unlisted\|private"}` |
+
+### Update playlist
+
+Updates an existing playlist's title, description, or privacy status. The playlist `id` is required. Returns the updated playlist resource.
+
+```
 PUT /youtube/v3/playlists
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Playlist ID to update |
+| `snippet` | object | no | `{"title": "string", "description": "string"}` |
+| `status` | object | no | `{"privacyStatus": "public\|unlisted\|private"}` |
+
+### Delete playlist
+
+Permanently deletes a playlist and removes all item associations. The videos themselves are not deleted.
+
+```
 DELETE /youtube/v3/playlists
 ```
 
-**Query params for GET playlists:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | yes | Playlist ID to delete |
 
-| Parameter | Description |
-|-----------|-------------|
-| `id` | Comma-separated playlist IDs |
-| `channelId` | Filter by channel |
-| `part` | Resource parts: `snippet,contentDetails,status` |
-| `maxResults` | Max results (1–50, default 25) |
+---
 
-**POST body (create playlist):**
+## Playlist Items
 
-```json
-{
-  "snippet": {
-    "title": "New Playlist Title",
-    "description": "Playlist description"
-  },
-  "status": {
-    "privacyStatus": "public"
-  }
-}
-```
+### List playlist items
 
-**PUT body (update playlist):**
-
-```json
-{
-  "id": "PL_005",
-  "snippet": {
-    "title": "Updated Playlist Title",
-    "description": "Updated description"
-  },
-  "status": {
-    "privacyStatus": "unlisted"
-  }
-}
-```
-
-### Playlist Items
+Returns the videos contained in a specified playlist, ordered by position. Each item includes the video resource ID, position index, title, description, and thumbnails.
 
 ```
 GET /youtube/v3/playlistItems
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `playlistId` | string | query | yes | Playlist ID to list items from |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`, `contentDetails`. Default: all parts. |
+| `maxResults` | integer | query | no | Maximum results, 1-50. Default: 25 |
+| `pageToken` | string | query | no | Pagination token |
+
+### Insert playlist item
+
+Adds a video to a playlist at the specified position. If no position is given, the video is appended to the end. Returns the created playlist item resource.
+
+```
 POST /youtube/v3/playlistItems
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `snippet` | object | yes | `{"playlistId": "string", "resourceId": {"kind": "youtube#video", "videoId": "string"}, "position": integer}`. `position` is optional. |
+
+### Update playlist item
+
+Updates the position of an existing item within a playlist. Returns the updated playlist item resource.
+
+```
 PUT /youtube/v3/playlistItems
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Playlist item ID |
+| `snippet` | object | yes | `{"position": integer}` |
+
+### Delete playlist item
+
+Removes a video from a playlist. The video itself is not deleted.
+
+```
 DELETE /youtube/v3/playlistItems
 ```
 
-**Query params for GET playlistItems:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | yes | Playlist item ID to remove |
 
-| Parameter | Description |
-|-----------|-------------|
-| `playlistId` | Required — playlist to list items from |
-| `part` | Resource parts: `snippet,contentDetails` |
-| `maxResults` | Max results (1–50, default 25) |
+---
 
-**POST body (add video to playlist):**
+## Comment Threads
 
-```json
-{
-  "snippet": {
-    "playlistId": "PL_001",
-    "resourceId": {
-      "kind": "youtube#video",
-      "videoId": "vid_020"
-    },
-    "position": 2
-  }
-}
-```
+### List comment threads
 
-**PUT body (reorder item):**
-
-```json
-{
-  "id": "PLI_003",
-  "snippet": {
-    "position": 5
-  }
-}
-```
-
-### Comment Threads
+Returns top-level comment threads for a video or channel. Each thread includes the top-level comment (author, text, like count, publish date) and optionally its replies. Threads can be filtered by moderation status to find comments awaiting review.
 
 ```
 GET /youtube/v3/commentThreads
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `videoId` | string | query | no | Filter threads by video ID |
+| `channelId` | string | query | no | Filter threads by channel ID |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`, `replies`. Default: all parts. |
+| `maxResults` | integer | query | no | Maximum results, 1-100. Default: 20 |
+| `moderationStatus` | string | query | no | Filter by status: `published`, `heldForReview`, `rejected` |
+| `pageToken` | string | query | no | Pagination token |
+
+### Create comment thread
+
+Creates a new top-level comment on a video. Returns the created comment thread resource.
+
+```
 POST /youtube/v3/commentThreads
 ```
 
-**Query params for GET commentThreads:**
+**Request body**
 
-| Parameter | Description |
-|-----------|-------------|
-| `videoId` | Filter by video |
-| `channelId` | Filter by channel |
-| `part` | Resource parts: `snippet,replies` |
-| `maxResults` | Max results (1–100, default 20) |
-| `moderationStatus` | `published`, `heldForReview`, or `rejected` |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `snippet` | object | yes | `{"videoId": "string", "topLevelComment": {"snippet": {"textOriginal": "string"}}}` |
 
-**POST body (create top-level comment):**
+---
 
-```json
-{
-  "snippet": {
-    "videoId": "vid_001",
-    "topLevelComment": {
-      "snippet": {
-        "textOriginal": "Great video! Thanks for sharing."
-      }
-    }
-  }
-}
-```
+## Comments
 
-### Comments
+### List replies
+
+Returns replies to a specific parent comment. Each reply includes the author display name, text content, like count, and publish date.
 
 ```
 GET /youtube/v3/comments
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `parentId` | string | query | yes | Parent comment ID to retrieve replies for |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`. Default: `snippet`. |
+| `maxResults` | integer | query | no | Maximum results, 1-100. Default: 20 |
+| `pageToken` | string | query | no | Pagination token |
+
+### Create reply
+
+Posts a reply to an existing comment. The reply appears as a nested response under the parent comment. Returns the created comment resource.
+
+```
 POST /youtube/v3/comments
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `snippet` | object | yes | `{"parentId": "string", "textOriginal": "string"}` |
+
+### Update comment
+
+Edits the text content of an existing comment or reply. Returns the updated comment resource.
+
+```
 PUT /youtube/v3/comments
+```
+
+**Request body**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Comment ID to update |
+| `snippet` | object | yes | `{"textOriginal": "string"}` |
+
+### Delete comment
+
+Permanently deletes a comment or reply. This action cannot be undone.
+
+```
 DELETE /youtube/v3/comments
+```
+
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | yes | Comment ID to delete |
+
+### Set moderation status
+
+Changes the moderation status of a comment. Transitions a comment between published, held for review, and rejected states.
+
+```
 POST /youtube/v3/comments/setModerationStatus
 ```
 
-**Query params for GET comments:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `id` | string | query | yes | Comment ID |
+| `moderationStatus` | string | query | yes | Target status: `published`, `heldForReview`, `rejected` |
 
-| Parameter | Description |
-|-----------|-------------|
-| `parentId` | Required — parent comment ID to get replies |
-| `part` | Resource parts: `snippet` |
-| `maxResults` | Max results (1–100, default 20) |
+---
 
-**POST body (reply to comment):**
+## Search
 
-```json
-{
-  "snippet": {
-    "parentId": "cmt_005",
-      "textOriginal": "Great question! I covered that in the nutrition series."
-  }
-}
-```
+### Search content
 
-**PUT body (edit comment):**
-
-```json
-{
-  "id": "cmt_003",
-  "snippet": {
-    "textOriginal": "Updated comment text."
-  }
-}
-```
-
-**Set moderation status query params:** `?id=cmt_028&moderationStatus=published`
-
-### Search
+Executes a text search across the channel's or platform's video content. Returns matching results ranked by the specified sort order. Each result includes the resource kind, ID, and snippet (title, description, thumbnails, publish date, channel info).
 
 ```
 GET /youtube/v3/search
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `q` | string | query | no | Search query keyword |
+| `channelId` | string | query | no | Restrict results to a specific channel |
+| `part` | string | query | no | Resource parts: `snippet`. Default: `snippet`. |
+| `order` | string | query | no | Sort order: `relevance`, `date`, `viewCount`, `rating`. Default: `relevance` |
+| `maxResults` | integer | query | no | Maximum results, 1-50. Default: 25 |
+| `pageToken` | string | query | no | Pagination token |
+| `type` | string | query | no | Resource type filter: `video`, `channel`, `playlist`. Default: `video` |
 
-| Parameter | Description |
-|-----------|-------------|
-| `q` | Search query keyword |
-| `channelId` | Restrict to a channel |
-| `part` | Resource parts: `snippet` |
-| `order` | Sort: `relevance`, `date`, `viewCount`, `rating` |
-| `maxResults` | Max results (1–50, default 25) |
-| `type` | Resource type filter (default: `video`) |
+---
 
-### Video Categories
+## Video Categories
+
+### List video categories
+
+Returns the list of video categories available in a specified region. Each category includes its ID, title, and whether it is assignable to videos.
 
 ```
 GET /youtube/v3/videoCategories
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `regionCode` | string | query | no | ISO 3166-1 alpha-2 country code. Default: `US` |
+| `part` | string | query | no | Resource parts: `snippet`. Default: `snippet`. |
 
-| Parameter | Description |
-|-----------|-------------|
-| `regionCode` | Region (default: `US`) |
-| `part` | Resource parts: `snippet` |
+---
 
-### Captions
+## Captions
+
+### List captions
+
+Returns the list of caption tracks available for a specific video. Each caption includes the track language, name, type (standard, ASR, forced), and whether it is a draft.
 
 ```
 GET /youtube/v3/captions
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `videoId` | string | query | yes | Video ID to list captions for |
+| `part` | string | query | no | Resource parts: `snippet`. Default: `snippet`. |
 
-| Parameter | Description |
-|-----------|-------------|
-| `videoId` | Required — video to list captions for |
-| `part` | Resource parts: `snippet` |
+---
 
-### Channel Sections
+## Channel Sections
+
+### List channel sections
+
+Returns the sections configured on a channel's homepage. Each section defines a content grouping (e.g., recent uploads, popular uploads, playlists) with a title, position, and type.
 
 ```
 GET /youtube/v3/channelSections
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `channelId` | string | query | yes | Channel ID |
+| `part` | string | query | no | Comma-separated resource parts: `snippet`, `contentDetails`. Default: all parts. |
 
-| Parameter | Description |
-|-----------|-------------|
-| `channelId` | Required — channel ID |
-| `part` | Resource parts: `snippet,contentDetails` |
+---
 
-### Analytics
+## Analytics
+
+### Get analytics report
+
+Returns analytics data for a channel or specific video over a date range. Supports multiple metrics and dimensional breakdowns. The response contains column headers and data rows matching the requested metrics.
 
 ```
 GET /youtube/analytics/v2/reports
 ```
 
-**Query params:**
+| Parameter | Type | In | Required | Description |
+|-----------|------|------|----------|-------------|
+| `ids` | string | query | no | Channel identifier in format `channel=={channelId}` |
+| `filters` | string | query | no | Filter expression, e.g. `video=={videoId}` |
+| `metrics` | string | query | no | Comma-separated metrics: `views`, `estimatedMinutesWatched`, `likes`, `dislikes`, `comments`, `subscribersGained`, `subscribersLost`, `averageViewDuration` |
+| `dimensions` | string | query | no | Comma-separated dimensions: `day`, `video`, `country` |
+| `startDate` | string | query | no | Start date (YYYY-MM-DD) |
+| `endDate` | string | query | no | End date (YYYY-MM-DD) |
 
-| Parameter | Description |
-|-----------|-------------|
-| `ids` | Channel identifier (e.g. `channel==UC_EquineHealthChannel`) |
-| `filters` | Video filter (e.g. `video==vid_001`) |
-| `metrics` | Metrics to return (e.g. `views,estimatedMinutesWatched,likes`) |
-| `startDate` | Start date (ISO format) |
-| `endDate` | End date (ISO format) |
+---
 
-## Typical Workflow
+## Errors
 
-1. `GET /health` to confirm the API is reachable.
-2. `GET /youtube/v3/channels?id=UC_EquineHealthChannel` to load channel profile, stats, and branding.
-3. `GET /youtube/v3/videos?channelId=UC_EquineHealthChannel&maxResults=10` to browse recent uploads.
-4. `GET /youtube/v3/videos?id=vid_001` for full details on a specific video (snippet, stats, status).
-5. `GET /youtube/v3/search?q=colic&channelId=UC_EquineHealthChannel` to find videos matching a keyword.
-6. `GET /youtube/v3/commentThreads?videoId=vid_001&moderationStatus=heldForReview` to check comments needing moderation.
-7. `POST /youtube/v3/comments` to reply to viewer questions on popular videos.
-8. `PUT /youtube/v3/videos` to update a video's title, description, or tags for SEO improvement.
-9. `GET /youtube/analytics/v2/reports?filters=video==vid_001` to check performance metrics for a video.
-10. `GET /youtube/v3/playlists?channelId=UC_EquineHealthChannel` to review playlist organization and add videos.
+Error responses follow this format:
 
-## Bundled Resources
+```json
+{
+  "error": {
+    "code": 404,
+    "message": "Video not found",
+    "errors": [{"domain": "youtube.video", "reason": "videoNotFound"}]
+  }
+}
+```
 
-### Scripts
+Common HTTP status codes:
 
-- **`scripts/fetch_youtube_data.py`** — Helper script to list videos, playlists, comments, search content, and view analytics. Run `python3 scripts/fetch_youtube_data.py --help` for usage.
-
-### References
-
-- **`references/youtube-api-guide.md`** — Detailed endpoint reference with curl examples and common patterns.
+| Code | Meaning |
+|------|---------|
+| 400 | Bad request (invalid parameters or malformed body) |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate resource) |

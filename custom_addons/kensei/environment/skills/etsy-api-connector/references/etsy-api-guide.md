@@ -6,10 +6,15 @@ Detailed patterns and examples for working with the Etsy seller API.
 
 Set via the `ETSY_API_URL` environment variable (e.g. `http://etsy-api:8003`).
 
+## Current User
+
+```bash
+curl "$ETSY_API_URL/v3/application/users/me"
+```
+
 ## Shop Info
 
 ```bash
-# Get shop profile
 curl "$ETSY_API_URL/v3/application/shops/29457183"
 
 # Update shop announcement

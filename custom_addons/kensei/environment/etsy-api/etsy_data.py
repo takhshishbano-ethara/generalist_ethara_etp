@@ -196,6 +196,20 @@ _next_review_id = max(r["review_id"] for r in _reviews_store) + 1
 
 
 # ---------------------------------------------------------------------------
+# User
+# ---------------------------------------------------------------------------
+
+def get_current_user():
+    return {
+        "user_id": _shop_store["user_id"],
+        "login_name": _shop_store["login_name"],
+        "primary_email": None,
+        "create_timestamp": _shop_store["create_date"],
+        "shop_id": _shop_store["shop_id"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Shop
 # ---------------------------------------------------------------------------
 
