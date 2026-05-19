@@ -363,6 +363,7 @@ def _translate_phase1_jsonl(
 
     ranges = _build_number_interval_map(org, repo, lang)
     written = 0
+    fallback_prs: list[int] = []
 
     with open(phase1_jsonl, "r") as fin, open(output_path, "w") as fout:
         for line in fin:
@@ -397,10 +398,12 @@ def _translate_phase1_jsonl(
                     record["number_interval"] = interval
                 else:
                     _logger.warning(
-                        "Primary PR #%d doesn't fall in any registry range, skipping",
-                        primary_number,
+                        "PR #%d in %s/%s does not match any registry interval; "
+                        "falling back to base harness %s.py",
+                        primary_number, org, repo, repo,
                     )
-                    continue
+                    record["number_interval"] = ""
+                    fallback_prs.append(primary_number)
             else:
                 record.setdefault("number_interval", "")
 
@@ -433,8 +436,21 @@ def _translate_phase1_jsonl(
             fout.write(json.dumps(record, ensure_ascii=False) + "\n")
             written += 1
 
+    if fallback_prs:
+        try:
+            with open(output_path + ".fallback_summary.json", "w") as sf:
+                json.dump({
+                    "org": org,
+                    "repo": repo,
+                    "base_fallback_prs": sorted(set(fallback_prs)),
+                }, sf)
+        except OSError as exc:
+            _logger.warning("Failed to write fallback summary: %s", exc)
+
     _logger.info(
-        "Translated %d LHT records from Phase 1 JSONL into harness format", written
+        "Translated %d LHT records from Phase 1 JSONL into harness format "
+        "(base-fallback: %d PR(s))",
+        written, len(fallback_prs),
     )
     return written
 

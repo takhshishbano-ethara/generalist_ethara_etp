@@ -20,6 +20,29 @@ from .util import TokenRotator
 
 _logger = logging.getLogger(__name__)
 
+# Map our internal lowercase language codes to the GitHub Linguist names
+# accepted by the Search API's `language:X` qualifier. GitHub stores the
+# canonical names with their original punctuation/capitalisation, so
+# `language:cpp` literally returns zero results.
+_GITHUB_LINGUIST_NAME = {
+    "cpp": "C++",
+    "csharp": "C#",
+    "golang": "Go",
+    "python": "Python",
+    "java": "Java",
+    "javascript": "JavaScript",
+    "typescript": "TypeScript",
+    "rust": "Rust",
+    "ruby": "Ruby",
+    "php": "PHP",
+    "kotlin": "Kotlin",
+    "scala": "Scala",
+    "swift": "Swift",
+    "html": "HTML",
+    "c": "C",
+}
+
+
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -55,9 +78,10 @@ def _search_repos(
         if len(repos) >= max_results:
             break
         if star_max:
-            query = f"language:{language} stars:{star_min}..{star_max} archived:false fork:false"
+            gh_lang = _GITHUB_LINGUIST_NAME.get(language.lower(), language)
+            query = f'language:"{gh_lang}" stars:{star_min}..{star_max} archived:false fork:false'
         else:
-            query = f"language:{language} stars:>={star_min} archived:false fork:false"
+            query = f'language:"{gh_lang}" stars:>={star_min} archived:false fork:false'
 
         for page in range(1, 11):
             if len(repos) >= max_results:
