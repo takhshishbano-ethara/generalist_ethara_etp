@@ -216,7 +216,6 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
-    @api.depends_context("uid")
     def _compute_gohan_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = (ICP.get_param("gohan.prd_system_prompt", "") or "").strip()
