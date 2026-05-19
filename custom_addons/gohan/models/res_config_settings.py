@@ -216,21 +216,22 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
+    @api.depends_context("uid")
     def _compute_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
-        prd = ICP.get_param("gohan.prd_system_prompt", "")
-        prd_name = ICP.get_param("gohan.prd_prompt_filename", "")
-        qc = ICP.get_param("gohan.qc_system_prompt", "")
-        qc_name = ICP.get_param("gohan.qc_prompt_filename", "")
+        prd = (ICP.get_param("gohan.prd_system_prompt", "") or "").strip()
+        prd_name = ICP.get_param("gohan.prd_prompt_filename", "") or ""
+        qc = (ICP.get_param("gohan.qc_system_prompt", "") or "").strip()
+        qc_name = ICP.get_param("gohan.qc_prompt_filename", "") or ""
         for rec in self:
-            if prd and prd.strip():
-                rec.gohan_prd_prompt_status = f"Custom prompt active: {prd_name}" if prd_name else "Custom prompt active"
-            else:
-                rec.gohan_prd_prompt_status = "Using built-in default"
-            if qc and qc.strip():
-                rec.gohan_qc_prompt_status = f"Custom prompt active: {qc_name}" if qc_name else "Custom prompt active"
-            else:
-                rec.gohan_qc_prompt_status = "Using built-in default"
+            rec.gohan_prd_prompt_status = (
+                (f"Custom prompt active: {prd_name}" if prd_name else "Custom prompt active")
+                if prd else "Using built-in default"
+            )
+            rec.gohan_qc_prompt_status = (
+                (f"Custom prompt active: {qc_name}" if qc_name else "Custom prompt active")
+                if qc else "Using built-in default"
+            )
 
     def _compute_sensitive_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
