@@ -519,12 +519,9 @@ class AuroraEvaluation(models.Model):
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
         from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
-        if not os.path.isfile(self.dataset_file):
-            raise UserError(f"Dataset file not found: {self.dataset_file}")
+        if not dataset_resolver.is_remote(self.dataset_file):
+            if not os.path.isfile(self.dataset_file):
+                raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         ICP = self.env["ir.config_parameter"].sudo()
         default_base = ICP.get_param("aurora.output_dir", "/tmp/aurora_output")
@@ -1099,12 +1096,6 @@ class AuroraEvaluation(models.Model):
             raise UserError("Can only regenerate reports for finished or failed evaluations.")
         if not self.output_dir or not self.dataset_file:
             raise UserError("Output directory and dataset file are required.")
-
-        from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
 
         self.write({"report_status": "running"})
 
