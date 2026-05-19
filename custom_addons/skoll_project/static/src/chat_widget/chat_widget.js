@@ -255,23 +255,11 @@ export class SkollChatWidget extends Component {
             hintPopupVisible: false,
             hintText: "",
             hintTargetMsgIndex: -1,
-            // Auto-hint loop state
-            autoHintActive: false,
-            autoHintIteration: 0,
-            autoHintMaxRetries: 5,
-            autoHintStatus: "",      // "evaluating" | "sending_hint" | "streaming" | ""
-            autoHintGroupId: "",
             subChatView: null,
         });
 
         this._onWsMessage = (payload) => this._handleWsPayload(payload);
         this._pendingHint = false;
-
-        // Auto-hint bus listener
-        this._onAutoHintResult = (ev) => {
-            this._handleAutoHintResult(ev.detail);
-        };
-        this.env.bus.addEventListener("SKOLL:AUTO_HINT_RESULT", this._onAutoHintResult);
 
         onMounted(() => {
             console.log(LOG_PREFIX, "Widget mounted. sandboxId:", this.props.sandboxId,
@@ -300,7 +288,6 @@ export class SkollChatWidget extends Component {
         onWillDestroy(() => {
             console.log(LOG_PREFIX, "Widget unmounting. WS stays alive.");
             this._detachFromSession();
-            this.env.bus.removeEventListener("SKOLL:AUTO_HINT_RESULT", this._onAutoHintResult);
         });
     }
 
@@ -1251,21 +1238,6 @@ export class SkollChatWidget extends Component {
             console.error(LOG_PREFIX, "📖 History load failed:", e);
         }
 
-        try {
-            const sandboxData = await rpc("/skoll/chat/sandbox_state", { sandbox_id: this.props.sandboxId });
-            if (sandboxData.auto_hint_status === "evaluating") {
-                this.state.autoHintActive = true;
-                this.state.autoHintIteration = sandboxData.auto_hint_iteration || 0;
-                this.state.autoHintStatus = "evaluating";
-                this.state.autoHintGroupId = sandboxData.auto_hint_group_id || "";
-                this.state.sending = true;
-            } else if (sandboxData.auto_hint_status && sandboxData.auto_hint_status !== "idle") {
-                rpc("/skoll/chat/sandbox_state", { sandbox_id: this.props.sandboxId }).catch(() => {});
-            }
-        } catch (e) {
-            console.warn(LOG_PREFIX, "Failed to read sandbox auto_hint state:", e);
-        }
-
         this._scrollToBottom();
     }
 
@@ -1377,14 +1349,6 @@ export class SkollChatWidget extends Component {
         await this._saveResponse(text, toolCalls, rawEvents);
         await new Promise(r => setTimeout(r, 1000));
         await this._fetchTrajectory(turnId);
-
-        if (turnId && this._session.wsConnected) {
-            if (this.state.autoHintIteration < this.state.autoHintMaxRetries) {
-                this._triggerAutoHintEval(turnId);
-            } else if (this.state.autoHintActive) {
-                this._endAutoHintLoop("max_retries");
-            }
-        }
     }
 
     async _fetchTrajectory(turnId) {
@@ -1583,165 +1547,9 @@ export class SkollChatWidget extends Component {
         }
     }
 
-    async _triggerAutoHintEval(turnId) {
-        if (!turnId || !this.props.sandboxId) return;
-        const msg = this.state.messages.findLast(m => m.isModelResponse && m.turnId === turnId);
-        if (msg && msg.feedback) return;
-
-        this.state.autoHintActive = true;
-        this.state.autoHintStatus = "evaluating";
-        this.state.autoHintIteration++;
-        this.state.sending = true;
-
-        if (this._autoHintTimeout) clearTimeout(this._autoHintTimeout);
-        this._autoHintTimeout = setTimeout(() => {
-            if (this.state.autoHintActive && this.state.autoHintStatus === "evaluating") {
-                console.warn(LOG_PREFIX, "Auto hint eval timed out after 10 minutes");
-                this._endAutoHintLoop("error");
-            }
-        }, 600000);
-
-        try {
-            const result = await rpc("/skoll/auto_hint_eval", {
-                turn_id: turnId,
-                sandbox_id: this.props.sandboxId,
-            });
-            if (result && result.error) {
-                console.error(LOG_PREFIX, "Auto hint eval returned error:", result.error);
-                this._endAutoHintLoop("error");
-            } else if (result && result.status === "max_retries") {
-                console.warn(LOG_PREFIX, "Auto hint eval: max retries reached");
-                this._endAutoHintLoop("max_retries");
-            }
-        } catch (e) {
-            console.error(LOG_PREFIX, "Auto hint eval request failed:", e);
-            this._endAutoHintLoop("error");
-        }
-    }
-
-    _handleAutoHintResult(payload) {
-        if (!payload || payload.sandbox_id !== this.props.sandboxId) return;
-
-        if (payload.status === "satisfied") {
-            const msg = this.state.messages.findLast(m => m.isModelResponse && !m.feedback);
-            if (msg) {
-                msg.feedback = "satisfied";
-                if (msg.turnId) {
-                    rpc("/skoll/chat/save_feedback", { turn_id: msg.turnId, feedback: "satisfied" })
-                        .catch(e => console.warn(LOG_PREFIX, "auto-hint save_feedback satisfied failed:", e));
-                }
-            }
-            if (payload.reasoning) {
-                this._session.messages.push({
-                    role: "assistant",
-                    text: `Auto-review passed: ${payload.reasoning}`,
-                    isAutoHint: true,
-                    isAutoHintVerdict: true,
-                    autoHintIteration: payload.iteration,
-                    pending: false,
-                });
-            }
-            this._endAutoHintLoop("satisfied");
-        } else if (payload.status === "unsatisfied") {
-            if (payload.reasoning) {
-                this._session.messages.push({
-                    role: "assistant",
-                    text: `Auto-review (${payload.iteration}/5): ${payload.reasoning}`,
-                    isAutoHint: true,
-                    isAutoHintVerdict: true,
-                    autoHintIteration: payload.iteration,
-                    pending: false,
-                });
-            }
-            this._scrollToBottom();
-            this._sendAutoHint(payload.hint, payload.turn_id, payload.group_id, payload.iteration);
-        } else if (payload.status === "max_retries") {
-            this._session.messages.push({
-                role: "assistant",
-                text: `Auto-review reached maximum attempts (${payload.iteration}/5). Needs human review.`,
-                isAutoHint: true,
-                isAutoHintVerdict: true,
-                pending: false,
-            });
-            this._endAutoHintLoop("max_retries");
-        } else if (payload.status === "error") {
-            this._endAutoHintLoop("error");
-        }
-    }
-
-    async _sendAutoHint(hint, evalTurnId, groupId, iteration) {
-        if (!hint || !this._session.wsConnected) {
-            this._endAutoHintLoop("error");
-            return;
-        }
-
-        this.state.autoHintStatus = "sending_hint";
-
-        this._session.messages.push({ role: "user", text: hint, isHint: true, isAutoHint: true });
-        this._scrollToBottom();
-
-        let turnId = null;
-        try {
-            const r = await rpc("/skoll/chat/create_turn", {
-                sandbox_id: this.props.sandboxId,
-                message: hint,
-                timestamp: new Date().toISOString(),
-                is_hint: true,
-                is_auto_hint: true,
-                auto_hint_iteration: iteration + 1,
-                auto_hint_group_id: groupId,
-            });
-            turnId = r.turn_id;
-        } catch (e) {
-            console.error(LOG_PREFIX, "Auto hint create_turn failed:", e);
-            this._endAutoHintLoop("error");
-            return;
-        }
-
-        this._session.currentTurnId = turnId;
-
-        rpc("/skoll/chat/save_feedback", {
-            turn_id: evalTurnId,
-            feedback: "unsatisfied",
-            hint_text: hint,
-        }).catch(e => console.warn(LOG_PREFIX, "Auto hint save_feedback failed:", e));
-
-        this.state.autoHintStatus = "streaming";
-        this._sendToOpenClaw(hint);
-    }
-
-    _endAutoHintLoop(reason) {
-        if (this._autoHintTimeout) {
-            clearTimeout(this._autoHintTimeout);
-            this._autoHintTimeout = null;
-        }
-        this.state.autoHintActive = false;
-        this.state.autoHintIteration = 0;
-        this.state.autoHintStatus = "";
-        this.state.autoHintGroupId = "";
-        this.state.sending = false;
-
-        if (reason === "error") {
-            this._session.messages.push({
-                role: "assistant",
-                text: "Auto-review encountered an error. Please review manually.",
-                isAutoHint: true,
-                isError: true,
-                pending: false,
-            });
-        }
-        this._scrollToBottom();
-    }
-
     async onSend() {
         const text = this.state.inputText.trim();
         if (!text || this.state.sending || this._session.streaming) return;
-
-        if (this.state.autoHintActive) {
-            this._endAutoHintLoop("manual_override");
-        }
-        this.state.autoHintIteration = 0;
-        this.state.autoHintGroupId = "";
 
         if (!this._session.wsConnected) {
             this._session.messages.push({
@@ -2529,26 +2337,9 @@ export class SkollChatWidget extends Component {
         this.state.browserAuthError = "";
     }
 
-    onFeedbackSatisfied(msgIndex) {
-        if (this.state.autoHintActive) {
-            this._endAutoHintLoop("manual_override");
-        }
-        const msg = this.state.messages[msgIndex];
-        if (!msg || msg.feedback) return;
-        msg.feedback = "satisfied";
-        if (msg.turnId) {
-            rpc("/skoll/chat/save_feedback", { turn_id: msg.turnId, feedback: "satisfied" })
-                .catch(e => console.warn(LOG_PREFIX, "save_feedback failed:", e));
-        }
-    }
-
     onFeedbackUnsatisfied(msgIndex) {
-        if (this.state.autoHintActive) {
-            this._endAutoHintLoop("manual_override");
-        }
         const msg = this.state.messages[msgIndex];
         if (!msg || msg.feedback) return;
-        msg.feedback = "unsatisfied";
         this.state.hintPopupVisible = true;
         this.state.hintText = "HINT: ";
         this.state.hintTargetMsgIndex = msgIndex;
@@ -2569,12 +2360,6 @@ export class SkollChatWidget extends Component {
             hint = hint.substring(5).trim();
         }
         if (!hint) return;
-        const msgIndex = this.state.hintTargetMsgIndex;
-        const msg = msgIndex >= 0 ? this.state.messages[msgIndex] : null;
-        if (msg && msg.turnId) {
-            rpc("/skoll/chat/save_feedback", { turn_id: msg.turnId, feedback: "unsatisfied", hint_text: hint })
-                .catch(e => console.warn(LOG_PREFIX, "save_feedback failed:", e));
-        }
         this.state.hintPopupVisible = false;
         this.state.hintTargetMsgIndex = -1;
         this.state.hintText = "";

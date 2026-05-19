@@ -80,7 +80,7 @@
                             </div>
                         </t>
                         <t t-elif="!msg.pending or msg.text">
-                            <div t-attf-class="o_skoll_msg o_skoll_msg_#{msg.role} #{msg.isHint ? 'o_skoll_msg_hint' : ''} #{msg.isAutoHint ? 'o_skoll_auto_hint_msg' : ''} #{msg.isAutoHintVerdict ? 'o_skoll_auto_hint_verdict' : ''}">
+                            <div t-attf-class="o_skoll_msg o_skoll_msg_#{msg.role} #{msg.isHint ? 'o_skoll_msg_hint' : ''}">
                                 <div class="o_skoll_msg_meta">
                                     <span class="o_skoll_msg_role">
                                         <t t-if="msg.isHint">
@@ -126,30 +126,7 @@
                                         <t t-out="msg.text"/>
                                     </t>
                                     <span t-if="msg.pending and msg.text" class="o_skoll_cursor">|</span>
-                                    <t t-if="msg.role === 'assistant' and !msg.pending and msg.isModelResponse and msg.text">
-                                        <div class="o_skoll_feedback_row">
-                                            <t t-if="msg.feedback === 'satisfied'">
-                                                <span class="o_skoll_feedback_tag o_skoll_feedback_satisfied active">
-                                                    <i class="fa fa-check-circle me-1"/>Satisfied
-                                                </span>
-                                            </t>
-                                            <t t-elif="msg.feedback === 'unsatisfied'">
-                                                <span class="o_skoll_feedback_tag o_skoll_feedback_unsatisfied active">
-                                                    <i class="fa fa-times-circle me-1"/>Unsatisfied
-                                                </span>
-                                            </t>
-                                            <t t-else="">
-                                                <button class="o_skoll_feedback_tag o_skoll_feedback_satisfied"
-                                                        t-on-click="() => this.onFeedbackSatisfied(msg_index)">
-                                                    <i class="fa fa-thumbs-up me-1"/>Satisfied
-                                                </button>
-                                                <button class="o_skoll_feedback_tag o_skoll_feedback_unsatisfied"
-                                                        t-on-click="() => this.onFeedbackUnsatisfied(msg_index)">
-                                                    <i class="fa fa-thumbs-down me-1"/>Unsatisfied
-                                                </button>
-                                            </t>
-                                        </div>
-                                    </t>
+
                                 </div>
                             </div>
                         </t>
@@ -330,24 +307,6 @@
                     </div>
                 </t>
 
-                <t t-if="state.autoHintActive">
-                    <div class="o_skoll_auto_hint_banner">
-                        <i class="fa fa-spinner fa-spin me-2"/>
-                        <span t-if="state.autoHintStatus === 'evaluating'">
-                            Auto-review: GLM is evaluating response…
-                        </span>
-                        <span t-elif="state.autoHintStatus === 'sending_hint'">
-                            Auto-review: sending hint (<t t-esc="state.autoHintIteration"/>/<t t-esc="state.autoHintMaxRetries"/>)…
-                        </span>
-                        <span t-elif="state.autoHintStatus === 'streaming'">
-                            Auto-review: waiting for response (<t t-esc="state.autoHintIteration"/>/<t t-esc="state.autoHintMaxRetries"/>)…
-                        </span>
-                        <span t-else="">
-                            Auto-review in progress…
-                        </span>
-                    </div>
-                </t>
-
                 <t t-if="!state.subChatView">
                 <div class="o_skoll_chat_input">
                     <div class="o_skoll_chat_input_row">
@@ -356,7 +315,7 @@
                             t-on-keydown="onKeydown"
                             t-on-input="onMainTextareaInput"
                             placeholder="Type a message..."
-                            t-att-disabled="state.sending or state.streaming or state.qcPending or state.autoHintActive"
+                            t-att-disabled="state.sending or state.streaming or state.qcPending"
                             rows="1"
                             class="o_skoll_chat_textarea"
                             t-ref="mainTextarea"
@@ -370,7 +329,7 @@
                         <t t-else="">
                             <button class="btn btn-primary btn-sm o_skoll_btn"
                                     t-on-click="onSend"
-                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending or state.autoHintActive">
+                                    t-att-disabled="state.sending or !state.inputText.trim() or state.qcPending">
                                 <i class="fa fa-paper-plane"/>
                             </button>
                         </t>

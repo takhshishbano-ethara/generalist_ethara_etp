@@ -5,6 +5,5 @@ from . import browser_auth
 from . import gog_auth
 from . import skoll_controller
 from . import costing
-from . import auto_hint
 from . import export
 from . import golden_generation

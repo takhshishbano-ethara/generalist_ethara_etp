@@ -286,29 +286,6 @@ class SkollSandbox(models.Model):
         default="not_started",
     )
 
-    # Auto-hint loop state
-    auto_hint_status = fields.Selection(
-        [
-            ("idle", "Idle"),
-            ("evaluating", "Evaluating"),
-            ("sending_hint", "Sending Hint"),
-            ("streaming", "Streaming"),
-            ("max_retries", "Max Retries Reached"),
-            ("error", "Error"),
-        ],
-        default="idle",
-        help="Current state of the automated hint loop.",
-    )
-    auto_hint_iteration = fields.Integer(
-        string="Auto Hint Current Iteration",
-        default=0,
-        help="Current iteration count of the in-flight auto-hint loop (0 = idle).",
-    )
-    auto_hint_group_id = fields.Char(
-        string="Auto Hint Group ID",
-        help="UUID of the currently active auto-hint loop.",
-    )
-
     # Turns
     turn_ids = fields.One2many("skoll.turn", "sandbox_id", string="Turns")
 
@@ -1517,10 +1494,7 @@ class SkollSandbox(models.Model):
             "docker_status": "starting",
             "docker_error": False,
             "docker_gateway_token": gateway_token,
-            # Reset auto-hint state from previous sessions
-            "auto_hint_status": "idle",
-            "auto_hint_iteration": 0,
-            "auto_hint_group_id": False,
+
         }
         if mode != "k8s":
             gateway_port, litellm_port, db_port = self._allocate_ports()
@@ -2973,9 +2947,6 @@ class SkollSandbox(models.Model):
         sandbox_id,
         message,
         is_hint=False,
-        is_auto_hint=False,
-        auto_hint_iteration=0,
-        auto_hint_group_id="",
     ):
         """Create a turn record. Mirrors create_turn controller logic."""
         sandbox = self.browse(sandbox_id)
@@ -2998,12 +2969,6 @@ class SkollSandbox(models.Model):
         else:
             vals["prompt"] = message
         vals["prompt_timestamp"] = fields.Datetime.now()
-
-        if is_auto_hint:
-            vals["is_auto_hint"] = True
-            vals["auto_hint_iteration"] = int(auto_hint_iteration or 0)
-            if auto_hint_group_id:
-                vals["auto_hint_group_id"] = auto_hint_group_id
 
         turn = self.env["skoll.turn"].create(vals)
 
@@ -3087,125 +3052,4 @@ class SkollSandbox(models.Model):
         turn.write(vals)
         return {"status": "ok", "count": len(existing)}
 
-    @api.model
-    def auto_process_trigger_hint_eval(self, turn_id, sandbox_id):
-        """Trigger auto-hint evaluation. Same logic as /skoll/auto_hint_eval endpoint."""
-        import uuid
 
-        from ..controllers.auto_hint import _AUTO_HINT_POOL, _auto_hint_eval_bg
-
-        ICP = self.env["ir.config_parameter"].sudo()
-        if ICP.get_param("skoll.disable_auto_hint", "False").lower() == "true":
-            _logger.info(
-                "auto_process_trigger_hint_eval: SKIPPED turn=%s sandbox=%s (disabled in Settings)",
-                turn_id,
-                sandbox_id,
-            )
-            return {"skipped": True, "reason": "Auto-Hint disabled in Settings"}
-
-        turn = self.env["skoll.turn"].browse(turn_id)
-        if not turn.exists():
-            return {"error": "Turn not found"}
-        if turn.turn_status != "Completed":
-            return {"error": "Turn is not completed"}
-        if not turn.response:
-            return {"error": "Turn has no response"}
-
-        sandbox = self.browse(sandbox_id)
-        if not sandbox.exists():
-            return {"error": "Sandbox not found"}
-
-        current_iter = sandbox.auto_hint_iteration or 0
-        if current_iter >= 5:
-            return {"status": "max_retries"}
-
-        group_id = sandbox.auto_hint_group_id or ""
-        if current_iter == 0:
-            group_id = uuid.uuid4().hex
-
-        new_iter = current_iter + 1
-        sandbox.write(
-            {
-                "auto_hint_status": "evaluating",
-                "auto_hint_iteration": new_iter,
-                "auto_hint_group_id": group_id,
-            }
-        )
-
-        db_name = self.env.cr.dbname
-        # Use admin partner for notifications (consumer is headless)
-        notify_partner_id = self.env["res.users"].browse(SUPERUSER_ID).partner_id.id
-
-        def _submit():
-            _AUTO_HINT_POOL.submit(
-                _auto_hint_eval_bg,
-                db_name,
-                sandbox_id,
-                turn_id,
-                group_id,
-                new_iter,
-                notify_partner_id,
-            )
-
-        self.env.cr.postcommit.add(_submit)
-
-        return {"status": "pending", "iteration": new_iter, "group_id": group_id}
-
-    @api.model
-    def auto_process_poll_hint_status(self, sandbox_id):
-        """Read current auto_hint_status and related data for polling."""
-        sandbox = self.browse(sandbox_id)
-        if not sandbox.exists():
-            return {"error": "Sandbox not found"}
-
-        result = {
-            "auto_hint_status": sandbox.auto_hint_status or "idle",
-            "auto_hint_iteration": sandbox.auto_hint_iteration or 0,
-            "auto_hint_group_id": sandbox.auto_hint_group_id or "",
-        }
-
-        # Find the last turn and its feedback
-        last_turn = sandbox.turn_ids.sorted("turn_number", reverse=True)[:1]
-        if last_turn:
-            result["last_turn_id"] = last_turn.id
-            result["last_turn_feedback"] = last_turn.feedback or ""
-            result["last_turn_hint_text"] = last_turn.hint_text or ""
-        else:
-            result["last_turn_id"] = 0
-            result["last_turn_feedback"] = ""
-            result["last_turn_hint_text"] = ""
-
-        return result
-
-    @api.model
-    def auto_process_save_feedback(self, turn_id, feedback, hint_text=""):
-        """Save feedback on a turn. Mirrors save_feedback controller logic."""
-        turn = self.env["skoll.turn"].browse(turn_id)
-        if not turn.exists():
-            return {"error": "Turn not found"}
-
-        feedback = (feedback or "").strip().lower()
-        if feedback not in ("satisfied", "unsatisfied"):
-            return {"error": "Invalid feedback: %s" % feedback}
-
-        vals = {"feedback": feedback}
-        if hint_text:
-            vals["hint_text"] = hint_text
-
-        turn.write(vals)
-        return {"success": True}
-
-    @api.model
-    def auto_process_reset_hint_status(self, sandbox_id):
-        """Reset stuck auto_hint_status to idle (used on timeout)."""
-        sandbox = self.browse(sandbox_id)
-        if not sandbox.exists():
-            return {"error": "Sandbox not found"}
-        sandbox.write(
-            {
-                "auto_hint_status": "idle",
-                "auto_hint_iteration": 0,
-                "auto_hint_group_id": False,
-            }
-        )
-        return {"success": True}

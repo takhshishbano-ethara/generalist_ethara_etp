@@ -645,41 +645,6 @@
     transition: all 0.2s ease;
     line-height: 1.4;
 
-    &.o_skoll_feedback_satisfied {
-        color: #059669;
-        border-color: #a7f3d0;
-        background: #ecfdf5;
-
-        &:hover:not(.active) {
-            background: #d1fae5;
-            border-color: #6ee7b7;
-        }
-
-        &.active {
-            background: #059669;
-            color: #fff;
-            border-color: #059669;
-            cursor: default;
-        }
-    }
-
-    &.o_skoll_feedback_unsatisfied {
-        color: #dc2626;
-        border-color: #fecaca;
-        background: #fef2f2;
-
-        &:hover:not(.active) {
-            background: #fee2e2;
-            border-color: #fca5a5;
-        }
-
-        &.active {
-            background: #dc2626;
-            color: #fff;
-            border-color: #dc2626;
-            cursor: default;
-        }
-    }
 }
 
 /* Hint popup overlay */
@@ -746,32 +711,6 @@
     justify-content: flex-end;
     gap: 8px;
     margin-top: 4px;
-}
-
-.o_skoll_auto_hint_banner {
-    display: flex;
-    align-items: center;
-    padding: 8px 12px;
-    background: #fff3cd;
-    border: 1px solid #ffc107;
-    border-radius: 6px;
-    margin: 8px;
-    font-size: 13px;
-    color: #856404;
-}
-
-.o_skoll_auto_hint_msg {
-    border-left: 3px solid #6c757d;
-    opacity: 0.85;
-}
-
-.o_skoll_auto_hint_verdict {
-    .o_skoll_msg_bubble {
-        font-style: italic;
-        font-size: 12px;
-        color: #6c757d;
-        background: #f8f9fa;
-    }
 }
 
 /* Sub-agent cards (standalone blocks in message list) */

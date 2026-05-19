@@ -19,9 +19,6 @@ class SkollChatController(http.Controller):
         model=None,
         timestamp="",
         is_hint=False,
-        is_auto_hint=False,
-        auto_hint_iteration=0,
-        auto_hint_group_id="",
         **kw,
     ):
         sandbox_id = int(sandbox_id or 0)
@@ -52,13 +49,6 @@ class SkollChatController(http.Controller):
             vals["prompt"] = message
         if timestamp:
             vals["prompt_timestamp"] = timestamp
-
-        # Auto-hint metadata
-        if is_auto_hint:
-            vals["is_auto_hint"] = True
-            vals["auto_hint_iteration"] = int(auto_hint_iteration or 0)
-            if auto_hint_group_id:
-                vals["auto_hint_group_id"] = auto_hint_group_id
 
         turn = request.env["skoll.turn"].create(vals)
 
@@ -177,27 +167,6 @@ class SkollChatController(http.Controller):
             vals["bedrock_input_tokens"] = int(bedrock_input_tokens)
         if bedrock_output_tokens:
             vals["bedrock_output_tokens"] = int(bedrock_output_tokens)
-
-        turn.write(vals)
-        return {"success": True}
-
-    @http.route("/skoll/chat/save_feedback", type="json", auth="user")
-    def save_feedback(self, turn_id=0, feedback="", hint_text="", **kw):
-        turn_id = int(turn_id or 0)
-        if not turn_id:
-            return {"error": "turn_id is required"}
-
-        turn = request.env["skoll.turn"].browse(turn_id)
-        if not turn.exists():
-            return {"error": "Turn not found"}
-
-        feedback = (feedback or "").strip().lower()
-        if feedback not in ("satisfied", "unsatisfied"):
-            return {"error": "Invalid feedback: %s" % feedback}
-
-        vals = {"feedback": feedback}
-        if hint_text:
-            vals["hint_text"] = hint_text
 
         turn.write(vals)
         return {"success": True}
@@ -386,9 +355,7 @@ class SkollChatController(http.Controller):
                     "qc_severity": t.qc_severity or "",
                     "qc_response": t.qc_response or "",
                     "qc_dismiss_reason": t.qc_dismiss_reason or "",
-                    "feedback": t.feedback or "",
                     "hints": t.hints or "",
-                    "hint_text": t.hint_text or "",
                     "is_hint_turn": t.is_hint_turn or False,
                     "sub_agent_messages": t.sub_agent_messages or "",
                     "spawn_tree": t.spawn_tree or "",
@@ -458,20 +425,9 @@ class SkollChatController(http.Controller):
         if not sandbox.exists():
             return {"error": "Sandbox not found"}
 
-        result = {
-            "auto_hint_status": sandbox.auto_hint_status or "idle",
-            "auto_hint_iteration": sandbox.auto_hint_iteration or 0,
-            "auto_hint_group_id": sandbox.auto_hint_group_id or "",
-        }
-
         last_turn = sandbox.turn_ids.sorted("turn_number", reverse=True)[:1]
-        if last_turn:
-            result["last_turn_id"] = last_turn.id
-            result["last_turn_feedback"] = last_turn.feedback or ""
-            result["last_turn_hint_text"] = last_turn.hint_text or ""
-        else:
-            result["last_turn_id"] = 0
-            result["last_turn_feedback"] = ""
-            result["last_turn_hint_text"] = ""
+        result = {
+            "last_turn_id": last_turn.id if last_turn else 0,
+        }
 
         return result

@@ -11,7 +11,6 @@ from . import test_trajectory_qc_validator
 from . import test_controller_chat
 from . import test_controller_jsonl
 from . import test_controller_qc
-from . import test_controller_auto_hint
 from . import test_controller_gog_auth
 from . import test_controller_browser_auth
 from . import test_controller_costing

@@ -399,7 +399,7 @@ def _stream_bedrock_sse(
     inference_config = {"maxTokens": max_tokens}
     if thinking_budget > 0:
         inference_config["temperature"] = 1
-    else:
+    elif temperature is not None:
         inference_config["temperature"] = temperature
 
     payload = {
@@ -476,6 +476,15 @@ def _log_generation(db_name, uid, task_id, inference_arn, usage, duration,
                 "error_message": error,
                 "call_type": call_type,
             })
+            g_in = usage.get("input_tokens", 0)
+            g_out = usage.get("output_tokens", 0)
+            if task_id and (g_in > 0 or g_out > 0):
+                task = env["skoll.skoll"].browse(int(task_id))
+                if task.exists():
+                    task.write({
+                        "golden_input_tokens": (task.golden_input_tokens or 0) + g_in,
+                        "golden_output_tokens": (task.golden_output_tokens or 0) + g_out,
+                    })
     except Exception:
         _logger.exception("Failed to log generation")
 
@@ -721,7 +730,7 @@ class SkollGoldenGenerationController(http.Controller):
                     system_prompt=qc_prompt,
                     user_message=user_msg,
                     max_tokens=KIMI_MAX_TOKENS,
-                    temperature=0.7,
+                    temperature=None,
                 ):
                     yield chunk
                     try:

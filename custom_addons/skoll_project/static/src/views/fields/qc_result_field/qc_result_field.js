@@ -194,7 +194,7 @@ export class SkollQcResultField extends Component {
             !this.state.improving &&
             !this.state.qcRunning &&
             (qcStatus === "fail" || qcStatus === "needs_revision") &&
-            !!this.props.record.data.golden_trajectory &&
+            this.hasGoldenTrajectory &&
             !!this.props.record.data.golden_qc_result
         );
     }

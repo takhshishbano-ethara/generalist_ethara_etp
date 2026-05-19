@@ -17,8 +17,6 @@ Environment variables required:
     CONSUMER_WORKERS          -- concurrent worker threads (default 10)
     CONSUMER_MAX_RETRIES      -- max retries per message (default 3)
     SANDBOX_START_TIMEOUT     -- seconds to wait for sandbox start (default 300)
-    HINT_EVAL_TIMEOUT         -- seconds to wait for auto-hint eval (default 600)
-    HINT_EVAL_POLL_INTERVAL   -- seconds between hint status polls (default 5)
 """
 
 import functools
@@ -57,9 +55,6 @@ QUEUE_AUTO_PROCESS = "skoll_auto_process"
 WORKER_THREADS = int(os.getenv("CONSUMER_WORKERS", "10"))
 MAX_RETRIES = int(os.getenv("CONSUMER_MAX_RETRIES", "3"))
 SANDBOX_START_TIMEOUT = int(os.getenv("SANDBOX_START_TIMEOUT", "300"))
-HINT_EVAL_TIMEOUT = int(os.getenv("HINT_EVAL_TIMEOUT", "600"))
-HINT_EVAL_POLL_INTERVAL = int(os.getenv("HINT_EVAL_POLL_INTERVAL", "5"))
-
 # ── Odoo XML-RPC Config ──────────────────────────────────────────────────────
 ODOO_URL = os.getenv("ODOO_URL", "http://localhost:8069")
 ODOO_DB = os.getenv("ODOO_DB", "ethara_new")
@@ -194,182 +189,6 @@ def _wait_for_sandbox_running(sandbox_id, timeout=SANDBOX_START_TIMEOUT):
         _logger.debug("Sandbox %s status: %s — polling...", sandbox_id, status)
         time.sleep(5)
     raise RuntimeError("Sandbox %s start timed out after %ds" % (sandbox_id, timeout))
-
-
-# ── Auto-Hint Loop ────────────────────────────────────────────────────────────
-def _run_auto_hint_loop(sandbox_id, ws_client, task_id):
-    """
-    Run the auto-hint evaluation loop for the current turn.
-    1. Trigger eval
-    2. Poll until satisfied/unsatisfied/max_retries/error
-    3. If unsatisfied: create hint turn, send via WS, wait for response, save, re-trigger
-    """
-    from ws_client import OpenClawError, OpenClawTimeoutError
-
-    # Check the Settings toggle: skip the entire auto-hint loop when disabled.
-    try:
-        disable_param = _call_odoo(
-            "ir.config_parameter", "get_param", ["skoll.disable_auto_hint", "False"]
-        )
-        if isinstance(disable_param, str) and disable_param.lower() == "true":
-            _logger.info(
-                "auto_hint: SKIPPED for sandbox=%s task=%s (disabled in Settings)",
-                sandbox_id,
-                task_id,
-            )
-            return
-    except Exception as e:  # noqa: BLE001 — defensive: do not break loop on toggle check
-        _logger.warning(
-            "auto_hint: failed to check skoll.disable_auto_hint (%s); proceeding",
-            e,
-        )
-
-    for attempt in range(5):
-        # Get the last turn
-        status = _call_odoo(
-            "skoll.sandbox", "auto_process_poll_hint_status", [sandbox_id]
-        )
-        last_turn_id = status.get("last_turn_id", 0)
-        if not last_turn_id:
-            _logger.warning("auto_hint: no turns found for sandbox %s", sandbox_id)
-            return
-
-        # Trigger evaluation
-        _logger.info(
-            "auto_hint: triggering eval for sandbox=%s turn=%s attempt=%d",
-            sandbox_id,
-            last_turn_id,
-            attempt + 1,
-        )
-        trigger_result = _call_odoo(
-            "skoll.sandbox",
-            "auto_process_trigger_hint_eval",
-            [last_turn_id, sandbox_id],
-        )
-        if trigger_result.get("error"):
-            _logger.error("auto_hint: trigger failed: %s", trigger_result["error"])
-            return
-        if trigger_result.get("status") == "max_retries":
-            _logger.info("auto_hint: max retries reached for sandbox %s", sandbox_id)
-            return
-
-        # Poll for result
-        deadline = time.time() + HINT_EVAL_TIMEOUT
-        resolved = False
-        while time.time() < deadline:
-            time.sleep(HINT_EVAL_POLL_INTERVAL)
-            poll = _call_odoo(
-                "skoll.sandbox", "auto_process_poll_hint_status", [sandbox_id]
-            )
-            hint_status = poll.get("auto_hint_status", "")
-            _logger.debug(
-                "auto_hint: poll sandbox=%s status=%s iter=%s",
-                sandbox_id,
-                hint_status,
-                poll.get("auto_hint_iteration"),
-            )
-
-            if hint_status == "idle":
-                # Eval completed — check last turn feedback
-                feedback = poll.get("last_turn_feedback", "")
-                if feedback == "satisfied":
-                    _logger.info("auto_hint: satisfied for sandbox %s", sandbox_id)
-                    return
-                elif feedback == "unsatisfied":
-                    hint_text = poll.get("last_turn_hint_text", "")
-                    if not hint_text:
-                        _logger.warning(
-                            "auto_hint: unsatisfied but no hint text for sandbox %s",
-                            sandbox_id,
-                        )
-                        return
-                    _logger.info(
-                        "auto_hint: unsatisfied, sending hint (attempt %d): %.100s",
-                        attempt + 1,
-                        hint_text,
-                    )
-                    # Create hint turn
-                    group_id = poll.get("auto_hint_group_id", "")
-                    iteration = poll.get("auto_hint_iteration", 0)
-                    turn_result = _call_odoo(
-                        "skoll.sandbox",
-                        "auto_process_create_turn",
-                        [sandbox_id, hint_text],
-                        [],
-                        {
-                            "is_hint": True,
-                            "is_auto_hint": True,
-                            "auto_hint_iteration": iteration + 1,
-                            "auto_hint_group_id": group_id,
-                        },
-                    )
-                    if turn_result.get("error"):
-                        _logger.error(
-                            "auto_hint: create_turn failed: %s",
-                            turn_result["error"],
-                        )
-                        return
-                    new_turn_id = turn_result["turn_id"]
-
-                    # Send hint via WS
-                    try:
-                        ws_client.send_message(hint_text)
-                        response = ws_client.wait_for_response(timeout=600)
-                    except (OpenClawError, OpenClawTimeoutError) as e:
-                        _logger.error("auto_hint: WS error during hint response: %s", e)
-                        _call_odoo(
-                            "skoll.sandbox",
-                            "auto_process_save_response",
-                            [new_turn_id, str(e), "", False],
-                        )
-                        return
-
-                    # Save hint response
-                    _call_odoo(
-                        "skoll.sandbox",
-                        "auto_process_save_response",
-                        [new_turn_id, response.text, response.tool_calls_json, False],
-                    )
-
-                    # Fetch and save trajectory
-                    try:
-                        history = ws_client.fetch_history()
-                        if history:
-                            _call_odoo(
-                                "skoll.sandbox",
-                                "auto_process_save_trajectory",
-                                [sandbox_id, new_turn_id, json.dumps(history)],
-                            )
-                    except Exception as e:
-                        _logger.warning("auto_hint: fetch_history failed: %s", e)
-
-                    resolved = True
-                    break  # Back to outer loop for next eval
-                else:
-                    _logger.info(
-                        "auto_hint: idle with feedback=%s for sandbox %s",
-                        feedback,
-                        sandbox_id,
-                    )
-                    return
-
-            elif hint_status in ("max_retries", "error"):
-                _logger.info(
-                    "auto_hint: status=%s for sandbox %s", hint_status, sandbox_id
-                )
-                return
-
-        if not resolved:
-            _logger.warning(
-                "auto_hint: eval timed out after %ds for sandbox %s",
-                HINT_EVAL_TIMEOUT,
-                sandbox_id,
-            )
-            # Reset stuck status
-            _call_odoo("skoll.sandbox", "auto_process_reset_hint_status", [sandbox_id])
-            return
-
-    _logger.info("auto_hint: loop completed for sandbox %s", sandbox_id)
 
 
 # ── Worker Function ───────────────────────────────────────────────────────────
@@ -535,11 +354,7 @@ def _process_task(connection, channel, delivery_tag, properties, body):
         except Exception as e:
             _logger.warning("save_sub_agent_messages failed (non-fatal): %s", e)
 
-        # 9. Auto-hint QC loop
-        _logger.info("Starting auto-hint loop (sandbox=%s)...", sandbox_id)
-        _run_auto_hint_loop(sandbox_id, ws_client, task_id)
-
-        # 10. Mark done (sandbox stays running)
+        # 9. Mark done (sandbox stays running)
         elapsed = time.time() - start_time
         _call_odoo("skoll.skoll", "auto_process_mark_done", [task_id, "done", ""])
         _logger.info(

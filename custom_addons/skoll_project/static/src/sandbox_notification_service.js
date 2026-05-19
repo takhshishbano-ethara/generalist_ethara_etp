@@ -35,9 +35,6 @@ const sandboxNotificationService = {
             env.bus.trigger("SKOLL:GOLDEN_STATUS_CHANGED", payload);
         });
 
-        bus_service.subscribe("skoll/auto_hint_result", (payload) => {
-            env.bus.trigger("SKOLL:AUTO_HINT_RESULT", payload);
-        });
     },
 };
 

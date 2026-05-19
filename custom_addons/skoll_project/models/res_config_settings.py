@@ -4,6 +4,12 @@ from odoo import fields, models
 class SkollConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
+    skoll_deployment_mode = fields.Selection(
+        [("local", "Local (Docker)"), ("k8s", "Kubernetes")],
+        string="Deployment Mode",
+        config_parameter="skoll.deployment_mode",
+        default="local",
+    )
     skoll_sonnet_arn = fields.Char(
         string="Sonnet ARN",
         config_parameter="skoll.sonnet_arn",

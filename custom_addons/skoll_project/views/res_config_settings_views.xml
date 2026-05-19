@@ -8,6 +8,11 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Skoll" string="Skoll" name="skoll_project">
+                    <block title="Deployment">
+                        <setting string="Deployment Mode">
+                            <field name="skoll_deployment_mode" widget="radio"/>
+                        </setting>
+                    </block>
                     <block title="Bedrock Model ARNs">
                         <setting string="Sonnet ARN">
                             <field name="skoll_sonnet_arn" />
