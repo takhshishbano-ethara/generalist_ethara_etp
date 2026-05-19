@@ -15,4 +15,12 @@ def migrate(cr, version):
         ALTER TABLE aurora_github_token
         DROP CONSTRAINT IF EXISTS aurora_github_token_leased_by_run_id_fkey
     """)
-    _logger.info("Aurora 19.0.6.0.0: dropped FK constraint on aurora_github_token.leased_by_run_id")
+    cr.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'aurora_evaluation'"
+    )
+    if cr.fetchone():
+        cr.execute("""
+            ALTER TABLE aurora_evaluation
+            ADD COLUMN IF NOT EXISTS custom_jsonl_file BYTEA
+        """)
+    _logger.info("Aurora 19.0.6.0.0: dropped token FK, added custom_jsonl_file column")

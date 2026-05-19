@@ -131,7 +131,7 @@ class AuroraEvaluation(models.Model):
     )
     custom_org = fields.Char(string="GitHub Org")
     custom_repo = fields.Char(string="GitHub Repo")
-    custom_jsonl_file = fields.Binary(string="Dataset JSONL File")
+    custom_jsonl_file = fields.Binary(string="Dataset JSONL File", attachment=False)
     custom_jsonl_filename = fields.Char()
     dataset_file = fields.Char(
         string="Dataset File",

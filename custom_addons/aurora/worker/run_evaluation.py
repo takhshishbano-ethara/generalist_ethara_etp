@@ -247,7 +247,8 @@ def _read_eval_config(conn, rec_id: int) -> dict:
             "SELECT dataset_file, patch_file, repo_dir, workdir, output_dir, "
             "force_build, max_workers_build, max_workers_run, docker_platform, "
             "instance_limit, specific_prs, pipeline_id, "
-            "tar_decision_window_minutes, staging_test_id "
+            "tar_decision_window_minutes, staging_test_id, "
+            "dataset_source, custom_jsonl_file "
             "FROM aurora_evaluation WHERE id = %s",
             (rec_id,),
         )
@@ -269,6 +270,8 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "pipeline_id": row[11],
         "tar_decision_window_minutes": int(row[12] or 0),
         "staging_test_id": row[13],
+        "dataset_source": row[14] or "pipeline",
+        "custom_jsonl_file": bytes(row[15]) if row[15] else None,
     }
 
 
@@ -554,24 +557,34 @@ def run_evaluation(db_name: str, rec_id: int):
             dataset_file = dataset_resolver.resolve_to_local(conn, dataset_file)
             _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
         elif not os.path.isfile(dataset_file):
-            # Local path from server doesn't exist in pod — fetch original S3 URL from pipeline
-            original_url = None
-            if pipeline_id:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
-                        (pipeline_id,),
-                    )
-                    prow = cur.fetchone()
-                    if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
-                        original_url = prow[0]
-            if original_url:
-                _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
-                dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
-                _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+            if cfg.get("dataset_source") == "custom":
+                raw = cfg.get("custom_jsonl_file")
+                if raw:
+                    Path(dataset_file).parent.mkdir(parents=True, exist_ok=True)
+                    with open(dataset_file, "wb") as fh:
+                        fh.write(raw)
+                    _append_log(conn, rec_id, f"Custom dataset written to disk: {dataset_file}")
+                else:
+                    _fail_eval(conn, rec_id, "Custom dataset data missing from evaluation record.")
+                    return
             else:
-                _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
-                return
+                original_url = None
+                if pipeline_id:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
+                            (pipeline_id,),
+                        )
+                        prow = cur.fetchone()
+                        if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
+                            original_url = prow[0]
+                if original_url:
+                    _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
+                    dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
+                    _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+                else:
+                    _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
+                    return
 
         # Regenerate patch file locally (server-generated file isn't in the pod)
         patch_file = cfg["patch_file"]
