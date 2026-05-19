@@ -9,6 +9,7 @@ report generation).  Every DB operation uses a short-lived cursor.
 SIGTERM triggers graceful stop between stages.
 """
 
+import base64
 import logging
 import os
 import signal
@@ -71,7 +72,24 @@ def _boot_odoo(db_name: str, conf_path: Optional[str] = None):
     from odoo.modules.registry import Registry
     registry = Registry(db_name)
     _logger.info("Odoo registry booted for db=%s", db_name)
+    _ensure_schema_compatible(registry, db_name)
     return registry
+
+
+def _ensure_schema_compatible(registry, db_name: str) -> None:
+    statements = (
+        "ALTER TABLE aurora_github_token "
+        "DROP CONSTRAINT IF EXISTS aurora_github_token_leased_by_run_id_fkey",
+        "ALTER TABLE aurora_evaluation "
+        "ADD COLUMN IF NOT EXISTS custom_jsonl_file BYTEA",
+    )
+    try:
+        with registry.cursor() as cr:
+            for sql in statements:
+                cr.execute(sql)
+        _logger.info("Self-heal: schema-compat DDL applied (idempotent)")
+    except Exception:
+        _logger.exception("Self-heal: schema-compat DDL failed; continuing")
 
 
 def _open_cursor(db_name: str):
@@ -159,7 +177,7 @@ def _setup_buildx_builder():
         ],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=300,
     )
     if result.returncode != 0:
         _logger.warning(
@@ -271,7 +289,7 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "tar_decision_window_minutes": int(row[12] or 0),
         "staging_test_id": row[13],
         "dataset_source": row[14] or "pipeline",
-        "custom_jsonl_file": bytes(row[15]) if row[15] else None,
+        "custom_jsonl_file": base64.b64decode(bytes(row[15])) if row[15] else None,
     }
 
 

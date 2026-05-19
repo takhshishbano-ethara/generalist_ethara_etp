@@ -197,7 +197,7 @@ class ResConfigSettings(models.TransientModel):
     )
     gohan_prd_prompt_filename = fields.Char(string="PRD Prompt Filename")
     gohan_prd_prompt_status = fields.Char(
-        string="PRD Prompt Status", compute="_compute_prompt_status",
+        string="PRD Prompt Status", compute="_compute_gohan_prompt_status",
     )
     gohan_qc_prompt_file = fields.Binary(
         string="QC Prompt File (.md)",
@@ -205,7 +205,7 @@ class ResConfigSettings(models.TransientModel):
     )
     gohan_qc_prompt_filename = fields.Char(string="QC Prompt Filename")
     gohan_qc_prompt_status = fields.Char(
-        string="QC Prompt Status", compute="_compute_prompt_status",
+        string="QC Prompt Status", compute="_compute_gohan_prompt_status",
     )
 
     # -- Limits --
@@ -216,8 +216,7 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
-    @api.depends_context("uid")
-    def _compute_prompt_status(self):
+    def _compute_gohan_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = (ICP.get_param("gohan.prd_system_prompt", "") or "").strip()
         prd_name = ICP.get_param("gohan.prd_prompt_filename", "") or ""
