@@ -200,6 +200,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             "enabled": False,
         },
         "tools": {
+            "deny": ["browser"],
             "web": {
                 "search": {"enabled": False},
                 "fetch": {"enabled": False},
@@ -391,6 +392,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
         skills_cm = self._create_skills_configmap(core_v1, task_id, labels, sandbox_record)
+        mock_data_cms = self._create_mock_data_configmaps(core_v1, task_id, labels)
 
         self._create_deployment(
             apps_v1,
@@ -411,6 +413,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             bedrock_arn,
             gateway_token,
             skills_cm=skills_cm,
+            mock_data_cms=mock_data_cms,
         )
 
         self._create_service(core_v1, sandbox_record, labels, name)
@@ -715,6 +718,103 @@ class KenseiSandboxK8s(models.AbstractModel):
                 raise
         return cm_name
 
+    def _create_mock_data_configmaps(self, core_v1, task_id, labels):
+        """Create per-service ConfigMaps from mock data files (CSV/JSON).
+
+        In K8s mode, sidecar images are pulled from ECR and may contain stale
+        data baked in at build time.  This method reads the *current* data files
+        from the module's ``environment/<svc>/`` directories and stores them in
+        ConfigMaps so they can be overlaid onto the sidecar via ``subPath``
+        volume mounts (see ``_create_deployment``).
+
+        Returns ``{dir_name: {"cm_name": str, "files": [str]}}``.
+        """
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return {}
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return {}
+
+        overlay_extensions = {".csv", ".json", ".py"}
+        result = {}
+
+        for entry in sorted(os.listdir(env_dir)):
+            svc_dir = os.path.join(env_dir, entry)
+            if not os.path.isfile(os.path.join(svc_dir, "service.toml")):
+                continue
+
+            data = {}
+            for fname in sorted(os.listdir(svc_dir)):
+                fpath = os.path.join(svc_dir, fname)
+                if not os.path.isfile(fpath):
+                    continue
+                _, ext = os.path.splitext(fname)
+                if ext.lower() not in overlay_extensions:
+                    continue
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data[fname] = f.read()
+                except (UnicodeDecodeError, OSError):
+                    continue
+
+            if not data:
+                continue
+
+            total_size = sum(len(v.encode("utf-8")) for v in data.values())
+            if total_size > 1_000_000:
+                _logger.warning(
+                    "Mock data for %s exceeds 1 MB (%d bytes), skipping "
+                    "ConfigMap -- sidecar will use baked-in image data",
+                    entry,
+                    total_size,
+                )
+                continue
+
+            cm_name = "kensei-mock-data-%s-%s" % (entry, task_id)
+            cm = client.V1ConfigMap(
+                api_version="v1",
+                kind="ConfigMap",
+                metadata=client.V1ObjectMeta(
+                    name=cm_name,
+                    namespace=NAMESPACE,
+                    labels=labels,
+                ),
+                data=data,
+            )
+            try:
+                core_v1.create_namespaced_config_map(
+                    namespace=NAMESPACE, body=cm,
+                )
+            except ApiException as e:
+                if e.status == 409:
+                    core_v1.replace_namespaced_config_map(
+                        name=cm_name, namespace=NAMESPACE, body=cm,
+                    )
+                else:
+                    raise
+
+            result[entry] = {"cm_name": cm_name, "files": sorted(data.keys())}
+
+        return result
+
+    def _list_mock_service_dirs(self):
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return []
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return []
+        return [
+            entry
+            for entry in sorted(os.listdir(env_dir))
+            if os.path.isfile(os.path.join(env_dir, entry, "service.toml"))
+        ]
+
     def _load_environment_services(self):
         """Load mock service metadata from module's environment/ directory."""
         from odoo.modules.module import get_module_path
@@ -745,6 +845,8 @@ class KenseiSandboxK8s(models.AbstractModel):
                 except ImportError:
                     svc_meta = _parse_service_toml_fallback(toml_path)
                     if svc_meta:
+                        svc_meta["dir_name"] = entry
+                        svc_meta["data_dir"] = "/app"
                         services.append(svc_meta)
                     continue
             with open(toml_path, "rb") as f:
@@ -760,10 +862,12 @@ class KenseiSandboxK8s(models.AbstractModel):
                 )
             svc_meta = {
                 "name": svc.get("name", ""),
+                "dir_name": entry,
                 "port": svc.get("port", 0),
                 "env_var_name": svc.get("env_var_name", ""),
                 "healthcheck_path": svc.get("healthcheck_path", "/health"),
                 "k8s_image": k8s_image,
+                "data_dir": k8s.get("data_dir", "/app"),
                 "cpu_request": k8s.get("cpu_request", "25m"),
                 "memory_request": k8s.get("memory_request", "128Mi"),
                 "memory_limit": k8s.get("memory_limit", "256Mi"),
@@ -792,6 +896,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         bedrock_arn,
         gateway_token,
         skills_cm=None,
+        mock_data_cms=None,
     ):
         task_id = sandbox_record.id
         secret_name = "kensei-sandbox-creds-%s" % task_id
@@ -1331,14 +1436,32 @@ class KenseiSandboxK8s(models.AbstractModel):
             session_backup_container,
         ]
 
+        mock_data_cms = mock_data_cms or {}
         for svc in mock_services:
             if not svc.get("k8s_image"):
                 continue
+
+            svc_dir_name = svc.get("dir_name", svc["name"])
+            svc_data = mock_data_cms.get(svc_dir_name, {})
+            svc_vol_mounts = []
+            if svc_data:
+                data_dir = svc.get("data_dir", "/app")
+                vol_name = "mock-data-%s" % svc_dir_name
+                for fname in svc_data.get("files", []):
+                    svc_vol_mounts.append(
+                        client.V1VolumeMount(
+                            name=vol_name,
+                            mount_path="%s/%s" % (data_dir, fname),
+                            sub_path=fname,
+                        )
+                    )
+
             containers.append(
                 client.V1Container(
                     name=svc["name"],
                     image=svc["k8s_image"],
                     ports=[client.V1ContainerPort(container_port=svc["port"])],
+                    volume_mounts=svc_vol_mounts or None,
                     resources=client.V1ResourceRequirements(
                         requests={
                             "cpu": svc.get("cpu_request") or "25m",
@@ -1423,6 +1546,20 @@ class KenseiSandboxK8s(models.AbstractModel):
                     ),
                 )
             )
+
+        for svc in mock_services:
+            svc_dir_name = svc.get("dir_name", svc["name"])
+            svc_data = mock_data_cms.get(svc_dir_name, {})
+            if svc_data.get("cm_name"):
+                volumes.append(
+                    client.V1Volume(
+                        name="mock-data-%s" % svc_dir_name,
+                        config_map=client.V1ConfigMapVolumeSource(
+                            name=svc_data["cm_name"],
+                            optional=True,
+                        ),
+                    )
+                )
 
         deployment = client.V1Deployment(
             api_version="apps/v1",
@@ -1754,6 +1891,17 @@ class KenseiSandboxK8s(models.AbstractModel):
             "kensei-litellm-config-%s" % task_id,
             NAMESPACE,
         )
+        self._delete_resource(
+            core_v1.delete_namespaced_config_map,
+            "kensei-sandbox-skills-%s" % task_id,
+            NAMESPACE,
+        )
+        for svc_dir in self._list_mock_service_dirs():
+            self._delete_resource(
+                core_v1.delete_namespaced_config_map,
+                "kensei-mock-data-%s-%s" % (svc_dir, task_id),
+                NAMESPACE,
+            )
 
     def _delete_resource(self, delete_func, name, namespace):
         try:
