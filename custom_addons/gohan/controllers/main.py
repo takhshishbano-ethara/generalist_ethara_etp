@@ -500,7 +500,13 @@ class GohanController(http.Controller):
             if spec_prefix and not record.s3_artifact_prefix:
                 write_vals["s3_artifact_prefix"] = str(spec_prefix)[:255]
 
-            write_vals["state"] = "generating"
+            # Interactive single jobs park at the manual review gate: the
+            # tasker curates the extraction assets (delete/upload) and then
+            # clicks Generate PRD. Batch runs (up to 250 jobs at once) can't
+            # be hand-reviewed, so they skip the gate and auto-generate.
+            is_batch = bool(record.via_batch)
+            target_state = "generating" if is_batch else "extracted"
+            write_vals["state"] = target_state
 
             # CRITICAL FIX (self-serialization-conflict): perform the main
             # row write on a FRESH cursor (its own short-lived transaction)
@@ -547,16 +553,29 @@ class GohanController(http.Controller):
                     )
                 else:
                     rec_write.write(write_vals)
+                    # Build the curatable asset rows the tasker reviews while
+                    # the job waits at the gate. Done on cr_write so the rows
+                    # commit atomically with the state change.
+                    if target_state == "extracted":
+                        rec_write._materialize_assets(
+                            screenshot_keys=screenshot_keys,
+                            asset_keys=asset_keys,
+                            svg_manifest=data.get("svg_manifest"),
+                        )
                     cr_write.commit()
 
             record._append_pipeline_event(
                 db_name, record_id, "extraction.callback", "ok",
-                message="Extraction data persisted; transitioning to PRD generation",
+                message=(
+                    "Extraction data persisted; transitioning to PRD generation"
+                    if is_batch else
+                    "Extraction data persisted; awaiting tasker review"
+                ),
                 screenshots=len(screenshot_keys),
                 assets=len(asset_keys),
                 has_site_discovery=bool(site_discovery),
                 has_prd_prompt=bool(prd_prompt),
-                next_state="generating",
+                next_state=target_state,
             )
 
             # Notify browser of state change
@@ -564,7 +583,7 @@ class GohanController(http.Controller):
                 request.env["bus.bus"]._sendone(
                     "gohan_job_updates",
                     "gohan/job_state",
-                    {"id": record.id, "state": "generating"},
+                    {"id": record.id, "state": target_state},
                 )
             except Exception:
                 pass
@@ -587,16 +606,19 @@ class GohanController(http.Controller):
                         record._upload_artifacts_bg,
                         db_name, record_id, artifacts_for_bg, s3_config,
                     )
-                # 2) PRD generation — runs concurrently with the upload
-                _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    record._run_prd_generation_bg, db_name, record_id,
-                )
+                # 2) PRD generation — runs concurrently with the upload.
+                #    Skipped for gated single jobs: PRD generation is kicked
+                #    off later by the tasker via action_generate_prd.
+                if is_batch:
+                    _submit_bg(
+                        f"prd-gen[job={record_id}]",
+                        record._run_prd_generation_bg, db_name, record_id,
+                    )
 
             request.env.cr.postcommit.add(_deferred)
 
             return Response(
-                json.dumps({"status": "success", "next_step": "generating"}),
+                json.dumps({"status": "success", "next_step": target_state}),
                 status=200,
                 content_type="application/json",
             )

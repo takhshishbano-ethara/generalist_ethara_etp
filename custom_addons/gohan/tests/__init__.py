@@ -5,6 +5,7 @@ from . import test_extraction_service
 from . import test_gohan_job_model
 from . import test_gohan_job_actions
 from . import test_gohan_job_compute
+from . import test_gohan_job_asset
 from . import test_controller_webhook
 from . import test_wizards
 from . import test_markdown_helpers

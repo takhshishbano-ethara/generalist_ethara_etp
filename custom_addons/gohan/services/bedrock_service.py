@@ -189,7 +189,7 @@ def generate_prd(
     Args:
         inference_arn: Model inference profile ARN.
         region: AWS region.
-        system_prompt: System prompt (prd_agent_spec.md content).
+        system_prompt: System prompt (prd_v9_pipeline.md content).
         messages: Conversation messages [{"role": "user"/"assistant", "content": "..."}].
         max_tokens: Max response tokens.
         temperature: Sampling temperature.

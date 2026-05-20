@@ -180,7 +180,7 @@
                         </setting>
                     </block>
                     <block title="Prompts">
-                        <setting string="PRD System Prompt" help="Upload a .md file to override the built-in PRD generation prompt. Leave empty to use the default (prd_agent_spec.md).">
+                        <setting string="PRD System Prompt" help="Upload a .md file to override the built-in PRD generation prompt. Leave empty to use the default (prd_v9_pipeline.md).">
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="gohan_prd_prompt_file" class="col-lg-3 o_light_label"/>

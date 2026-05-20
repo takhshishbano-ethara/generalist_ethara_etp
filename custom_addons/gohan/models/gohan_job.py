@@ -172,6 +172,7 @@ class GohanJob(models.Model):
             ("not_assigned", "Not Assigned"),
             ("draft", "Draft"),
             ("extracting", "Extracting"),
+            ("extracted", "Extracted — Review"),
             ("generating", "Generating PRD"),
             ("scoring", "Scoring"),
             ("done", "Done"),
@@ -246,6 +247,17 @@ class GohanJob(models.Model):
     artifacts_url = fields.Char(string="Artifacts Folder URL")
     screenshot_keys = fields.Json(string="S3 Screenshot Keys")
     asset_keys = fields.Json(string="S3 Asset Keys")
+    asset_ids = fields.One2many(
+        "gohan.job.asset",
+        "job_id",
+        string="Extraction Assets",
+        help=(
+            "Screenshots and SVG icons captured by the extraction Lambda, "
+            "plus any files the tasker uploads. Curated in the Extraction "
+            "Review tab while the job waits in the 'Extracted' state; only "
+            "ticked rows feed PRD generation."
+        ),
+    )
     deliverables_url = fields.Char(string="Deliverables URL")
     duration_seconds = fields.Float(string="Duration (s)")
     llm_attempts = fields.Integer(string="LLM Attempts")
@@ -422,18 +434,17 @@ class GohanJob(models.Model):
 
     @api.model
     def _get_prd_system_prompt(self):
-        """Read PRD system prompt from the bundled file (file is source of truth);
-        fall back to the legacy file and Settings sysparam for backward compat.
+        """Read the PRD system prompt from the bundled file (file is the
+        source of truth); fall back to the Settings sysparam.
 
         Priority order:
-          1. ``prompts/prd_v8_chat.md`` — current active prompt template (v8).
+          1. ``prompts/prd_v9_pipeline.md`` — the active prompt template (v9).
              Edit this file + restart Odoo to update the prompt.
-          2. ``prompts/prd_agent_spec.md`` — legacy fallback if v8 file is missing.
-          3. ``gohan.prd_system_prompt`` sysparam — last-resort override for
+          2. ``gohan.prd_system_prompt`` sysparam — last-resort override for
              operators who edit through Settings UI without touching files.
         """
         prompts_dir = Path(__file__).parent.parent / "prompts"
-        for fname in ("prd_v8_chat.md", "prd_agent_spec.md"):
+        for fname in ("prd_v9_pipeline.md",):
             p = prompts_dir / fname
             if p.exists():
                 content = p.read_text(encoding="utf-8")
@@ -1153,7 +1164,7 @@ class GohanJob(models.Model):
     # Actions
     # ------------------------------------------------------------------
 
-    _ACTIVE_STATES = ("draft", "extracting", "generating", "scoring", "done")
+    _ACTIVE_STATES = ("draft", "extracting", "extracted", "generating", "scoring", "done")
 
     def action_start_task(self):
         """Tasker grabs the next available unassigned task.
@@ -2027,6 +2038,236 @@ class GohanJob(models.Model):
             )
         )
 
+    # ------------------------------------------------------------------
+    # Extraction review gate
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _classify_asset_key(key):
+        """Map an S3 asset key to a ``gohan.job.asset`` asset_type."""
+        low = (key or "").lower()
+        if low.endswith(".svg"):
+            return "svg"
+        if "/fonts/" in low or low.endswith(
+            (".woff", ".woff2", ".ttf", ".otf", ".eot")
+        ):
+            return "font"
+        if low.endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico")
+        ):
+            return "image"
+        return "other"
+
+    def _materialize_assets(self, screenshot_keys=None, asset_keys=None,
+                            svg_manifest=None):
+        """(Re)build ``gohan.job.asset`` rows from raw Lambda extraction output.
+
+        Called by the extraction webhook before an interactive job parks in
+        the ``extracted`` review state. Operator-uploaded rows
+        (``source='uploaded'``) are preserved; previously extracted rows are
+        dropped and rebuilt so a re-extraction reflects the latest output.
+        """
+        self.ensure_one()
+        screenshot_keys = screenshot_keys or []
+        asset_keys = asset_keys or []
+
+        # SVG markup + copyright flag keyed by filename, from the Lambda's
+        # copyright-safe icon manifest (optional — absent on older Lambdas).
+        svg_by_name = {}
+        for entry in (svg_manifest or {}).get("kept", []):
+            fname = (entry.get("filename") or "").strip()
+            if fname:
+                svg_by_name[fname] = entry
+
+        # Drop only the previously extracted rows — keep operator uploads.
+        self.asset_ids.filtered(lambda a: a.source == "extracted").unlink()
+
+        rows = []
+        seq = 10
+        for key in screenshot_keys:
+            rows.append({
+                "job_id": self.id,
+                "sequence": seq,
+                "name": key.rsplit("/", 1)[-1] or key,
+                "asset_type": (
+                    "section_snapshot" if "/sections/" in key else "screenshot"
+                ),
+                "source": "extracted",
+                "s3_key": key,
+                "include_in_prd": True,
+            })
+            seq += 10
+        for key in asset_keys:
+            atype = self._classify_asset_key(key)
+            fname = key.rsplit("/", 1)[-1] or key
+            vals = {
+                "job_id": self.id,
+                "sequence": seq,
+                "name": fname,
+                "asset_type": atype,
+                "source": "extracted",
+                "s3_key": key,
+                # Fonts are review-only context — never auto-fed to the PRD.
+                "include_in_prd": atype != "font",
+            }
+            if atype == "svg" and fname in svg_by_name:
+                entry = svg_by_name[fname]
+                vals["content_text"] = entry.get("markup") or ""
+                vals["is_copyright_safe"] = bool(entry.get("copyright_safe"))
+                vals["mime_type"] = "image/svg+xml"
+            rows.append(vals)
+            seq += 10
+        if rows:
+            self.env["gohan.job.asset"].create(rows)
+        return self.asset_ids
+
+    def _upload_pending_assets_to_s3(self, assets):
+        """Push operator-uploaded asset files (no S3 key yet) up to S3 so the
+        PRD pipeline, which reads from S3 keys, can feed them to Bedrock."""
+        import base64 as _b64
+        pending = assets.filtered(lambda a: not a.s3_key and a.file_data)
+        if not pending:
+            return
+        ICP = self.env["ir.config_parameter"].sudo()
+        bucket = ICP.get_param("gohan.s3_bucket")
+        if not bucket:
+            _logger.warning(
+                "[gohan][job=%s] %d uploaded asset(s) will be skipped by PRD "
+                "generation — gohan.s3_bucket is not configured",
+                self.name, len(pending),
+            )
+            return
+        from ..services.s3_service import _get_s3_client
+        client = _get_s3_client(
+            ICP.get_param("gohan.s3_access_key_id"),
+            ICP.get_param("gohan.s3_secret_access_key"),
+            ICP.get_param("gohan.s3_region") or "us-east-1",
+        )
+        folder = ICP.get_param("gohan.s3_folder") or "gohan"
+        for asset in pending:
+            raw = asset.file_data
+            try:
+                data = (
+                    _b64.b64decode(raw)
+                    if isinstance(raw, (bytes, str)) else raw
+                )
+            except Exception:
+                _logger.exception(
+                    "[gohan][job=%s] could not decode uploaded asset %s",
+                    self.name, asset.name,
+                )
+                continue
+            fname = asset.file_name or asset.name or f"asset_{asset.id}"
+            key = f"{folder}/{self.id}/uploaded/{asset.id}_{fname}"
+            try:
+                client.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=data,
+                    ContentType=asset.mime_type or "application/octet-stream",
+                )
+            except Exception:
+                _logger.exception(
+                    "[gohan][job=%s] S3 upload failed for asset %s",
+                    self.name, asset.name,
+                )
+                continue
+            asset.s3_key = key
+
+    def _hydrate_svg_markup_from_s3(self):
+        """Fetch inline markup for kept SVG icons that arrived as bare S3
+        keys (no manifest), so PRD generation can feed them to Bedrock."""
+        self.ensure_one()
+        pending = self.asset_ids.filtered(
+            lambda a: a.asset_type == "svg" and a.include_in_prd
+            and a.s3_key and not a.content_text
+        )
+        if not pending:
+            return
+        ICP = self.env["ir.config_parameter"].sudo()
+        bucket = ICP.get_param("gohan.s3_bucket")
+        if not bucket:
+            return
+        from ..services.s3_service import download_file_from_s3
+        for asset in pending:
+            try:
+                raw = download_file_from_s3(
+                    key=asset.s3_key,
+                    bucket=bucket,
+                    access_key_id=ICP.get_param("gohan.s3_access_key_id"),
+                    secret_key=ICP.get_param("gohan.s3_secret_access_key"),
+                    region=ICP.get_param("gohan.s3_region") or "us-east-1",
+                )
+                text = (
+                    raw.decode("utf-8", "ignore")
+                    if isinstance(raw, (bytes, bytearray)) else raw
+                )
+                if text and "<svg" in text.lower():
+                    # write() sanitises the markup before storing.
+                    asset.content_text = text
+            except Exception:
+                _logger.warning(
+                    "[gohan][job=%s] could not fetch SVG markup from S3 "
+                    "for %s", self.name, asset.s3_key, exc_info=True,
+                )
+
+    def _sync_assets_to_keys(self):
+        """Rebuild ``screenshot_keys`` / ``asset_keys`` from the curated rows.
+
+        Run at Generate-PRD time so the tasker's review decisions are what
+        the PRD pipeline actually consumes: unticked or deleted rows are
+        excluded, and operator-uploaded files are pushed to S3 first so the
+        S3-key-based pipeline can feed them to Bedrock.
+        """
+        self.ensure_one()
+        included = self.asset_ids.filtered("include_in_prd")
+        self._upload_pending_assets_to_s3(included)
+        screenshot_keys, asset_keys = [], []
+        for asset in included:
+            if not asset.s3_key:
+                continue
+            if asset.asset_type in ("screenshot", "section_snapshot", "image"):
+                screenshot_keys.append(asset.s3_key)
+            else:
+                asset_keys.append(asset.s3_key)
+        self.write({
+            "screenshot_keys": screenshot_keys,
+            "asset_keys": asset_keys,
+        })
+
+    def action_generate_prd(self):
+        """Manual review gate. The tasker has reviewed the extracted assets
+        and is now triggering PRD generation. Only valid from ``extracted``.
+        """
+        self.ensure_one()
+        if self.state != "extracted":
+            raise UserError(
+                "Generate PRD is only available while the job is in the "
+                "'Extracted — Review' state."
+            )
+        if not self.prd_prompt and not self.screenshot_keys and not self.asset_keys:
+            raise UserError(
+                "No extraction data is available to generate a PRD from."
+            )
+        # The tasker's keep/delete/upload decisions become what the PRD
+        # pipeline consumes.
+        self._hydrate_svg_markup_from_s3()
+        self._sync_assets_to_keys()
+        self.write({
+            "state": "generating",
+            "last_heartbeat": fields.Datetime.now(),
+            "error_message": False,
+        })
+
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"prd-gen[job={record_id}]",
+                self._run_prd_generation_bg, db_name, record_id,
+            )
+        )
+
     def action_save_prd_edit(self):
         """Save manual PRD edits from the HTML editor back to prd_text."""
         self.ensure_one()
@@ -2747,6 +2988,15 @@ class GohanJob(models.Model):
                     "partner_id": record.user_id.partner_id.id if record.user_id and record.user_id.partner_id else False,
                     "screenshot_keys": record.screenshot_keys or [],
                     "asset_keys": record.asset_keys or [],
+                    # Tasker-approved SVG icons, fed to Bedrock as inline
+                    # markup. Empty when the review gate was skipped.
+                    "svg_icons": [
+                        {"name": a.name, "markup": a.svg_markup()}
+                        for a in record.asset_ids.filtered(
+                            lambda x: x.include_in_prd and x.asset_type == "svg"
+                        )
+                        if a.svg_markup()
+                    ],
                 }
 
                 prd_system_prompt = record._get_prd_system_prompt()
@@ -2873,6 +3123,18 @@ class GohanJob(models.Model):
                 f"Write the complete PRD following all rules.\n\n"
                 f"---\n\n{job_data['prd_prompt']}"
             )})
+            # Tasker-curated SVG UI icons — fed as inline markup so the model
+            # can reference the product's real iconography.
+            if job_data.get("svg_icons"):
+                icon_md = "\n\n".join(
+                    f"### {ic['name']}\n```svg\n{ic['markup']}\n```"
+                    for ic in job_data["svg_icons"]
+                )
+                content_blocks.append({"text": (
+                    "\n\n---\n\n## EXTRACTED UI ICONS (SVG)\n\n"
+                    "The following SVG icons were captured from the site and "
+                    "approved by the reviewer:\n\n" + icon_md
+                )})
             messages = [{"role": "user", "content": content_blocks}]
 
             best_prd_text = None

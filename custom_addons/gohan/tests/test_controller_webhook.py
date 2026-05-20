@@ -136,13 +136,16 @@ class TestWebhookSuccessPath(GohanTestCase):
         result = self._call(body)
         self.assertEqual(result.status_code, 200)
         job.invalidate_recordset()
-        self.assertEqual(job.state, "generating")
+        # Single interactive jobs park at the manual review gate.
+        self.assertEqual(job.state, "extracted")
         self.assertEqual(job.prd_prompt, "extracted data")
         self.assertEqual(job.site_name, "Example")
         self.assertEqual(job.page_count, 2)
         self.assertEqual(job.screenshot_keys, ["a/1.png"])
         self.assertEqual(job.asset_keys, ["a/logo.svg"])
         self.assertTrue(job.lambda_callback_json)
+        # Extraction assets are materialised for tasker review.
+        self.assertEqual(len(job.asset_ids), 2)
 
     def test_partial_extraction_surfaces_warnings(self):
         job = self._create_job(user_id=self.tasker.id, state="extracting")
@@ -156,9 +159,24 @@ class TestWebhookSuccessPath(GohanTestCase):
         result = self._call(body)
         self.assertEqual(result.status_code, 200)
         job.invalidate_recordset()
-        self.assertEqual(job.state, "generating")
+        self.assertEqual(job.state, "extracted")
         self.assertIn("deadline", job.extraction_warnings)
         self.assertFalse(job.error_message)
+
+    def test_batch_job_skips_review_gate(self):
+        job = self._create_job(
+            user_id=self.tasker.id, state="extracting", via_batch=True,
+        )
+        body = json.dumps({
+            "job_id": job.id,
+            "success": True,
+            "prd_prompt": "extracted data",
+        }).encode()
+        result = self._call(body)
+        self.assertEqual(result.status_code, 200)
+        job.invalidate_recordset()
+        # Batch runs auto-generate — they never park at the review gate.
+        self.assertEqual(job.state, "generating")
 
     def test_failure_marks_job_failed(self):
         job = self._create_job(user_id=self.tasker.id, state="extracting")
