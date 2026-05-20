@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Form View -->
+        <record id="view_crowley_generation_form" model="ir.ui.view">
+            <field name="name">crowley.generation.form</field>
+            <field name="model">crowley.generation</field>
+            <field name="arch" type="xml">
+                <form string="Video Generation">
+                    <header>
+                        <!-- First-run only -->
+                        <button name="action_generate" string="Generate" type="object"
+                                class="oe_highlight"
+                                invisible="attempts_used > 0 or state != 'draft'"
+                                confirm="This will submit the prompt to OpenRouter Seedance 2.0 and incur usage costs. Continue?"/>
+
+                        <!-- Retry flow buttons -->
+                        <button name="action_start_retry" string="Retry" type="object"
+                                class="oe_highlight"
+                                invisible="attempts_used == 0 or attempts_used &gt;= 3 or state not in ('done','failed') or ui_retry_pending"/>
+                        <button name="action_submit_retry" string="Submit New Attempt"
+                                type="object" class="oe_highlight"
+                                invisible="not ui_retry_pending"
+                                confirm="This will start a new generation attempt and incur usage costs. Continue?"/>
+                        <button name="action_discard_retry" string="Discard Changes"
+                                type="object" invisible="not ui_retry_pending"/>
+
+                        <!-- Cancel / Reconcile -->
+                        <button name="action_cancel" string="Cancel" type="object"
+                                invisible="state not in ('queued','submitting','processing','downloading') or ui_retry_pending"/>
+                        <button name="action_reconcile" string="Reconcile" type="object"
+                                class="btn-warning"
+                                invisible="state not in ('submitting','processing','downloading') or ui_retry_pending"
+                                help="Force a fresh poll of OpenRouter. Use if the job appears stuck."/>
+
+                        <!-- Final-state actions -->
+                        <button name="action_download" string="Download MP4" type="object"
+                                invisible="state != 'done' or ui_retry_pending"/>
+                        <button name="action_open_video" string="Open Video" type="object"
+                                class="btn-secondary"
+                                invisible="state != 'done' or ui_retry_pending"/>
+
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,queued,processing,done"/>
+                    </header>
+
+                    <sheet>
+                        <!-- Counter chip -->
+                        <div class="oe_button_box" name="button_box">
+                            <field name="attempts_label" widget="badge"
+                                   decoration-info="attempts_used &gt; 0 and attempts_used &lt; 3"
+                                   decoration-warning="attempts_used == 3"
+                                   readonly="1" nolabel="1"/>
+                        </div>
+
+                        <!-- Live status spinner (only during non-terminal states) -->
+                        <field name="state" widget="crowley_live_status" nolabel="1"
+                               invisible="state in ('draft','done','failed','cancelled') or ui_retry_pending"/>
+
+                        <!-- Banners -->
+                        <div class="alert alert-info" role="alert" invisible="not ui_retry_pending">
+                            <strong>Editing for Attempt <field name="attempts_used" readonly="1" nolabel="1"/>+1.</strong>
+                            Change at least one field below, then click <em>Submit New Attempt</em>.
+                        </div>
+                        <div class="alert alert-danger" role="alert" invisible="not error_message or ui_retry_pending">
+                            <strong>Error: </strong>
+                            <field name="error_message" nolabel="1" readonly="1"/>
+                            <span invisible="not error_code"> (code: <field name="error_code" nolabel="1" readonly="1"/>)</span>
+                        </div>
+                        <div class="alert alert-warning" role="alert" invisible="state != 'cancelled' or ui_retry_pending">
+                            This generation was cancelled.
+                        </div>
+                        <div class="alert alert-secondary" role="alert"
+                             invisible="attempts_used &lt; 3 or ui_retry_pending">
+                            Maximum 3 attempts reached. To generate more variations, create a new generation.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+
+                        <!-- Top-of-form video (latest attempt's playback) -->
+                        <group invisible="state != 'done' or not active_attempt_id or ui_retry_pending"
+                               string="Latest Video">
+                            <field name="active_attempt_id" invisible="1"/>
+                            <field name="video_s3_url" widget="crowley_video_player" nolabel="1"
+                                   colspan="2" readonly="1"/>
+                            <div class="mt-2 oe_grey">
+                                <field name="video_s3_url" widget="CopyClipboardChar" readonly="1" nolabel="1"/>
+                            </div>
+                        </group>
+
+                        <!-- Input fields (unlock when ui_retry_pending is True OR state is draft) -->
+                        <group>
+                            <group string="Prompt &amp; Output">
+                                <field name="category" required="1"
+                                       readonly="category_locked"
+                                       options="{'no_create': True}"/>
+                                <field name="category_locked" invisible="1"/>
+                                <field name="prompt"
+                                       placeholder="Describe the video you want to generate..."
+                                       readonly="state != 'draft' and not ui_retry_pending"
+                                       required="1"/>
+                                <field name="duration"
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                <field name="resolution"
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                <field name="aspect_ratio"
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                            </group>
+                            <group string="Metadata">
+                                <field name="user_id" readonly="not context.get('crowley_is_manager')"/>
+                                <field name="submitted_at" readonly="1" invisible="not submitted_at"/>
+                                <field name="completed_at" readonly="1" invisible="not completed_at"/>
+                                <field name="duration_seconds" readonly="1" invisible="not duration_seconds"/>
+                                <field name="tokens_used" readonly="1" invisible="not tokens_used"
+                                       help="Total billable tokens (latest attempt). Formula: (width * height * fps * duration) / 1024"/>
+                                <field name="total_cost_usd" readonly="1" widget="monetary"
+                                       string="Total Cost"
+                                       options="{'currency_field': 'currency_id'}"
+                                       help="Sum of cost across all attempts."/>
+                                <field name="cost_usd_estimate" readonly="1" widget="monetary"
+                                       string="Next Attempt Estimate"
+                                       options="{'currency_field': 'currency_id'}"
+                                       help="Estimated cost of the next attempt using the current input fields."/>
+                                <field name="currency_id" invisible="1"/>
+                                <field name="attempts_used" invisible="1"/>
+                                <field name="attempts_remaining" invisible="1"/>
+                                <field name="ui_retry_pending" invisible="1"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Attempts" name="attempts">
+                                <field name="attempt_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="state == 'done'"
+                                          decoration-danger="state in ('failed','cancelled')"
+                                          decoration-info="state in ('queued','submitting','processing','downloading')"
+                                          decoration-muted="state == 'draft'">
+                                        <field name="attempt_number" string="#" width="40"/>
+                                        <field name="video_file" string="Dataset Filename" optional="show"/>
+                                        <field name="category" optional="hide"/>
+                                        <field name="sequence_number" string="Seq #" optional="show"/>
+                                        <field name="state" widget="badge"
+                                               decoration-success="state == 'done'"
+                                               decoration-danger="state in ('failed','cancelled')"
+                                               decoration-info="state in ('queued','submitting','processing','downloading')"
+                                               decoration-muted="state == 'draft'"/>
+                                        <field name="prompt" optional="show"/>
+                                        <field name="change_log" string="Changes" optional="show"/>
+                                        <field name="duration" optional="hide"/>
+                                        <field name="resolution" optional="hide"/>
+                                        <field name="aspect_ratio" optional="hide"/>
+                                        <field name="seed" optional="hide"/>
+                                        <field name="cost_usd" widget="monetary"
+                                               options="{'currency_field': 'currency_id'}"
+                                               sum="Attempt Costs"/>
+                                        <field name="currency_id" column_invisible="1"/>
+                                        <field name="completed_at" optional="show"/>
+                                        <field name="video_s3_url" widget="url" optional="hide"
+                                               string="Direct URL"/>
+                                        <button name="action_open_video" type="object" icon="fa-play"
+                                                string="Play"
+                                                invisible="state != 'done'"/>
+                                    </list>
+                                </field>
+                            </page>
+
+                            <page string="Advanced" name="advanced">
+                                <group>
+                                    <field name="negative_prompt"
+                                           placeholder="Things to avoid in the video (optional)"
+                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                    <field name="seed"
+                                           readonly="state != 'draft' and not ui_retry_pending"
+                                           help="Leave 0 for random seed."/>
+                                    <field name="generate_audio"
+                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                    <field name="model_name" readonly="1"/>
+                                </group>
+                            </page>
+
+                            <page string="Technical" name="technical" groups="crowley.group_crowley_user">
+                                <group>
+                                    <group string="OpenRouter">
+                                        <field name="openrouter_job_id" readonly="1" widget="CopyClipboardChar"/>
+                                        <field name="openrouter_status" readonly="1"/>
+                                        <field name="poll_attempts" readonly="1"/>
+                                        <field name="last_polled_at" readonly="1"/>
+                                    </group>
+                                    <group string="Retry / Errors">
+                                        <field name="retry_count" readonly="1"/>
+                                        <field name="error_code" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- List View -->
+        <record id="view_crowley_generation_list" model="ir.ui.view">
+            <field name="name">crowley.generation.list</field>
+            <field name="model">crowley.generation</field>
+            <field name="arch" type="xml">
+                <list string="Video Generations"
+                      decoration-muted="not category and state == 'done'"
+                      decoration-success="state == 'done' and category"
+                      decoration-danger="state in ('failed','cancelled')"
+                      decoration-info="state in ('queued','submitting','processing','downloading')">
+                    <field name="name"/>
+                    <field name="prompt" optional="show"/>
+                    <field name="user_id" optional="show" groups="crowley.group_crowley_manager"/>
+                    <field name="category" optional="show"/>
+                    <field name="resolution" optional="show"/>
+                    <field name="duration" optional="hide"/>
+                    <field name="attempts_used" string="Attempts" optional="show"/>
+                    <field name="total_cost_usd" string="Total Cost" widget="monetary"
+                           options="{'currency_field': 'currency_id'}"
+                           sum="Grand Total" optional="show"/>
+                    <field name="currency_id" column_invisible="1"/>
+                    <field name="completed_at" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-success="state == 'done'"
+                           decoration-danger="state in ('failed','cancelled')"
+                           decoration-info="state in ('queued','submitting','processing','downloading')"
+                           decoration-muted="state == 'draft'"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Search View -->
+        <record id="view_crowley_generation_search" model="ir.ui.view">
+            <field name="name">crowley.generation.search</field>
+            <field name="model">crowley.generation</field>
+            <field name="arch" type="xml">
+                <search string="Search Generations">
+                    <field name="name" string="Reference"/>
+                    <field name="prompt"/>
+                    <field name="user_id" groups="crowley.group_crowley_manager"/>
+                    <field name="openrouter_job_id"/>
+                    <field name="category"/>
+
+                    <filter name="filter_my" string="My Generations" domain="[('user_id', '=', uid)]"/>
+                    <separator/>
+                    <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_processing" string="Processing"
+                            domain="[('state', 'in', ('queued','submitting','processing','downloading'))]"/>
+                    <filter name="filter_done" string="Done" domain="[('state', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('state', 'in', ('failed','cancelled'))]"/>
+                    <separator/>
+                    <filter name="filter_stuck" string="Stuck (needs reconcile)"
+                            domain="[
+                                ('state', 'in', ('submitting','processing','downloading')),
+                                ('last_polled_at', '&lt;', (datetime.datetime.now() - datetime.timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S'))
+                            ]"/>
+                    <separator/>
+                    <filter name="filter_24h" string="Last 24h"
+                            domain="[('create_date','&gt;=', (context_today() - relativedelta(days=1)).strftime('%Y-%m-%d'))]"/>
+                    <filter name="filter_7d" string="Last 7d"
+                            domain="[('create_date','&gt;=', (context_today() - relativedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+
+                    <separator/>
+                    <filter name="filter_no_category" string="No Category (legacy)"
+                            domain="[('category', '=', False)]"/>
+                    <filter name="filter_av_sync" string="AV Sync Sound Effects"
+                            domain="[('category', '=', 'av_sync_sound_effects')]"/>
+                    <filter name="filter_multi_speaker" string="Multi-Speaker Dialogue"
+                            domain="[('category', '=', 'multi_speaker_dialogue')]"/>
+                    <filter name="filter_human_activities" string="Human Activities"
+                            domain="[('category', '=', 'human_activities')]"/>
+                    <filter name="filter_high_motion" string="High Motion Action"
+                            domain="[('category', '=', 'high_motion_action')]"/>
+                    <filter name="filter_educational" string="Educational Videos"
+                            domain="[('category', '=', 'educational_videos')]"/>
+
+                    <group>
+                        <filter name="group_user" string="User" context="{'group_by': 'user_id'}"
+                                groups="crowley.group_crowley_manager"/>
+                        <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                        <filter name="group_category" string="Category" context="{'group_by': 'category'}"/>
+                        <filter name="group_resolution" string="Resolution" context="{'group_by': 'resolution'}"/>
+                        <filter name="group_date" string="Created" context="{'group_by': 'create_date:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_crowley_generation" model="ir.actions.act_window">
+            <field name="name">Generations</field>
+            <field name="res_model">crowley.generation</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_crowley_generation_search"/>
+            <field name="context">{'search_default_filter_my': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Create your first video generation</p>
+                <p>Write a prompt, pick a resolution and duration, then hit Generate.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>
