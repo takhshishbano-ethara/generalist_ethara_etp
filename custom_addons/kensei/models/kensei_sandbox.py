@@ -2525,11 +2525,14 @@ class KenseiSandbox(models.Model):
                 },
             },
             "browser": {
-                "enabled": True,
-                "headless": True,
-                "noSandbox": True,
-                "defaultProfile": "openclaw",
-                "executablePath": "/usr/bin/chromium",
+                "enabled": False,
+            },
+            "tools": {
+                "deny": ["browser"],
+                "web": {
+                    "search": {"enabled": False},
+                    "fetch": {"enabled": False},
+                },
             },
             "models": {"providers": {}},
         }
