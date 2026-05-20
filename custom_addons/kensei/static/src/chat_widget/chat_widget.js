@@ -219,13 +219,24 @@ function _inferMediaType(url) {
     return "image";
 }
 
-function _buildAssistantMediaUrl(sandboxId, source) {
+function _buildAssistantMediaUrl(sandboxId, source, gatewayHttpBase) {
     if (!source) return null;
     if (/^https?:\/\//i.test(source)) return source;
     if (/^data:/i.test(source)) return source;
+    // Gateway-relative URL (e.g. /api/chat/media/outgoing/...)
+    if (/^\/api\//.test(source) && gatewayHttpBase) {
+        return gatewayHttpBase.replace(/\/+$/, "") + source;
+    }
     if (!sandboxId) return null;
     const params = new URLSearchParams({ sandbox_id: sandboxId, source });
     return `/kensei/chat/media?${params.toString()}`;
+}
+
+function _s3UrlForPath(s3UrlBase, source) {
+    if (!s3UrlBase || !source) return "";
+    const basename = source.split("/").pop();
+    if (!basename || !basename.includes(".")) return "";
+    return s3UrlBase + encodeURIComponent(basename);
 }
 
 let _msgId = 0;
@@ -1049,11 +1060,13 @@ export class KenseiChatWidget extends Component {
                     }
                     if (mediaUrls.length > 0) {
                         const sandboxId = widget?.props?.sandboxId;
+                        const gwHttp = widget ? _wsUrlToHttpUrl(widget.gatewayWsUrl) : null;
+                        const s3Base = session.s3UrlBase || "";
                         const mediaItems = msg.mediaItems || [];
                         for (const url of mediaUrls) {
-                            const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url);
+                            const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url, gwHttp);
                             if (resolvedUrl) {
-                                mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                                mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "", s3Url: _s3UrlForPath(s3Base, url), s3Ready: false });
                             }
                         }
                         if (mediaItems.length > 0) msg.mediaItems = mediaItems;
@@ -1061,6 +1074,16 @@ export class KenseiChatWidget extends Component {
                             rpc("/kensei/chat/persist_output_media", {
                                 sandbox_id: sandboxId,
                                 media_paths: mediaUrls,
+                            }).then(res => {
+                                if (res?.s3_urls && msg.mediaItems) {
+                                    for (const mi of msg.mediaItems) {
+                                        const fname = (mi.alt || "").split("/").pop();
+                                        if (fname && res.s3_urls[fname]) {
+                                            mi.s3Url = res.s3_urls[fname];
+                                            mi.s3Ready = true;
+                                        }
+                                    }
+                                }
                             }).catch(e => console.warn(LOG_PREFIX, "persist_output_media failed:", e));
                         }
                     }
@@ -1181,18 +1204,20 @@ export class KenseiChatWidget extends Component {
                 msg.pending = false;
 
                 const sandboxId = widget?.props?.sandboxId;
+                const gwHttp = widget ? _wsUrlToHttpUrl(widget.gatewayWsUrl) : null;
+                const s3Base = session.s3UrlBase || "";
                 const mediaItems = [];
                 for (const url of mediaUrls) {
-                    const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url);
+                    const resolvedUrl = _buildAssistantMediaUrl(sandboxId, url, gwHttp);
                     if (resolvedUrl) {
-                        mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                        mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "", s3Url: _s3UrlForPath(s3Base, url), s3Ready: false });
                     }
                 }
                 for (const block of imageBlocks) {
                     const src = block.url || (block.source?.data ? `data:${block.source.media_type || block.mimeType || "image/png"};base64,${block.source.data}` : null);
-                    const resolvedUrl = src ? _buildAssistantMediaUrl(sandboxId, src) : null;
+                    const resolvedUrl = src ? _buildAssistantMediaUrl(sandboxId, src, gwHttp) : null;
                     if (resolvedUrl) {
-                        mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "", width: block.width, height: block.height });
+                        mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "", width: block.width, height: block.height, s3Url: _s3UrlForPath(s3Base, src), s3Ready: false });
                     }
                 }
                 if (mediaItems.length > 0) {
@@ -1202,6 +1227,16 @@ export class KenseiChatWidget extends Component {
                     rpc("/kensei/chat/persist_output_media", {
                         sandbox_id: sandboxId,
                         media_paths: mediaUrls,
+                    }).then(res => {
+                        if (res?.s3_urls && msg.mediaItems) {
+                            for (const mi of msg.mediaItems) {
+                                const fname = (mi.alt || "").split("/").pop();
+                                if (fname && res.s3_urls[fname]) {
+                                    mi.s3Url = res.s3_urls[fname];
+                                    mi.s3Ready = true;
+                                }
+                            }
+                        }
                     }).catch(e => console.warn(LOG_PREFIX, "persist_output_media failed:", e));
                 }
             }
@@ -1377,6 +1412,9 @@ export class KenseiChatWidget extends Component {
                 }
             }
             console.groupEnd();
+            if (result.s3_url_base) {
+                this._session.s3UrlBase = result.s3_url_base;
+            }
             if (result.turns) {
                 this._session.messages.length = 0;
                 for (const t of result.turns) {
@@ -1420,10 +1458,12 @@ export class KenseiChatWidget extends Component {
                         for (const p of tcArtifactPaths) {
                             if (!mediaUrls.includes(p)) mediaUrls.push(p);
                         }
+                        const gwHttp = _wsUrlToHttpUrl(this.gatewayWsUrl);
+                        const s3Base = this._session.s3UrlBase || "";
                         const mediaItems = [];
                         for (const url of mediaUrls) {
-                            const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url);
-                            if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                            const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url, gwHttp);
+                            if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "", s3Url: _s3UrlForPath(s3Base, url), s3Ready: true });
                         }
                         const msg = {
                             role: "assistant",
@@ -1454,6 +1494,7 @@ export class KenseiChatWidget extends Component {
             }
 
             if (result.output_artifacts && result.output_artifacts.length > 0) {
+                const gwHttp = _wsUrlToHttpUrl(this.gatewayWsUrl);
                 const shownSources = new Set();
                 for (const m of this._session.messages) {
                     if (m.mediaItems) {
@@ -1462,17 +1503,20 @@ export class KenseiChatWidget extends Component {
                         }
                     }
                 }
+                const s3Base = this._session.s3UrlBase || "";
                 const extraMedia = [];
                 for (const art of result.output_artifacts) {
                     const artPath = art.container_path || "";
                     const artName = art.filename || artPath.split("/").pop() || "";
                     if (shownSources.has(artName) || shownSources.has(artPath)) continue;
-                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, artPath || artName);
+                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, artPath || artName, gwHttp);
                     if (resolvedUrl) {
                         extraMedia.push({
                             type: _inferMediaType(artName),
                             url: resolvedUrl,
                             alt: artName,
+                            s3Url: art.s3_url || _s3UrlForPath(s3Base, artName),
+                            s3Ready: true,
                         });
                     }
                 }
@@ -1488,6 +1532,24 @@ export class KenseiChatWidget extends Component {
                         if (!target.mediaItems) target.mediaItems = [];
                         target.mediaItems.push(...extraMedia);
                         console.log(LOG_PREFIX, `📎 output_artifacts fallback: added ${extraMedia.length} artifact(s) to last assistant message`);
+                    }
+                }
+                const s3Map = {};
+                for (const art of result.output_artifacts) {
+                    if (art.s3_url) s3Map[art.filename] = art.s3_url;
+                }
+                for (const m of this._session.messages) {
+                    if (!m.mediaItems) continue;
+                    for (const mi of m.mediaItems) {
+                        if (mi.s3Url && mi.s3Ready) continue;
+                        const fname = (mi.alt || "").split("/").pop();
+                        if (fname && s3Map[fname]) {
+                            mi.s3Url = s3Map[fname];
+                            mi.s3Ready = true;
+                        } else if (fname && s3Base && !mi.s3Url) {
+                            mi.s3Url = _s3UrlForPath(s3Base, fname);
+                            mi.s3Ready = true;
+                        }
                     }
                 }
             }
@@ -1577,15 +1639,17 @@ export class KenseiChatWidget extends Component {
             if (lastAssistantText && lastAssistantText.length > existingText.length) {
                 console.log(LOG_PREFIX, `🔄 Gateway has newer text (${lastAssistantText.length} > ${existingText.length}), updating`);
                 const { cleanText, mediaUrls } = _splitMediaFromText(lastAssistantText);
+                const gwHttpSync = _wsUrlToHttpUrl(this.gatewayWsUrl);
+                const s3Base = this._session.s3UrlBase || "";
                 const mediaItems = [];
                 for (const url of mediaUrls) {
-                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url);
-                    if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "" });
+                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url, gwHttpSync);
+                    if (resolvedUrl) mediaItems.push({ type: _inferMediaType(url), url: resolvedUrl, alt: url.split("/").pop() || "", s3Url: _s3UrlForPath(s3Base, url), s3Ready: false });
                 }
                 for (const block of lastAssistantImageBlocks) {
                     const src = block.url || (block.source?.data ? `data:${block.source.media_type || block.mimeType || "image/png"};base64,${block.source.data}` : null);
-                    const resolvedUrl = src ? _buildAssistantMediaUrl(this.props.sandboxId, src) : null;
-                    if (resolvedUrl) mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "" });
+                    const resolvedUrl = src ? _buildAssistantMediaUrl(this.props.sandboxId, src, gwHttpSync) : null;
+                    if (resolvedUrl) mediaItems.push({ type: "image", url: resolvedUrl, alt: block.alt || "", s3Url: _s3UrlForPath(s3Base, src), s3Ready: false });
                 }
 
                 if (existingAssistant) {

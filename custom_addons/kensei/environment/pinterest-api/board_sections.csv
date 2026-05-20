@@ -1,20 +1,12 @@
 section_id,board_id,name,pin_count
-section_2001,board_1002,Woodworking,5
-section_2002,board_1002,Painting Projects,4
-section_2003,board_1002,Organization Hacks,3
-section_2004,board_1003,Modern Kitchens,6
-section_2005,board_1003,Farmhouse Style,4
-section_2006,board_1005,Christmas,5
-section_2007,board_1005,Halloween,4
-section_2008,board_1007,Bathroom Storage,4
-section_2009,board_1007,Closet Systems,3
-section_2010,board_1004,Neutral Tones,7
-section_2011,board_1004,Bold Colors,5
-section_2012,board_1010,Cashmere & Fine Gauge,5
-section_2013,board_1010,Textured Knits,3
-section_2014,board_1011,Coats & Long Outerwear,4
-section_2015,board_1011,Jackets & Cropped,3
-section_2016,board_1005,Accessibility - Bed Frames,3
-section_2017,board_1007,Bedroom Safety - Grab Rails,3
-section_sold,board_bb_001,Sold Beats,2
-section_available,board_bb_001,Available Beats,1
+section_2001,board_1002,Phalaenopsis,7
+section_2002,board_1002,Cattleya,6
+section_2003,board_1002,Paphiopedilum,5
+section_2004,board_1003,Flavors & Recipes,8
+section_2005,board_1003,Techniques,5
+section_2006,board_1004,Layout & Benches,4
+section_2007,board_1004,Climate Systems,3
+section_2008,board_1005,Weeknight Meals,5
+section_2009,board_1005,Sunday Baking,4
+section_2010,board_1006,Perennials,5
+section_2011,board_1006,Container Gardens,3

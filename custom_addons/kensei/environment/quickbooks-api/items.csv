@@ -1,28 +1,10 @@
 Id,Name,Description,Type,UnitPrice,IncomeAccountRef_value,IncomeAccountRef_name,Active,Taxable
-1,Weekly Lawn Mowing,Standard residential lawn mowing service including edging and blowing,Service,75.00,1,Landscaping Services Revenue,true,false
-2,Garden Design Consultation,On-site garden design consultation (per hour),Service,95.00,1,Landscaping Services Revenue,true,false
-3,Tree Trimming,Tree trimming and pruning service (per hour),Service,120.00,1,Landscaping Services Revenue,true,false
-4,Spring Cleanup,Full spring yard cleanup including debris removal and bed preparation,Service,250.00,1,Landscaping Services Revenue,true,false
-5,Mulch Installation,Mulch delivery and installation (per cubic yard),Service,85.00,1,Landscaping Services Revenue,true,false
-6,Irrigation System Install,Irrigation system design and installation (base price),Service,2500.00,1,Landscaping Services Revenue,true,false
-7,Hardscaping - Patio/Walkway,Paver patio or walkway installation (per sq ft),Service,18.00,1,Landscaping Services Revenue,true,false
-8,Seasonal Cleanup,End-of-season cleanup including leaf removal and winterization,Service,200.00,1,Landscaping Services Revenue,true,false
-9,Shrub & Hedge Trimming,Shrub and hedge trimming service (per visit),Service,65.00,1,Landscaping Services Revenue,true,false
-10,Landscape Design Plan,Full landscape design plan with 3D rendering,Service,450.00,1,Landscaping Services Revenue,true,false
-201,Beat License - Exclusive,Exclusive rights beat license,Service,180000.00,201,Beat Sales Revenue,true,false
-202,Beat License - Non-Exclusive,Non-exclusive beat license,Service,35000.00,201,Beat Sales Revenue,true,false
-203,Beat License - Sync,Sync licensing for media placement,Service,128000.00,201,Beat Sales Revenue,true,false
-204,Penetration Testing,Security penetration testing per engagement,Service,600000.00,203,Consulting Revenue,true,false
-205,Security Audit,Infrastructure security audit,Service,480000.00,203,Consulting Revenue,true,false
-206,Vulnerability Assessment,API vulnerability assessment,Service,360000.00,203,Consulting Revenue,true,false
-207,Security Documentation,Security policy documentation,Service,240000.00,203,Consulting Revenue,true,false
-401,Atlantic Salmon,Fresh skin-on fillet (per lb),Inventory,14.5,401,Food Cost - Seafood,true,false
-402,Blue Point Oysters,Standard dozen,Inventory,18.0,401,Food Cost - Seafood,true,false
-403,Yellowfin Tuna,Saku block AAA grade (per lb),Inventory,22.0,401,Food Cost - Seafood,true,false
-404,Sea Bass,Chilean fillet (per lb),Inventory,28.5,401,Food Cost - Seafood,true,false
-405,Branzino,Whole Mediterranean (per lb),Inventory,16.0,401,Food Cost - Seafood,true,false
-406,Oyster Shucking,Service fee per event,Service,75.0,401,Food Cost - Seafood,true,false
-407,Lobster Tails,Cold water 6oz (each),Inventory,19.0,401,Food Cost - Seafood,true,false
-408,Mussels,PEI 2lb bag,Inventory,9.5,401,Food Cost - Seafood,true,false
-409,Calamari,Cleaned tubes & tentacles (per lb),Inventory,11.0,401,Food Cost - Seafood,true,false
-410,Sea Salt,Maldon finishing salt (lb),Inventory,8.0,401,Food Cost - Seafood,true,false
+1,Emergency Motel Stay,Temporary motel reimbursement for tenant relocation support,Service,418.22,1,Reimbursement Grant Revenue,true,false
+2,Volunteer Travel Mileage,Verified volunteer mileage reimbursement,Service,93.10,1,Reimbursement Grant Revenue,true,false
+3,Food & Essentials,Emergency household food and essential supplies reimbursement,Service,152.87,1,Reimbursement Grant Revenue,true,false
+4,Temporary Housing,Temporary housing reimbursement for relocation case,Service,624.00,1,Reimbursement Grant Revenue,true,false
+5,Fuel Reimbursement,Volunteer or coalition fuel reimbursement,Service,204.51,1,Reimbursement Grant Revenue,true,false
+6,Relocation Truck Rental,Truck rental reimbursement for relocation support,Service,312.45,1,Reimbursement Grant Revenue,true,false
+7,Utility Deposit,Utility deposit reimbursement for stabilized housing placement,Service,950.00,1,Reimbursement Grant Revenue,true,false
+8,Security Deposit,Security deposit reimbursement for relocation intake case,Service,1280.00,1,Reimbursement Grant Revenue,true,false
+9,Duplicate Review Adjustment,Administrative line used to track duplicate reimbursement review,Service,0.00,1,Reimbursement Grant Revenue,true,false

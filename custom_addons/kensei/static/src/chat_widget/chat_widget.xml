@@ -134,6 +134,17 @@
                                                             <i class="fa fa-download ms-2"/>
                                                         </a>
                                                     </t>
+                                                    <t t-if="media.s3Url and media.s3Ready">
+                                                        <a t-att-href="media.s3Url" target="_blank"
+                                                           rel="noopener" class="o_kensei_s3_link">
+                                                            <i class="fa fa-cloud me-1"/>S3
+                                                        </a>
+                                                    </t>
+                                                    <t t-elif="media.s3Url and !media.s3Ready">
+                                                        <span class="o_kensei_s3_link o_kensei_s3_uploading">
+                                                            <i class="fa fa-spinner fa-spin me-1"/>S3
+                                                        </span>
+                                                    </t>
                                                 </div>
                                             </t>
                                         </div>

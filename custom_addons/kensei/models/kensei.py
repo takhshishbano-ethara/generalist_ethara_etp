@@ -1668,6 +1668,7 @@ class Kensei(models.Model):
         icp = self.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
         prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
         task_id = self.task_id or str(self.id)
 
         media_ext_re = _re.compile(
@@ -1719,6 +1720,9 @@ class Kensei(models.Model):
             if bucket:
                 entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
                     bucket, prefix, task_id, basename
+                )
+                entry["s3_url"] = "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                    bucket, region, prefix, task_id, basename
                 )
             artifacts.append(entry)
 

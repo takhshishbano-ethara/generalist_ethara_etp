@@ -1246,6 +1246,7 @@ class KenseiSandbox(models.Model):
         icp = self.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
         prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
         task_id = self.kensei_id.task_id or str(self.kensei_id.id)
 
         media_ext_re = re.compile(
@@ -1297,6 +1298,9 @@ class KenseiSandbox(models.Model):
             if bucket:
                 entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
                     bucket, prefix, task_id, basename
+                )
+                entry["s3_url"] = "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                    bucket, region, prefix, task_id, basename
                 )
             artifacts.append(entry)
 
@@ -1871,7 +1875,7 @@ class KenseiSandbox(models.Model):
         import subprocess
         import tempfile
 
-        pod_name = "kensei-sandbox-%s" % self.kensei_id.id
+        pod_name = "kensei-sandbox-%s" % self.id
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp_path = tmp.name
         try:

@@ -430,7 +430,27 @@ class KenseiChatController(http.Controller):
         except Exception:
             _logger.debug("_build_output_artifacts failed for sandbox %s", sandbox_id)
 
-        return {"turns": turns, "output_artifacts": output_artifacts}
+        s3_url_base = ""
+        try:
+            from ..models.kensei_sandbox_k8s import S3_KENSEI_PREFIX
+            icp = request.env["ir.config_parameter"].sudo()
+            bucket = icp.get_param("kensei.s3_bucket") or ""
+            if bucket:
+                region = icp.get_param("kensei.s3_region") or "us-east-1"
+                prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+                task = sandbox.kensei_id
+                task_id = task.task_id or str(task.id)
+                s3_url_base = "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/" % (
+                    bucket, region, prefix, task_id,
+                )
+        except Exception:
+            pass
+
+        return {
+            "turns": turns,
+            "output_artifacts": output_artifacts,
+            "s3_url_base": s3_url_base,
+        }
 
     @http.route("/kensei/chat/export_session", type="http", auth="user")
     def export_session(self, sandbox_id=0, task_id=0, **kw):
@@ -656,7 +676,7 @@ class KenseiChatController(http.Controller):
 
         from ..models.kensei_sandbox_k8s import NAMESPACE
 
-        pod_name = "kensei-sandbox-%s" % sandbox.kensei_id.id
+        pod_name = "kensei-sandbox-%s" % sandbox.id
 
         with tempfile.NamedTemporaryFile(delete=False, suffix="_" + filename) as tmp:
             tmp.write(file_bytes)
@@ -775,16 +795,40 @@ class KenseiChatController(http.Controller):
                 "content_type": content_type,
             })
 
+        s3_urls = {}
         if s3_files:
-            t = threading.Thread(
-                target=_upload_to_s3_background,
-                args=(bucket, region, prefix, task_id, s3_files, "output"),
-                kwargs={"access_key": access_key, "secret_key": secret_key},
-                daemon=True,
-            )
-            t.start()
+            try:
+                import boto3
+                from botocore.config import Config as BotoConfig
 
-        return {"success": True, "uploaded": len(s3_files)}
+                client_kwargs = {
+                    "region_name": region,
+                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+                }
+                if access_key and secret_key:
+                    client_kwargs["aws_access_key_id"] = access_key
+                    client_kwargs["aws_secret_access_key"] = secret_key
+
+                s3 = boto3.client("s3", **client_kwargs)
+                for fm in s3_files:
+                    s3_key = "%s/output/tasks/%s/%s" % (prefix, task_id, fm["object_key"])
+                    try:
+                        s3.put_object(
+                            Bucket=bucket,
+                            Key=s3_key,
+                            Body=fm["data"],
+                            ContentType=fm["content_type"],
+                        )
+                        s3_urls[fm["object_key"]] = "https://%s.s3.%s.amazonaws.com/%s" % (
+                            bucket, region, s3_key,
+                        )
+                        _logger.info("S3 upload OK: s3://%s/%s (%d bytes)", bucket, s3_key, len(fm["data"]))
+                    except Exception:
+                        _logger.exception("S3 upload failed for %s", fm["object_key"])
+            except Exception:
+                _logger.exception("S3 client init failed for persist_output_media")
+
+        return {"success": True, "uploaded": len(s3_urls), "s3_urls": s3_urls}
 
     def _read_media_from_container(self, sandbox, persona_name, container_path):
         mode = sandbox._deployment_mode()
@@ -816,7 +860,7 @@ class KenseiChatController(http.Controller):
 
         from ..models.kensei_sandbox_k8s import NAMESPACE
 
-        pod_name = "kensei-sandbox-%s" % sandbox.kensei_id.id
+        pod_name = "kensei-sandbox-%s" % sandbox.id
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp_path = tmp.name
         try:

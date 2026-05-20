@@ -1,27 +1,7 @@
 id,name,type,color,position,teamId,description
-state-bkd-backlog,Backlog,backlog,#bec2c8,0,team-backend,Issues that are not yet prioritized
-state-bkd-triage,Triage,triage,#e2e2e2,1,team-backend,Issues that need to be triaged
-state-bkd-todo,Todo,unstarted,#e2e2e2,2,team-backend,Issues ready to be picked up
-state-bkd-inprogress,In Progress,started,#f2c94c,3,team-backend,Issues actively being worked on
-state-bkd-inreview,In Review,started,#f2994a,4,team-backend,Issues in code review
-state-bkd-done,Done,completed,#5e6ad2,5,team-backend,Completed issues
-state-bkd-cancelled,Cancelled,cancelled,#95a2b3,6,team-backend,Cancelled issues
-state-frn-backlog,Backlog,backlog,#bec2c8,0,team-frontend,Issues that are not yet prioritized
-state-frn-triage,Triage,triage,#e2e2e2,1,team-frontend,Issues that need to be triaged
-state-frn-todo,Todo,unstarted,#e2e2e2,2,team-frontend,Issues ready to be picked up
-state-frn-inprogress,In Progress,started,#f2c94c,3,team-frontend,Issues actively being worked on
-state-frn-inreview,In Review,started,#f2994a,4,team-frontend,Issues in code review
-state-frn-done,Done,completed,#5e6ad2,5,team-frontend,Completed issues
-state-frn-cancelled,Cancelled,cancelled,#95a2b3,6,team-frontend,Cancelled issues
-state-plt-backlog,Backlog,backlog,#bec2c8,0,team-platform,Issues that are not yet prioritized
-state-plt-triage,Triage,triage,#e2e2e2,1,team-platform,Issues that need to be triaged
-state-plt-todo,Todo,unstarted,#e2e2e2,2,team-platform,Issues ready to be picked up
-state-plt-inprogress,In Progress,started,#f2c94c,3,team-platform,Issues actively being worked on
-state-plt-inreview,In Review,started,#f2994a,4,team-platform,Issues in code review
-state-plt-done,Done,completed,#5e6ad2,5,team-platform,Completed issues
-state-plt-cancelled,Cancelled,cancelled,#95a2b3,6,team-platform,Cancelled issues
-state-con-backlog,Backlog,backlog,#bec2c8,0,team-consulting,
-state-con-todo,Todo,unstarted,#e2e2e2,1,team-consulting,
-state-con-inprogress,In Progress,started,#f2c94c,2,team-consulting,
-state-con-done,Done,completed,#5e6ad2,3,team-consulting,
-state-con-cancelled,Cancelled,cancelled,#95a2b3,4,team-consulting,
+state-port-backlog,Backlog,backlog,#bec2c8,0,team-ux,Issues that are not yet prioritized
+state-port-todo,Todo,unstarted,#e2e2e2,1,team-ux,Issues ready to be picked up
+state-port-inprogress,In Progress,started,#f2c94c,2,team-ux,Issues actively being worked on
+state-port-inreview,In Review,started,#f2994a,3,team-ux,Issues in code review
+state-port-done,Done,completed,#5e6ad2,4,team-ux,Completed issues
+state-port-canceled,Canceled,canceled,#95a2b3,5,team-ux,Won't fix or otherwise canceled

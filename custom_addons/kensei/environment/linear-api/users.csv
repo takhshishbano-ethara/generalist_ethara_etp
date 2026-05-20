@@ -1,14 +1,5 @@
 id,name,displayName,email,avatarUrl,active,admin,teamId,createdAt,updatedAt
-user-01,priya.sharma,Priya Sharma,priya@meridianlabs.io,https://avatars.example.com/priya.png,true,true,team-backend,2024-01-10T09:00:00,2025-04-20T10:00:00
-user-02,james.chen,James Chen,james@meridianlabs.io,https://avatars.example.com/james.png,true,false,team-backend,2024-01-12T09:00:00,2025-04-18T14:00:00
-user-03,amara.okafor,Amara Okafor,amara@meridianlabs.io,https://avatars.example.com/amara.png,true,false,team-backend,2024-01-15T09:00:00,2025-04-22T11:00:00
-user-04,david.kim,David Kim,david@meridianlabs.io,https://avatars.example.com/david.png,true,false,team-backend,2024-02-01T09:00:00,2025-04-19T16:00:00
-user-05,sarah.miller,Sarah Miller,sarah@meridianlabs.io,https://avatars.example.com/sarah.png,true,false,team-backend,2024-03-10T09:00:00,2025-04-21T09:00:00
-user-06,alex.rivera,Alex Rivera,alex@meridianlabs.io,https://avatars.example.com/alex.png,true,false,team-frontend,2024-01-10T09:00:00,2025-04-20T15:00:00
-user-07,nina.kowalski,Nina Kowalski,nina@meridianlabs.io,https://avatars.example.com/nina.png,true,false,team-frontend,2024-01-14T09:00:00,2025-04-17T10:00:00
-user-08,omar.hassan,Omar Hassan,omar@meridianlabs.io,https://avatars.example.com/omar.png,true,false,team-frontend,2024-02-05T09:00:00,2025-04-23T11:00:00
-user-09,emma.wright,Emma Wright,emma@meridianlabs.io,https://avatars.example.com/emma.png,true,false,team-frontend,2024-03-20T09:00:00,2025-04-15T14:00:00
-user-10,lucas.martinez,Lucas Martinez,lucas@meridianlabs.io,https://avatars.example.com/lucas.png,true,true,team-platform,2024-01-10T09:00:00,2025-04-22T09:00:00
-user-11,yuki.tanaka,Yuki Tanaka,yuki@meridianlabs.io,https://avatars.example.com/yuki.png,true,false,team-platform,2024-01-18T09:00:00,2025-04-20T16:00:00
-user-12,maya.patel,Maya Patel,maya@meridianlabs.io,https://avatars.example.com/maya.png,true,false,team-platform,2024-02-12T09:00:00,2025-04-21T10:00:00
-user-amanda,amanda.martinez,Amanda Martinez,amanda.martinez@ironcladsec.com,https://avatars.example.com/amanda.martinez.png,true,true,team-consulting,2024-04-01T09:00:00,2024-04-30T17:00:00
+user-david,david.nelson,David Nelson,david.nelson@cumberlandregional.org,https://avatars.example.com/david.png,true,false,team-ux,2026-01-20T09:00:00,2026-05-10T10:00:00
+user-patty,patty.oglesby,Patty Oglesby,patty.oglesby@cumberlandregional.org,https://avatars.example.com/patty.png,true,true,team-ux,2026-01-15T09:00:00,2026-05-10T10:00:00
+user-tyler,tyler.boone,Tyler Boone,tyler.boone@cumberlandregional.org,https://avatars.example.com/tyler.png,true,false,team-ux,2026-01-22T09:00:00,2026-05-10T10:00:00
+user-mira,mira.chen,Mira Chen,mira.chen@cumberlandregional.org,https://avatars.example.com/mira.png,true,false,team-ux,2026-01-25T09:00:00,2026-05-10T10:00:00

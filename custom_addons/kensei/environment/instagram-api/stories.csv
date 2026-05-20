@@ -1,18 +1,5 @@
 id,user_id,media_type,media_url,timestamp,expiring_at,caption,link,poll_question,poll_options
-17950001001,17841400123456789,IMAGE,https://instagram.mock/stories/17950001001.jpg,2026-05-05T07:00:00,2026-05-06T07:00:00,"Morning prep \u2615 First batch going in!",,,
-17950001002,17841400123456789,IMAGE,https://instagram.mock/stories/17950001002.jpg,2026-05-05T09:30:00,2026-05-06T09:30:00,"Which drink should we feature this weekend?",,"Weekend feature?","Honey Lavender Latte|Strawberry Matcha|Meyer Lemon Cold Brew|Classic Cortado"
-17950001003,17841400123456789,VIDEO,https://instagram.mock/stories/17950001003.mp4,2026-05-05T12:00:00,2026-05-06T12:00:00,"Lunch rush vibes \ud83c\udfb6",,,
-17950001004,17841400123456789,IMAGE,https://instagram.mock/stories/17950001004.jpg,2026-05-05T14:30:00,2026-05-06T14:30:00,"NEW: Fresh batch of Guatemala Huehuetenango just finished cooling \ud83c\udf1f",https://brewedawakening.co/shop/guatemala-huehuetenango,,
-17950001005,17841400123456789,IMAGE,https://instagram.mock/stories/17950001005.jpg,2026-05-05T16:00:00,2026-05-06T16:00:00,"What\u2019s your go-to afternoon pick-me-up?",,"Afternoon order?","Espresso shot|Iced latte|Cold brew|Matcha"
-17950001006,17841400123456789,VIDEO,https://instagram.mock/stories/17950001006.mp4,2026-05-05T17:30:00,2026-05-06T17:30:00,"Golden hour at the shop \u2728 Open til 6!",,,
-17950001007,17841400123456789,IMAGE,https://instagram.mock/stories/17950001007.jpg,2026-05-06T06:30:00,2026-05-07T06:30:00,"Good morning Portland! Doors open in 30 mins \ud83d\udeaa",,,
-17950001001,17841400123456789,IMAGE,https://instagram.mock/stories/story1.jpg,2026-05-07T05:00:00,2026-05-08T05:00:00,"Wholesale packed ✔️",,,
-17950001002,17841400123456789,IMAGE,https://instagram.mock/stories/story2.jpg,2026-05-07T09:00:00,2026-05-08T09:00:00,"Boardwalk sunrise before class.",,,
-17950001003,17841400123456789,IMAGE,https://instagram.mock/stories/story3.jpg,2026-05-07T14:00:00,2026-05-08T14:00:00,"Next week special?",,"Peach cobbler or banana pudding?","Peach Cobbler|Banana Pudding"
-17950001004,17841400123456789,VIDEO,https://instagram.mock/stories/story4.mp4,2026-05-07T06:20:00,2026-05-08T06:20:00,"Croissants heading into the oven.",,,
-17950001005,17841400123456789,IMAGE,https://instagram.mock/stories/story5.jpg,2026-05-06T05:10:00,2026-05-07T05:10:00,"Butter delivery finally arrived.",,,
-17950001006,17841400123456789,IMAGE,https://instagram.mock/stories/story6.jpg,2026-05-06T07:15:00,2026-05-07T07:15:00,"Cooling rack situation this morning.",,,
-17950001007,17841400123456789,VIDEO,https://instagram.mock/stories/story7.mp4,2026-05-06T16:30:00,2026-05-07T16:30:00,"Advanced class rehearsal tonight.",,,
-17950001008,17841400123456789,IMAGE,https://instagram.mock/stories/story8.jpg,2026-05-05T12:00:00,2026-05-06T12:00:00,"Testing strawberry tart filling.",,,
-17950001009,17841400123456789,IMAGE,https://instagram.mock/stories/story9.jpg,2026-05-05T18:00:00,2026-05-06T18:00:00,"Kitchen finally clean again.",,,
-17950001010,17841400123456789,IMAGE,https://instagram.mock/stories/story10.jpg,2026-05-04T08:30:00,2026-05-05T08:30:00,"Coffee and pralines before rehearsal planning.",,,
+17950001008,17841400123456789,IMAGE,https://instagram.mock/stories/17950001008.jpg,2026-03-11T18:00:00,2026-03-12T18:00:00,"Track Meet TOMORROW! 🏃 Come cheer on our athletes at the field! #trackmeet #schoolsports",,,
+17950001009,17841400123456789,IMAGE,https://instagram.mock/stories/17950001009.jpg,2026-04-06T18:00:00,2026-04-07T18:00:00,"Fitness Day is TOMORROW! 💪 All students welcome — games, challenges, and prizes!",,"Favorite event?","Relay Race|Tug of War|Obstacle Course|Dance Battle"
+17950001010,17841400123456789,IMAGE,https://instagram.mock/stories/17950001010.jpg,2026-05-14T18:00:00,2026-05-15T18:00:00,"Sports Festival TOMORROW! 🎉 The biggest event of the year — don't miss it! #sportsfestival #schoolspirit",,,
+17950001011,17841400123456789,IMAGE,https://instagram.mock/stories/17950001011.jpg,2026-06-07T18:00:00,2026-06-08T18:00:00,"Summer Conditioning Camp starts TOMORROW! Get ready for an epic summer of training! #summercamp #conditioning",,,

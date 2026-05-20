@@ -916,6 +916,36 @@
 
 .o_kensei_media_item {
     max-width: 100%;
+    position: relative;
+}
+
+.o_kensei_s3_link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-top: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #6c757d;
+    background: #f1f3f5;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+
+    &:hover {
+        background: #e2e6ea;
+        color: #0d6efd;
+        text-decoration: none;
+    }
+
+    &.o_kensei_s3_uploading {
+        color: #adb5bd;
+        cursor: default;
+        pointer-events: none;
+        opacity: 0.8;
+    }
 }
 
 .o_kensei_media_img {

@@ -1,30 +1,12 @@
 id,body,issueId,userId,createdAt,updatedAt
-comment-01,I've started implementing the sliding window algorithm for the rate limiter. Going with a token bucket approach per-user. @david.kim can you review the Redis Lua script?,issue-01,user-02,2025-04-08T10:30:00,2025-04-08T10:30:00
-comment-02,Looks good! One concern - should we have different rate limits for different endpoint groups? Reads vs writes?,issue-01,user-04,2025-04-09T14:00:00,2025-04-09T14:00:00
-comment-03,Good point. I'll add a per-route config option. Default 100/min for reads and 30/min for writes.,issue-01,user-02,2025-04-09T15:30:00,2025-04-09T15:30:00
-comment-04,Found the root cause - we're loading all team members in a loop inside the metrics aggregation. DataLoader will batch these into a single query.,issue-02,user-03,2025-04-09T09:00:00,2025-04-09T09:00:00
-comment-05,After fix: p95 latency dropped from 1.2s to 180ms on the dashboard endpoint. Verified with load test.,issue-02,user-03,2025-04-14T10:00:00,2025-04-14T10:00:00
-comment-06,First draft of the chart components is ready for review. Using D3 with React wrapper. Demo: https://staging.meridianlabs.io/charts-preview,issue-03,user-07,2025-04-25T11:00:00,2025-04-25T11:00:00
-comment-07,The line chart looks great but the bar chart needs better hover states. Also can we add a tooltip with exact values?,issue-03,user-06,2025-04-26T09:00:00,2025-04-26T09:00:00
-comment-08,Updated with improved tooltips and hover animations. PR: https://github.com/meridian-labs/dashboard/pull/234,issue-03,user-07,2025-04-27T16:00:00,2025-04-27T16:00:00
-comment-09,Terraform plan looks clean. Creating separate modules for: VPC/networking + RDS + ElastiCache + EKS add-ons.,issue-04,user-11,2025-04-22T14:00:00,2025-04-22T14:00:00
-comment-10,Can we reproduce the 500 error? I tried special chars in project names and it works fine locally.,issue-06,user-04,2025-04-22T15:00:00,2025-04-22T15:00:00
-comment-11,Found it - the issue is with emoji characters in project names. The DB column is utf8 not utf8mb4. Need a migration.,issue-06,user-04,2025-04-23T09:00:00,2025-04-23T09:00:00
-comment-12,Blocking this - we need the auth token format finalized in MER-5 before we can implement cursor-based pagination tokens.,issue-12,user-02,2025-04-23T14:30:00,2025-04-23T14:30:00
-comment-13,The bundle grew because we imported the entire recharts library. Switching to modular imports + dynamic import() for chart pages.,issue-13,user-09,2025-04-24T10:00:00,2025-04-24T10:00:00
-comment-14,After code splitting: main bundle back to 252kb. Chart page loads on-demand at 87kb. Lighthouse score improved by 12 points.,issue-13,user-09,2025-04-27T09:00:00,2025-04-27T09:00:00
-comment-15,This was a production incident at 3am. PgBouncer max_client_conn was set to 100 but we had 150 concurrent connections during batch job.,issue-14,user-03,2025-04-08T08:30:00,2025-04-08T08:30:00
-comment-16,Fixed by increasing pool size to 200 and adding connection retry with exponential backoff. Also added alerting for pool utilization > 80%.,issue-14,user-03,2025-04-12T14:00:00,2025-04-12T14:00:00
-comment-17,Cancelling this - after discussion with @priya.sharma we decided to deprecate the legacy webhook format entirely in Q3 and give customers 90 days notice.,issue-19,user-01,2025-04-10T11:00:00,2025-04-10T11:00:00
-comment-18,Upgrade tested in staging. All pods healthy after 24h soak test. Only breaking change: PodDisruptionBudget API moved to policy/v1.,issue-17,user-10,2025-04-26T10:00:00,2025-04-26T10:00:00
-comment-19,The race condition was caused by asserting WebSocket.readyState before the connection event fires. Added cy.intercept for deterministic behavior.,issue-21,user-12,2025-04-15T11:00:00,2025-04-15T11:00:00
-comment-20,The sentinel failover takes 30s because our Sentinel check interval is set to 30000ms. Reducing to 5000ms and adding connection pool pre-warming on failover.,issue-28,user-10,2025-04-26T08:00:00,2025-04-26T08:00:00
-comment-21,I'm implementing HMAC-SHA256 signing. The signature format will be: t=timestamp v1=hex(hmac-sha256(timestamp.payload secret)). Similar to Stripe's approach.,issue-27,user-04,2025-04-22T10:00:00,2025-04-22T10:00:00
-comment-22,PR is up for review. Added signature verification helper library that customers can use. Tests cover: valid sig invalid sig expired sig replay attack.,issue-27,user-04,2025-04-27T14:00:00,2025-04-27T14:00:00
-comment-23,Using UTC offset from the browser's Intl API now. All dates are stored as ISO 8601 with timezone offset and converted to UTC before saving.,issue-10,user-08,2025-04-24T09:00:00,2025-04-24T09:00:00
-comment-24,APM agent is deployed to all services. Service map is now visible in Datadog. Setting up latency SLOs next.,issue-23,user-11,2025-04-27T10:00:00,2025-04-27T10:00:00
-comment-25,Refresh token rotation is working. Each refresh invalidates the old token and issues a new pair. Added 7-day absolute expiry for refresh tokens.,issue-05,user-01,2025-04-27T14:00:00,2025-04-27T14:00:00
-comment-001,Completed all OWASP Top 10 checks. Found 3 critical and 5 high severity issues.,task-001,user-amanda,2024-04-12T16:00:00,2024-04-12T16:00:00
-comment-002,Infrastructure review complete. Network segmentation needs improvement.,task-002,user-amanda,2024-04-16T15:00:00,2024-04-16T15:00:00
-comment-003,API assessment done. Found 2 auth bypass issues and missing rate limiting.,task-003,user-amanda,2024-04-20T14:00:00,2024-04-20T14:00:00
-comment-004,Policy docs 90% complete. Waiting on TechVault to confirm incident response SLA.,task-004,user-amanda,2024-04-28T13:00:00,2024-04-28T13:00:00
+cmt-201-1,PR #482 merged. Tested at 768px and 1024px breakpoints in Chrome and Safari - cards no longer overlap. Moving to Done.,BUG-201,user-tyler,2026-04-28T11:00:00,2026-04-28T11:00:00
+cmt-201-2,Pulled the dashboard on a tablet during break - cards holding their grid now at 768px. Signing off as charge nurse - safe to close for the ER floor.,BUG-201,user-david,2026-04-28T19:30:00,2026-04-28T19:30:00
+cmt-202-1,Still seeing long drug names cut off (Hydroxyzine Pamoate Metoprolol Succinate). Need tooltip on hover or a min column width.,BUG-202,user-david,2026-03-15T08:20:00,2026-03-15T08:20:00
+cmt-202-2,Picked this up. Will land tooltip on hover + ellipsis pattern next sprint.,BUG-202,user-mira,2026-05-04T09:30:00,2026-05-04T09:30:00
+cmt-204-1,PR #514 merged 2026-05-06. Password error now wraps above the submit button on iOS Safari and Android Chrome at 360px.,BUG-204,user-tyler,2026-05-06T10:45:00,2026-05-06T10:45:00
+cmt-204-2,Looks good in QA staging on my end. Moving to Done.,BUG-204,user-patty,2026-05-06T14:10:00,2026-05-06T14:10:00
+cmt-204-3,Confirmed on Android Chrome too. Closing.,BUG-204,user-mira,2026-05-06T15:20:00,2026-05-06T15:20:00
+cmt-205-1,Marking Wont Fix - design team says zebra striping is on the v2 roadmap not this sprint.,BUG-205,user-patty,2026-03-21T09:00:00,2026-03-21T09:00:00
+cmt-209-1,Reproduced on night shift - timestamps unreadable on the Recent Activity card under low-light ER lighting. Tagging Critical.,BUG-209,user-david,2026-04-01T22:15:00,2026-04-01T22:15:00
+cmt-209-2,Token swap landing in next theme refresh. Tracking for sprint 5.,BUG-209,user-tyler,2026-05-04T09:00:00,2026-05-04T09:00:00
+cmt-210-1,EHR vendor confirms the indication field is in the v3 payload. Waiting on integration ticket BKD-118 before we can wire it through.,BUG-210,user-mira,2026-04-12T10:00:00,2026-04-12T10:00:00
