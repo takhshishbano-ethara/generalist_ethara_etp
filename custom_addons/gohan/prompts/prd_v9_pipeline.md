@@ -392,39 +392,26 @@ If the assigned category does not appear above, fall back to general UI patterns
 
 ---
 
-## WORD BUDGET (STRICT 800-1,500 HARD LIMIT)
+## WORD BUDGET (hard limit 800-1,500; working target UNDER 1,000)
 
-**STRICT HARD RULE: the emitted PRD must contain between 800 and 1,500 words, counted by `wc -w` (whitespace split). This is an absolute limit, not a target or a guideline.**
-- **1,500 is an absolute hard ceiling. Never exceed it. A PRD of 1,501 words or more is a failed output and must not be emitted.**
-- **800 is an absolute hard floor. Never go under it. A PRD of 799 words or fewer is a failed output and must not be emitted.**
-- There is no tolerance margin. 800 and 1,500 are exact bounds measured by `wc -w`.
+**Two rules, both strict:**
+- **Absolute band: 800-1,500 words** by `wc -w` (whitespace split). A PRD over 1,500 words, or under 800, is a failed output and must not be emitted. No tolerance margin. These match how `wc -w`, Google Docs, and Microsoft Word count -- not a lenient regex.
+- **Working target: UNDER 1,000 words.** Aim every PRD at **850-1,000 words**. Do NOT aim for 1,500. Do NOT aim for 1,200.
 
-This matches how `wc -w`, Google Docs, and Microsoft Word count -- not a lenient regex.
+**Why the target is under 1,000.** You cannot reliably count your own output, and you systematically *under*-estimate its length -- a draft that feels like "about 1,000 words" is often 1,400-1,600 by real `wc -w`. So aiming near 1,500 overshoots past the ceiling every time. Aiming **under 1,000** leaves enough margin that even after your usual overshoot the real count still lands inside the band. The under-1,000 target is the mechanism by which the 1,500 hard ceiling is actually met -- treat it as the real instruction.
 
-Per-section ranges below are **guidance only** to help distribute budget. Section ranges are upper-bound targets; the global 800-1,500 band is the enforced rule.
-
-Per-section guidance (soft targets, sum within budget):
-
-- Section 1: up to 70
-- Section 2: up to 210
-- Section 3: up to 160
-- Section 4: up to 320
-- Section 5: up to 80
-- Section 6: up to 470 (includes up to 7 H3 sub-headings)
-- Section 7: up to 60
-- Section 8: up to 60
-
-Sum: 1,430. Plus 8 H2 section headings (~25-35 words). Realistic upper bound under `wc -w`: ~1,460. **Aim for 1,200-1,400 by default** to leave buffer below the 1,500 cap. Compress as needed.
+The per-section "Up to N words" figures in the section headings above are **absolute maximums, never targets.** To hit an under-1,000 total, every section lands **well below** its listed maximum -- plan on roughly two-thirds of each. Density, not padding: short declarative sentences, sentence fragments over full prose, no fact stated twice, no filler words, no restating a heading in its body.
 
 ### Word-count self-audit (mandatory before emitting -- a blocking gate)
 
 This audit is not optional. You may not emit the PRD until it passes.
 
 1. Count words by whitespace split (`wc -w` style). Include all headings, prose, bullets, code fences.
-2. If total > 1,500: **compress until it is 1,500 or fewer** -- tighten arrow-step paragraphs, Key Interactions phrases, and color-token role phrases. Never drop a section, hex code, entity, typed field, relationship, flow, or ARIA rule.
-3. If total < 800: expand Section 4 (more pages from the Category-Specific Feature Emphasis list) and Section 6 (more entity fields, longer flow steps) until it is 800 or more.
-4. Re-count after every change. Repeat steps 2-3 until the count sits inside the band.
-5. **Emit only when 800 <= total <= 1,500. Emitting a PRD outside this band is a hard failure. Aim for 1,200-1,400 so the final count keeps a safe margin below the 1,500 ceiling.**
+2. **Correct for under-estimation: assume your internal count is 30-40% low.** If your estimate is above ~1,000, the real count is near or past 1,500 -- compress now.
+3. If over the under-1,000 target: **compress** -- tighter arrow-step paragraphs, tighter Key Interactions and color-token phrases, drop adjectives, cut any sentence that does not add a spec fact. Never drop a section, hex code, entity, typed field, relationship, flow, or ARIA rule.
+4. If under 800: expand Section 4 (more pages from the Category-Specific Feature Emphasis list) and Section 6 (more entity fields) until at least 800.
+5. Re-count after every change. Repeat until the count is inside the band.
+6. **Emit only when the count is 800-1,500 AND as close to the under-1,000 target as the content allows.** Aiming under 1,000 is what keeps the final count safely below the 1,500 ceiling -- a PRD that lands at 1,400+ means you aimed too high; aim lower next pass.
 
 ## SINGLE-FILE OUTPUT RULE
 
@@ -486,7 +473,7 @@ Real third-party integration partners that the **original product** talked to (G
 
 ## HARD RULES
 
-- **STRICT word limit: the emitted PRD must be 800-1,500 words counted by `wc -w`.** 1,500 is an absolute hard ceiling and 800 an absolute hard floor -- a PRD outside this band is a failed output and must not be emitted. There is no tolerance margin. Run the mandatory word-count self-audit before emitting (see WORD BUDGET) and aim for 1,200-1,400 to keep a safe buffer below 1,500.
+- **STRICT word limit: the emitted PRD must be 800-1,500 words counted by `wc -w`.** 1,500 is an absolute hard ceiling and 800 an absolute hard floor -- a PRD outside this band is a failed output and must not be emitted. There is no tolerance margin. Run the mandatory word-count self-audit before emitting (see WORD BUDGET) and aim for **under 1,000 words (target 850-1,000)** so the real count stays safely below the 1,500 ceiling.
 - **Accurate, evidence-grounded content; freshly written every run.** The PRD must describe the real source site as accurately as a UI-only rebuild allows: every color, font, page, route, entity, role, flow, and feature is the best inference the inputs (screenshots, source URL, optional extraction) support -- never fabricated, never padded with guesswork presented as fact. Where evidence is thin, fall back to the documented category defaults rather than invented detail. The project name (Phase 0 A) is the single deliberate invention; everything else describes the real site. The PRD is one valid expression of this spec, **not a fixed template**: write it fresh each run. Two runs on the same site must read as the same product accurately described but in **different words, sentences, and phrasing** -- similar in substance, never a byte-identical copy.
 - **Frontend-only PRD.** No real backend specification: no REST or GraphQL endpoint lists, no database tables, no queues, no webhooks, no rate limits, no idempotency keys, no provider secret flows. Client data, auth, and payments are **UI and fixture scoped** unless explicitly labeled as out of scope.
 - Inputs come from the run directory; **never ask the user a question.** Make the reasonable inference and proceed.
