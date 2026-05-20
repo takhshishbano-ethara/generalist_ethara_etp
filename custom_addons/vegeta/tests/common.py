@@ -85,6 +85,32 @@ class VegetaTestCase(TransactionCase):
             _postcommit.add = _add
             yield captured
 
+    @contextmanager
+    def _patch_registry_cursor(self):
+        """Route ``Registry(db).cursor()`` to the live test cursor.
+
+        Background PRD/QC methods open their own ``Registry(db).cursor()``
+        connections, which cannot see records created inside a rolled-back
+        TransactionCase. This redirects them to the test cursor; ``commit``
+        is downgraded to a flush and ``rollback`` to a no-op, both of which
+        the test framework otherwise forbids inside a test.
+        """
+        test_cr = self.env.cr
+
+        @contextmanager
+        def _cursor():
+            yield test_cr
+
+        registry = MagicMock()
+        registry.cursor = _cursor
+
+        with patch(
+            "odoo.addons.vegeta.models.vegeta_job.Registry",
+            return_value=registry,
+        ), patch.object(test_cr, "commit", self.env.flush_all), \
+                patch.object(test_cr, "rollback", lambda: None):
+            yield
+
     @staticmethod
     def _png_bytes(width=10, height=10, color=(255, 0, 0)):
         """Build a minimal PNG byte string for image-resize tests."""
