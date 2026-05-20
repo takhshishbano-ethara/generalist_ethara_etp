@@ -4,7 +4,7 @@ Detailed patterns and examples for working with the QuickBooks Online accounting
 
 ## Base URL
 
-Set via the `QUICKBOOKS_API_URL` environment variable (e.g. `http://localhost:8012`).
+Set via the `QUICKBOOKS_API_URL` environment variable (e.g. `http://localhost:8007`).
 Company realm ID: `4620816365272861350`
 
 ## Company Info

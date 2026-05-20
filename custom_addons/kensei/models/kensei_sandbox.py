@@ -603,7 +603,7 @@ class KenseiSandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/%s/#token=%s" % (
+                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
                         ws_host,
                         rec.id,
                         rec.docker_gateway_token,
@@ -2538,7 +2538,10 @@ class KenseiSandbox(models.Model):
             try:
                 status = k8s_model.get_sandbox_status(self)
                 if status == "running":
-                    self.write({"docker_status": "running"})
+                    update_vals = {"docker_status": "running"}
+                    if not self.docker_port:
+                        update_vals["docker_port"] = 18789
+                    self.write(update_vals)
                     _logger.info(
                         "K8s sandbox %s is now running",
                         self.id,
@@ -4273,7 +4276,10 @@ class KenseiSandbox(models.Model):
             try:
                 status = k8s.get_sandbox_status(sandbox)
                 if status != sandbox.docker_status:
-                    sandbox.write({"docker_status": status})
+                    update_vals = {"docker_status": status}
+                    if status == "running" and not sandbox.docker_port:
+                        update_vals["docker_port"] = 18789
+                    sandbox.write(update_vals)
                     if status == "error":
                         sandbox.write(
                             {

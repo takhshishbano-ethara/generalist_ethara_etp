@@ -1452,6 +1452,46 @@ export class KenseiChatWidget extends Component {
                     }
                 }
             }
+
+            if (result.output_artifacts && result.output_artifacts.length > 0) {
+                const shownSources = new Set();
+                for (const m of this._session.messages) {
+                    if (m.mediaItems) {
+                        for (const mi of m.mediaItems) {
+                            shownSources.add(mi.alt || "");
+                        }
+                    }
+                }
+                const extraMedia = [];
+                for (const art of result.output_artifacts) {
+                    const artPath = art.container_path || "";
+                    const artName = art.filename || artPath.split("/").pop() || "";
+                    if (shownSources.has(artName) || shownSources.has(artPath)) continue;
+                    const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, artPath || artName);
+                    if (resolvedUrl) {
+                        extraMedia.push({
+                            type: _inferMediaType(artName),
+                            url: resolvedUrl,
+                            alt: artName,
+                        });
+                    }
+                }
+                if (extraMedia.length > 0) {
+                    let target = null;
+                    for (let i = this._session.messages.length - 1; i >= 0; i--) {
+                        if (this._session.messages[i].role === "assistant" && this._session.messages[i].isModelResponse) {
+                            target = this._session.messages[i];
+                            break;
+                        }
+                    }
+                    if (target) {
+                        if (!target.mediaItems) target.mediaItems = [];
+                        target.mediaItems.push(...extraMedia);
+                        console.log(LOG_PREFIX, `📎 output_artifacts fallback: added ${extraMedia.length} artifact(s) to last assistant message`);
+                    }
+                }
+            }
+
             this._session.historyLoaded = true;
         } catch (e) {
             console.error(LOG_PREFIX, "📖 History load failed:", e);

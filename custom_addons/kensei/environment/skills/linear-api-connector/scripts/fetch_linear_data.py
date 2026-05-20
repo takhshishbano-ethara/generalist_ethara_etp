@@ -83,7 +83,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("LINEAR_API_URL", "http://localhost:8009")
+    base_url = os.environ.get("LINEAR_API_URL", "http://localhost:8004")
 
     try:
         if args.teams:

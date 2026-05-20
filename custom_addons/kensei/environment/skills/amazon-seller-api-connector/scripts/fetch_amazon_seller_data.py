@@ -83,7 +83,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("AMAZON_SELLER_API_URL", "http://localhost:8004")
+    base_url = os.environ.get("AMAZON_SELLER_API_URL", "http://localhost:8000")
 
     try:
         if args.account:
