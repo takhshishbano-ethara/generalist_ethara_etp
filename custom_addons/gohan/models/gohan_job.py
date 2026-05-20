@@ -456,7 +456,23 @@ class GohanJob(models.Model):
 
     @api.model
     def _get_qc_system_prompt(self):
-        """Read QC system prompt from Settings; fall back to built-in default."""
+        """Read the QC system prompt from the bundled file (file is the
+        source of truth); fall back to the Settings sysparam, then to the
+        built-in default.
+
+        Priority order:
+          1. ``prompts/qc_v1.md`` — the active QC reviewer prompt (v1).
+             Edit this file to update the QC prompt.
+          2. ``gohan.qc_system_prompt`` sysparam — Settings UI override.
+          3. ``DEFAULT_QC_SYSTEM_PROMPT`` — built-in last-resort fallback.
+        """
+        prompts_dir = Path(__file__).parent.parent / "prompts"
+        for fname in ("qc_v1.md",):
+            p = prompts_dir / fname
+            if p.exists():
+                content = p.read_text(encoding="utf-8")
+                if content.strip():
+                    return content.strip()
         ICP = self.env["ir.config_parameter"].sudo()
         prompt = ICP.get_param("gohan.qc_system_prompt", "")
         if prompt and prompt.strip():
@@ -2967,7 +2983,12 @@ class GohanJob(models.Model):
                 config = {
                     "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
                     "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
-                    "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 3),
+                    # Single-pass PRD generation by default: one Bedrock call,
+                    # no score-refinement loop. The retry loop inflated length
+                    # (each rewrite chased the density score); a single pass
+                    # follows the prompt's under-1000-word target directly.
+                    # Still overridable via the gohan.max_llm_attempts sysparam.
+                    "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 1),
                     "bedrock_access_key": bedrock_access_key,
                     "bedrock_secret_key": bedrock_secret_key,
                     "s3_bucket": ICP.get_param("gohan.s3_bucket"),
@@ -3593,9 +3614,37 @@ class GohanJob(models.Model):
             )
 
     def _build_feedback(self, score_report):
-        from ..services.scoring_service import SECTION_MAX_POINTS
+        from ..services.scoring_service import (
+            SECTION_MAX_POINTS, PRD_MAX_WORDS, PRD_MIN_WORDS,
+        )
 
         lines = []
+
+        # Word count leads the feedback: the 1500-word ceiling is a hard
+        # auto-reject, and the model cannot count its own output reliably.
+        # Hand it the measured count plus a concrete "cut N words, here"
+        # instruction -- far more steerable than the terse "R5" trigger.
+        word_count = score_report.get("details", {}).get("word_count", 0)
+        if word_count > PRD_MAX_WORDS:
+            over = word_count - PRD_MAX_WORDS
+            lines.append(
+                f"- WORD LIMIT EXCEEDED (auto-reject): PRD is {word_count} "
+                f"words, {over} over the {PRD_MAX_WORDS}-word hard ceiling. "
+                f"Rewrite the entire PRD shorter -- target under 1000 words. "
+                f"Compress Section 6 (Application Logic) and Section 4 page "
+                f"prose first; drop adjectives and any sentence that is not a "
+                f"spec fact. Do not drop sections, hex codes, entities, "
+                f"flows, easing values, or ARIA rules."
+            )
+        elif word_count and word_count < PRD_MIN_WORDS:
+            short = PRD_MIN_WORDS - word_count
+            lines.append(
+                f"- BELOW WORD FLOOR: PRD is {word_count} words, {short} "
+                f"under the {PRD_MIN_WORDS}-word minimum. Expand Section 4 "
+                f"(more pages from the category feature list) and Section 6 "
+                f"(more entity fields) until at least {PRD_MIN_WORDS} words."
+            )
+
         section_scores = score_report.get("section_scores", {})
         for section, section_data in section_scores.items():
             score_val = section_data["score"] if isinstance(section_data, dict) else section_data
@@ -3607,6 +3656,10 @@ class GohanJob(models.Model):
 
         reject_triggers = score_report.get("reject_triggers", [])
         for trigger in reject_triggers:
+            # R4/R5 are the word-count triggers, already covered above with a
+            # more actionable instruction -- skip to avoid a duplicate line.
+            if trigger.startswith(("R4:", "R5:")):
+                continue
             lines.append(f"- AUTO-REJECT: {trigger}")
 
         warnings = score_report.get("warnings", [])

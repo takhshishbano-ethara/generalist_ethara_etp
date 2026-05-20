@@ -109,24 +109,20 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
     words = prd_text.split()
     word_count = len(words)
 
-    # Word count bounds
-    if word_count > 5000:
+    # Word count bounds -- the v9 pipeline band is 800-1,500 words by wc -w.
+    # (Pre-v9 this checked an obsolete 4,000-5,000 band and false-flagged
+    # every compliant PRD as "below target range".)
+    if word_count > 1500:
         issues.append({
-            "severity": "critical",
+            "severity": "high",
             "code": "S-WORDCOUNT",
-            "message": f"PRD exceeds 5,000 words ({word_count}). Platform hard cap.",
+            "message": f"PRD exceeds 1,500 words ({word_count}). Over the hard ceiling.",
         })
     elif word_count < 800:
         issues.append({
             "severity": "high",
             "code": "S-WORDCOUNT",
-            "message": f"PRD below 800 words ({word_count}). Insufficient depth.",
-        })
-    elif word_count < 4000:
-        issues.append({
-            "severity": "medium",
-            "code": "S-WORDCOUNT",
-            "message": f"PRD below target range ({word_count}/4000-5000).",
+            "message": f"PRD below 800 words ({word_count}). Under the hard floor.",
         })
 
     # Markdown tables — allowed (scoring rewards structured formatting)
@@ -162,7 +158,7 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
         (r"##?\s*\d*\.?\s*technical", "Technical Ambition"),
         (r"##?\s*\d*\.?\s*(site\s+)?architecture", "Site Architecture"),
         (r"##?\s*\d*\.?\s*motion", "Motion Language"),
-        (r"##?\s*\d*\.?\s*backend", "Backend & Application Logic"),
+        (r"##?\s*\d*\.?\s*application\s+logic", "Application Logic"),
         (r"##?\s*\d*\.?\s*accessibility", "Accessibility & Quality"),
         (r"##?\s*\d*\.?\s*content", "Content & SEO"),
     ]
@@ -180,21 +176,10 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
             "message": f"Missing sections: {', '.join(missing)}",
         })
 
-    # Category declaration present
-    if not re.search(r"category:\s*\S", text_lower):
-        issues.append({
-            "severity": "medium",
-            "code": "S-CATEGORY",
-            "message": "No category declaration in preamble.",
-        })
-
-    # Target resolution present
-    if not re.search(r"target\s+resolution:", text_lower):
-        issues.append({
-            "severity": "medium",
-            "code": "S-RESOLUTION",
-            "message": "No target resolution declaration in preamble.",
-        })
+    # NOTE: the v9 prompt forbids any preamble -- the PRD's first line is
+    # "## 1. Product Overview", with no metadata header. The old S-CATEGORY
+    # and S-RESOLUTION checks looked for a `Category:` / `Target Resolution:`
+    # preamble and so false-flagged every compliant v9 PRD; both removed.
 
     # Banned vague phrases (sample check)
     banned = [
@@ -282,34 +267,32 @@ def _run_llm_alignment_check(
     qc_system_prompt: str = "",
     screenshot_blocks: list = None,
 ) -> dict:
-    """Call Bedrock to check PRD vs extraction data alignment."""
+    """Call Bedrock to run the PRD-only compliance QC review.
+
+    The QC reviewer is a spec-compliance check: its input is the PRD
+    markdown and nothing else. Extraction data, the source URL/brand, and
+    screenshots are deliberately NOT sent -- the QC prompt treats the whole
+    user message as the artifact under review, so appending that context
+    made the model mistake it for part of the PRD and emit false
+    violations (source URL "in the PRD body", real brand name, trailing
+    block after Section 8).
+
+    ``extraction_data``, ``site_discovery``, ``url``, ``category`` and
+    ``screenshot_blocks`` are kept on the signature for call-site
+    compatibility but are intentionally unused here.
+    """
     from .bedrock_service import generate_prd as _call_bedrock
 
     # Use custom prompt if provided, otherwise fall back to default
     effective_prompt = qc_system_prompt or _QC_SYSTEM_PROMPT
 
-    # Build a concise extraction summary (don't dump everything)
-    extraction_summary = _summarize_extraction(extraction_data, site_discovery)
-
-    user_message = (
-        f"## PRD to Review\n\n{prd_text}\n\n"
-        f"---\n\n"
-        f"## Extraction Data (ground truth)\n\n"
-        f"**URL:** {url}\n"
-        f"**Category:** {category}\n\n"
-        f"{extraction_summary}"
-    )
-
-    # Build content blocks: screenshots (if available) + text
-    content_blocks = list(screenshot_blocks or [])
-    content_blocks.append({"text": user_message})
-
+    # PRD-only input: the whole user message is the artifact under review.
     try:
         response = _call_bedrock(
             inference_arn=inference_arn,
             region=region,
             system_prompt=effective_prompt,
-            messages=[{"role": "user", "content": content_blocks}],
+            messages=[{"role": "user", "content": prd_text}],
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )
@@ -428,12 +411,17 @@ def _parse_llm_issues(response: str) -> list:
 
     for line in response.split("\n"):
         line = line.strip()
-        if not line.startswith("- ["):
+        # Accept both the legacy alignment-QC form ("- [SEV] ...") and the
+        # v1 QC reviewer prompt's bolded form ("- **[SEV] Line ~N ...").
+        if not (line.startswith("- [") or line.startswith("- **[")):
             continue
         for sev_label, sev_key in severity_map.items():
             if f"[{sev_label}]" in line:
-                # Extract the message after the severity tag
-                msg = re.sub(r"^-\s*\[" + sev_label + r"\]\s*", "", line)
+                # Strip the leading bullet, optional bold markers, and the
+                # severity tag -- leaving the finding text as the message.
+                msg = re.sub(
+                    r"^-\s*\*{0,2}\[" + sev_label + r"\]\*{0,2}\s*", "", line
+                )
                 issues.append({
                     "severity": sev_key,
                     "code": f"LLM-{sev_label[:1]}",

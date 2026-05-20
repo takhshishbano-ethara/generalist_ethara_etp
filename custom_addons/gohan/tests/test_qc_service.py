@@ -22,7 +22,7 @@ def _valid_prd():
         "## Technical Ambition\nNext.js 14.\n"
         "## Site Architecture\n### Home\n### About\n"
         "## Motion Language\n240ms cubic-bezier.\n"
-        "## Backend & Application Logic\nNextAuth.\n"
+        "## Application Logic\nNextAuth.\n"
         "## Accessibility & Quality\nWCAG AA.\n"
         "## Content & SEO\nLighthouse 95.\n"
     ) + (" specification" * 900)
@@ -38,19 +38,16 @@ class TestQcStructuralChecks(TransactionCase):
         wc = next(i for i in issues if i["code"] == "S-WORDCOUNT")
         self.assertEqual(wc["severity"], "high")
 
-    def test_wordcount_over_max_critical(self):
-        text = ("word " * 5500) + _valid_prd()
+    def test_wordcount_over_ceiling_high(self):
+        text = ("word " * 1800) + _valid_prd()
         issues = _run_structural_checks(text, "Normal Website")
         wc = next(i for i in issues if i["code"] == "S-WORDCOUNT")
-        self.assertEqual(wc["severity"], "critical")
+        self.assertEqual(wc["severity"], "high")
 
-    def test_wordcount_below_target_medium(self):
-        text = ("word " * 1200) + _valid_prd()[:1000]
-        issues = _run_structural_checks(text, "Normal Website")
-        wc = [i for i in issues if i["code"] == "S-WORDCOUNT"]
-        # Either medium (1200-3999) or fine — at least one exists below 4000
-        if wc:
-            self.assertIn(wc[0]["severity"], ("medium", "high"))
+    def test_wordcount_in_band_no_issue(self):
+        # A PRD inside the 800-1500 band raises no S-WORDCOUNT issue.
+        issues = _run_structural_checks(_valid_prd(), "Normal Website")
+        self.assertFalse([i for i in issues if i["code"] == "S-WORDCOUNT"])
 
     def test_non_ascii_flagged(self):
         text = _valid_prd() + "\nSpecial chars: \u2013 \u2022 \u2192"
@@ -63,16 +60,6 @@ class TestQcStructuralChecks(TransactionCase):
         sec_issues = [i for i in issues if i["code"] == "S-SECTIONS"]
         self.assertTrue(sec_issues)
         self.assertEqual(sec_issues[0]["severity"], "critical")
-
-    def test_missing_category_declaration(self):
-        text = _valid_prd().replace("Category: Normal Website", "")
-        issues = _run_structural_checks(text, "Normal Website")
-        self.assertTrue(any(i["code"] == "S-CATEGORY" for i in issues))
-
-    def test_missing_target_resolution(self):
-        text = _valid_prd().replace("Target resolution: 1440x900", "")
-        issues = _run_structural_checks(text, "Normal Website")
-        self.assertTrue(any(i["code"] == "S-RESOLUTION" for i in issues))
 
     def test_banned_phrases_medium(self):
         text = _valid_prd() + (
