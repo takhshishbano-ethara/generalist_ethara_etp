@@ -55,10 +55,6 @@ class ResConfigSettings(models.TransientModel):
         string="Bedrock Secret Access Key",
         config_parameter="leviathan.bedrock_secret_access_key",
     )
-    leviathan_max_llm_attempts = fields.Integer(
-        string="Max LLM Attempts",
-        config_parameter="leviathan.max_llm_attempts",
-    )
 
     # -- S3 --
     leviathan_s3_bucket = fields.Char(
@@ -170,8 +166,9 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="leviathan.bedrock_inner_retries",
         default=2,
         help="Max retry attempts inside a single Bedrock call (adaptive "
-             "backoff). With max_llm_attempts=1, worst case is this × 1 = "
-             "this calls per phase. Lower = less load. REQUIRES POD RESTART "
+             "backoff) for transient failures. Each pipeline phase (PRD "
+             "gen, QC) makes one call, so worst case is this many Bedrock "
+             "requests per phase. Lower = less load. REQUIRES POD RESTART "
              "for cached clients (env LEVIATHAN_BEDROCK_INNER_RETRIES).",
     )
 
