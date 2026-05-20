@@ -808,9 +808,11 @@ def _unwrap_trajectory_messages(messages):
 
 def _load_dotenv():
     env = os.environ.copy()
-
     root = None
-    conf_path = odoo_config.rcfile
+    try:
+        conf_path = odoo_config.get('config') or getattr(odoo_config, 'rcfile', None)
+    except Exception:
+        conf_path = None
     if conf_path:
         root = os.path.dirname(os.path.abspath(conf_path))
     if not root:
