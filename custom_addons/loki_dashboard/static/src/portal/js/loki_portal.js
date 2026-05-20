@@ -186,7 +186,23 @@
               '</div>'+
             '</div>';
         }
-        det.innerHTML='<td colspan="8"><div class="detail-content"><div class="detail-json"><pre></pre></div><div class="detail-right">'+docTile+'<div class="detail-image"><img src="/loki_dashboard/static/src/portal/img/'+encodeURIComponent(rec.png_file)+'" alt="ECG" draggable="false"/><span class="img-hint">Click to view</span></div></div></div></td>';
+        var jsonPanel =
+          '<div class="detail-json">'+
+            '<div class="json-toolbar">'+
+              '<button type="button" class="json-copy" aria-label="Copy JSON" title="Copy JSON">'+
+                '<svg class="ico-copy" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+                  '<rect x="9" y="9" width="13" height="13" rx="1"/>'+
+                  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'+
+                '</svg>'+
+                '<svg class="ico-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+                  '<polyline points="20 6 9 17 4 12"/>'+
+                '</svg>'+
+                '<span class="json-copy-label">Copy</span>'+
+              '</button>'+
+            '</div>'+
+            '<pre></pre>'+
+          '</div>';
+        det.innerHTML='<td colspan="8"><div class="detail-content">'+jsonPanel+'<div class="detail-right">'+docTile+'<div class="detail-image"><img src="/loki_dashboard/static/src/portal/img/'+encodeURIComponent(rec.png_file)+'" alt="ECG" draggable="false"/><span class="img-hint">Click to view</span></div></div></div></td>';
         tbody.appendChild(det);
       });
       tbody.style.minHeight = '';
@@ -346,6 +362,51 @@
           e.stopPropagation();
           openDoc(this.dataset.doc, this.dataset.docName, this.dataset.docDl || '');
         };
+      }
+      var copyBtn = det.querySelector('.json-copy');
+      if (copyBtn) {
+        copyBtn.onclick = function(e) {
+          e.stopPropagation();
+          var data = cache[rec.index];
+          if (!data) return;
+          var text = JSON.stringify(data, null, 2);
+          copyToClipboard(text, copyBtn);
+        };
+      }
+    }
+
+    function copyToClipboard(text, btn) {
+      var done = function() {
+        btn.classList.add('copied');
+        var label = btn.querySelector('.json-copy-label');
+        var prev = label ? label.textContent : '';
+        if (label) label.textContent = 'Copied';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          if (label) label.textContent = prev || 'Copy';
+        }, 1500);
+      };
+      var fail = function() {
+        var label = btn.querySelector('.json-copy-label');
+        if (label) { var prev = label.textContent; label.textContent = 'Failed'; setTimeout(function(){ label.textContent = prev || 'Copy'; }, 1500); }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(); });
+      } else {
+        fallback();
+      }
+      function fallback() {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly','');
+          ta.style.position='absolute'; ta.style.left='-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) done(); else fail();
+        } catch (e) { fail(); }
       }
     }
 

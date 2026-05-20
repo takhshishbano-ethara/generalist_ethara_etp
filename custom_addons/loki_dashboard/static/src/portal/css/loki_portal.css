@@ -441,7 +441,52 @@ hr.rule {
   max-height: 520px;
   border-right: 1px solid var(--border);
   background: var(--bg-3);
+  position: relative;
 }
+.json-toolbar {
+  position: sticky;
+  top: -28px;
+  margin: -28px -28px 14px;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in oklab, var(--bg-3) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  z-index: 2;
+}
+.json-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-2);
+  color: var(--ink-2);
+  border: 1px solid var(--border-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color var(--dur-xfast) var(--ease-ui), background var(--dur-xfast) var(--ease-ui), color var(--dur-xfast) var(--ease-ui);
+}
+.json-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.json-copy:active { transform: translateY(1px); }
+.json-copy svg { display: block; }
+.json-copy .ico-check { display: none; }
+.json-copy.copied {
+  border-color: var(--system-green);
+  color: var(--system-green);
+  background: var(--system-green-surface);
+}
+.json-copy.copied .ico-copy { display: none; }
+.json-copy.copied .ico-check { display: block; }
 .detail-json pre {
   font-family: var(--font-mono);
   font-size: 12.5px;
