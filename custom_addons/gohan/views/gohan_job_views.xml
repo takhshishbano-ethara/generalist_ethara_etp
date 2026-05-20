@@ -144,7 +144,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
                 <field name="score_display"/>
                 <field name="grade"/>
                 <field name="qc_verdict"/>
@@ -164,7 +164,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
                 <field name="score_display"/>
                 <field name="grade"/>
                 <field name="qc_verdict"/>
@@ -207,6 +207,12 @@
                             invisible="state not in ('draft', 'not_assigned') or not is_admin or has_pipeline_data"
                             help="Spec-compliant trigger: POST /run with X-Api-Key. Configure gohan.lambda_api_url + gohan.lambda_api_key first. Hidden when the task already has pipeline data — use Rerun Pipeline instead."/>
 
+                    <!-- EXTRACTED: manual review gate — tasker triggers PRD generation -->
+                    <button name="action_generate_prd" type="object"
+                            string="Generate PRD" class="oe_highlight"
+                            invisible="state != 'extracted'"
+                            help="Review the extraction assets in the Extraction Review tab, then generate the PRD from the ticked assets."/>
+
                     <!-- DONE: Primary actions -->
                     <button name="action_download_zip" type="object"
                             string="Download ZIP" class="oe_highlight"
@@ -248,7 +254,7 @@
                             invisible="not is_admin or state not in ('draft', 'done', 'failed')"
                             confirm="Release this task back to the unassigned pool?"/>
 
-                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,generating,scoring,done,submitted"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,extracted,generating,scoring,done,submitted"/>
                 </header>
 
                 <!-- Pipeline progress (timing indicator) -->
@@ -274,6 +280,14 @@
                          invisible="not extraction_warnings or state in ('failed','discarded','not_assigned')">
                         <strong>Partial Extraction</strong> -- extraction succeeded with warnings; the tasker may need to supply assets manually:
                         <field name="extraction_warnings" readonly="1" nolabel="1" class="d-block mt-1"/>
+                    </div>
+
+                    <!-- Extracted: manual review gate -->
+                    <div class="alert alert-warning" role="alert" invisible="state != 'extracted'">
+                        <strong>Awaiting Review</strong> -- extraction is complete. Open the
+                        <em>Extraction Review</em> tab to verify the screenshots and SVG icons:
+                        remove anything unwanted, upload your own SVGs, then click
+                        <em>Generate PRD</em>. The PRD will <strong>not</strong> generate automatically.
                     </div>
 
                     <!-- Done: QC Passed -->
@@ -416,6 +430,36 @@
                         <!-- ============================== -->
                         <!-- TAB 4: Assets (frontend, optional) -->
                         <!-- ============================== -->
+                        <!-- ====================================== -->
+                        <!-- Extraction Review — manual curation gate -->
+                        <!-- ====================================== -->
+                        <page string="Extraction Review" name="extraction_review"
+                              invisible="state in ('not_assigned','draft','extracting')">
+                            <div class="alert alert-info" role="status"
+                                 invisible="state != 'extracted'">
+                                Verify the screenshots and SVG icons captured by the extraction Lambda.
+                                Remove anything unwanted with the <strong>✕</strong> on its row, or use
+                                <strong>Add a line</strong> to upload your own SVG icons. Only rows with
+                                <strong>Use in PRD</strong> ticked are sent to PRD generation — when the
+                                assets look right, click <strong>Generate PRD</strong> in the header.
+                            </div>
+                            <field name="asset_ids" readonly="state != 'extracted'">
+                                <list editable="bottom" decoration-muted="not include_in_prd">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="preview_html" widget="html" readonly="1" string="Preview"/>
+                                    <field name="name"/>
+                                    <field name="asset_type"/>
+                                    <field name="source" readonly="1" optional="show"/>
+                                    <field name="is_copyright_safe" readonly="1" optional="hide"/>
+                                    <field name="file_name" column_invisible="1"/>
+                                    <field name="file_data" filename="file_name" string="Upload"/>
+                                    <field name="content_text" column_invisible="1"/>
+                                    <field name="notes" optional="hide"/>
+                                    <field name="include_in_prd" widget="boolean_toggle"/>
+                                </list>
+                            </field>
+                        </page>
+
                         <page string="Assets" invisible="not screenshot_keys and not asset_keys">
                             <!-- Re-extract: available to both admin and tasker on done -->
                             <div class="mb-3" invisible="state != 'done'">

@@ -1,6 +1,6 @@
 {
     "name": "Gohan PRD Pipeline",
-    "version": "19.0.2.4.0",
+    "version": "19.0.2.5.0",
     "category": "Productivity",
     "summary": "Operator UI for the Gohan functional-PRD scraping pipeline",
     "description": (
@@ -24,7 +24,14 @@
         "'category_*' to 'cat_*' (migration auto-applies). New 'reconcile "
         "orphaned runs' cron (10 min) + 12 spec-mandated fields on gohan.job "
         "(notes, lambda_request_id, s3_artifact_prefix, score_max, qc counts, "
-        "word_count, deliverable counts, ready_for_submission)."
+        "word_count, deliverable counts, ready_for_submission).\n\n"
+        "v19.0.2.5.0: Extraction review gate. Interactive single jobs now "
+        "park in a new 'extracted' state instead of auto-generating the PRD; "
+        "the tasker curates the captured screenshots and SVG icons on the "
+        "gohan.job.asset child model (delete unwanted rows, upload extra "
+        "SVGs) in the Extraction Review tab, then clicks Generate PRD. Only "
+        "ticked assets feed Bedrock; uploaded files are pushed to S3 first. "
+        "Batch runs (via_batch) skip the gate and auto-generate as before."
     ),
     "author": "Ethara",
     "license": "LGPL-3",
