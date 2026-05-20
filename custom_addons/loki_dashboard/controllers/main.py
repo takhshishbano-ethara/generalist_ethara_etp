@@ -5,11 +5,9 @@ import glob
 from odoo import http
 from odoo.http import request
 
-_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data",
-    "ecg_records",
-)
+_MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DATA_DIR = os.path.join(_MODULE_DIR, "data", "ecg_records")
+_DOCS_DIR = os.path.join(_MODULE_DIR, "static", "src", "portal", "docs")
 
 
 def _get_record_list():
@@ -19,12 +17,23 @@ def _get_record_list():
         basename = os.path.basename(path)
         stem = basename.rsplit(".json", 1)[0]
         num_prefix = stem.split(".")[0].strip()
-        records.append({
+        html_name = stem + ".html"
+        docx_name = stem + ".docx"
+        record = {
             "index": int(num_prefix) if num_prefix.isdigit() else 0,
             "stem": stem,
             "json_file": basename,
             "png_file": stem + ".png",
-        })
+        }
+        html_path = os.path.join(_DOCS_DIR, html_name)
+        if os.path.isfile(html_path):
+            record["doc_html"] = html_name
+            record["doc_html_v"] = int(os.path.getmtime(html_path))
+        docx_path = os.path.join(_DOCS_DIR, docx_name)
+        if os.path.isfile(docx_path):
+            record["doc_docx"] = docx_name
+            record["doc_docx_v"] = int(os.path.getmtime(docx_path))
+        records.append(record)
     records.sort(key=lambda r: r["index"])
     return records
 

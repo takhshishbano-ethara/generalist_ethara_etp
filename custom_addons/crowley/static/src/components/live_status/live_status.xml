@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="crowley.LiveStatus">
+        <div class="o_crowley_live_status" t-if="state.label">
+            <i class="fa fa-spinner fa-spin me-2"/>
+            <span t-out="state.label"/>
+            <small class="text-muted ms-2" t-if="state.subText" t-out="state.subText"/>
+            <small class="text-warning ms-2" t-if="!state.busOk">
+                (live updates degraded - polling fallback)
+            </small>
+        </div>
+    </t>
+</templates>

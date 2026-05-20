@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="res_config_settings_view_form_crowley" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.inherit.crowley</field>
+            <field name="model">res.config.settings</field>
+            <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//form" position="inside">
+                    <app data-string="Crowley" string="Crowley" name="crowley"
+                         groups="crowley.group_crowley_manager">
+                        <block title="OpenRouter API" name="crowley_api_block">
+                            <setting string="OpenRouter API Key"
+                                     help="Stored encrypted via ir.config_parameter. Required to submit generations.">
+                                <field name="crowley_api_key_is_set" invisible="1"/>
+                                <field name="crowley_openrouter_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not crowley_api_key_is_set">
+                                    <i class="fa fa-check"/> API key configured
+                                </div>
+                            </setting>
+                            <setting string="HTTP Referer"
+                                     help="Sent as HTTP-Referer header for OpenRouter attribution.">
+                                <field name="crowley_http_referer"/>
+                            </setting>
+                            <setting string="App Title"
+                                     help="Sent as X-Title header to OpenRouter.">
+                                <field name="crowley_app_title"/>
+                            </setting>
+                            <setting string="Default Model">
+                                <field name="crowley_default_model"/>
+                            </setting>
+                        </block>
+                        <block title="Generation Defaults" name="crowley_defaults_block">
+                            <setting string="Default Resolution">
+                                <field name="crowley_default_resolution"/>
+                            </setting>
+                            <setting string="Default Duration (seconds)">
+                                <field name="crowley_default_duration"/>
+                            </setting>
+                        </block>
+                        <block title="Polling &amp; Storage" name="crowley_polling_block">
+                            <setting string="Poll Interval (seconds)"
+                                     help="How often the inline poller checks OpenRouter for in-flight jobs.">
+                                <field name="crowley_poll_interval_seconds"/>
+                            </setting>
+                            <setting string="Max Poll Attempts"
+                                     help="After this many polls without resolution, the generation is marked failed.">
+                                <field name="crowley_max_poll_attempts"/>
+                            </setting>
+                            <setting string="S3 Connector"
+                                     help="Which s3.connector to use for storing generated MP4 files.">
+                                <field name="crowley_s3_connector_id"/>
+                            </setting>
+                            <setting string="S3 Key Prefix"
+                                     help="Object key prefix in the S3 bucket (e.g. 'crowley/').">
+                                <field name="crowley_s3_prefix"/>
+                            </setting>
+                            <setting string="Presigned URL TTL (seconds)"
+                                     help="How long the per-attempt presigned video URL stays valid. Refreshed on every form render.">
+                                <field name="crowley_presigned_ttl_seconds"/>
+                            </setting>
+                            <setting string="Verify SHA-256 after S3 upload"
+                                     help="Re-read each uploaded MP4 from S3 and verify its SHA-256 matches what OpenRouter sent. Doubles S3 egress; default off.">
+                                <field name="crowley_verify_after_upload"/>
+                            </setting>
+                        </block>
+                        <block title="AWS Credentials (optional)" name="crowley_aws_block">
+                            <setting string="AWS Access Key ID"
+                                     help="Encrypted at rest. Leave blank to use credentials from the s3.connector record or the AWS default credential chain (IAM role / env vars).">
+                                <field name="crowley_aws_access_key_is_set" invisible="1"/>
+                                <field name="crowley_aws_access_key" password="True"/>
+                                <div class="text-success mt8" invisible="not crowley_aws_access_key_is_set">
+                                    <i class="fa fa-check"/> AWS access key configured
+                                </div>
+                            </setting>
+                            <setting string="AWS Secret Access Key"
+                                     help="Encrypted at rest. Required if you set the access key above.">
+                                <field name="crowley_aws_secret_key_is_set" invisible="1"/>
+                                <field name="crowley_aws_secret_key" password="True"/>
+                                <div class="text-success mt8" invisible="not crowley_aws_secret_key_is_set">
+                                    <i class="fa fa-check"/> AWS secret configured
+                                </div>
+                            </setting>
+                        </block>
+                        <block title="Webhook (optional)" name="crowley_webhook_block">
+                            <setting string="Webhook HMAC Secret"
+                                     help="Configure both this secret and OpenRouter's dashboard with the same value to enable webhook callbacks (sub-second completion notifications). Encrypted at rest. Leave blank to disable webhooks (cron polling remains active).">
+                                <field name="crowley_webhook_secret_is_set" invisible="1"/>
+                                <field name="crowley_webhook_secret" password="True"/>
+                                <div class="text-success mt8" invisible="not crowley_webhook_secret_is_set">
+                                    <i class="fa fa-check"/> Webhook secret configured — webhooks active
+                                </div>
+                                <div class="text-muted mt8" invisible="crowley_webhook_secret_is_set">
+                                    <i class="fa fa-info-circle"/> No secret set — webhook endpoint returns 503; polling-only.
+                                </div>
+                            </setting>
+                            <setting string="Webhook URL"
+                                     help="Public URL to register with OpenRouter. Auto-suggested from web.base.url. Edit to override (e.g. for an ngrok / Cloudflare Tunnel domain that differs from Odoo's base URL). The path MUST end in /crowley/webhook for the route to match.">
+                                <field name="crowley_webhook_path"
+                                       placeholder="https://your-host.example.com/crowley/webhook"/>
+                            </setting>
+                        </block>
+                    </app>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="action_crowley_config_settings" model="ir.actions.act_window">
+            <field name="name">Crowley Settings</field>
+            <field name="res_model">res.config.settings</field>
+            <field name="view_mode">form</field>
+            <field name="target">main</field>
+            <field name="context">{'module': 'crowley'}</field>
+        </record>
+    </data>
+</odoo>
