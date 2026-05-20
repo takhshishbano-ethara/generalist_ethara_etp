@@ -1,7 +1,6 @@
 import logging
 import os
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
@@ -2070,7 +2069,7 @@ class LeviathanJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_prd_generation_bg(self, db_name, record_id):
-        """Background: generate PRD via Bedrock, score, iterate, QC.
+        """Background: generate PRD via Bedrock, score, QC.
 
         Wrapped in `_HeartbeatTicker` so `last_heartbeat` pulses every 60s
         for the lifetime of the worker — regardless of where the worker
@@ -2103,7 +2102,6 @@ class LeviathanJob(models.Model):
                 config = {
                     "inference_arn": ICP.get_param("leviathan.bedrock_inference_arn"),
                     "region": ICP.get_param("leviathan.bedrock_region") or "us-east-1",
-                    "max_attempts": int(ICP.get_param("leviathan.max_llm_attempts") or 3),
                     "bedrock_access_key": ICP.get_param("leviathan.bedrock_access_key_id"),
                     "bedrock_secret_key": ICP.get_param("leviathan.bedrock_secret_access_key"),
                     "s3_bucket": ICP.get_param("leviathan.s3_bucket"),
@@ -2173,7 +2171,7 @@ class LeviathanJob(models.Model):
                 })
                 cr.commit()
 
-            # === PHASE 2: LLM generation loop ===
+            # === PHASE 2: PRD generation ===
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2289,12 +2287,7 @@ class LeviathanJob(models.Model):
             )})
             messages = [{"role": "user", "content": content_blocks}]
 
-            best_prd_text = None
-            best_score = 0
-            best_grade = None
-            best_score_report = None
-
-            # Full transparency: capture every LLM interaction for audit.
+            # Full transparency: capture the LLM interaction for audit.
             # The persisted extraction_prompt is the EFFECTIVE one (with
             # category corrected + word-count contract), not the raw Lambda
             # one, so audit/replay matches what Bedrock actually saw.
@@ -2311,75 +2304,48 @@ class LeviathanJob(models.Model):
                 "qc": {},
             }
 
-            for attempt in range(1, config["max_attempts"] + 1):
-                if self._is_cancelled(db_name, record_id):
-                    self._write_with_cursor(db_name, record_id, {
-                        "state": "draft", "error_message": "Cancelled during generation",
-                        "completed_at": fields.Datetime.now(),
-                    })
-                    return
-
+            if self._is_cancelled(db_name, record_id):
                 self._write_with_cursor(db_name, record_id, {
-                    "last_heartbeat": fields.Datetime.now(),
+                    "state": "draft", "error_message": "Cancelled during generation",
+                    "completed_at": fields.Datetime.now(),
                 })
+                return
 
-                try:
-                    prd_text = generate_prd(
-                        inference_arn=config["inference_arn"],
-                        region=config["region"],
-                        system_prompt=prd_system_prompt,
-                        messages=messages,
-                        access_key_id=config["bedrock_access_key"],
-                        secret_access_key=config["bedrock_secret_key"],
-                    )
-                except Exception as gen_exc:
-                    _logger.warning(
-                        "LLM attempt %d/%d failed for job %s: %s",
-                        attempt, config["max_attempts"], job_data["name"], gen_exc,
-                    )
-                    if attempt == config["max_attempts"]:
-                        raise
-                    time.sleep(2 * attempt)
-                    continue
+            self._write_with_cursor(db_name, record_id, {
+                "last_heartbeat": fields.Datetime.now(),
+            })
 
-                score_report = score_prd(
-                    prd_text=prd_text,
-                    category=job_data["category_name"],
-                )
-                total_score = score_report["total_score"]
+            # Single PRD-generation call — no score-driven retry loop.
+            # Transient Bedrock errors are retried inside generate_prd
+            # (LEVIATHAN_BEDROCK_INNER_RETRIES); a hard failure here marks
+            # the job failed so the tasker can re-run it from the UI.
+            best_prd_text = generate_prd(
+                inference_arn=config["inference_arn"],
+                region=config["region"],
+                system_prompt=prd_system_prompt,
+                messages=messages,
+                access_key_id=config["bedrock_access_key"],
+                secret_access_key=config["bedrock_secret_key"],
+            )
 
-                self._write_with_cursor(db_name, record_id, {
-                    "llm_attempts": attempt,
-                })
+            best_score_report = score_prd(
+                prd_text=best_prd_text,
+                category=job_data["category_name"],
+            )
+            best_score = best_score_report["total_score"]
+            best_grade = best_score_report["grade"]
 
-                llm_trace["attempts"].append({
-                    "attempt": attempt,
-                    "prd_text": prd_text,
-                    "score": total_score,
-                    "grade": score_report.get("grade"),
-                    "score_report": score_report,
-                })
+            self._write_with_cursor(db_name, record_id, {
+                "llm_attempts": 1,
+            })
 
-                # Keep the highest scorer; always keep *something* so a run that
-                # only produces rejected PRDs (score 0) still saves a PRD for the
-                # tasker to edit instead of crashing on upload with prd_text=None.
-                if best_prd_text is None or total_score > best_score:
-                    best_prd_text = prd_text
-                    best_score = total_score
-                    best_grade = score_report["grade"]
-                    best_score_report = score_report
-
-                if attempt < config["max_attempts"]:
-                    messages.append({"role": "assistant", "content": prd_text})
-                    feedback = self._build_feedback(score_report)
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Score: {total_score} (attempt {attempt})\n"
-                            f"Feedback:\n{feedback}\n\n"
-                            "Fix all issues and rewrite the complete PRD."
-                        ),
-                    })
+            llm_trace["attempts"].append({
+                "attempt": 1,
+                "prd_text": best_prd_text,
+                "score": best_score,
+                "grade": best_grade,
+                "score_report": best_score_report,
+            })
 
             # Upload to S3
             prd_url = upload_prd_to_s3(
@@ -2548,32 +2514,6 @@ class LeviathanJob(models.Model):
                     except Exception:
                         pass
             cr.commit()
-
-    def _build_feedback(self, score_report):
-        from ..services.scoring_service import SECTION_MAX_POINTS
-
-        lines = []
-        section_scores = score_report.get("section_scores", {})
-        for section, section_data in section_scores.items():
-            score_val = section_data["score"] if isinstance(section_data, dict) else section_data
-            max_points = SECTION_MAX_POINTS.get(section, 10)
-            if score_val < max_points * 0.6:
-                lines.append(
-                    f"- {section}: scored {score_val}/{max_points} -- needs improvement"
-                )
-
-        reject_triggers = score_report.get("reject_triggers", [])
-        for trigger in reject_triggers:
-            lines.append(f"- AUTO-REJECT: {trigger}")
-
-        warnings = score_report.get("warnings", [])
-        for warning in warnings:
-            lines.append(f"- WARNING: {warning}")
-
-        if not lines:
-            lines.append("Minor improvements needed across all sections.")
-
-        return "\n".join(lines)
 
     def _upload_artifacts_bg(self, db_name, record_id, artifacts, s3_config):
         """Background: upload extraction artifacts to S3 and write the

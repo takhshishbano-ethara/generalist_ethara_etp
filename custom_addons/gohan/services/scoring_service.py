@@ -7,9 +7,12 @@ Constants inlined for Odoo module standalone use.
 import re
 import json
 
-# Constants inlined from leviathon_v2_pipeline/config.py
+# Constants inlined from leviathon_v2_pipeline/config.py.
+# PRD_MAX_WORDS is the hard ceiling from the prd_v9 prompt: a PRD over this
+# count triggers the R5 auto-reject (score 0), so the retry loop -- which
+# keeps the highest scorer -- can never select an over-length draft.
 PRD_MIN_WORDS = 800
-PRD_MAX_WORDS = 5000
+PRD_MAX_WORDS = 1500
 
 TIER1_BANNED_PHRASES = [
     "smooth animation", "modern ux", "clean layout", "nice", "beautiful",
@@ -289,7 +292,9 @@ def _score_word_count_format(text, word_count):
 
     if PRD_MIN_WORDS <= word_count <= PRD_MAX_WORDS:
         score += 3
-    elif PRD_MAX_WORDS < word_count <= 5500:
+    elif PRD_MAX_WORDS < word_count <= PRD_MAX_WORDS + 200:
+        # Slight overshoot. Cap-relative grace band; note an over-cap PRD
+        # auto-rejects (R5) so this partial credit never reaches the total.
         score += 2
     elif 600 <= word_count < PRD_MIN_WORDS:
         score += 1

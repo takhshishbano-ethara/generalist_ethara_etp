@@ -2153,7 +2153,6 @@ class VegetaJob(models.Model):
                 config = {
                     "inference_arn": ICP.get_param("vegeta.bedrock_inference_arn"),
                     "region": ICP.get_param("vegeta.bedrock_region") or "us-east-1",
-                    "max_attempts": int(ICP.get_param("vegeta.max_llm_attempts") or 3),
                     "bedrock_access_key": ICP.get_param("vegeta.bedrock_access_key_id"),
                     "bedrock_secret_key": ICP.get_param("vegeta.bedrock_secret_access_key"),
                     "s3_bucket": ICP.get_param("vegeta.s3_bucket"),
@@ -2208,7 +2207,7 @@ class VegetaJob(models.Model):
                 })
                 cr.commit()
 
-            # === PHASE 2: LLM generation loop ===
+            # === PHASE 2: LLM generation ===
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2277,86 +2276,56 @@ class VegetaJob(models.Model):
                 "qc": {},
             }
 
-            for attempt in range(1, config["max_attempts"] + 1):
-                if self._is_cancelled(db_name, record_id):
-                    self._write_with_cursor(db_name, record_id, {
-                        "state": "draft", "error_message": "Cancelled during generation",
-                        "completed_at": fields.Datetime.now(),
-                    })
-                    return
-
+            if self._is_cancelled(db_name, record_id):
                 self._write_with_cursor(db_name, record_id, {
-                    "last_heartbeat": fields.Datetime.now(),
+                    "state": "draft", "error_message": "Cancelled during generation",
+                    "completed_at": fields.Datetime.now(),
                 })
+                return
 
-                try:
-                    prd_text = generate_prd(
-                        inference_arn=config["inference_arn"],
-                        region=config["region"],
-                        system_prompt=prd_system_prompt,
-                        messages=messages,
-                        access_key_id=config["bedrock_access_key"],
-                        secret_access_key=config["bedrock_secret_key"],
-                    )
-                except Exception as gen_exc:
-                    _logger.warning(
-                        "LLM attempt %d/%d failed for job %s: %s",
-                        attempt, config["max_attempts"], job_data["name"], gen_exc,
-                    )
-                    if attempt == config["max_attempts"]:
-                        raise
-                    time.sleep(min(random.random() * (2 ** attempt), 8.0))
-                    continue
+            self._write_with_cursor(db_name, record_id, {
+                "last_heartbeat": fields.Datetime.now(),
+            })
 
-                score_report = score_prd(
-                    prd_text=prd_text,
-                    category=job_data["category_name"],
-                )
-                total_score = score_report["total_score"]
+            # Single generation: regeneration is a separate QC-feedback action,
+            # so the old 3x score-improvement loop only wasted Bedrock tokens.
+            # generate_prd retries internally; a hard failure raises to PHASE 4.
+            prd_text = generate_prd(
+                inference_arn=config["inference_arn"],
+                region=config["region"],
+                system_prompt=prd_system_prompt,
+                messages=messages,
+                access_key_id=config["bedrock_access_key"],
+                secret_access_key=config["bedrock_secret_key"],
+            )
 
-                self._write_with_cursor(db_name, record_id, {
-                    "llm_attempts": attempt,
-                })
+            score_report = score_prd(
+                prd_text=prd_text,
+                category=job_data["category_name"],
+            )
+            total_score = score_report["total_score"]
 
-                llm_trace["attempts"].append({
-                    "attempt": attempt,
-                    "prd_text": prd_text,
-                    "score": total_score,
-                    "grade": score_report.get("grade"),
-                    "score_report": score_report,
-                })
+            llm_trace["attempts"].append({
+                "attempt": 1,
+                "prd_text": prd_text,
+                "score": total_score,
+                "grade": score_report.get("grade"),
+                "score_report": score_report,
+            })
 
-                # Keep the highest scorer; always keep *something* so a run that
-                # only produces rejected PRDs (score 0) still saves a PRD for the
-                # tasker to edit instead of crashing on upload with prd_text=None.
-                if best_prd_text is None or total_score > best_score:
-                    best_prd_text = prd_text
-                    best_score = total_score
-                    best_grade = score_report["grade"]
-                    best_score_report = score_report
+            best_prd_text = prd_text
+            best_score = total_score
+            best_grade = score_report["grade"]
+            best_score_report = score_report
 
-                # Persist per-attempt so the user can inspect partial PRDs even if
-                # a later attempt times out, the bg thread crashes, or the user
-                # cancels. Without this every in-progress attempt is lost when
-                # the loop dies mid-flight. prd_text shown is the best so far.
-                self._write_with_cursor(db_name, record_id, {
-                    "llm_trace_json": llm_trace,
-                    "prd_text": best_prd_text,
-                    "score": best_score,
-                    "grade": best_grade,
-                })
-
-                if attempt < config["max_attempts"]:
-                    messages.append({"role": "assistant", "content": prd_text})
-                    feedback = self._build_feedback(score_report)
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Score: {total_score} (attempt {attempt})\n"
-                            f"Feedback:\n{feedback}\n\n"
-                            "Fix all issues and rewrite the complete PRD."
-                        ),
-                    })
+            # Persist before QC so the PRD survives a later QC/write crash.
+            self._write_with_cursor(db_name, record_id, {
+                "llm_attempts": 1,
+                "llm_trace_json": llm_trace,
+                "prd_text": best_prd_text,
+                "score": best_score,
+                "grade": best_grade,
+            })
 
             # Upload to S3
             prd_url = upload_prd_to_s3(
