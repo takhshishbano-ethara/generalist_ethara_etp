@@ -1836,51 +1836,95 @@ class KenseiSandboxK8s(models.AbstractModel):
                 raise
 
         if ws_host:
+            # "kensei-ws.example.com" → host only;
+            # "projects.example.com/kensei-sandbox" → host + path prefix
+            if "/" in ws_host:
+                hostname, path_part = ws_host.split("/", 1)
+                prefix = "/" + path_part.strip("/")
+            else:
+                hostname = ws_host
+                prefix = ""
+
+            ws_backend = client.V1IngressBackend(
+                service=client.V1IngressServiceBackend(
+                    name=WS_ROUTER_NAME,
+                    port=client.V1ServiceBackendPort(number=80),
+                ),
+            )
+
+            annotations = {
+                "nginx.ingress.kubernetes.io/proxy-read-timeout": "600",
+                "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
+                "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
+                "nginx.ingress.kubernetes.io/proxy-buffering": "off",
+                "nginx.ingress.kubernetes.io/proxy-buffer-size": "256k",
+                "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
+            }
+
+            if prefix:
+                annotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/$2"
+                annotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+                ingress_paths = [
+                    client.V1HTTPIngressPath(
+                        path="%s(/|$)(.*)" % prefix,
+                        path_type="ImplementationSpecific",
+                        backend=ws_backend,
+                    ),
+                ]
+            else:
+                ingress_paths = [
+                    client.V1HTTPIngressPath(
+                        path="/sandbox/",
+                        path_type="Prefix",
+                        backend=ws_backend,
+                    ),
+                    client.V1HTTPIngressPath(
+                        path="/litellm/",
+                        path_type="Prefix",
+                        backend=ws_backend,
+                    ),
+                ]
+
             ingress = client.V1Ingress(
                 metadata=client.V1ObjectMeta(
                     name=WS_ROUTER_NAME,
                     namespace=NAMESPACE,
                     labels=WS_ROUTER_LABELS,
-                    annotations={
-                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "600",
-                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
-                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                        "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
-                        "nginx.ingress.kubernetes.io/proxy-buffering": "off",
-                        "nginx.ingress.kubernetes.io/proxy-buffer-size": "256k",
-                        "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
-                    },
+                    annotations=annotations,
                 ),
                 spec=client.V1IngressSpec(
                     rules=[
                         client.V1IngressRule(
-                            host=ws_host,
+                            host=hostname,
                             http=client.V1HTTPIngressRuleValue(
-                                paths=[
-                                    client.V1HTTPIngressPath(
-                                        path="/sandbox/",
-                                        path_type="Prefix",
-                                        backend=client.V1IngressBackend(
-                                            service=client.V1IngressServiceBackend(
-                                                name=WS_ROUTER_NAME,
-                                                port=client.V1ServiceBackendPort(
-                                                    number=80,
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ],
+                                paths=ingress_paths,
                             ),
                         ),
                     ],
                 ),
             )
+
             try:
-                networking_v1.create_namespaced_ingress(
-                    namespace=NAMESPACE, body=ingress
+                existing = networking_v1.read_namespaced_ingress(
+                    name=WS_ROUTER_NAME, namespace=NAMESPACE
+                )
+                ingress.metadata.resource_version = (
+                    existing.metadata.resource_version
+                )
+                networking_v1.replace_namespaced_ingress(
+                    name=WS_ROUTER_NAME, namespace=NAMESPACE, body=ingress
                 )
             except ApiException as e:
-                if e.status != 409:
+                if e.status == 404:
+                    try:
+                        networking_v1.create_namespaced_ingress(
+                            namespace=NAMESPACE, body=ingress
+                        )
+                    except ApiException as e2:
+                        if e2.status != 409:
+                            raise
+                else:
                     raise
 
         _logger.info("WS router created (host=%s)", ws_host or "no-ingress")
