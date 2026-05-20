@@ -395,22 +395,21 @@
                         </page>
 
                         <!-- ============================== -->
-                        <!-- TAB 3: API & Backend Signals    -->
+                        <!-- TAB 3: Routes                   -->
                         <!-- ============================== -->
-                        <!-- Mirrors vegeta's "API and Signals" tab. Shows
-                             ONLY backend-data sections (API docs, captured
-                             network endpoints + response samples, auth flow,
-                             inferred entities/flows/roles, sitemap taxonomy,
-                             extraction-quality tier). The frontend "Assets"
-                             tab below is intentionally kept invisible-when-
-                             empty so blocked-site jobs (Turo) don't show it. -->
-                        <page string="API &amp; Backend" invisible="not backend_signals_html">
+                        <!-- Shows the product's discovered route map: the
+                             same-site URL surface (path, screen type, title)
+                             extracted by the Lambda, rendered as one table.
+                             The frontend "Assets" tab below is intentionally
+                             kept invisible-when-empty so blocked-site jobs
+                             (Turo) don't show it. -->
+                        <page string="Routes" invisible="not routes_html">
                             <div class="mb-3" invisible="state != 'done'">
                                 <button name="action_open_rerun_wizard" type="object"
                                         string="Re-extract Website" class="btn btn-sm btn-secondary"
                                         confirm="Re-extract this website? Opens the rerun wizard."/>
                             </div>
-                            <field name="backend_signals_html" widget="html"
+                            <field name="routes_html" widget="html"
                                    readonly="1" nolabel="1" sanitize="False"/>
                         </page>
 
