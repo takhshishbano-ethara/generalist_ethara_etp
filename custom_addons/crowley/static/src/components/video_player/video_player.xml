@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="crowley.VideoPlayer">
+        <div class="o_crowley_video_container">
+            <div t-if="videoUrl">
+                <video controls="controls" preload="metadata" t-att-src="videoUrl">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+            <div t-else="" class="text-muted">Video URL not yet available.</div>
+        </div>
+    </t>
+</templates>

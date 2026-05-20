@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <menuitem id="menu_crowley_root"
+                  name="Crowley"
+                  web_icon="crowley,static/description/icon.png"
+                  sequence="90"
+                  groups="crowley.group_crowley_user"/>
+
+        <menuitem id="menu_crowley_generations"
+                  name="Generations"
+                  parent="menu_crowley_root"
+                  action="action_crowley_generation"
+                  sequence="10"/>
+
+        <menuitem id="menu_crowley_config"
+                  name="Configuration"
+                  parent="menu_crowley_root"
+                  sequence="90"
+                  groups="crowley.group_crowley_manager"/>
+
+        <menuitem id="menu_crowley_settings"
+                  name="Settings"
+                  parent="menu_crowley_config"
+                  action="action_crowley_config_settings"
+                  sequence="10"/>
+    </data>
+</odoo>
