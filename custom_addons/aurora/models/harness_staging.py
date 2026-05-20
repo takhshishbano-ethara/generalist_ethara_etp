@@ -609,15 +609,14 @@ class AuroraHarnessStaging(models.Model):
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
         from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
-        if not os.path.isfile(self.dataset_file):
-            raise UserError(f"Dataset file not found: {self.dataset_file}")
+        local_path = self.dataset_file
+        if dataset_resolver.is_remote(local_path):
+            local_path = dataset_resolver.resolve_to_local(self.env, local_path)
+        if not os.path.isfile(local_path):
+            raise UserError(f"Dataset file not found: {local_path}")
 
         matching_prs: list[str] = []
-        with open(self.dataset_file, "r", encoding="utf-8") as f:
+        with open(local_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

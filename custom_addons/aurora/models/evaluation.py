@@ -375,7 +375,67 @@ class AuroraEvaluation(models.Model):
                 vals["name"] = self.env["ir.sequence"].next_by_code(
                     "aurora.evaluation"
                 ) or "New"
+            self._offload_custom_jsonl_to_s3(vals)
         return super().create(vals_list)
+
+    def write(self, vals):
+        self._offload_custom_jsonl_to_s3(vals)
+        return super().write(vals)
+
+    @api.model
+    def _offload_custom_jsonl_to_s3(self, vals):
+        raw_b64 = vals.get("custom_jsonl_file")
+        if not raw_b64:
+            return
+        import base64
+        import os
+        import tempfile
+        from datetime import datetime
+        from . import artifact_collector, s3_storage
+
+        s3_config = artifact_collector.load_s3_config()
+        if not s3_storage.is_configured(s3_config):
+            raise UserError(
+                "S3/MinIO storage is not configured. Set aurora.s3_bucket and "
+                "credentials in Aurora settings before uploading a custom dataset."
+            )
+
+        try:
+            data = base64.b64decode(raw_b64)
+        except Exception as exc:
+            raise UserError(f"Invalid base64 in custom_jsonl_file: {exc}")
+        if not data:
+            vals["custom_jsonl_file"] = False
+            return
+
+        filename = (vals.get("custom_jsonl_filename") or "custom_dataset.jsonl").strip()
+        if not filename.lower().endswith(".jsonl"):
+            filename = f"{filename}.jsonl"
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".jsonl")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            folder = (s3_config.get("folder") or "").strip("/")
+            phase = "aurora_phase2"
+            ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+            base_prefix = (
+                f"{folder}/{phase}/custom_datasets/" if folder
+                else f"{phase}/custom_datasets/"
+            )
+            s3_key = f"{base_prefix}{ts}_{filename}"
+            url = s3_storage.upload_file(s3_config, tmp_path, s3_key)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        vals["custom_jsonl_file"] = False
+        vals["dataset_file"] = url
+        vals["dataset_jsonl_url"] = url
+        if not vals.get("dataset_source"):
+            vals["dataset_source"] = "custom"
 
     @staticmethod
     def _resolve_entry_number(entry):
@@ -399,6 +459,13 @@ class AuroraEvaluation(models.Model):
 
     def _prepare_custom_dataset(self):
         import base64
+        from . import dataset_resolver
+
+        if self.dataset_file and dataset_resolver.is_remote(self.dataset_file):
+            if not self.custom_org or not self.custom_repo:
+                raise UserError("GitHub Org and Repo are required for a custom dataset.")
+            return
+
         if not self.custom_jsonl_file:
             raise UserError("Please upload a JSONL file for the custom dataset.")
         if not self.custom_org or not self.custom_repo:
@@ -452,12 +519,9 @@ class AuroraEvaluation(models.Model):
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
         from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
-        if not os.path.isfile(self.dataset_file):
-            raise UserError(f"Dataset file not found: {self.dataset_file}")
+        if not dataset_resolver.is_remote(self.dataset_file):
+            if not os.path.isfile(self.dataset_file):
+                raise UserError(f"Dataset file not found: {self.dataset_file}")
 
         ICP = self.env["ir.config_parameter"].sudo()
         default_base = ICP.get_param("aurora.output_dir", "/tmp/aurora_output")
@@ -1032,12 +1096,6 @@ class AuroraEvaluation(models.Model):
             raise UserError("Can only regenerate reports for finished or failed evaluations.")
         if not self.output_dir or not self.dataset_file:
             raise UserError("Output directory and dataset file are required.")
-
-        from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
 
         self.write({"report_status": "running"})
 

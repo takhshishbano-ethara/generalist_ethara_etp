@@ -158,15 +158,15 @@
                     <group>
                         <group string="Prompt &amp; Model" name="prompt_group">
                             <field name="prompt" placeholder="A serene mountain landscape at sunset with clouds drifting by..."
-                                   readonly="state != 'draft'" required="1"/>
-                            <field name="model" readonly="state != 'draft'"/>
-                            <field name="seed" readonly="state != 'draft'"/>
+                                   required="1"/>
+                            <field name="model"/>
+                            <field name="seed"/>
                         </group>
                         <group string="Output Parameters" name="output_group">
-                            <field name="duration" readonly="state != 'draft'"/>
-                            <field name="resolution" readonly="state != 'draft'"/>
-                            <field name="aspect_ratio" readonly="state != 'draft'"/>
-                            <field name="generate_audio" readonly="state != 'draft'" widget="boolean_toggle"/>
+                            <field name="duration"/>
+                            <field name="resolution"/>
+                            <field name="aspect_ratio"/>
+                            <field name="generate_audio" widget="boolean_toggle"/>
                         </group>
                     </group>
 
