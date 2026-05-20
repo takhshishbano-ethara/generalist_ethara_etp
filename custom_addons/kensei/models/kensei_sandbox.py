@@ -1267,10 +1267,38 @@ class KenseiSandbox(models.Model):
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
 
-        type_map = {
-            "image": "generated_image", "video": "media", "audio": "media",
-            "application/pdf": "document", "text": "data_export",
-        }
+        write_tool_names = {"write", "save_file", "create_file", "write_file"}
+        workspace_prefix = "/home/node/.openclaw/"
+
+        def _classify(ext):
+            mime = mime_map.get(ext, "application/octet-stream")
+            if mime.startswith("image"):
+                return mime, "generated_image"
+            if mime.startswith("video") or mime.startswith("audio"):
+                return mime, "media"
+            if mime == "application/pdf":
+                return mime, "document"
+            return mime, "data_export"
+
+        def _add_artifact(path, seen, artifacts):
+            basename = path.rsplit("/", 1)[-1] if "/" in path else path
+            if basename in seen:
+                return
+            seen.add(basename)
+            ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+            mime, artifact_type = _classify(ext)
+            entry = {
+                "filename": basename,
+                "mime_type": mime,
+                "artifact_type": artifact_type,
+                "description": "Agent-generated %s output" % ext.upper(),
+                "container_path": path if path.startswith(workspace_prefix) else "",
+            }
+            if bucket:
+                entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                    bucket, prefix, task_id, basename
+                )
+            artifacts.append(entry)
 
         seen = set()
         artifacts = []
@@ -1279,32 +1307,77 @@ class KenseiSandbox(models.Model):
             response_text = t.response or ""
             paths = media_ext_re.findall(response_text)
             for path in paths:
-                basename = path.rsplit("/", 1)[-1] if "/" in path else path
-                if basename in seen:
-                    continue
-                seen.add(basename)
-                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
-                mime = mime_map.get(ext, "application/octet-stream")
-                if mime.startswith("image"):
-                    artifact_type = "generated_image"
-                elif mime.startswith("video") or mime.startswith("audio"):
-                    artifact_type = "media"
-                elif mime == "application/pdf":
-                    artifact_type = "document"
-                else:
-                    artifact_type = "data_export"
+                _add_artifact(path, seen, artifacts)
 
-                entry = {
-                    "filename": basename,
-                    "mime_type": mime,
-                    "artifact_type": artifact_type,
-                    "description": "Agent-generated %s output" % ext.upper(),
-                }
-                if bucket:
-                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
-                        bucket, prefix, task_id, basename
-                    )
-                artifacts.append(entry)
+            tc_raw = t.tool_calls or ""
+            if tc_raw:
+                try:
+                    tc_list = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
+                    if isinstance(tc_list, list):
+                        for tc in tc_list:
+                            if not isinstance(tc, dict):
+                                continue
+                            name = (tc.get("name") or "").lower()
+                            if name in write_tool_names:
+                                args = tc.get("args") or tc.get("arguments") or tc.get("input") or {}
+                                if isinstance(args, str):
+                                    try:
+                                        args = json.loads(args)
+                                    except (json.JSONDecodeError, TypeError):
+                                        args = {}
+                                fpath = args.get("path") or args.get("file_path") or args.get("filePath") or ""
+                                if fpath and fpath.startswith(workspace_prefix):
+                                    _add_artifact(fpath, seen, artifacts)
+                            result = tc.get("result") or ""
+                            if isinstance(result, str):
+                                for rpath in media_ext_re.findall(result):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            traj_raw = t.trajectory_messages or ""
+            if traj_raw:
+                try:
+                    traj_msgs = json.loads(traj_raw) if isinstance(traj_raw, str) else traj_raw
+                    if isinstance(traj_msgs, list):
+                        for msg in traj_msgs:
+                            if not isinstance(msg, dict):
+                                continue
+                            inner = msg.get("message", msg)
+                            if not isinstance(inner, dict):
+                                continue
+                            role = inner.get("role", "")
+                            content = inner.get("content")
+                            if role == "assistant" and isinstance(content, list):
+                                for block in content:
+                                    if not isinstance(block, dict):
+                                        continue
+                                    if block.get("type") in ("tool_use", "toolCall"):
+                                        inp = block.get("input") or block.get("arguments") or {}
+                                        if isinstance(inp, str):
+                                            try:
+                                                inp = json.loads(inp)
+                                            except (json.JSONDecodeError, TypeError):
+                                                inp = {}
+                                        bname = (block.get("name") or "").lower()
+                                        if bname in write_tool_names:
+                                            fpath = inp.get("path") or inp.get("file_path") or inp.get("filePath") or ""
+                                            if fpath and fpath.startswith(workspace_prefix):
+                                                _add_artifact(fpath, seen, artifacts)
+                            elif role == "tool" or role == "toolResult":
+                                text = ""
+                                if isinstance(content, str):
+                                    text = content
+                                elif isinstance(content, list):
+                                    text = " ".join(
+                                        b.get("text", "") for b in content
+                                        if isinstance(b, dict) and b.get("type") == "text"
+                                    )
+                                for rpath in media_ext_re.findall(text):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return artifacts
 
     def action_export_session(self):
@@ -1702,6 +1775,141 @@ class KenseiSandbox(models.Model):
             mode,
         )
 
+    def _persist_output_artifacts_to_s3(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX, NAMESPACE
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        access_key = (
+            os.environ.get("KENSEI_S3_ACCESS_KEY_ID")
+            or os.environ.get("AWS_SECRET_KEY", "")
+        )
+        secret_key = (
+            os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY")
+            or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        )
+        if not bucket:
+            _logger.info("_persist_output_artifacts_to_s3: no S3 bucket configured, skipping")
+            return
+
+        artifacts = self._build_output_artifacts()
+        if not artifacts:
+            return
+
+        task_id = self.kensei_id.task_id or str(self.kensei_id.id)
+        mode = self._deployment_mode()
+        persona_name = (
+            self.kensei_id.persona_id.name if self.kensei_id.persona_id else "marcus"
+        )
+
+        s3_files = []
+        for art in artifacts:
+            container_path = art.get("container_path", "")
+            if not container_path:
+                continue
+
+            file_bytes = None
+            if mode == "k8s":
+                file_bytes = self._read_file_from_k8s(container_path, NAMESPACE)
+            else:
+                file_bytes = self._read_file_from_local(container_path, persona_name)
+
+            if not file_bytes:
+                _logger.warning(
+                    "_persist_output_artifacts_to_s3: could not read %s (sandbox=%s)",
+                    container_path, self.id,
+                )
+                continue
+
+            s3_files.append({
+                "object_key": art["filename"],
+                "data": file_bytes,
+                "content_type": art.get("mime_type", "application/octet-stream"),
+            })
+
+        if not s3_files:
+            return
+
+        _logger.info(
+            "_persist_output_artifacts_to_s3: uploading %d files for task %s",
+            len(s3_files), task_id,
+        )
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+
+            client_kwargs = {
+                "region_name": region,
+                "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+            }
+            if access_key and secret_key:
+                client_kwargs["aws_access_key_id"] = access_key
+                client_kwargs["aws_secret_access_key"] = secret_key
+
+            s3 = boto3.client("s3", **client_kwargs)
+            for fm in s3_files:
+                key = "%s/output/tasks/%s/%s" % (prefix, task_id, fm["object_key"])
+                s3.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=fm["data"],
+                    ContentType=fm["content_type"],
+                )
+                _logger.info(
+                    "Artifact upload OK: s3://%s/%s (%d bytes)",
+                    bucket, key, len(fm["data"]),
+                )
+        except Exception:
+            _logger.exception(
+                "_persist_output_artifacts_to_s3 failed for task %s", task_id,
+            )
+
+    def _read_file_from_k8s(self, container_path, namespace):
+        import subprocess
+        import tempfile
+
+        pod_name = "kensei-sandbox-%s" % self.kensei_id.id
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            src = "%s:%s" % (pod_name, container_path)
+            subprocess.run(
+                ["kubectl", "cp", src, tmp_path, "-n", namespace, "-c", "openclaw"],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            _logger.warning("kubectl cp read failed for %s: %s", container_path, e)
+            return None
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def _read_file_from_local(self, container_path, persona_name):
+        workdir = self.docker_workdir
+        if not workdir:
+            return None
+        relative = container_path.replace("/home/node/.openclaw/", "")
+        host_path = os.path.realpath(os.path.join(workdir, "data", persona_name, relative))
+        allowed_base = os.path.realpath(os.path.join(workdir, "data", persona_name))
+        if not host_path.startswith(allowed_base + os.sep):
+            _logger.warning("Path traversal blocked: %s", container_path)
+            return None
+        if not os.path.isfile(host_path):
+            return None
+        try:
+            with open(host_path, "rb") as f:
+                return f.read()
+        except OSError as e:
+            _logger.warning("Failed to read artifact %s: %s", host_path, e)
+            return None
+
     def action_stop_sandbox(self):
         self.ensure_one()
 
@@ -1719,6 +1927,11 @@ class KenseiSandbox(models.Model):
             "action_stop_sandbox: audit done, api_request_ids=%d (sandbox=%s)",
             len(self.api_request_ids), self.id,
         )
+
+        try:
+            self._persist_output_artifacts_to_s3()
+        except Exception as e:
+            _logger.warning("Artifact S3 persistence failed (sandbox=%s): %s", self.id, e)
 
         self._export_trajectory_to_task()
 

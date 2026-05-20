@@ -173,6 +173,43 @@ function _splitMediaFromText(text) {
     return { cleanText, mediaUrls };
 }
 
+const WRITE_TOOL_NAMES = new Set(["write", "save_file", "create_file", "write_file"]);
+const WORKSPACE_PATH_PREFIX = "/home/node/.openclaw/";
+
+function _extractArtifactPathsFromToolCalls(toolCallsJson) {
+    const paths = [];
+    if (!toolCallsJson) return paths;
+    let calls;
+    try {
+        calls = typeof toolCallsJson === "string" ? JSON.parse(toolCallsJson) : toolCallsJson;
+    } catch { return paths; }
+    if (!Array.isArray(calls)) return paths;
+    for (const tc of calls) {
+        if (!tc || typeof tc !== "object") continue;
+        const name = (tc.name || "").toLowerCase();
+        if (WRITE_TOOL_NAMES.has(name)) {
+            let args = tc.args || tc.arguments || tc.input || {};
+            if (typeof args === "string") {
+                try { args = JSON.parse(args); } catch { args = {}; }
+            }
+            const fpath = args.path || args.file_path || args.filePath || "";
+            if (fpath && fpath.startsWith(WORKSPACE_PATH_PREFIX) && MEDIA_EXTENSIONS.test(fpath)) {
+                paths.push(fpath);
+            }
+        }
+        const result = typeof tc.result === "string" ? tc.result : "";
+        if (result) {
+            BARE_PATH_RE.lastIndex = 0;
+            let m;
+            while ((m = BARE_PATH_RE.exec(result)) !== null) {
+                const p = m[1].trim();
+                if (!paths.includes(p)) paths.push(p);
+            }
+        }
+    }
+    return paths;
+}
+
 function _inferMediaType(url) {
     const lower = (url || "").toLowerCase();
     if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(lower)) return "image";
@@ -999,10 +1036,17 @@ export class KenseiChatWidget extends Component {
             const msg = messages.findLast(m => m.pending);
             if (msg) {
                 const textSource = session._streamBuf || msg.text || "";
-                if (textSource) {
-                    const { cleanText, mediaUrls } = _splitMediaFromText(textSource);
-                    msg.text = cleanText;
-                    msg.html = markup(renderMarkdown(cleanText));
+                const liveToolCalls = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : [];
+                const tcArtifacts = _extractArtifactPathsFromToolCalls(liveToolCalls);
+                if (textSource || tcArtifacts.length > 0) {
+                    const { cleanText, mediaUrls } = textSource ? _splitMediaFromText(textSource) : { cleanText: "", mediaUrls: [] };
+                    for (const p of tcArtifacts) {
+                        if (!mediaUrls.includes(p)) mediaUrls.push(p);
+                    }
+                    if (textSource) {
+                        msg.text = cleanText;
+                        msg.html = markup(renderMarkdown(cleanText));
+                    }
                     if (mediaUrls.length > 0) {
                         const sandboxId = widget?.props?.sandboxId;
                         const mediaItems = msg.mediaItems || [];
@@ -1123,6 +1167,11 @@ export class KenseiChatWidget extends Component {
             if (msg) {
                 let displayText = finalText || msg.text || "";
                 const { cleanText, mediaUrls } = _splitMediaFromText(displayText);
+                const finalLiveTools = session._toolCallMap.size > 0 ? Array.from(session._toolCallMap.values()) : [];
+                const tcArtifacts = _extractArtifactPathsFromToolCalls(finalLiveTools);
+                for (const p of tcArtifacts) {
+                    if (!mediaUrls.includes(p)) mediaUrls.push(p);
+                }
                 if (cleanText !== displayText) {
                     displayText = cleanText;
                 }
@@ -1367,6 +1416,10 @@ export class KenseiChatWidget extends Component {
                     if (t.response) {
                         const isPartial = t.status === "Streaming";
                         const { cleanText, mediaUrls } = _splitMediaFromText(t.response);
+                        const tcArtifactPaths = _extractArtifactPathsFromToolCalls(t.tool_calls);
+                        for (const p of tcArtifactPaths) {
+                            if (!mediaUrls.includes(p)) mediaUrls.push(p);
+                        }
                         const mediaItems = [];
                         for (const url of mediaUrls) {
                             const resolvedUrl = _buildAssistantMediaUrl(this.props.sandboxId, url);

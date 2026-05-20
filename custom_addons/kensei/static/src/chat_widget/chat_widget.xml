@@ -125,7 +125,11 @@
                                                         <a t-att-href="media.url" target="_blank"
                                                            t-att-download="media.alt"
                                                            class="o_kensei_media_document">
-                                                            <i class="fa fa-file-pdf-o me-2"/>
+                                                            <t t-if="media.alt and media.alt.endsWith('.pdf')"><i class="fa fa-file-pdf-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.md') or media.alt.endsWith('.txt'))"><i class="fa fa-file-text-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.json') or media.alt.endsWith('.csv'))"><i class="fa fa-file-code-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.doc') or media.alt.endsWith('.docx'))"><i class="fa fa-file-word-o me-2"/></t>
+                                                            <t t-else=""><i class="fa fa-file-o me-2"/></t>
                                                             <span t-out="media.alt"/>
                                                             <i class="fa fa-download ms-2"/>
                                                         </a>

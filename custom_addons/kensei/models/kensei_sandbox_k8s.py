@@ -738,7 +738,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         if not os.path.isdir(env_dir):
             return {}
 
-        overlay_extensions = {".csv", ".json", ".py"}
+        overlay_extensions = {".csv", ".json", ".py", ".txt"}
         result = {}
 
         for entry in sorted(os.listdir(env_dir)):
@@ -847,6 +847,12 @@ class KenseiSandboxK8s(models.AbstractModel):
                     if svc_meta:
                         svc_meta["dir_name"] = entry
                         svc_meta["data_dir"] = "/app"
+                        port = svc_meta.get("port", 0)
+                        svc_meta["start_cmd"] = (
+                            "uvicorn server:app --host 0.0.0.0 --port %d" % port
+                            if port
+                            else ""
+                        )
                         services.append(svc_meta)
                     continue
             with open(toml_path, "rb") as f:
@@ -860,14 +866,21 @@ class KenseiSandboxK8s(models.AbstractModel):
                 k8s_image = "%s/kensei-mock-%s:%s" % (
                     registry_prefix.rstrip("/"), svc_name, image_tag
                 )
+            port = svc.get("port", 0)
+            default_start_cmd = (
+                "uvicorn server:app --host 0.0.0.0 --port %d" % port
+                if port
+                else ""
+            )
             svc_meta = {
                 "name": svc.get("name", ""),
                 "dir_name": entry,
-                "port": svc.get("port", 0),
+                "port": port,
                 "env_var_name": svc.get("env_var_name", ""),
                 "healthcheck_path": svc.get("healthcheck_path", "/health"),
                 "k8s_image": k8s_image,
                 "data_dir": k8s.get("data_dir", "/app"),
+                "start_cmd": svc.get("start_cmd", "") or default_start_cmd,
                 "cpu_request": k8s.get("cpu_request", "25m"),
                 "memory_request": k8s.get("memory_request", "128Mi"),
                 "memory_limit": k8s.get("memory_limit", "256Mi"),
@@ -1381,6 +1394,23 @@ class KenseiSandboxK8s(models.AbstractModel):
             resources=client.V1ResourceRequirements(
                 requests={"cpu": "50m", "memory": "64Mi"},
             ),
+            lifecycle=client.V1Lifecycle(
+                pre_stop=client.V1LifecycleHandler(
+                    _exec=client.V1ExecAction(
+                        command=[
+                            "sh",
+                            "-c",
+                            'echo "[kensei] session-backup preStop: final sync..." && '
+                            "aws s3 sync /data/session/ %s "
+                            "--no-progress --quiet 2>/dev/null || true && "
+                            "aws s3 sync /data/browser-profiles/ %s "
+                            "--no-progress --quiet 2>/dev/null || true && "
+                            'echo "[kensei] session-backup preStop: done"'
+                            % (session_s3_path, browser_s3_path),
+                        ],
+                    ),
+                ),
+            ),
         )
 
         postgres_container = client.V1Container(
@@ -1456,10 +1486,20 @@ class KenseiSandboxK8s(models.AbstractModel):
                         )
                     )
 
+            svc_command = None
+            overlay_files = svc_data.get("files", [])
+            if "requirements.txt" in overlay_files and svc.get("start_cmd"):
+                svc_command = [
+                    "sh", "-c",
+                    "pip install --no-cache-dir -q -r requirements.txt && "
+                    "exec %s" % svc["start_cmd"],
+                ]
+
             containers.append(
                 client.V1Container(
                     name=svc["name"],
                     image=svc["k8s_image"],
+                    command=svc_command,
                     ports=[client.V1ContainerPort(container_port=svc["port"])],
                     volume_mounts=svc_vol_mounts or None,
                     resources=client.V1ResourceRequirements(

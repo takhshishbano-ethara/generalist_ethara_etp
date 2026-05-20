@@ -1662,6 +1662,7 @@ class Kensei(models.Model):
 
     def _build_output_artifacts(self):
         self.ensure_one()
+        import re as _re
         from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
 
         icp = self.env["ir.config_parameter"].sudo()
@@ -1688,6 +1689,39 @@ class Kensei(models.Model):
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
 
+        write_tool_names = {"write", "save_file", "create_file", "write_file"}
+        workspace_prefix = "/home/node/.openclaw/"
+
+        def _classify(ext):
+            mime = mime_map.get(ext, "application/octet-stream")
+            if mime.startswith("image"):
+                return mime, "generated_image"
+            if mime.startswith("video") or mime.startswith("audio"):
+                return mime, "media"
+            if mime == "application/pdf":
+                return mime, "document"
+            return mime, "data_export"
+
+        def _add_artifact(path, seen, artifacts):
+            basename = path.rsplit("/", 1)[-1] if "/" in path else path
+            if basename in seen:
+                return
+            seen.add(basename)
+            ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+            mime, artifact_type = _classify(ext)
+            entry = {
+                "filename": basename,
+                "mime_type": mime,
+                "artifact_type": artifact_type,
+                "description": "Agent-generated %s output" % ext.upper(),
+                "container_path": path if path.startswith(workspace_prefix) else "",
+            }
+            if bucket:
+                entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                    bucket, prefix, task_id, basename
+                )
+            artifacts.append(entry)
+
         seen = set()
         artifacts = []
         all_turns = self._get_all_turns().sorted("turn_number")
@@ -1695,32 +1729,77 @@ class Kensei(models.Model):
             response_text = t.response or ""
             paths = media_ext_re.findall(response_text)
             for path in paths:
-                basename = path.rsplit("/", 1)[-1] if "/" in path else path
-                if basename in seen:
-                    continue
-                seen.add(basename)
-                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
-                mime = mime_map.get(ext, "application/octet-stream")
-                if mime.startswith("image"):
-                    artifact_type = "generated_image"
-                elif mime.startswith("video") or mime.startswith("audio"):
-                    artifact_type = "media"
-                elif mime == "application/pdf":
-                    artifact_type = "document"
-                else:
-                    artifact_type = "data_export"
+                _add_artifact(path, seen, artifacts)
 
-                entry = {
-                    "filename": basename,
-                    "mime_type": mime,
-                    "artifact_type": artifact_type,
-                    "description": "Agent-generated %s output" % ext.upper(),
-                }
-                if bucket:
-                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
-                        bucket, prefix, task_id, basename
-                    )
-                artifacts.append(entry)
+            tc_raw = t.tool_calls or ""
+            if tc_raw:
+                try:
+                    tc_list = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
+                    if isinstance(tc_list, list):
+                        for tc in tc_list:
+                            if not isinstance(tc, dict):
+                                continue
+                            name = (tc.get("name") or "").lower()
+                            if name in write_tool_names:
+                                args = tc.get("args") or tc.get("arguments") or tc.get("input") or {}
+                                if isinstance(args, str):
+                                    try:
+                                        args = json.loads(args)
+                                    except (json.JSONDecodeError, TypeError):
+                                        args = {}
+                                fpath = args.get("path") or args.get("file_path") or args.get("filePath") or ""
+                                if fpath and fpath.startswith(workspace_prefix):
+                                    _add_artifact(fpath, seen, artifacts)
+                            result = tc.get("result") or ""
+                            if isinstance(result, str):
+                                for rpath in media_ext_re.findall(result):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            traj_raw = t.trajectory_messages or ""
+            if traj_raw:
+                try:
+                    traj_msgs = json.loads(traj_raw) if isinstance(traj_raw, str) else traj_raw
+                    if isinstance(traj_msgs, list):
+                        for msg in traj_msgs:
+                            if not isinstance(msg, dict):
+                                continue
+                            inner = msg.get("message", msg)
+                            if not isinstance(inner, dict):
+                                continue
+                            role = inner.get("role", "")
+                            content = inner.get("content")
+                            if role == "assistant" and isinstance(content, list):
+                                for block in content:
+                                    if not isinstance(block, dict):
+                                        continue
+                                    if block.get("type") in ("tool_use", "toolCall"):
+                                        inp = block.get("input") or block.get("arguments") or {}
+                                        if isinstance(inp, str):
+                                            try:
+                                                inp = json.loads(inp)
+                                            except (json.JSONDecodeError, TypeError):
+                                                inp = {}
+                                        bname = (block.get("name") or "").lower()
+                                        if bname in write_tool_names:
+                                            fpath = inp.get("path") or inp.get("file_path") or inp.get("filePath") or ""
+                                            if fpath and fpath.startswith(workspace_prefix):
+                                                _add_artifact(fpath, seen, artifacts)
+                            elif role == "tool" or role == "toolResult":
+                                text = ""
+                                if isinstance(content, str):
+                                    text = content
+                                elif isinstance(content, list):
+                                    text = " ".join(
+                                        b.get("text", "") for b in content
+                                        if isinstance(b, dict) and b.get("type") == "text"
+                                    )
+                                for rpath in media_ext_re.findall(text):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return artifacts
 
     def action_download_harbor_bundle(self):

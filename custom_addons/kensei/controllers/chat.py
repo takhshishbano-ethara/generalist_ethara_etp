@@ -424,7 +424,13 @@ class KenseiChatController(http.Controller):
                 }
             )
 
-        return {"turns": turns}
+        output_artifacts = []
+        try:
+            output_artifacts = sandbox._build_output_artifacts()
+        except Exception:
+            _logger.debug("_build_output_artifacts failed for sandbox %s", sandbox_id)
+
+        return {"turns": turns, "output_artifacts": output_artifacts}
 
     @http.route("/kensei/chat/export_session", type="http", auth="user")
     def export_session(self, sandbox_id=0, task_id=0, **kw):
@@ -690,26 +696,31 @@ class KenseiChatController(http.Controller):
         relative = source[len("/home/node/.openclaw/"):]
         if ".." in relative or relative.startswith("/"):
             return request.not_found()
-        mode = request.env["ir.config_parameter"].sudo().get_param(
-            "kensei.deployment_mode", "local"
-        )
-        if mode == "k8s":
-            data = self._read_from_k8s_pod(sandbox, source)
-        else:
-            workdir = sandbox.docker_workdir
-            if not workdir:
-                return request.not_found()
-            persona = task.persona_id
-            persona_name = persona.name if persona else "marcus"
-            host_path = os.path.join(workdir, "data", persona_name, relative)
-            host_path = os.path.realpath(host_path)
-            allowed_base = os.path.realpath(os.path.join(workdir, "data", persona_name))
-            if not host_path.startswith(allowed_base + os.sep):
-                return request.not_found()
-            if not os.path.isfile(host_path):
-                return request.not_found()
-            with open(host_path, "rb") as f:
-                data = f.read()
+
+        data = None
+        sandbox_running = sandbox.docker_status == "running"
+
+        if sandbox_running:
+            mode = request.env["ir.config_parameter"].sudo().get_param(
+                "kensei.deployment_mode", "local"
+            )
+            if mode == "k8s":
+                data = self._read_from_k8s_pod(sandbox, source)
+            else:
+                workdir = sandbox.docker_workdir
+                if workdir:
+                    persona = task.persona_id
+                    persona_name = persona.name if persona else "marcus"
+                    host_path = os.path.join(workdir, "data", persona_name, relative)
+                    host_path = os.path.realpath(host_path)
+                    allowed_base = os.path.realpath(os.path.join(workdir, "data", persona_name))
+                    if host_path.startswith(allowed_base + os.sep) and os.path.isfile(host_path):
+                        with open(host_path, "rb") as f:
+                            data = f.read()
+
+        if not data:
+            data = self._read_artifact_from_s3(task, os.path.basename(source))
+
         if not data:
             return request.not_found()
         content_type, _ = mimetypes.guess_type(source)
@@ -827,3 +838,37 @@ class KenseiChatController(http.Controller):
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+    def _read_artifact_from_s3(self, task, filename):
+        from ..models.kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
+
+        icp = request.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        if not bucket:
+            return None
+
+        task_id = task.task_id or str(task.id)
+        access_key = os.environ.get("KENSEI_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+
+            client_kwargs = {
+                "region_name": region,
+                "config": BotoConfig(retries={"max_attempts": 2, "mode": "adaptive"}),
+            }
+            if access_key and secret_key:
+                client_kwargs["aws_access_key_id"] = access_key
+                client_kwargs["aws_secret_access_key"] = secret_key
+
+            s3 = boto3.client("s3", **client_kwargs)
+            key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
+            resp = s3.get_object(Bucket=bucket, Key=key)
+            return resp["Body"].read()
+        except Exception:
+            _logger.debug("S3 artifact fallback failed for %s/%s", task_id, filename)
+            return None
