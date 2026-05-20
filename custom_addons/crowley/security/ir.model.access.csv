@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_crowley_generation_user,crowley.generation.user,model_crowley_generation,group_crowley_user,1,1,1,0
+access_crowley_generation_manager,crowley.generation.manager,model_crowley_generation,group_crowley_manager,1,1,1,1
+access_crowley_attempt_user,crowley.attempt.user,model_crowley_attempt,group_crowley_user,1,1,1,0
+access_crowley_attempt_manager,crowley.attempt.manager,model_crowley_attempt,group_crowley_manager,1,1,1,1
