@@ -12,7 +12,7 @@
                         <!-- First-run only -->
                         <button name="action_generate" string="Generate" type="object"
                                 class="oe_highlight"
-                                invisible="attempts_used > 0 or state != 'draft'"
+                                invisible="attempts_used > 0 or state not in ('draft','not_assigned')"
                                 confirm="This will submit the prompt to OpenRouter Seedance 2.0 and incur usage costs. Continue?"/>
 
                         <!-- Retry flow buttons -->
@@ -56,7 +56,7 @@
 
                         <!-- Live status spinner (only during non-terminal states) -->
                         <field name="state" widget="crowley_live_status" nolabel="1"
-                               invisible="state in ('draft','done','failed','cancelled') or ui_retry_pending"/>
+                               invisible="state in ('not_assigned','draft','done','failed','cancelled') or ui_retry_pending"/>
 
                         <!-- Banners -->
                         <div class="alert alert-info" role="alert" invisible="not ui_retry_pending">
@@ -100,14 +100,14 @@
                                 <field name="category_locked" invisible="1"/>
                                 <field name="prompt"
                                        placeholder="Describe the video you want to generate..."
-                                       readonly="state != 'draft' and not ui_retry_pending"
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
                                        required="1"/>
                                 <field name="duration"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                 <field name="resolution"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                 <field name="aspect_ratio"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                             </group>
                             <group string="Metadata">
                                 <field name="user_id" readonly="not context.get('crowley_is_manager')"/>
@@ -172,12 +172,12 @@
                                 <group>
                                     <field name="negative_prompt"
                                            placeholder="Things to avoid in the video (optional)"
-                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                     <field name="seed"
-                                           readonly="state != 'draft' and not ui_retry_pending"
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
                                            help="Leave 0 for random seed."/>
                                     <field name="generate_audio"
-                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                     <field name="model_name" readonly="1"/>
                                 </group>
                             </page>
@@ -209,7 +209,7 @@
             <field name="model">crowley.generation</field>
             <field name="arch" type="xml">
                 <list string="Video Generations"
-                      decoration-muted="not category and state == 'done'"
+                      decoration-muted="(not category and state == 'done') or state == 'not_assigned'"
                       decoration-success="state == 'done' and category"
                       decoration-danger="state in ('failed','cancelled')"
                       decoration-info="state in ('queued','submitting','processing','downloading')">
@@ -229,7 +229,7 @@
                            decoration-success="state == 'done'"
                            decoration-danger="state in ('failed','cancelled')"
                            decoration-info="state in ('queued','submitting','processing','downloading')"
-                           decoration-muted="state == 'draft'"/>
+                           decoration-muted="state in ('draft','not_assigned')"/>
                 </list>
             </field>
         </record>
@@ -248,6 +248,7 @@
 
                     <filter name="filter_my" string="My Generations" domain="[('user_id', '=', uid)]"/>
                     <separator/>
+                    <filter name="filter_not_assigned" string="Not Assigned" domain="[('state', '=', 'not_assigned')]"/>
                     <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
                     <filter name="filter_processing" string="Processing"
                             domain="[('state', 'in', ('queued','submitting','processing','downloading'))]"/>

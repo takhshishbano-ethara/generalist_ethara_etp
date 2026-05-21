@@ -30,6 +30,7 @@ _logger = logging.getLogger(__name__)
 # The state machine itself lives on ``crowley.attempt``; the job's ``state``
 # is a stored compute that mirrors the active attempt.
 # ---------------------------------------------------------------------------
+_STATE_NOT_ASSIGNED = "not_assigned"
 _STATE_DRAFT = "draft"
 _STATE_QUEUED = "queued"
 _STATE_SUBMITTING = "submitting"
@@ -200,6 +201,7 @@ class CrowleyGeneration(models.Model):
     # ------------------------------------------------------------------
     state = fields.Selection(
         [
+            ("not_assigned", "Not Assigned"),
             ("draft", "Draft"),
             ("queued", "Queued"),
             ("submitting", "Submitting"),
@@ -217,6 +219,18 @@ class CrowleyGeneration(models.Model):
         tracking=True,
         index=True,
         default=_STATE_DRAFT,
+    )
+
+    source = fields.Selection(
+        [("manual", "Manual"), ("import", "Import")],
+        string="Source",
+        default="manual",
+        required=True,
+        copy=False,
+        index=True,
+        readonly=True,
+        help="How this generation was created. CSV-imported rows sit in "
+             "Not Assigned until the user opens and runs them.",
     )
 
     # ------------------------------------------------------------------
@@ -388,12 +402,15 @@ class CrowleyGeneration(models.Model):
         for rec in self:
             rec.category_locked = any(a.state == "done" for a in rec.attempt_ids)
 
-    @api.depends("active_attempt_id", "active_attempt_id.state")
+    @api.depends("active_attempt_id", "active_attempt_id.state", "source")
     def _compute_state(self):
         for rec in self:
-            rec.state = (
-                rec.active_attempt_id.state if rec.active_attempt_id else _STATE_DRAFT
-            )
+            if rec.active_attempt_id:
+                rec.state = rec.active_attempt_id.state
+            elif rec.source == "import":
+                rec.state = _STATE_NOT_ASSIGNED
+            else:
+                rec.state = _STATE_DRAFT
 
     @api.depends(
         "active_attempt_id",
