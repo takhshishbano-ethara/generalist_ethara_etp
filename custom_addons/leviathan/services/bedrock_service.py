@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -65,6 +66,18 @@ _logger.info(
 )
 
 
+def _bedrock_inflight():
+    """Best-effort count of Bedrock slots currently held in THIS process.
+
+    Reads the semaphore's private permit counter — CPython-stable and only
+    used for logging, so a wrong value never affects behaviour.
+    """
+    try:
+        return _BEDROCK_MAX_CONCURRENT - _BEDROCK_SEMAPHORE._value
+    except Exception:
+        return -1
+
+
 @contextmanager
 def _bedrock_slot(call_label="bedrock"):
     """Block until a concurrent-call slot is free. Self-throttles to stay
@@ -75,31 +88,53 @@ def _bedrock_slot(call_label="bedrock"):
     forever. The bg worker's outer except catches the TimeoutError and
     surfaces it as a normal Bedrock failure.
 
-    Logs at INFO when a worker waits more than 10s — gives operators a
-    signal that the cap is bound and they may want to raise it (or get
-    the AWS quota bumped).
+    Every acquire/release is logged: this semaphore is the #1 suspect when
+    PRD-gen jobs appear "stuck in generating" — a worker blocked here for
+    minutes is alive and heartbeating but making no visible progress. The
+    log lets you see the queue depth and per-call hold time directly.
     """
-    import time as _time
-    wait_start = _time.monotonic()
+    wait_start = time.monotonic()
+    _logger.info(
+        "[leviathan] %s WAITING for Bedrock slot (in_flight=%d/%d, pid=%d)",
+        call_label, _bedrock_inflight(), _BEDROCK_MAX_CONCURRENT, os.getpid(),
+    )
     acquired = _BEDROCK_SEMAPHORE.acquire(timeout=1800)
-    wait_seconds = _time.monotonic() - wait_start
+    wait_seconds = time.monotonic() - wait_start
     if not acquired:
+        _logger.error(
+            "[leviathan] %s GAVE UP waiting for Bedrock slot after %.0fs "
+            "(cap=%d) — this job will fail. The cap is badly undersized for "
+            "the offered load, or PRD calls are far slower than the cap "
+            "assumes.", call_label, wait_seconds, _BEDROCK_MAX_CONCURRENT,
+        )
         raise TimeoutError(
             f"No Bedrock slot in 30min (cap={_BEDROCK_MAX_CONCURRENT}). "
             f"Either raise LEVIATHAN_BEDROCK_MAX_CONCURRENT or reduce "
             f"concurrent PRD-gen workers (LEVIATHAN_PRD_POOL_SIZE)."
         )
     if wait_seconds > 10:
-        _logger.info(
+        _logger.warning(
             "[leviathan] %s waited %.1fs for Bedrock slot (cap=%d) — "
             "concurrency cap is bound; raise LEVIATHAN_BEDROCK_MAX_CONCURRENT "
             "if your AWS quota allows",
             call_label, wait_seconds, _BEDROCK_MAX_CONCURRENT,
         )
+    else:
+        _logger.info(
+            "[leviathan] %s ACQUIRED Bedrock slot after %.1fs "
+            "(in_flight=%d/%d)", call_label, wait_seconds,
+            _bedrock_inflight(), _BEDROCK_MAX_CONCURRENT,
+        )
+    held_start = time.monotonic()
     try:
         yield
     finally:
         _BEDROCK_SEMAPHORE.release()
+        _logger.info(
+            "[leviathan] %s RELEASED Bedrock slot (held %.1fs, in_flight now "
+            "%d/%d)", call_label, time.monotonic() - held_start,
+            _bedrock_inflight(), _BEDROCK_MAX_CONCURRENT,
+        )
 
 
 def _is_bearer_token(access_key_id: str) -> bool:

@@ -343,6 +343,18 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
     def _over_deadline():
         return time.time() > deadline
 
+    def _elapsed():
+        return time.time() - start_time
+
+    # EXTRACTION BEGIN banner — the first line CloudWatch shows for this
+    # invocation. If a job is "stuck in extracting" on the Odoo side and
+    # this line is ABSENT from CloudWatch for its job_id, the Lambda never
+    # ran (the async-invoke event is still queued by AWS, or was dropped).
+    logger.info(
+        "[job=%s] ===== EXTRACTION BEGIN — url=%s deadline=%ds =====",
+        job_id, url, EXTRACTION_DEADLINE_SECONDS,
+    )
+
     try:
         _ensure_dirs(work_dir)
         raw_dir = os.path.join(work_dir, "raw_data")
@@ -353,7 +365,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
         _send_started_ping(callback_url, job_id)
 
         # ── Phase 1: Site Discovery ──────────────────────────────────────
-        logger.info("[job=%s] Phase 1: Site Discovery — %s", job_id, url)
+        logger.info("[job=%s] (+%.1fs) Phase 1: Site Discovery — %s", job_id, _elapsed(), url)
         site_data = await discover_site(url)
 
         if site_data.get("error"):
@@ -410,7 +422,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
                 await _setup_page_hooks(page)
 
             # ── Phase 2: Network Interception ────────────────────────────
-            logger.info("[job=%s] Phase 2: Network Interception", job_id)
+            logger.info("[job=%s] (+%.1fs) Phase 2: Network Interception", job_id, _elapsed())
             try:
                 network_data_raw = await analyze_network(page, url)
             except Exception as exc:
@@ -606,7 +618,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
                 return
 
             # ── Phase 3: Style Extraction ────────────────────────────────
-            logger.info("[job=%s] Phase 3: Style Extraction", job_id)
+            logger.info("[job=%s] (+%.1fs) Phase 3: Style Extraction", job_id, _elapsed())
             try:
                 style_data = await extract_styles(page)
                 _save_json(style_data, os.path.join(raw_dir, "style_data.json"))
@@ -660,7 +672,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
             # destabilizes heavy WebGL renderers. Hard-capped everywhere else so
             # a hung extractor can't stall the pipeline.
             if "animation_extraction" not in skip_phases:
-                logger.info("[job=%s] Phase 4: Animation Extraction", job_id)
+                logger.info("[job=%s] (+%.1fs) Phase 4: Animation Extraction", job_id, _elapsed())
                 animation_data = await _bounded(
                     extract_animations(page), 180, "Animation extraction", default={}
                 )
@@ -752,7 +764,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
                 )
 
             # ── Phase 5: Asset Collection ────────────────────────────────
-            logger.info("[job=%s] Phase 5: Asset Collection", job_id)
+            logger.info("[job=%s] (+%.1fs) Phase 5: Asset Collection", job_id, _elapsed())
             try:
                 asset_data = await collect_assets(page, url, work_dir, site_data.get("pages", []),
                                                      intercepted_fonts=font_intercept_state,
@@ -762,7 +774,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
                 logger.warning("[job=%s] Asset collection failed: %s", job_id, exc)
 
             # ── Phase 6: Responsive Analysis ─────────────────────────────
-            logger.info("[job=%s] Phase 6: Responsive Analysis", job_id)
+            logger.info("[job=%s] (+%.1fs) Phase 6: Responsive Analysis", job_id, _elapsed())
             try:
                 responsive_data = await analyze_responsive(page, work_dir)
                 _save_json(responsive_data, os.path.join(raw_dir, "responsive_data.json"))
@@ -771,7 +783,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
 
             # ── Phase 7: Wireframes ──────────────────────────────────────
             if not _over_deadline():
-                logger.info("[job=%s] Phase 7: Wireframes", job_id)
+                logger.info("[job=%s] (+%.1fs) Phase 7: Wireframes", job_id, _elapsed())
                 try:
                     wireframe_data = await generate_wireframes(page, work_dir)
                     _save_json(wireframe_data, os.path.join(raw_dir, "wireframe_data.json"))
@@ -780,7 +792,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
 
             # ── Phase 8: Performance ─────────────────────────────────────
             if not _over_deadline():
-                logger.info("[job=%s] Phase 8: Performance Analysis", job_id)
+                logger.info("[job=%s] (+%.1fs) Phase 8: Performance Analysis", job_id, _elapsed())
                 try:
                     await page.set_viewport_size({"width": PRIMARY_VIEWPORT["width"], "height": PRIMARY_VIEWPORT["height"]})
                     perf_raw = await analyze_performance(page)
@@ -810,7 +822,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
 
             # ── Phase 8B: Lo-Fi Wireframe Screenshots (runs LAST, modifies DOM) ─
             if not _over_deadline():
-                logger.info("[job=%s] Phase 8B: Lo-Fi Wireframe Screenshots", job_id)
+                logger.info("[job=%s] (+%.1fs) Phase 8B: Lo-Fi Wireframe Screenshots", job_id, _elapsed())
                 try:
                     wf_screenshots = await generate_wireframe_screenshots(page, work_dir)
                     logger.info("[job=%s] Wireframe PNGs: %d viewport(s)", job_id, len(wf_screenshots))
@@ -835,7 +847,7 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
             site_data.setdefault("cdn", network_data["cdn_detected"])
 
         # ── Phase 9: Build PRD Prompt ────────────────────────────────────
-        logger.info("[job=%s] Phase 9: Building PRD prompt", job_id)
+        logger.info("[job=%s] (+%.1fs) Phase 9: Building PRD prompt", job_id, _elapsed())
         prd_prompt = build_prd_prompt(
             site_data=site_data,
             style_data=style_data,
@@ -988,6 +1000,12 @@ async def _finalize_and_callback(
         "dark_mode": _ran(dark_mode_data and dark_mode_data.get("has_dark_mode")),
     }
 
+    logger.info(
+        "[job=%s] (+%.1fs) Extraction phases complete — %s",
+        job_id, time.time() - start_time,
+        ", ".join(f"{k}:{v}" for k, v in phase_log.items()),
+    )
+
     warnings = []
     if n_screenshots == 0:
         warnings.append(
@@ -1034,6 +1052,16 @@ async def _finalize_and_callback(
     if asset_keys:
         callback_payload["asset_keys"] = asset_keys
 
+    # Last line before handing back to Odoo. If this appears in CloudWatch
+    # but the Odoo job is still stuck in `extracting`, the callback HTTP
+    # POST is the failure point — check the `_send_callback` attempt logs
+    # immediately below and the Odoo webhook/ALB logs.
+    logger.info(
+        "[job=%s] ===== EXTRACTION END (+%.1fs) — success=%s partial=%s "
+        "prd_prompt=%dB screenshots=%d assets=%d — sending callback =====",
+        job_id, time.time() - start_time, success, callback_payload["partial"],
+        len(prd_prompt or ""), len(screenshot_keys), len(asset_keys),
+    )
     _send_callback(callback_url, callback_payload)
 
 
@@ -1152,23 +1180,47 @@ def _send_callback(callback_url: str, payload: dict):
     if LEVIATHAN_WEBHOOK_TOKEN:
         headers["X-Leviathan-Token"] = LEVIATHAN_WEBHOOK_TOKEN
 
+    jid = payload.get("job_id")
     max_attempts = 5
     for attempt in range(max_attempts):
         try:
             with httpx.Client(timeout=60) as client:
                 resp = client.post(callback_url, json=payload, headers=headers)
-                logger.info("Callback to %s returned %d (attempt %d/%d)", callback_url, resp.status_code, attempt + 1, max_attempts)
+                logger.info(
+                    "[job=%s] Callback returned %d (attempt %d/%d)",
+                    jid, resp.status_code, attempt + 1, max_attempts,
+                )
                 if resp.status_code < 500:
+                    # 2xx/3xx/4xx = Odoo received it. A 4xx (e.g. 401 bad
+                    # token, 413 too large) is a DELIVERY that Odoo rejected
+                    # — the job will stay stuck in `extracting`, so flag it.
+                    if resp.status_code >= 400:
+                        logger.error(
+                            "[job=%s] Callback DELIVERED but Odoo rejected it "
+                            "(%d) — job will stay stuck in `extracting`: %s",
+                            jid, resp.status_code, resp.text[:300],
+                        )
+                    else:
+                        logger.info("[job=%s] Callback delivered OK", jid)
                     return
         except Exception as exc:
-            logger.warning("Callback attempt %d/%d failed: %s", attempt + 1, max_attempts, exc)
+            logger.warning(
+                "[job=%s] Callback attempt %d/%d failed: %s",
+                jid, attempt + 1, max_attempts, exc,
+            )
 
         if attempt < max_attempts - 1:
             wait = 2 ** (attempt + 1)  # 2, 4, 8, 16s
-            logger.info("Retrying callback in %ds...", wait)
+            logger.info("[job=%s] Retrying callback in %ds...", jid, wait)
             time.sleep(wait)
 
-    logger.error("All %d callback attempts failed for %s", max_attempts, callback_url)
+    # Every attempt failed — Odoo never learned this extraction finished.
+    # This is THE cause of a job stuck in `extracting` until the watchdog.
+    logger.error(
+        "[job=%s] ALL %d callback attempts FAILED to %s — job will hang in "
+        "`extracting` until the Odoo watchdog times it out",
+        jid, max_attempts, callback_url,
+    )
 
 
 def _send_started_ping(callback_url: str, job_id: int):

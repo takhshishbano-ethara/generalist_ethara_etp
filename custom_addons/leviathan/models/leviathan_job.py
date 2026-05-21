@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
@@ -63,6 +64,7 @@ def _submit_bg(label, fn, *args, **kwargs):
       the job is never silently dropped. The watchdog cron is the final backstop.
     """
     pool = _get_pool()
+    qsize = -1
     try:
         qsize = pool._work_queue.qsize()
         if qsize > _PRD_POOL_SIZE:
@@ -74,11 +76,32 @@ def _submit_bg(label, fn, *args, **kwargs):
     except Exception:
         pass
 
+    # Submit-time marker: lets you measure pool queue-wait by diffing this
+    # timestamp against the "started" line _guarded() emits below. A large
+    # gap = the job sat waiting for a free worker (pool too small / backlog).
+    submitted_at = time.monotonic()
+    _logger.info(
+        "[leviathan] _submit_bg: queued '%s' on pool[pid=%d] "
+        "(queue_depth=%d, workers=%d)",
+        label, os.getpid(), qsize, _PRD_POOL_SIZE,
+    )
+
     def _guarded():
+        wait_s = time.monotonic() - submitted_at
+        _logger.info(
+            "[leviathan] bg task '%s' STARTED (pool queue-wait=%.1fs)",
+            label, wait_s,
+        )
+        t0 = time.monotonic()
         try:
             return fn(*args, **kwargs)
         except Exception:
             _logger.exception("[leviathan] background task '%s' crashed", label)
+        finally:
+            _logger.info(
+                "[leviathan] bg task '%s' FINISHED (ran %.1fs, queue-wait %.1fs)",
+                label, time.monotonic() - t0, wait_s,
+            )
 
     try:
         return pool.submit(_guarded)
@@ -198,7 +221,16 @@ class _HeartbeatManager:
                 "  AND state IN ('extracting', 'generating', 'scoring')",
                 (list(record_ids),),
             )
+            pulsed = cr.rowcount
             cr.commit()
+        # registered != pulsed means some registered jobs are already in a
+        # terminal state — a worker finished but did not unregister, or the
+        # job was cancelled out from under a live worker. Harmless (terminal
+        # rows are filtered by the WHERE clause) but worth seeing in the log.
+        _logger.info(
+            "[leviathan] heartbeat pulse: db=%s registered=%d pulsed=%d",
+            db_name, len(record_ids), pulsed,
+        )
 
 
 _HEARTBEAT_MGR = _HeartbeatManager()
@@ -1848,6 +1880,11 @@ class LeviathanJob(models.Model):
         """Background: re-run only QC on existing PRD text."""
         from ..services.qc_service import run_qc
 
+        _qc_only_t0 = time.monotonic()
+        _logger.info(
+            "[leviathan][job=%s] QC-RERUN worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
         try:
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1939,9 +1976,17 @@ class LeviathanJob(models.Model):
                 "qc_verdict": qc_result["verdict"],
                 "qc_report": qc_result["report"],
             })
+            _logger.info(
+                "[leviathan][job=%s] QC-RERUN complete in %.1fs — verdict=%s",
+                record_id, time.monotonic() - _qc_only_t0,
+                qc_result["verdict"],
+            )
 
         except Exception as exc:
-            _logger.exception("QC rerun failed for job %s", record_id)
+            _logger.exception(
+                "[leviathan][job=%s] QC-RERUN failed after %.1fs",
+                record_id, time.monotonic() - _qc_only_t0,
+            )
             self._write_with_cursor(db_name, record_id, {
                 "state": "done",
                 # Fail-closed: a QC error must not leave qc_verdict blank, or the
@@ -2155,11 +2200,27 @@ class LeviathanJob(models.Model):
 
             if not result.get("success"):
                 error_msg = result.get("error", "Extraction Lambda invoke failed")
+                _logger.error(
+                    "[leviathan][job=%s] extraction Lambda invoke REJECTED by "
+                    "AWS — marking failed: %s", record_id, error_msg[:300],
+                )
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
                     "error_message": error_msg[:500],
                     "completed_at": fields.Datetime.now(),
                 })
+            else:
+                # The async invoke was ACCEPTED (HTTP 202). This does NOT mean
+                # the Lambda has started running — AWS may hold the event in
+                # its async-invocation queue until a concurrency slot frees.
+                # The job now waits in `extracting` for either the Lambda's
+                # "started" ping or its final callback. If neither arrives,
+                # the watchdog handles it.
+                _logger.info(
+                    "[leviathan][job=%s] extraction Lambda invoke ACCEPTED by "
+                    "AWS (request_id=%s) — awaiting callback",
+                    record_id, result.get("request_id", ""),
+                )
 
         except Exception as exc:
             _logger.exception(
@@ -2200,8 +2261,24 @@ class LeviathanJob(models.Model):
     def _run_prd_generation_bg_impl(
         self, db_name, record_id, generate_prd, score_prd, upload_prd_to_s3,
     ):
+        # Wall-clock anchor for the whole PRD-gen pipeline. Every phase log
+        # below reports `+Ns` elapsed from here, so a stuck job's last log
+        # line tells you exactly which phase it died/hung in.
+        _t0 = time.monotonic()
+
+        def _elapsed():
+            return time.monotonic() - _t0
+
+        _logger.info(
+            "[leviathan][job=%s] PRD-GEN worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
         try:
             # === PHASE 1: Read config and extraction data ===
+            _logger.info(
+                "[leviathan][job=%s] PHASE 1 (+%.1fs): reading config + "
+                "extraction data", record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
@@ -2253,6 +2330,10 @@ class LeviathanJob(models.Model):
                 qc_system_prompt = record._get_qc_system_prompt()
 
                 if not config["inference_arn"]:
+                    _logger.error(
+                        "[leviathan][job=%s] PHASE 1 abort: Bedrock inference "
+                        "ARN not configured", record_id,
+                    )
                     record.write({
                         "state": "failed",
                         "error_message": "Bedrock inference ARN not configured",
@@ -2260,6 +2341,10 @@ class LeviathanJob(models.Model):
                     })
                     return
                 if not job_data["prd_prompt"]:
+                    _logger.error(
+                        "[leviathan][job=%s] PHASE 1 abort: no prd_prompt on "
+                        "record — extraction produced nothing usable", record_id,
+                    )
                     record.write({
                         "state": "failed",
                         "error_message": "No extraction data available for PRD generation",
@@ -2282,6 +2367,12 @@ class LeviathanJob(models.Model):
                 cr.commit()
 
             # === PHASE 2: PRD generation ===
+            _logger.info(
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): downloading screenshots "
+                "+ building Bedrock request (category=%s, prd_prompt=%dB)",
+                record_id, _elapsed(), job_data["category_name"],
+                len(job_data["prd_prompt"] or ""),
+            )
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2429,6 +2520,12 @@ class LeviathanJob(models.Model):
             # Transient Bedrock errors are retried inside generate_prd
             # (LEVIATHAN_BEDROCK_INNER_RETRIES); a hard failure here marks
             # the job failed so the tasker can re-run it from the UI.
+            _logger.info(
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): calling Bedrock for PRD "
+                "generation (%d screenshot(s) attached)",
+                record_id, _elapsed(), len(screenshot_blocks),
+            )
+            _bedrock_t0 = time.monotonic()
             best_prd_text = generate_prd(
                 inference_arn=config["inference_arn"],
                 region=config["region"],
@@ -2437,6 +2534,12 @@ class LeviathanJob(models.Model):
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
             )
+            _logger.info(
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): Bedrock PRD returned in "
+                "%.1fs — %d chars / ~%d words",
+                record_id, _elapsed(), time.monotonic() - _bedrock_t0,
+                len(best_prd_text or ""), len((best_prd_text or "").split()),
+            )
 
             best_score_report = score_prd(
                 prd_text=best_prd_text,
@@ -2444,6 +2547,11 @@ class LeviathanJob(models.Model):
             )
             best_score = best_score_report["total_score"]
             best_grade = best_score_report["grade"]
+            _logger.info(
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): scored %s/%s grade=%s",
+                record_id, _elapsed(), best_score,
+                best_score_report.get("max_score", 100), best_grade,
+            )
 
             self._write_with_cursor(db_name, record_id, {
                 "llm_attempts": 1,
@@ -2458,6 +2566,10 @@ class LeviathanJob(models.Model):
             })
 
             # Upload to S3
+            _logger.info(
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): uploading PRD to S3",
+                record_id, _elapsed(),
+            )
             prd_url = upload_prd_to_s3(
                 prd_text=best_prd_text,
                 job_name=job_data["name"],
@@ -2481,6 +2593,11 @@ class LeviathanJob(models.Model):
 
             qc_verdict = "not_shippable"
             qc_report = ""
+            _logger.info(
+                "[leviathan][job=%s] PHASE 3 (+%.1fs): starting QC "
+                "(state=scoring)", record_id, _elapsed(),
+            )
+            _qc_t0 = time.monotonic()
             try:
                 from ..services.qc_service import run_qc
 
@@ -2503,10 +2620,19 @@ class LeviathanJob(models.Model):
                 )
                 qc_verdict = qc_result["verdict"]
                 qc_report = qc_result["report"]
+                _logger.info(
+                    "[leviathan][job=%s] PHASE 3 (+%.1fs): QC done in %.1fs — "
+                    "verdict=%s (critical=%s high=%s medium=%s low=%s)",
+                    record_id, _elapsed(), time.monotonic() - _qc_t0,
+                    qc_verdict, qc_result.get("issues_critical"),
+                    qc_result.get("issues_high"), qc_result.get("issues_medium"),
+                    qc_result.get("issues_low"),
+                )
             except Exception as qc_exc:
                 _logger.warning(
-                    "QC failed for job %s: %s (fail-closed: not_shippable)",
-                    job_data["name"], qc_exc,
+                    "[leviathan][job=%s] PHASE 3 (+%.1fs): QC FAILED after "
+                    "%.1fs: %s (fail-closed: not_shippable)",
+                    record_id, _elapsed(), time.monotonic() - _qc_t0, qc_exc,
                 )
                 qc_verdict = "not_shippable"
                 qc_report = f"QC evaluation failed: {qc_exc}\n\nVerdict defaulted to NOT SHIPPABLE (fail-closed policy)."
@@ -2518,6 +2644,10 @@ class LeviathanJob(models.Model):
             }
 
             # === PHASE 4: Write final results ===
+            _logger.info(
+                "[leviathan][job=%s] PHASE 4 (+%.1fs): writing final results",
+                record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
@@ -2587,8 +2717,18 @@ class LeviathanJob(models.Model):
                 except Exception:
                     _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
 
+            _logger.info(
+                "[leviathan][job=%s] PRD-GEN PIPELINE COMPLETE in %.1fs — "
+                "final_state=%s score=%s qc=%s",
+                record_id, _elapsed(), final_vals["state"],
+                best_score, qc_verdict,
+            )
+
         except Exception as exc:
-            _logger.exception("[leviathan][job=%s] PRD generation failed", record_id)
+            _logger.exception(
+                "[leviathan][job=%s] PRD generation FAILED at +%.1fs: %s",
+                record_id, _elapsed(), exc,
+            )
             try:
                 fail_vals = {
                     "state": "failed",
@@ -2613,6 +2753,14 @@ class LeviathanJob(models.Model):
             env = api.Environment(cr, SUPERUSER_ID, {})
             record = env[self._name].browse(record_id)
             if record.exists():
+                if "state" in vals:
+                    # Every background state transition flows through here —
+                    # log it so a job's full state history is reconstructable
+                    # from grep alone.
+                    _logger.info(
+                        "[leviathan][job=%s] state %s -> %s (bg write)",
+                        record_id, record.state, vals["state"],
+                    )
                 record.write(vals)
                 if "state" in vals:
                     try:
@@ -2623,6 +2771,12 @@ class LeviathanJob(models.Model):
                         )
                     except Exception:
                         pass
+            else:
+                _logger.warning(
+                    "[leviathan][job=%s] _write_with_cursor: record no longer "
+                    "exists — write of %s dropped",
+                    record_id, sorted(vals.keys()),
+                )
             cr.commit()
 
     def _upload_artifacts_bg(self, db_name, record_id, artifacts, s3_config):
@@ -2754,6 +2908,21 @@ class LeviathanJob(models.Model):
         )
 
         try:
+            # --- System-state heartbeat: one line every cron tick (5 min)
+            # giving the live count of jobs in each running state. This is
+            # the cheapest way to watch a backlog build: if `generating`
+            # climbs tick over tick while `done` stays flat, the PRD pool
+            # is not draining.
+            counts = {}
+            for st in ("extracting", "generating", "scoring"):
+                counts[st] = self.search_count([("state", "=", st)])
+            _logger.info(
+                "[leviathan] watchdog tick: extracting=%d generating=%d "
+                "scoring=%d (thresholds: extract>%dmin generate>%dmin)",
+                counts["extracting"], counts["generating"], counts["scoring"],
+                extracting_threshold, generating_threshold,
+            )
+
             stale_extracting = self.search([
                 ("state", "=", "extracting"),
                 (
@@ -2795,6 +2964,37 @@ class LeviathanJob(models.Model):
                 log_label=f"generating/scoring >{generating_threshold}min",
                 auto_retry_max=auto_retry_max,
             )
+
+            # --- ORPHAN DIAGNOSTIC (no recovery, logging only) ---
+            # Jobs in generating/scoring with started_processing_at unset have
+            # NEVER been picked up by a PRD worker — they are sitting in an
+            # in-process ThreadPoolExecutor queue. The recovery query above
+            # deliberately SKIPS them (started_processing_at != False) to
+            # avoid false-failing a legitimate backlog. But that same guard
+            # means a job whose pool process was recycled/killed while it sat
+            # queued is NEVER recovered — it is stuck forever with no log.
+            # Surface them here: anything in this state past the generating
+            # threshold is almost certainly orphaned (a healthy pool drains
+            # its queue in minutes) and needs a manual Retry / reset.
+            orphaned = self.search([
+                ("state", "in", ("generating", "scoring")),
+                ("started_processing_at", "=", False),
+                (
+                    "last_heartbeat",
+                    "<",
+                    fields.Datetime.now() - timedelta(minutes=generating_threshold),
+                ),
+            ])
+            if orphaned:
+                _logger.error(
+                    "[leviathan] watchdog: %d job(s) ORPHANED in generating/"
+                    "scoring with started_processing_at unset for >%dmin — "
+                    "their PRD worker was never reached (pool process likely "
+                    "recycled). The watchdog CANNOT auto-recover these; they "
+                    "need a manual Retry/reset. Job names: %s",
+                    len(orphaned), generating_threshold,
+                    orphaned.mapped("name"),
+                )
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(hashtext('leviathan.watchdog')::bigint)")
 
