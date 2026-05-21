@@ -5199,8 +5199,17 @@ class Kensei2Sandbox(models.Model):
         if not sandboxes:
             return
 
+        active_batch_tasks = self.env["kensei2"].sudo().search(
+            [("batch_status", "in", ["starting", "ready", "running", "stopping"])]
+        )
+        batch_sandbox_ids = set()
+        for task in active_batch_tasks:
+            batch_sandbox_ids.update(task.sandbox_ids.ids)
+
         k8s = self.env["kensei2.sandbox.k8s"]
         for sandbox in sandboxes:
+            if sandbox.id in batch_sandbox_ids:
+                continue
             try:
                 status = k8s.get_sandbox_status(sandbox)
                 if status != sandbox.docker_status:
